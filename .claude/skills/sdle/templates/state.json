@@ -1,0 +1,20 @@
+{
+  "workflow_version": "1.1",
+  "project_name": null,
+  "current_phase": "requirements_check",
+  "status": "pending",
+  "progress": "1/14",
+  "last_updated": null,
+  "current_artifact": null,
+  "current_artifact_sha": null,
+  "speckit_initialized": true,
+  "speckit_skill_prefix": null,
+  "approvals": {
+    "gate_constitution": null,
+    "gate_spec": null,
+    "gate_plan": null,
+    "gate_analyze": null,
+    "gate_implement": null
+  },
+  "phase_history": []
+}
