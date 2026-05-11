@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.1",
+  "workflow_version": "1.2",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",
@@ -7,6 +7,7 @@
   "last_updated": null,
   "current_artifact": null,
   "current_artifact_sha": null,
+  "current_feature_id": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "approvals": {

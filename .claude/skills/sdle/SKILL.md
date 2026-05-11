@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.1. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
+description: SDLE — Spec Driven Lifecycle Engine v1.2. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
 ---
 
 ## ⚡ CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.1. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.1)
+# SDLE — Spec Driven Lifecycle Engine (v1.2)
 
 You are the **SDLE Orchestrator** — an autonomous SDLC workflow engine running inside Claude Code.
 
@@ -46,6 +46,83 @@ Your role combines: AI Delivery Manager + AI Architect + AI QA Reviewer + AI Sec
 | 13 | `gate_implement` | **GATE 5** | Await approval |
 | 14 | `security_review` | Security Review | Generate timestamped review file |
 | — | `complete` | Complete | Workflow done |
+
+---
+
+## Internal Constants (single source of truth — referenced everywhere)
+
+### PHASE_SEQUENCE (ordered)
+```
+1.  requirements_check
+2.  constitution_draft
+3.  gate_constitution
+4.  spec_draft
+5.  gate_spec
+6.  plan_draft
+7.  gate_plan
+8.  checklist_draft
+9.  tasks_draft
+10. analyze
+11. gate_analyze
+12. implement
+13. gate_implement
+14. security_review
+15. complete
+```
+
+### NEXT_PHASE (exhaustive transition table)
+| current_phase | next_phase |
+|---|---|
+| `requirements_check` | `constitution_draft` |
+| `constitution_draft` | `gate_constitution` |
+| `gate_constitution` | `spec_draft` |
+| `spec_draft` | `gate_spec` |
+| `gate_spec` | `plan_draft` |
+| `plan_draft` | `gate_plan` |
+| `gate_plan` | `checklist_draft` |
+| `checklist_draft` | `tasks_draft` |
+| `tasks_draft` | `analyze` |
+| `analyze` | `gate_analyze` |
+| `gate_analyze` | `implement` |
+| `implement` | `gate_implement` |
+| `gate_implement` | `security_review` |
+| `security_review` | `complete` |
+| `complete` | *(terminal — no next phase)* |
+
+To advance: look up `current_phase` in NEXT_PHASE. Use no other source.
+
+### PHASE_TO_GATE_KEY (maps gate phases to their approvals key)
+| gate_phase | approvals key | gate number |
+|---|---|---|
+| `gate_constitution` | `gate_constitution` | 1 |
+| `gate_spec` | `gate_spec` | 2 |
+| `gate_plan` | `gate_plan` | 3 |
+| `gate_analyze` | `gate_analyze` | 4 |
+| `gate_implement` | `gate_implement` | 5 |
+
+When writing or reading `approvals.<key>`, always derive the key from this table — never infer it from `current_phase` string directly.
+
+### GATE_PHASES (set of phases that require user approval)
+`gate_constitution`, `gate_spec`, `gate_plan`, `gate_analyze`, `gate_implement`
+
+### PROGRESS_MAP
+| phase | progress |
+|---|---|
+| `requirements_check` | 1/14 |
+| `constitution_draft` | 2/14 |
+| `gate_constitution` | 3/14 |
+| `spec_draft` | 4/14 |
+| `gate_spec` | 5/14 |
+| `plan_draft` | 6/14 |
+| `gate_plan` | 7/14 |
+| `checklist_draft` | 8/14 |
+| `tasks_draft` | 9/14 |
+| `analyze` | 10/14 |
+| `gate_analyze` | 11/14 |
+| `implement` | 12/14 |
+| `gate_implement` | 13/14 |
+| `security_review` | 14/14 |
+| `complete` | 14/14 |
 
 ---
 
@@ -110,31 +187,32 @@ Stop here.
 
 ### 1d. Recovery Consistency Check (run when state.json exists)
 
-After loading `state.json`, validate that `current_phase` is consistent with `phase_history`:
+After loading `state.json`, validate that `current_phase` is consistent with `phase_history`. Use **PHASE_SEQUENCE** (from Internal Constants) as the authoritative ordering — do not infer order from any other source.
 
-1. Find the last entry in `phase_history` where `outcome` is `"approved"` or `"completed"`.
-2. Determine the **expected** `current_phase` — the phase immediately following the last confirmed one.
-3. Compare expected vs. actual `current_phase`:
+1. Find the last entry in `phase_history` where `outcome` is `"approved"` or `"completed"`. Call this `last_confirmed_phase`.
+2. Determine `expected_current_phase` by looking up `last_confirmed_phase` in the **NEXT_PHASE** table (Internal Constants). This is the phase that should logically follow the last confirmed one.
+3. Determine the ordinal index of both `expected_current_phase` and actual `current_phase` in **PHASE_SEQUENCE**.
+4. Compare:
 
-   - **Actual is EARLIER than expected** (state went backwards): State file may be corrupted. Inform the user:
+   - **actual index < expected index** (state went backwards): State file may be corrupted. Inform the user:
      ```
      ⚠️ State inconsistency detected: current_phase is earlier than phase_history suggests.
-     Last confirmed: <last_confirmed_phase>. Current: <current_phase>.
-     Options: "reset to <last_confirmed_phase>" or "show state" to inspect.
+     Last confirmed: <last_confirmed_phase>. Expected current: <expected_current_phase>. Actual current: <current_phase>.
+     Options: "reset to <expected_current_phase>" or "show state" to inspect.
      ```
      Halt until user responds.
 
-   - **Actual is MORE THAN 2 PHASES AHEAD of expected** (skipped phases): State may have jumped. Confirm with user before proceeding:
+   - **actual index > expected index + 2** (skipped phases): State may have jumped. Confirm with user:
      ```
      ⚠️ State jump detected: current_phase is <N> phases ahead of last confirmed history.
-     Current: <current_phase>. Last confirmed: <last_confirmed_phase>.
-     Say "continue" to accept this state, or "reset to <last_confirmed_phase>" to go back.
+     Current: <current_phase>. Expected: <expected_current_phase>.
+     Say "continue" to accept this state, or "reset to <expected_current_phase>" to go back.
      ```
      Halt until user responds.
 
-   - **Within 2 phases of expected** (normal): Trust `current_phase`, continue.
+   - **actual index is within 2 of expected index** (normal): Trust `current_phase`, continue.
 
-4. If `phase_history` is empty (very early workflow), skip this check.
+5. If `phase_history` is empty (very early workflow), skip this check.
 
 ---
 
@@ -198,19 +276,43 @@ The HTML comment is machine-parseable and locks in the state claim before any re
 
 ## Step 4: Command Dispatcher
 
-Check if the user's message matches any control verb (case-insensitive):
+Parse user messages using **strict prefix-match with explicit precedence**. Tokenize the message (lowercase, trimmed). Try patterns in the order listed below — the **first match wins**. Do not use substring search; match from the start of the message.
 
-| User says | Action |
-|---|---|
-| `status` or `show state` | Display full state details (phase, status, all approvals, progress). Do nothing else. |
-| `approve` | Handle approval (Step 6). |
-| `approve with comments: <text>` | Handle approval with recorded comments (Step 6). |
-| `reject` or `reject with comments: <text>` | Handle rejection (Step 7). |
-| `resume` or `continue` | Resume from current state (re-run current phase if in_progress, or propose next action). |
-| `restart phase <N>` | Reset to the specified phase number (1-14), clear status to pending, save state, and propose that phase. |
-| `start workflow` or `begin` | If state exists: resume. If no state: go to Step 2. |
+**Parsing rules:**
+- Everything after a `:` is treated as an opaque string argument (do not re-parse it).
+- Longer patterns take precedence over shorter ones (e.g., `approve with comments:` matches before `approve`).
+- If the message contains multiple possible commands (e.g., `approve and restart phase 3`), it is **ambiguous** — go to the Ambiguous Input handler below.
 
-If no control verb matches, interpret the message as context and propose the next logical action based on current phase.
+**Pattern table (try in this order):**
+
+| Priority | Pattern (case-insensitive prefix) | Parsed as | Action |
+|---|---|---|---|
+| 1 | `approve with comments:` | `APPROVE_WITH_COMMENTS(text=<rest>)` | Step 6 approval with comments |
+| 2 | `reject with comments:` | `REJECT_WITH_COMMENTS(text=<rest>)` | Step 7 rejection |
+| 3 | `approve` | `APPROVE` | Step 6 approval, no comments |
+| 4 | `reject` | `REJECT_WITH_COMMENTS(text="")` | Step 7, ask for comments before proceeding |
+| 5 | `restart phase ` | `RESTART(n=<integer after "phase ">)` | Reset to phase N in PHASE_SEQUENCE; validate 1–14 |
+| 6 | `show state` | `STATUS` | Display full state dump |
+| 7 | `status` | `STATUS` | Display full state dump |
+| 8 | `resume` | `RESUME` | Re-enter current phase |
+| 9 | `continue` | `RESUME` | Re-enter current phase |
+| 10 | `retry` | `RETRY` | Re-run last failed SpecKit step |
+| 11 | `skip with warning` | `SKIP_WARNED` | Skip current failed step with audit warning |
+| 12 | `start workflow` | `START` | New workflow or resume |
+| 13 | `begin` | `START` | New workflow or resume |
+
+**Ambiguous Input handler:**
+If no pattern matches, or if the message appears to combine two commands (contains both an approval word and a control verb like `restart`, `continue`, `reject`):
+```
+I'm not sure how to interpret that. Did you mean:
+  • `approve` — to accept the current gate
+  • `reject with comments: <text>` — to reject and trigger remediation
+  • `status` — to see the current workflow state
+  • `continue` — to proceed with the current phase
+
+Please respond with one of the commands above.
+```
+Do NOT guess. Do NOT act on ambiguous input.
 
 ---
 
@@ -232,14 +334,15 @@ If no control verb matches, interpret the message as context and propose the nex
 
 **Phase 4 — `spec_draft`:**
 - Invoke `speckit-specify` using the Skill tool.
-- Record artifact: `.specify/specs/<feature-id>/spec.md`.
+- **Feature-ID Resolution (MANDATORY after spec runs):** Glob `.specify/specs/*/` to list all subdirectories. The feature directory is the one created most recently (by modification time). Store its name as `current_feature_id` in `state.json`. If zero directories exist: set `status` to `failed` and surface an error. If multiple directories exist and none is clearly newer: list them and ask the user to confirm which one is the current feature.
+- Record artifact: `.specify/specs/{state.current_feature_id}/spec.md`.
 - After completion: update state to `gate_spec` / `awaiting_approval`.
-- Append audit: "Specification generated."
+- Append audit: `"Specification generated. Feature ID: {current_feature_id}."`
 - Present the gate prompt.
 
 **Phase 6 — `plan_draft`:**
 - Invoke `speckit-plan` using the Skill tool.
-- Record artifact: `.specify/specs/<feature-id>/plan.md`.
+- Record artifact: `.specify/specs/{state.current_feature_id}/plan.md`.
 - After completion: update state to `gate_plan` / `awaiting_approval`.
 - Append audit: "Plan generated."
 - Present the gate prompt.
@@ -247,14 +350,14 @@ If no control verb matches, interpret the message as context and propose the nex
 **Phase 8 — `checklist_draft`:**
 - Invoke `speckit-checklist` using the Skill tool.
 - No gate after this phase — advance automatically to tasks_draft.
-- Record artifact: `.specify/specs/<feature-id>/checklist.md` (if created).
+- Record artifact: `.specify/specs/{state.current_feature_id}/checklist.md` (if created).
 - Append audit: "Checklist generated."
 - Immediately proceed to Phase 9.
 
 **Phase 9 — `tasks_draft`:**
 - Invoke `speckit-tasks` using the Skill tool.
 - No gate after this phase — advance automatically to analyze.
-- Record artifact: `.specify/specs/<feature-id>/tasks.md`.
+- Record artifact: `.specify/specs/{state.current_feature_id}/tasks.md`.
 - Append audit: "Tasks generated."
 - Immediately proceed to Phase 10.
 
@@ -299,8 +402,12 @@ After invoking ANY `speckit-*` skill, execute these steps before advancing:
 
 3. **Record artifact fingerprint** in `state.json`:
    - Set `current_artifact` to the file path.
-   - Set `current_artifact_sha` to a textual fingerprint: `"<byte_count>:<first_80_chars_of_content>"`.
-   - This provides a lightweight proof that content was generated.
+   - Compute a SHA-256 hash using PowerShell via the Bash tool:
+     ```powershell
+     (Get-FileHash -Algorithm SHA256 "<artifact_path>").Hash
+     ```
+   - Set `current_artifact_sha` to the returned hex string (e.g., `"A3F2..."`).
+   - This is a real content hash — any change to the file changes the hash.
 
 4. **Only then** proceed to the gate prompt or next phase.
 
@@ -354,12 +461,13 @@ Please review the content above, then respond with:
 ```
 
 **On `approve` or `approve with comments`:**
-1. Record in `state.json` under `approvals.<gate_key>`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
-2. Append to audit: `[<ISO>] Gate <N> approved. Comments: <text or none>.`
-3. Advance `current_phase` to the next phase in sequence.
-4. Set `status` to `pending`.
-5. Save state.
-6. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
+1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
+2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
+3. Append to audit: `[<ISO>] Gate <N> approved. Comments: <text or none>.`
+4. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
+5. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
+6. Save state.
+7. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**
 - Go to Step 7: Rejection & Remediation.
@@ -369,38 +477,40 @@ Please review the content above, then respond with:
 ## Step 7: Rejection & Remediation
 
 **On rejection:**
-1. Record in `state.json` under `approvals.<gate_key>`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
-2. Set `status` to `rejected`.
-3. Save state.
+1. Derive `gate_key` from **PHASE_TO_GATE_KEY** (Internal Constants) using `current_phase`.
+2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
+   - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.
+3. Set `status` to `rejected`. Save state immediately.
 4. Append to audit: `[<ISO>] Gate <N> rejected. Comments: <text>.`
-5. **Write the rejection comments to `.specify/sdle-feedback.md`:**
+5. Write `.specify/sdle-feedback.md` as a **convenience copy** for SpecKit context (not canonical):
    ```markdown
    # SDLE Feedback for <phase_id> — <ISO timestamp>
    **Gate:** <gate_label>
+   **Canonical source:** .workflow/state.json → approvals[<gate_key>].comments
    **Reviewer comments:**
    <rejection comments>
    ```
 6. Respond:
-
 ```
-Understood — I've recorded your feedback:
+Understood — I've recorded your feedback in state.json:
 
 "{rejection comments}"
 
-I've written this to .specify/sdle-feedback.md so it flows into the next generation.
 Say "continue" to re-run the {Phase Label} step with this feedback applied.
 ```
 
 **On `continue` after rejection:**
-1. Verify `.specify/sdle-feedback.md` exists. If missing, re-create it from `approvals.<gate_key>.comments` before proceeding.
-2. Set `status` to `in_progress`. Save state.
-3. Re-invoke the relevant SpecKit skill via the Skill tool, with this explicit instruction in the args:
-   `"Incorporate feedback from .specify/sdle-feedback.md when regenerating. This feedback was from a reviewer rejection."`
-4. After the skill completes and artifact verification passes (Step 5 Post-SpecKit Verification):
-   - Archive the feedback file by writing its content to `.specify/sdle-feedback-archive-<ISO-timestamp>.md`.
+1. Read feedback text from `state.json → approvals[gate_key].comments` (canonical source).
+2. If `.specify/sdle-feedback.md` is missing or its content does not match, re-write it from `state.json` before invoking SpecKit. The file must match the canonical state before proceeding.
+3. Set `status` to `in_progress`. Save state.
+4. Re-invoke the relevant SpecKit skill via the Skill tool. Include in args:
+   `"Incorporate reviewer feedback from .specify/sdle-feedback.md. Feedback: <paste comments text directly into args as well, as a fallback>."`
+   *(Embedding the text directly in args means the feedback reaches SpecKit even if file lookup fails.)*
+5. After the skill completes and Post-SpecKit Verification passes:
+   - Archive: write `.specify/sdle-feedback-archive-<ISO-timestamp>.md` with the same content.
    - Delete `.specify/sdle-feedback.md`.
    - Append to audit: `[<ISO>] Remediation complete for <phase_id>. Feedback archived.`
-5. Present the gate prompt (Step 6) with the newly regenerated artifact.
+6. Present the gate prompt (Step 6) with the newly regenerated artifact.
 
 ---
 
@@ -413,9 +523,9 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
 **Step 8a — Gather evidence:**
 1. Read the following files (note which ones exist):
    - `.specify/memory/constitution.md`
-   - `.specify/specs/<feature-id>/spec.md`
-   - `.specify/specs/<feature-id>/plan.md`
-   - `.specify/specs/<feature-id>/tasks.md`
+   - `.specify/specs/{state.current_feature_id}/spec.md`
+   - `.specify/specs/{state.current_feature_id}/plan.md`
+   - `.specify/specs/{state.current_feature_id}/tasks.md`
 2. Run `git diff --stat HEAD~1` (PowerShell Bash tool) and capture the output. If git is unavailable or fails, note this explicitly — do not skip the review.
 3. Run `git diff HEAD~1 -- . ":(exclude).specify" ":(exclude).workflow"` to get the actual implementation diff. Capture it.
 4. Extract the tech stack from `plan.md` (look for frameworks, languages, databases, auth libraries).
@@ -496,12 +606,23 @@ Examples (adjust to actual stack):
 
 ## Step 9: State File Management
 
+### Version Migration (run after reading state.json in Step 1a)
+
+After reading `state.json`, check `workflow_version` before doing anything else:
+
+| `workflow_version` | Action |
+|---|---|
+| `"1.0"` | Apply migration: add missing fields `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null`. Set `workflow_version` to `"1.2"`. Save immediately. Then continue. |
+| `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Set `workflow_version` to `"1.2"`. Save immediately. Then continue. |
+| `"1.2"` | No migration needed. Continue. |
+| Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
+
 ### `.workflow/state.json` — read and write on every turn that changes state.
 
 Template:
 ```json
 {
-  "workflow_version": "1.1",
+  "workflow_version": "1.2",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -509,6 +630,7 @@ Template:
   "last_updated": "<ISO-8601 timestamp>",
   "current_artifact": null,
   "current_artifact_sha": null,
+  "current_feature_id": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "approvals": {
@@ -523,27 +645,11 @@ Template:
 ```
 
 **Field notes:**
-- `current_artifact_sha` — textual fingerprint: `"<byte_count>:<first_80_chars>"`. Written after every artifact verification. Used to detect if an artifact was re-generated.
-- `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`. All SpecKit skill invocations use `{speckit_skill_prefix}<command>` (e.g., `speckit-constitution`).
-
-**Phase → progress mapping:**
-```
-requirements_check  → 1/14
-constitution_draft  → 2/14
-gate_constitution   → 3/14
-spec_draft          → 4/14
-gate_spec           → 5/14
-plan_draft          → 6/14
-gate_plan           → 7/14
-checklist_draft     → 8/14
-tasks_draft         → 9/14
-analyze             → 10/14
-gate_analyze        → 11/14
-implement           → 12/14
-gate_implement      → 13/14
-security_review     → 14/14
-complete            → 14/14
-```
+- `current_artifact_sha` — SHA-256 hex string computed via `Get-FileHash -Algorithm SHA256`. Written after every artifact verification. Actual content hash — any file change changes the hash.
+- `current_feature_id` — name of the SpecKit feature directory under `.specify/specs/` (e.g., `"001-my-feature"`). Resolved in Phase 4 (spec_draft) and used by all subsequent phases. Null until Phase 4 runs.
+- `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`.
+- `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.
+- `progress` — derived from **PROGRESS_MAP** (Internal Constants). Do not compute independently.
 
 **`phase_history` entries** (append one per completed phase):
 ```json
