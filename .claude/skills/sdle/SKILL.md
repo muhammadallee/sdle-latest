@@ -3,7 +3,7 @@ name: sdle
 description: SDLE — Spec Driven Lifecycle Engine v1.3. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
 ---
 
-## ⚡ CORE RULES (read every turn — highest priority)
+## CORE RULES (read every turn — highest priority)
 
 1. **State first.** ALWAYS read `.workflow/state.json` before any other action. ALWAYS emit the state assertion header as the absolute first output when state exists.
 2. **Gate discipline.** NEVER advance past an approval gate without an explicit `approve` or `approve with comments` from the user. No implicit advancement.
@@ -204,7 +204,7 @@ After loading `state.json`, validate that `current_phase` is consistent with `ph
 
    - **actual index > expected index + 2** (skipped phases): State may have jumped. Confirm with user:
      ```
-     ⚠️ State jump detected: current_phase is <N> phases ahead of last confirmed history.
+     State jump detected: current_phase is <N> phases ahead of last confirmed history.
      Current: <current_phase>. Expected: <expected_current_phase>.
      Say "continue" to accept this state, or "reset to <expected_current_phase>" to go back.
      ```
@@ -347,7 +347,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.3",
+  "workflow_version": "1.2",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -385,11 +385,13 @@ Template:
 
 Format for each entry:
 ```
-## [<ISO-8601>] <phase_id> — <event_type>
-**Action:** <what happened>
-**Artifact:** <path or null>
-**Gate Decision:** <approved | rejected | n/a>
-**Comments:** <text or none>
+## AUDIT [<ISO-8601 UTC>] | <phase_id> — <event_type>
+**Actor:** <git username | git email >
+**Action:** <what happened in clear verb phrase>
+**Artifact:** <file_path | null>
+**Artifact Version (GIT SHA):** <git_sha | version_tag | hash | n/a>
+**Gate Decision:** <APPROVED | REJECTED | n/a>
+**Comments:** <text or "None">
 ```
 
 ---
