@@ -112,7 +112,11 @@ These skill names are installed by `specify init . --skills --here`.
 ### In this repo (skill source):
 ```
 .claude/skills/sdle/
-├── SKILL.md                  ← Main orchestrator (entry point)
+├── SKILL.md                  ← Orchestrator entry point (always loaded)
+├── modules/
+│   ├── phase-execution.md    ← Phase logic (loaded when executing a phase)
+│   ├── gate-protocol.md      ← Gate + rejection logic (loaded at gate phases)
+│   └── security-review.md   ← Security review template (loaded at Phase 14)
 └── templates/
     └── state.json            ← Initial state template
 ```
@@ -263,6 +267,19 @@ Each `approvals.<gate>` entry:
 **Add a new document type:** Create a new step after `security_review` that reads `.specify/` artifacts and writes a new file under `./reviews/` or `./docs/`.
 
 **Override SpecKit behavior:** Add an `args` payload when invoking a SpecKit skill to pass additional context (e.g., tech stack constraints from the constitution).
+
+---
+
+## v1.3 — Modular Architecture
+
+SDLE v1.3 splits the single 725-line SKILL.md into four files with lazy-loading:
+
+- **SKILL.md** (~450 lines, always loaded): CORE RULES, workflow table, Internal Constants, Steps 1–4, Step 9 state schema, Step 10 errors, routing pointers.
+- **modules/phase-execution.md** (108 lines): Phase Execution Map for all 8 active phases, Post-SpecKit Verification, Post-Execution Self-Check. Read by the orchestrator when entering any execution phase.
+- **modules/gate-protocol.md** (83 lines): Approval Gate Protocol (Steps 6 + 7 combined), rejection & remediation flow. Read when `current_phase` ∈ GATE_PHASES or on approve/reject commands.
+- **modules/security-review.md** (89 lines): Evidence-gathering procedure and review-file template for Phase 14 only. Read exclusively at `security_review`.
+
+No behavior changes from v1.2. The state schema is unchanged; v1.2 state files are auto-migrated (version string bumped to `"1.3"` on first load).
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.2. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
+description: SDLE — Spec Driven Lifecycle Engine v1.3. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
 ---
 
 ## ⚡ CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.2. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.2)
+# SDLE — Spec Driven Lifecycle Engine (v1.3)
 
 You are the **SDLE Orchestrator** — an autonomous SDLC workflow engine running inside Claude Code.
 
@@ -318,289 +318,13 @@ Do NOT guess. Do NOT act on ambiguous input.
 
 ## Step 5: Phase Execution
 
-### BEFORE executing any phase:
-1. Update `state.json`: set `status` to `in_progress`.
-2. Append to `.workflow/audit.md`: `[<ISO timestamp>] Phase <N> (<phase_id>) started.`
-3. Tell the user what you are about to do.
-
-### Phase Execution Map:
-
-**Phase 2 — `constitution_draft`:**
-- Invoke `speckit-constitution` using the Skill tool.
-- Record artifact: `.specify/memory/constitution.md` in state.
-- After completion: update state to `gate_constitution` / `awaiting_approval`.
-- Append audit: "Constitution generated."
-- Present the gate prompt (Step 6 format).
-
-**Phase 4 — `spec_draft`:**
-- Invoke `speckit-specify` using the Skill tool.
-- **Feature-ID Resolution (MANDATORY after spec runs):** Glob `.specify/specs/*/` to list all subdirectories. The feature directory is the one created most recently (by modification time). Store its name as `current_feature_id` in `state.json`. If zero directories exist: set `status` to `failed` and surface an error. If multiple directories exist and none is clearly newer: list them and ask the user to confirm which one is the current feature.
-- Record artifact: `.specify/specs/{state.current_feature_id}/spec.md`.
-- After completion: update state to `gate_spec` / `awaiting_approval`.
-- Append audit: `"Specification generated. Feature ID: {current_feature_id}."`
-- Present the gate prompt.
-
-**Phase 6 — `plan_draft`:**
-- Invoke `speckit-plan` using the Skill tool.
-- Record artifact: `.specify/specs/{state.current_feature_id}/plan.md`.
-- After completion: update state to `gate_plan` / `awaiting_approval`.
-- Append audit: "Plan generated."
-- Present the gate prompt.
-
-**Phase 8 — `checklist_draft`:**
-- Invoke `speckit-checklist` using the Skill tool.
-- No gate after this phase — advance automatically to tasks_draft.
-- Record artifact: `.specify/specs/{state.current_feature_id}/checklist.md` (if created).
-- Append audit: "Checklist generated."
-- Immediately proceed to Phase 9.
-
-**Phase 9 — `tasks_draft`:**
-- Invoke `speckit-tasks` using the Skill tool.
-- No gate after this phase — advance automatically to analyze.
-- Record artifact: `.specify/specs/{state.current_feature_id}/tasks.md`.
-- Append audit: "Tasks generated."
-- Immediately proceed to Phase 10.
-
-**Phase 10 — `analyze`:**
-- Invoke `speckit-analyze` using the Skill tool.
-- After completion: update state to `gate_analyze` / `awaiting_approval`.
-- Append audit: "Analysis complete."
-- Present the gate prompt.
-
-**Phase 12 — `implement`:**
-- Invoke `speckit-implement` using the Skill tool.
-- After completion: update state to `gate_implement` / `awaiting_approval`.
-- Append audit: "Implementation complete."
-- Present the gate prompt.
-
-**Phase 14 — `security_review`:**
-- Do NOT invoke SpecKit. Generate the review yourself.
-- Read through the artifacts in `.specify/` (spec, plan, tasks, code changes via `git diff HEAD~1 -- . ':(exclude).specify'` if git exists).
-- Create the directory `./reviews/` if it does not exist.
-- Write file: `reviews/security-review-<YYYY-MM-DD-HHMM>.md` (Step 8 format).
-- Update state to `complete` / `completed`.
-- Append audit: "Security review complete. Workflow finished."
-- Congratulate the user and summarize the completed workflow.
-
-### Post-SpecKit Verification (MANDATORY — after every SpecKit skill invocation)
-
-After invoking ANY `speckit-*` skill, execute these steps before advancing:
-
-1. **Read the expected artifact file** (the path listed in each phase block above).
-2. **Check size:**
-   - If file does not exist OR content is fewer than 100 bytes:
-     - Set `state.json` `status` to `"failed"`.
-     - Save state. Do NOT advance phase.
-     - Surface to user:
-       ```
-       ⚠️ Verification failed: <artifact path> was not created or is too small (<100 bytes).
-       This usually means the SpecKit step did not complete successfully.
-       Options: "retry" to run again, "skip with warning" to continue anyway.
-       ```
-     - Stop here until user responds.
-   - If file exists and is ≥100 bytes: proceed.
-
-3. **Record artifact fingerprint** in `state.json`:
-   - Set `current_artifact` to the file path.
-   - Compute a SHA-256 hash using PowerShell via the Bash tool:
-     ```powershell
-     (Get-FileHash -Algorithm SHA256 "<artifact_path>").Hash
-     ```
-   - Set `current_artifact_sha` to the returned hex string (e.g., `"A3F2..."`).
-   - This is a real content hash — any change to the file changes the hash.
-
-4. **Only then** proceed to the gate prompt or next phase.
-
-### Post-Execution Self-Check (MANDATORY — before every gate and phase advance)
-
-Before displaying a gate prompt or advancing `current_phase`, internally verify all of:
-
-- ☐ Expected artifact file exists and is ≥100 bytes (verified in Post-SpecKit Verification above)
-- ☐ `state.json` has been written with updated `current_phase`, `status`, `progress`, `current_artifact`, and `current_artifact_sha`
-- ☐ `audit.md` has a new timestamped entry for this phase completion
-- ☐ If the next step is a gate: artifact content has been Read and is ready to display
-
-If **any item is not checked**: do NOT show the gate or advance. Fix the blocking issue first, or surface it as a `failed` state to the user.
-
-### AFTER executing any phase:
-1. Save updated `state.json` immediately (with `current_artifact_sha`).
-2. Append completion event to `audit.md`.
-3. Run Post-Execution Self-Check.
-4. Show updated status assertion header + status line.
+When ready to execute a phase (after Step 2 bootstrap, after `approve`, after `continue`/`resume`, after `retry`): **Read `modules/phase-execution.md`** and follow its procedure for the current phase. Do not proceed without reading it.
 
 ---
 
-## Step 6: Approval Gate Protocol
+## Step 6: Approval Gate & Rejection Protocol
 
-**Before displaying any gate prompt, you MUST:**
-
-1. Read the full content of `current_artifact` from disk.
-2. Determine display length:
-   - If content is ≤3000 words: display the **complete content** in a fenced markdown block.
-   - If content is >3000 words: display the **first ~500 words**, then `[... truncated ...]`, then the **last ~200 words**, followed by `(Total: ~<N> words — <file_path>)`.
-3. THEN display the gate prompt below.
-
-The user must never need to open an external file to know what they are approving.
-
-**Gate prompt format:**
-
-```
----
-✋ APPROVAL REQUIRED — Gate {gate_number}/5: {Gate Label}
-
-<artifact content displayed above>
-
-Artifact path: {current_artifact}
-Fingerprint: {current_artifact_sha}
-
-Please review the content above, then respond with:
-  • `approve` — Accept and advance to the next phase
-  • `approve with comments: <your notes>` — Accept with recorded feedback
-  • `reject with comments: <your feedback>` — Reject and trigger remediation
----
-```
-
-**On `approve` or `approve with comments`:**
-1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
-2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
-3. Append to audit: `[<ISO>] Gate <N> approved. Comments: <text or none>.`
-4. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
-5. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
-6. Save state.
-7. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
-
-**On `reject with comments`:**
-- Go to Step 7: Rejection & Remediation.
-
----
-
-## Step 7: Rejection & Remediation
-
-**On rejection:**
-1. Derive `gate_key` from **PHASE_TO_GATE_KEY** (Internal Constants) using `current_phase`.
-2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
-   - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.
-3. Set `status` to `rejected`. Save state immediately.
-4. Append to audit: `[<ISO>] Gate <N> rejected. Comments: <text>.`
-5. Write `.specify/sdle-feedback.md` as a **convenience copy** for SpecKit context (not canonical):
-   ```markdown
-   # SDLE Feedback for <phase_id> — <ISO timestamp>
-   **Gate:** <gate_label>
-   **Canonical source:** .workflow/state.json → approvals[<gate_key>].comments
-   **Reviewer comments:**
-   <rejection comments>
-   ```
-6. Respond:
-```
-Understood — I've recorded your feedback in state.json:
-
-"{rejection comments}"
-
-Say "continue" to re-run the {Phase Label} step with this feedback applied.
-```
-
-**On `continue` after rejection:**
-1. Read feedback text from `state.json → approvals[gate_key].comments` (canonical source).
-2. If `.specify/sdle-feedback.md` is missing or its content does not match, re-write it from `state.json` before invoking SpecKit. The file must match the canonical state before proceeding.
-3. Set `status` to `in_progress`. Save state.
-4. Re-invoke the relevant SpecKit skill via the Skill tool. Include in args:
-   `"Incorporate reviewer feedback from .specify/sdle-feedback.md. Feedback: <paste comments text directly into args as well, as a fallback>."`
-   *(Embedding the text directly in args means the feedback reaches SpecKit even if file lookup fails.)*
-5. After the skill completes and Post-SpecKit Verification passes:
-   - Archive: write `.specify/sdle-feedback-archive-<ISO-timestamp>.md` with the same content.
-   - Delete `.specify/sdle-feedback.md`.
-   - Append to audit: `[<ISO>] Remediation complete for <phase_id>. Feedback archived.`
-6. Present the gate prompt (Step 6) with the newly regenerated artifact.
-
----
-
-## Step 8: Security Review — Assisted, Evidence-Based Format
-
-**This is an AI-assisted review based on project artifacts and a git diff. It is NOT a substitute for automated SAST/DAST tooling, dependency scanning, or a professional security audit.**
-
-### How to generate the review:
-
-**Step 8a — Gather evidence:**
-1. Read the following files (note which ones exist):
-   - `.specify/memory/constitution.md`
-   - `.specify/specs/{state.current_feature_id}/spec.md`
-   - `.specify/specs/{state.current_feature_id}/plan.md`
-   - `.specify/specs/{state.current_feature_id}/tasks.md`
-2. Run `git diff --stat HEAD~1` (PowerShell Bash tool) and capture the output. If git is unavailable or fails, note this explicitly — do not skip the review.
-3. Run `git diff HEAD~1 -- . ":(exclude).specify" ":(exclude).workflow"` to get the actual implementation diff. Capture it.
-4. Extract the tech stack from `plan.md` (look for frameworks, languages, databases, auth libraries).
-
-**Step 8b — Generate the review file:**
-
-Create `reviews/security-review-<YYYY-MM-DD-HHMM>.md` with this structure:
-
-```markdown
-# AI-Assisted Security Review — <Project Name>
-**Date:** <YYYY-MM-DD HH:MM>
-**Phase:** 14/14 — Final Security Review
-**Disclaimer:** This is an AI-assisted review based on artifacts and a git diff.
-It is NOT a substitute for SAST/DAST tools, dependency scanners, or a professional audit.
-
----
-
-## What We Reviewed
-- Artifacts read: <list each .specify/ file that was read>
-- Git diff range: HEAD~1..HEAD (or "git not available")
-- Diff summary:
-  <paste output of git diff --stat, or "git unavailable">
-
----
-
-## Tech Stack (from plan.md)
-<Extracted stack: language, framework, database, auth, external APIs>
-
----
-
-## OWASP Top 10 — Relevance to This Stack
-<For each OWASP category, one line: relevant/not relevant for this stack and why>
-Example:
-- A01 Broken Access Control — RELEVANT (REST API with user-scoped data)
-- A02 Cryptographic Failures — RELEVANT (stores user credentials)
-- A03 Injection — RELEVANT (SQL via ORM, review parameterization)
-- A04 Insecure Design — review spec for threat modelling gaps
-...
-
----
-
-## Patterns Flagged in Diff
-<List ONLY patterns actually observed in the git diff — with file:line references>
-- If no suspicious patterns: state "No high-risk patterns observed in diff."
-- Categories to look for (only flag if present):
-  • Hardcoded secrets, API keys, passwords in source
-  • Raw string SQL concatenation (not parameterized)
-  • Missing input validation on user-controlled data
-  • eval() / exec() / dynamic code execution
-  • Disabled TLS verification
-  • World-readable file permissions set in code
-  • Logging of sensitive data (passwords, tokens, PII)
-
----
-
-## Tools You Should Run
-<Concrete commands tailored to the detected tech stack>
-Examples (adjust to actual stack):
-- JavaScript/Node: `npm audit`, `npx snyk test`
-- Python: `pip-audit`, `bandit -r .`, `safety check`
-- General: `semgrep --config=auto .`, `trivy fs .`
-- Secrets: `trufflehog git file://. --since-commit HEAD~1`
-
----
-
-## What This Review Does NOT Cover
-- Runtime behavior and logic flaws not visible in static analysis
-- Dependency CVEs (use the tool commands above)
-- Infrastructure and deployment configuration
-- Secrets already committed to git history (use trufflehog for that)
-- Authentication/authorization flow testing
-- Business logic security issues
-```
-
-**If git is unavailable:** Skip the diff sections, state "Git not available — diff analysis skipped." Still produce the OWASP relevance mapping, tool recommendations, and artifact-derived observations.
+When `current_phase` ∈ GATE_PHASES (see Internal Constants) and `status` is `awaiting_approval`, OR when the user issues `approve` / `approve with comments:` / `reject with comments:` / `continue` after a rejection: **Read `modules/gate-protocol.md`** and follow its procedure.
 
 ---
 
@@ -612,9 +336,10 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 
 | `workflow_version` | Action |
 |---|---|
-| `"1.0"` | Apply migration: add missing fields `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null`. Set `workflow_version` to `"1.2"`. Save immediately. Then continue. |
-| `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Set `workflow_version` to `"1.2"`. Save immediately. Then continue. |
-| `"1.2"` | No migration needed. Continue. |
+| `"1.0"` | Apply migration: add missing fields `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null`. Set `workflow_version` to `"1.3"`. Save immediately. Then continue. |
+| `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Set `workflow_version` to `"1.3"`. Save immediately. Then continue. |
+| `"1.2"` | Apply migration: no schema changes. Set `workflow_version` to `"1.3"`. Save immediately. Then continue. |
+| `"1.3"` | No migration needed. Continue. |
 | Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
@@ -622,7 +347,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.2",
+  "workflow_version": "1.3",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
