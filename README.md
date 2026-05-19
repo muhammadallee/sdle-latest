@@ -277,6 +277,34 @@ Each `approvals.<gate>` entry:
 
 ---
 
+## v1.5 — Rate Limiting
+
+SDLE v1.5 adds configurable caps on all SpecKit re-invocation loops to prevent quota exhaustion:
+
+- **Remediation loop** (`reject with comments` → `continue`): capped at `rate_limits.max_remediation_attempts` per phase (default: 3).
+- **Retry loop** (`retry` on failed artifact verification): capped at `rate_limits.max_retry_attempts` per phase (default: 3).
+
+When a limit is hit the orchestrator halts with a clear message and options to raise the limit, reset the counter, restart the phase, or skip.
+
+**To change the defaults**, edit `.workflow/state.json` in your target project:
+```json
+"rate_limits": {
+  "max_remediation_attempts": 5,
+  "max_retry_attempts": 5
+}
+```
+
+**To reset a specific counter** (e.g., after fixing the root cause):
+```json
+"attempt_counts": {
+  "spec_draft": { "remediations": 0, "retries": 0 }
+}
+```
+
+State schema update: `rate_limits` and `attempt_counts` fields added. v1.4 state files are auto-migrated on first load.
+
+---
+
 ## v1.4 — Design Generation Phase
 
 SDLE v1.4 adds a new SDLE-native phase between Implementation and Security Review:

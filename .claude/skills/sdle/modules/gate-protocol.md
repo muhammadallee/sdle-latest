@@ -81,12 +81,27 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
 **On `continue` after rejection:**
 1. Read feedback text from `state.json → approvals[gate_key].comments` (canonical source).
 2. If `.specify/sdle-feedback.md` is missing or its content does not match, re-write it from `state.json` before invoking SpecKit. The file must match the canonical state before proceeding.
-3. Set `status` to `in_progress`. Save state.
-4. Re-invoke the relevant SpecKit skill via the Skill tool. Include in args:
+3. **Remediation rate-limit check:**
+   - If `attempt_counts[current_phase]` does not exist in `state.json`, initialize it: `{ "remediations": 0, "retries": 0 }`.
+   - Compare `attempt_counts[current_phase].remediations` against `rate_limits.max_remediation_attempts`.
+   - If **at or over the limit** (remediations ≥ max): **DO NOT re-invoke SpecKit.** Surface:
+     ```
+     ⛔ Remediation limit reached: {current_phase} has been remediated {N}/{max} times.
+
+     To continue, choose one of:
+       • Raise the limit: edit .workflow/state.json → rate_limits.max_remediation_attempts
+       • Reset this phase's counter: edit .workflow/state.json → attempt_counts.{current_phase}.remediations to 0
+       • `restart phase <N>` — restart this phase from scratch
+       • `skip with warning` — advance without re-running (not recommended)
+     ```
+     Halt until user acts. Do NOT advance `status` or invoke any skill.
+   - If **under the limit**: increment `attempt_counts[current_phase].remediations` by 1. Save state. Continue to step 4.
+4. Set `status` to `in_progress`. Save state.
+5. Re-invoke the relevant SpecKit skill via the Skill tool. Include in args:
    `"Incorporate reviewer feedback from .specify/sdle-feedback.md. Feedback: <paste comments text directly into args as well, as a fallback>."`
    *(Embedding the text directly in args means the feedback reaches SpecKit even if file lookup fails.)*
-5. After the skill completes and Post-SpecKit Verification passes (see `modules/phase-execution.md`):
+6. After the skill completes and Post-SpecKit Verification passes (see `modules/phase-execution.md`):
    - Archive: write `.specify/sdle-feedback-archive-<ISO-timestamp>.md` with the same content.
    - Delete `.specify/sdle-feedback.md`.
    - Append to audit: `[<ISO>] Remediation complete for <phase_id>. Feedback archived.`
-6. Present the gate prompt (Step 6 above) with the newly regenerated artifact.
+7. Present the gate prompt (Step 6 above) with the newly regenerated artifact.

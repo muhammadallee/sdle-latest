@@ -124,15 +124,29 @@ After invoking ANY `speckit-*` skill, execute these steps before advancing:
 1. **Read the expected artifact file** (the path listed in each phase block above).
 2. **Check size:**
    - If file does not exist OR content is fewer than 100 bytes:
-     - Set `state.json` `status` to `"failed"`.
-     - Save state. Do NOT advance phase.
-     - Surface to user:
-       ```
-       ⚠️ Verification failed: <artifact path> was not created or is too small (<100 bytes).
-       This usually means the SpecKit step did not complete successfully.
-       Options: "retry" to run again, "skip with warning" to continue anyway.
-       ```
-     - Stop here until user responds.
+     - Set `state.json` `status` to `"failed"`. Save state. Do NOT advance phase.
+     - **Retry rate-limit check:**
+       - If `attempt_counts[current_phase]` does not exist, initialize it: `{ "remediations": 0, "retries": 0 }`.
+       - Increment `attempt_counts[current_phase].retries` by 1. Save state.
+       - Compare the **new** value against `rate_limits.max_retry_attempts`.
+       - If **at or over the limit** (retries ≥ max): Surface:
+         ```
+         ⛔ Retry limit reached: {current_phase} has failed {N}/{max} times.
+
+         To continue, choose one of:
+           • Raise the limit: edit .workflow/state.json → rate_limits.max_retry_attempts
+           • Reset this phase's counter: edit .workflow/state.json → attempt_counts.{current_phase}.retries to 0
+           • `skip with warning` — advance without a successful artifact (not recommended)
+           • `restart phase <N>` — restart this phase from scratch
+         ```
+         Halt. Do NOT offer the `retry` option.
+       - If **under the limit**: Surface:
+         ```
+         ⚠️ Verification failed: <artifact path> was not created or is too small (<100 bytes).
+         This usually means the SpecKit step did not complete successfully.
+         Retry attempt {N}/{max}. Options: "retry" to run again, "skip with warning" to continue anyway.
+         ```
+         Stop here until user responds.
    - If file exists and is ≥100 bytes: proceed.
 
 3. **Record artifact fingerprint** in `state.json`:

@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.4. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly.
+description: SDLE — Spec Driven Lifecycle Engine v1.5. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,7 +13,9 @@ description: SDLE — Spec Driven Lifecycle Engine v1.4. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.4)
+# SDLE — Spec Driven Lifecycle Engine (v1.5)
+
+> **Rate limiting:** All SpecKit re-invocations (remediation loops and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
 
 You are the **SDLE Orchestrator** — an autonomous SDLC workflow engine running inside Claude Code.
 
@@ -348,8 +350,9 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 | `"1.0"` | Apply migration: add missing fields `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null`. Then continue to 1.3 migration. |
 | `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Then continue to 1.3 migration. |
 | `"1.2"` | Apply migration: no schema changes. Then continue to 1.3 migration. |
-| `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Set `workflow_version` to `"1.4"`. Save immediately. Then continue. |
-| `"1.4"` | No migration needed. Continue. |
+| `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
+| `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Set `workflow_version` to `"1.5"`. Save immediately. Then continue. |
+| `"1.5"` | No migration needed. Continue. |
 | Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
@@ -357,7 +360,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.4",
+  "workflow_version": "1.5",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -368,6 +371,11 @@ Template:
   "current_feature_id": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
+  "rate_limits": {
+    "max_remediation_attempts": 3,
+    "max_retry_attempts": 3
+  },
+  "attempt_counts": {},
   "approvals": {
     "gate_constitution": null,
     "gate_spec": null,
@@ -384,6 +392,8 @@ Template:
 - `current_artifact_sha` — SHA-256 hex string computed via `Get-FileHash -Algorithm SHA256`. Written after every artifact verification. Actual content hash — any file change changes the hash.
 - `current_feature_id` — name of the SpecKit feature directory under `.specify/specs/` (e.g., `"001-my-feature"`). Resolved in Phase 4 (spec_draft) and used by all subsequent phases. Null until Phase 4 runs.
 - `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`.
+- `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits. `max_remediation_attempts` caps reject+continue loops per phase. `max_retry_attempts` caps retry loops per phase.
+- `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Initialized per phase on first attempt. Reset by editing `state.json` directly. Never cleared automatically.
 - `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.
 - `progress` — derived from **PROGRESS_MAP** (Internal Constants). Do not compute independently.
 
