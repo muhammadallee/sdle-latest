@@ -2,22 +2,37 @@
 
 ## Step 5: Phase Execution
 
+### Guidance File Map
+
+Before invoking SpecKit for any phase, check whether the user has placed a guidance file in `guidance/`. These files are optional — their presence shapes SpecKit's output; their absence changes nothing.
+
+| Phase | Guidance file |
+|---|---|
+| `constitution_draft` | `guidance/constitution.md` |
+| `spec_draft` | `guidance/spec.md` |
+| `plan_draft` | `guidance/plan.md` |
+| `checklist_draft` | `guidance/checklist.md` |
+| `tasks_draft` | `guidance/tasks.md` |
+| `analyze` | `guidance/analyze.md` |
+| `implement` | `guidance/implement.md` |
+
 ### BEFORE executing any phase:
 1. Update `state.json`: set `status` to `in_progress`.
 2. Append to `.workflow/audit.md`: `[<ISO timestamp>] Phase <N> (<phase_id>) started.`
 3. Tell the user what you are about to do.
+4. **Guidance injection:** Look up the current phase in the Guidance File Map above. If the file exists: Read it. You will append its content to the SpecKit `args` in the next step (see per-phase blocks below). If the file does not exist: skip silently.
 
 ### Phase Execution Map:
 
 **Phase 2 — `constitution_draft`:**
-- Invoke `speckit-constitution` using the Skill tool.
+- Invoke `speckit-constitution` using the Skill tool. If `guidance/constitution.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/constitution.md>\n---\nAlign your output with this guidance."`
 - Record artifact: `.specify/memory/constitution.md` in state.
 - After completion: update state to `gate_constitution` / `awaiting_approval`.
 - Append audit: "Constitution generated."
 - Present the gate prompt (read `modules/gate-protocol.md`).
 
 **Phase 4 — `spec_draft`:**
-- Invoke `speckit-specify` using the Skill tool.
+- Invoke `speckit-specify` using the Skill tool. If `guidance/spec.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/spec.md>\n---\nAlign your output with this guidance."`
 - **Feature-ID Resolution (MANDATORY after spec runs):** Glob `.specify/specs/*/` to list all subdirectories. The feature directory is the one created most recently (by modification time). Store its name as `current_feature_id` in `state.json`. If zero directories exist: set `status` to `failed` and surface an error. If multiple directories exist and none is clearly newer: list them and ask the user to confirm which one is the current feature.
 - Record artifact: `.specify/specs/{state.current_feature_id}/spec.md`.
 - After completion: update state to `gate_spec` / `awaiting_approval`.
@@ -25,34 +40,34 @@
 - Present the gate prompt.
 
 **Phase 6 — `plan_draft`:**
-- Invoke `speckit-plan` using the Skill tool.
+- Invoke `speckit-plan` using the Skill tool. If `guidance/plan.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/plan.md>\n---\nAlign your output with this guidance."`
 - Record artifact: `.specify/specs/{state.current_feature_id}/plan.md`.
 - After completion: update state to `gate_plan` / `awaiting_approval`.
 - Append audit: "Plan generated."
 - Present the gate prompt.
 
 **Phase 8 — `checklist_draft`:**
-- Invoke `speckit-checklist` using the Skill tool.
+- Invoke `speckit-checklist` using the Skill tool. If `guidance/checklist.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/checklist.md>\n---\nAlign your output with this guidance."`
 - No gate after this phase — advance automatically to tasks_draft.
 - Record artifact: `.specify/specs/{state.current_feature_id}/checklist.md` (if created).
 - Append audit: "Checklist generated."
 - Immediately proceed to Phase 9.
 
 **Phase 9 — `tasks_draft`:**
-- Invoke `speckit-tasks` using the Skill tool.
+- Invoke `speckit-tasks` using the Skill tool. If `guidance/tasks.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/tasks.md>\n---\nAlign your output with this guidance."`
 - No gate after this phase — advance automatically to analyze.
 - Record artifact: `.specify/specs/{state.current_feature_id}/tasks.md`.
 - Append audit: "Tasks generated."
 - Immediately proceed to Phase 10.
 
 **Phase 10 — `analyze`:**
-- Invoke `speckit-analyze` using the Skill tool.
+- Invoke `speckit-analyze` using the Skill tool. If `guidance/analyze.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/analyze.md>\n---\nAlign your output with this guidance."`
 - After completion: update state to `gate_analyze` / `awaiting_approval`.
 - Append audit: "Analysis complete."
 - Present the gate prompt.
 
 **Phase 12 — `implement`:**
-- Invoke `speckit-implement` using the Skill tool.
+- Invoke `speckit-implement` using the Skill tool. If `guidance/implement.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/implement.md>\n---\nAlign your output with this guidance."`
 - After completion: update state to `gate_implement` / `awaiting_approval`.
 - Append audit: "Implementation complete."
 - Present the gate prompt.

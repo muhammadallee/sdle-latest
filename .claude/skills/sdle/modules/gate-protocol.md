@@ -8,7 +8,16 @@
 2. Determine display length:
    - If content is ≤3000 words: display the **complete content** in a fenced markdown block.
    - If content is >3000 words: display the **first ~500 words**, then `[... truncated ...]`, then the **last ~200 words**, followed by `(Total: ~<N> words — <file_path>)`.
-3. THEN display the gate prompt below.
+3. **Guidance alignment check:** Look up the guidance file for the *preceding execution phase* using the Guidance File Map in `modules/phase-execution.md` (e.g. for `gate_constitution`, the preceding phase is `constitution_draft` → `guidance/constitution.md`).
+   - If the guidance file **exists**: Read it. Produce a **Guidance Alignment** section immediately below the artifact content:
+     ```
+     ### Guidance Alignment — guidance/<phase>.md
+     ✅ Covered: <bullet list of guidance items clearly addressed in the artifact>
+     ⚠️  Gaps: <bullet list of guidance items absent or only partially addressed>
+     ```
+     If every item is covered: show `✅ All guidance items addressed.` and no gaps.
+   - If the guidance file **does not exist**: skip this step silently — do not mention guidance at all.
+4. THEN display the gate prompt below.
 
 The user must never need to open an external file to know what they are approving.
 
