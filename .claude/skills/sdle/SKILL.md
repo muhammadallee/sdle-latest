@@ -435,6 +435,7 @@ When invoking SpecKit via the Skill tool, use the **dynamic prefix** from `state
 | Tasks | `{prefix}tasks` | `speckit-tasks` |
 | Analyze | `{prefix}analyze` | `speckit-analyze` |
 | Implement | `{prefix}implement` | `speckit-implement` |
+| Clarify (post-generation) | `{prefix}clarify` | `speckit-clarify` |
 
 **How to invoke:** Use the `Skill` tool with the constructed full skill name. Pass relevant context (project name, feedback reference) as the `args` parameter.
 

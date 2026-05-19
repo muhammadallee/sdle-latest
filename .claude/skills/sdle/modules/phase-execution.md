@@ -27,6 +27,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 **Phase 2 — `constitution_draft`:**
 - Invoke `speckit-constitution` using the Skill tool. If `guidance/constitution.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/constitution.md>\n---\nAlign your output with this guidance."`
 - Record artifact: `.specify/memory/constitution.md` in state.
+- Run Post-SpecKit Verification, then run Post-Generation Clarify.
 - After completion: update state to `gate_constitution` / `awaiting_approval`.
 - Append audit: "Constitution generated."
 - Present the gate prompt (read `modules/gate-protocol.md`).
@@ -35,6 +36,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 - Invoke `speckit-specify` using the Skill tool. If `guidance/spec.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/spec.md>\n---\nAlign your output with this guidance."`
 - **Feature-ID Resolution (MANDATORY after spec runs):** Glob `.specify/specs/*/` to list all subdirectories. The feature directory is the one created most recently (by modification time). Store its name as `current_feature_id` in `state.json`. If zero directories exist: set `status` to `failed` and surface an error. If multiple directories exist and none is clearly newer: list them and ask the user to confirm which one is the current feature.
 - Record artifact: `.specify/specs/{state.current_feature_id}/spec.md`.
+- Run Post-SpecKit Verification, then run Post-Generation Clarify.
 - After completion: update state to `gate_spec` / `awaiting_approval`.
 - Append audit: `"Specification generated. Feature ID: {current_feature_id}."`
 - Present the gate prompt.
@@ -42,6 +44,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 **Phase 6 — `plan_draft`:**
 - Invoke `speckit-plan` using the Skill tool. If `guidance/plan.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/plan.md>\n---\nAlign your output with this guidance."`
 - Record artifact: `.specify/specs/{state.current_feature_id}/plan.md`.
+- Run Post-SpecKit Verification, then run Post-Generation Clarify.
 - After completion: update state to `gate_plan` / `awaiting_approval`.
 - Append audit: "Plan generated."
 - Present the gate prompt.
@@ -50,6 +53,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 - Invoke `speckit-checklist` using the Skill tool. If `guidance/checklist.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/checklist.md>\n---\nAlign your output with this guidance."`
 - No gate after this phase — advance automatically to tasks_draft.
 - Record artifact: `.specify/specs/{state.current_feature_id}/checklist.md` (if created).
+- Run Post-SpecKit Verification, then run Post-Generation Clarify.
 - Append audit: "Checklist generated."
 - Immediately proceed to Phase 9.
 
@@ -57,6 +61,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 - Invoke `speckit-tasks` using the Skill tool. If `guidance/tasks.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/tasks.md>\n---\nAlign your output with this guidance."`
 - No gate after this phase — advance automatically to analyze.
 - Record artifact: `.specify/specs/{state.current_feature_id}/tasks.md`.
+- Run Post-SpecKit Verification, then run Post-Generation Clarify.
 - Append audit: "Tasks generated."
 - Immediately proceed to Phase 10.
 
@@ -75,6 +80,16 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 **Phase 14 — `security_review`:**
 - Do NOT invoke SpecKit. Read `modules/security-review.md` and follow its procedure to generate `reviews/security-review-<timestamp>.md`.
 - After the review file is written: update state to `complete` / `completed`, append audit: "Security review complete. Workflow finished.", and congratulate the user.
+
+### Post-Generation Clarify (MANDATORY — for constitution, spec, plan, checklist, tasks)
+
+After Post-SpecKit Verification passes for Phases 2, 4, 6, 8, and 9, invoke the clarify skill **before** presenting the gate or advancing to the next phase:
+
+1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: the current phase name and the path of the verified artifact (e.g. `"Phase: constitution_draft. Artifact: .specify/memory/constitution.md"`).
+2. If clarify fails or produces no output: surface a warning but **do not block the workflow** — log to audit and continue to the gate/next phase. Clarify is a best-effort enrichment step, not a hard gate.
+3. Append to audit: `[<ISO>] Clarify ran for <phase_id>.`
+
+This step does not apply to `analyze` (Phase 10) or `implement` (Phase 12).
 
 ### Post-SpecKit Verification (MANDATORY — after every SpecKit skill invocation)
 
