@@ -347,7 +347,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.2",
+  "workflow_version": "1.3",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
