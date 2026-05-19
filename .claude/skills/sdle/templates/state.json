@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.5",
+  "workflow_version": "1.6",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",
@@ -10,6 +10,7 @@
   "current_feature_id": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
+  "verbose": false,
   "rate_limits": {
     "max_remediation_attempts": 3,
     "max_retry_attempts": 3

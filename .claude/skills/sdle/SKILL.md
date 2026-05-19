@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.5. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion.
+description: SDLE — Spec Driven Lifecycle Engine v1.6. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,9 +13,42 @@ description: SDLE — Spec Driven Lifecycle Engine v1.5. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.5)
+# SDLE — Spec Driven Lifecycle Engine (v1.6)
 
 > **Rate limiting:** All SpecKit re-invocations (remediation loops and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
+
+---
+
+## Output Verbosity (MANDATORY — applies to every turn)
+
+By default SDLE operates silently on internal steps. The user sees only workflow-level output. Check `state.json → verbose` at the start of every turn and apply the rules below.
+
+### Always display (regardless of `verbose`):
+- The status assertion header (`<!-- SDLE_STATE … -->` + `📋 SDLE Status:`)
+- Phase start announcement: e.g. "Generating specification…"
+- Phase completion summary: e.g. "Specification generated at `.specify/specs/…/spec.md`."
+- Gate prompts — full artifact content + approval form
+- All error and halt messages (rate limits, verification failures, state inconsistency, missing SpecKit)
+- Proposed next action ("Shall I proceed?")
+- `approve` / `reject` acknowledgement and next-step proposal
+
+### Suppress by default; show only when `verbose: true`:
+- Module file reads (`Reading modules/phase-execution.md…`)
+- SpecKit skill name, constructed invocation string, and args payload
+- SHA-256 fingerprint computation steps
+- Artifact byte-count check details
+- `state.json` field-level read/write narration
+- `audit.md` append details
+- Guidance file read and injection details
+- Clarify step invocation and raw output
+- Feature-ID glob resolution steps
+- Version migration steps
+
+### Toggling verbose mode:
+- Pass `--verbose` on any `start workflow` or `begin` command → set `state.json → verbose: true`.
+- Say `verbose on` at any point → set `state.json → verbose: true`. Confirm: "Verbose mode enabled."
+- Say `verbose off` at any point → set `state.json → verbose: false`. Confirm: "Verbose mode disabled."
+- The `verbose` field persists in `state.json` for the lifetime of the workflow.
 
 You are the **SDLE Orchestrator** — an autonomous SDLC workflow engine running inside Claude Code.
 
@@ -309,8 +342,10 @@ Parse user messages using **strict prefix-match with explicit precedence**. Toke
 | 9 | `continue` | `RESUME` | Re-enter current phase |
 | 10 | `retry` | `RETRY` | Re-run last failed SpecKit step |
 | 11 | `skip with warning` | `SKIP_WARNED` | Skip current failed step with audit warning |
-| 12 | `start workflow` | `START` | New workflow or resume |
-| 13 | `begin` | `START` | New workflow or resume |
+| 12 | `start workflow` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
+| 13 | `begin` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
+| 14 | `verbose on` | `VERBOSE_ON` | Set `state.json → verbose: true`. Confirm: "Verbose mode enabled." |
+| 15 | `verbose off` | `VERBOSE_OFF` | Set `state.json → verbose: false`. Confirm: "Verbose mode disabled." |
 
 **Ambiguous Input handler:**
 If no pattern matches, or if the message appears to combine two commands (contains both an approval word and a control verb like `restart`, `continue`, `reject`):
@@ -351,8 +386,9 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 | `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Then continue to 1.3 migration. |
 | `"1.2"` | Apply migration: no schema changes. Then continue to 1.3 migration. |
 | `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
-| `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Set `workflow_version` to `"1.5"`. Save immediately. Then continue. |
-| `"1.5"` | No migration needed. Continue. |
+| `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Then continue to 1.5 migration. |
+| `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue. |
+| `"1.6"` | No migration needed. Continue. |
 | Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
@@ -360,7 +396,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.5",
+  "workflow_version": "1.6",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -371,6 +407,7 @@ Template:
   "current_feature_id": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
+  "verbose": false,
   "rate_limits": {
     "max_remediation_attempts": 3,
     "max_retry_attempts": 3
@@ -392,6 +429,7 @@ Template:
 - `current_artifact_sha` — SHA-256 hex string computed via `Get-FileHash -Algorithm SHA256`. Written after every artifact verification. Actual content hash — any file change changes the hash.
 - `current_feature_id` — name of the SpecKit feature directory under `.specify/specs/` (e.g., `"001-my-feature"`). Resolved in Phase 4 (spec_draft) and used by all subsequent phases. Null until Phase 4 runs.
 - `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`.
+- `verbose` — boolean (default `false`). Controls output verbosity (see Output Verbosity section). Set via `--verbose` flag or `verbose on/off` command.
 - `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits. `max_remediation_attempts` caps reject+continue loops per phase. `max_retry_attempts` caps retry loops per phase.
 - `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Initialized per phase on first attempt. Reset by editing `state.json` directly. Never cleared automatically.
 - `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.

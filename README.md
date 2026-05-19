@@ -277,6 +277,38 @@ Each `approvals.<gate>` entry:
 
 ---
 
+## v1.6 — Verbose Mode
+
+SDLE v1.6 suppresses internal operational details from the console by default. Users see only workflow-level output.
+
+**What is always shown:**
+- Status header, phase announcements, phase completion summaries
+- Gate prompts (full artifact content + approval form)
+- Error / halt messages
+- Proposed next actions
+
+**What is hidden by default (shown only in verbose mode):**
+- Module file reads, SpecKit skill names and args, SHA-256 computation, artifact byte counts, state.json field updates, audit.md appends, guidance file injection details, clarify invocations, feature-ID resolution, version migration steps
+
+**Enabling verbose mode:**
+
+```
+start workflow --verbose
+```
+
+or toggle at any point:
+
+```
+verbose on
+verbose off
+```
+
+The `verbose` setting persists in `.workflow/state.json` for the duration of the workflow.
+
+State schema update: `verbose: false` field added. v1.5 state files are auto-migrated on first load.
+
+---
+
 ## v1.5 — Rate Limiting
 
 SDLE v1.5 adds configurable caps on all SpecKit re-invocation loops to prevent quota exhaustion:
