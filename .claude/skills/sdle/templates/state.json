@@ -1,9 +1,9 @@
 {
-  "workflow_version": "1.3",
+  "workflow_version": "1.4",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",
-  "progress": "1/14",
+  "progress": "1/16",
   "last_updated": null,
   "current_artifact": null,
   "current_artifact_sha": null,
@@ -15,7 +15,8 @@
     "gate_spec": null,
     "gate_plan": null,
     "gate_analyze": null,
-    "gate_implement": null
+    "gate_implement": null,
+    "gate_design": null
   },
   "phase_history": []
 }

@@ -15,6 +15,7 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 | `tasks_draft` | `guidance/tasks.md` |
 | `analyze` | `guidance/analyze.md` |
 | `implement` | `guidance/implement.md` |
+| `design_generation` | `guidance/design.md` |
 
 ### BEFORE executing any phase:
 1. Update `state.json`: set `status` to `in_progress`.
@@ -77,7 +78,32 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 - Append audit: "Implementation complete."
 - Present the gate prompt.
 
-**Phase 14 — `security_review`:**
+**Phase 14 — `design_generation`:**
+- Do NOT invoke SpecKit. This is an SDLE-native phase.
+- **Guidance:** If `guidance/design.md` was read in step 4 above, use its content to shape the structure, emphasis, and level of detail in both design documents. Apply it as context throughout generation.
+- **Step A — App Design (`design/app/app-design.md`):**
+  - Create the `design/app/` directory if it does not exist.
+  - Read the following for context: `.specify/memory/constitution.md`, `.specify/specs/{state.current_feature_id}/spec.md`, `.specify/specs/{state.current_feature_id}/plan.md` (if they exist).
+  - Generate `design/app/app-design.md` containing all of the following sections:
+    1. **Context Diagram** — system boundary, external actors, and major external integrations (text-based or Mermaid `C4Context` diagram).
+    2. **Component Diagram** — internal components/modules and their relationships (Mermaid `C4Component` or `graph` diagram).
+    3. **Detail-Level Design** — per-component narrative: responsibilities, key interfaces, data flows, and technology choices.
+    4. **Sequence Diagrams** — at least one Mermaid `sequenceDiagram` per major user-facing flow or integration point.
+    5. **Important Design Decisions** — table of significant decisions with rationale, alternatives considered, and trade-offs.
+- **Step B — DB Design (`design/db/db-design.md`) — conditional:**
+  - Read `design/app/app-design.md` and the spec. If the feature involves persistent data storage (database, data store, or structured persistence):
+    - Create the `design/db/` directory if it does not exist.
+    - Generate `design/db/db-design.md` containing:
+      1. **ERD** — entity-relationship diagram (Mermaid `erDiagram`).
+      2. **Data Dictionary** — table with columns: Entity, Attribute, Type, Constraints, Description.
+      3. **Design Decisions** — indexing strategy, normalization choices, partitioning, migration notes.
+  - If no persistent storage is involved: skip Step B and note "No database design required" in the audit entry.
+- Run Post-SpecKit Verification against `design/app/app-design.md` (size ≥ 100 bytes, SHA-256 fingerprint). If `design/db/db-design.md` was also generated, record it as a secondary artifact in audit.
+- After completion: update state to `gate_design` / `awaiting_approval`.
+- Append audit: "Design generation complete. App design: design/app/app-design.md. DB design: design/db/db-design.md (or 'not applicable')."
+- Present the gate prompt (read `modules/gate-protocol.md`).
+
+**Phase 16 — `security_review`:**
 - Do NOT invoke SpecKit. Read `modules/security-review.md` and follow its procedure to generate `reviews/security-review-<timestamp>.md`.
 - After the review file is written: update state to `complete` / `completed`, append audit: "Security review complete. Workflow finished.", and congratulate the user.
 
@@ -89,7 +115,7 @@ After Post-SpecKit Verification passes for Phases 2, 4, 6, 8, and 9, invoke the 
 2. If clarify fails or produces no output: surface a warning but **do not block the workflow** — log to audit and continue to the gate/next phase. Clarify is a best-effort enrichment step, not a hard gate.
 3. Append to audit: `[<ISO>] Clarify ran for <phase_id>.`
 
-This step does not apply to `analyze` (Phase 10) or `implement` (Phase 12).
+This step does not apply to `analyze` (Phase 10), `implement` (Phase 12), or `design_generation` (Phase 14) — these are not SpecKit generation phases.
 
 ### Post-SpecKit Verification (MANDATORY — after every SpecKit skill invocation)
 

@@ -25,7 +25,7 @@ The user must never need to open an external file to know what they are approvin
 
 ```
 ---
-✋ APPROVAL REQUIRED — Gate {gate_number}/5: {Gate Label}
+✋ APPROVAL REQUIRED — Gate {gate_number}/6: {Gate Label}
 
 <artifact content displayed above>
 

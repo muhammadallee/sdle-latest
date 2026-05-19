@@ -51,7 +51,7 @@ SDLE will handle everything from there.
 
 ---
 
-## 14-Phase Workflow
+## 16-Phase Workflow
 
 ```
 Phase  1  Requirements Check          — Validates requirements/ folder
@@ -67,10 +67,12 @@ Phase 10  Analyze                      — SpecKit: analyze
 Phase 11  ★ GATE 4: Analysis           — Await your approval
 Phase 12  Implement                    — SpecKit: implement
 Phase 13  ★ GATE 5: Implementation     — Await your approval
-Phase 14  Security Review              — Auto-generated review file
+Phase 14  Generate Design              — SDLE-native: app & DB design docs
+Phase 15  ★ GATE 6: Design             — Await your approval
+Phase 16  Security Review              — Auto-generated review file
 ```
 
-**5 approval gates total.** Phases 8–10 run automatically (no gate between them).
+**6 approval gates total.** Phases 8–10 run automatically (no gate between them).
 
 ---
 
@@ -84,7 +86,7 @@ Phase 14  Security Review              — Auto-generated review file
 | `reject with comments: <text>` | Reject and trigger remediation |
 | `status` / `show state` | Show current phase, progress, approvals |
 | `resume` / `continue` | Resume from current phase |
-| `restart phase <N>` | Reset to phase N (1–14) |
+| `restart phase <N>` | Reset to phase N (1–16) |
 | `retry` | Retry a failed SpecKit step |
 | `skip with warning` | Skip a failed step (not recommended) |
 
@@ -101,6 +103,7 @@ Phase 14  Security Review              — Auto-generated review file
 | Tasks | `speckit-tasks` |
 | Analyze | `speckit-analyze` |
 | Implement | `speckit-implement` |
+| Design Generation | *(SDLE-native, no SpecKit call)* |
 | Security Review | *(SDLE-native, no SpecKit call)* |
 
 These skill names are installed by `specify init . --skills --here`.
@@ -116,7 +119,7 @@ These skill names are installed by `specify init . --skills --here`.
 ├── modules/
 │   ├── phase-execution.md    ← Phase logic (loaded when executing a phase)
 │   ├── gate-protocol.md      ← Gate + rejection logic (loaded at gate phases)
-│   └── security-review.md   ← Security review template (loaded at Phase 14)
+│   └── security-review.md   ← Security review template (loaded at Phase 16)
 └── templates/
     └── state.json            ← Initial state template
 ```
@@ -132,6 +135,9 @@ These skill names are installed by `specify init . --skills --here`.
 │       ├── plan.md
 │       ├── tasks.md
 │       └── ...
+├── design/
+│   ├── app/app-design.md         (context, components, sequence diagrams, decisions)
+│   └── db/db-design.md           (ERD, data dictionary, decisions — if applicable)
 ├── reviews/
 │   └── security-review-YYYY-MM-DD-HHMM.md
 └── .workflow/
@@ -146,7 +152,7 @@ These skill names are installed by `specify init . --skills --here`.
 ```
 User: start workflow
 
-SDLE: 📋 SDLE Status: Phase 1/14 — Requirements Check [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 1/16 — Requirements Check [IN PROGRESS]
 
       I found requirements/:
         • requirements/feature.md (2.1 KB)
@@ -158,7 +164,7 @@ SDLE: 📋 SDLE Status: Phase 1/14 — Requirements Check [IN PROGRESS]
 
 User: yes
 
-SDLE: 📋 SDLE Status: Phase 2/14 — Generate Constitution [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 2/16 — Generate Constitution [IN PROGRESS]
 
       Generating constitution...
       [Invokes speckit-constitution internally]
@@ -166,7 +172,7 @@ SDLE: 📋 SDLE Status: Phase 2/14 — Generate Constitution [IN PROGRESS]
       Constitution generated at .specify/memory/constitution.md.
 
       ─────────────────────────────────
-      ✋ APPROVAL REQUIRED — Gate 1/5: Constitution
+      ✋ APPROVAL REQUIRED — Gate 1/6: Constitution
       Artifact: .specify/memory/constitution.md
 
       • `approve` — Accept and advance
@@ -178,7 +184,7 @@ SDLE: 📋 SDLE Status: Phase 2/14 — Generate Constitution [IN PROGRESS]
 
 User: approve with comments: Add a section on API versioning constraints
 
-SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 4/16 — Generate Specification [IN PROGRESS]
 
       Gate 1 approved. Comments recorded.
       Moving to Phase 4: Generate Specification.
@@ -187,14 +193,14 @@ SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [IN PROGRESS]
       [Invokes speckit-specify internally]
 
       ─────────────────────────────────
-      ✋ APPROVAL REQUIRED — Gate 2/5: Specification
+      ✋ APPROVAL REQUIRED — Gate 2/6: Specification
       ...
 
 ──────────────────────────────────────────────────────
 
 User: reject with comments: The user stories are too vague — add acceptance criteria
 
-SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [REJECTED — REMEDIATION NEEDED]
+SDLE: 📋 SDLE Status: Phase 4/16 — Generate Specification [REJECTED — REMEDIATION NEEDED]
 
       Understood — I've recorded your feedback:
       "The user stories are too vague — add acceptance criteria"
@@ -206,7 +212,7 @@ SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [REJECTED — REME
 
 User: continue
 
-SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 4/16 — Generate Specification [IN PROGRESS]
 
       Re-generating specification with your feedback...
       [Re-invokes speckit-specify with rejection comments as context]
@@ -216,7 +222,7 @@ SDLE: 📋 SDLE Status: Phase 4/14 — Generate Specification [IN PROGRESS]
 
 User: status
 
-SDLE: 📋 SDLE Status: Phase 7/14 — Gate 3: Plan [AWAITING APPROVAL]
+SDLE: 📋 SDLE Status: Phase 7/16 — Gate 3: Plan [AWAITING APPROVAL]
 
       Approvals so far:
         ✅ Gate 1 (Constitution) — Approved
@@ -224,6 +230,7 @@ SDLE: 📋 SDLE Status: Phase 7/14 — Gate 3: Plan [AWAITING APPROVAL]
         ⏳ Gate 3 (Plan) — Awaiting your decision
         ○  Gate 4 (Analysis) — Not yet reached
         ○  Gate 5 (Implementation) — Not yet reached
+        ○  Gate 6 (Design) — Not yet reached
 
       Last updated: 2026-05-11T14:32:00Z
 ```
@@ -240,7 +247,7 @@ SDLE: 📋 SDLE Status: Phase 7/14 — Gate 3: Plan [AWAITING APPROVAL]
 | `project_name` | string\|null | Inferred from requirements |
 | `current_phase` | string | Phase ID (e.g., `gate_plan`) |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| completed \| rejected` |
-| `progress` | string | `"N/14"` |
+| `progress` | string | `"N/16"` |
 | `last_updated` | string | ISO-8601 timestamp |
 | `current_artifact` | string\|null | Path to most recently generated artifact |
 | `speckit_initialized` | boolean | Whether `.specify/` exists |
@@ -270,6 +277,22 @@ Each `approvals.<gate>` entry:
 
 ---
 
+## v1.4 — Design Generation Phase
+
+SDLE v1.4 adds a new SDLE-native phase between Implementation and Security Review:
+
+- **Phase 14 — `design_generation`**: Generates two design documents from the spec, plan, and constitution:
+  - `design/app/app-design.md` — context diagram, component diagram, detail-level design, sequence diagrams, important design decisions.
+  - `design/db/db-design.md` — ERD, data dictionary, design decisions (generated only if the feature involves persistent data storage; skipped otherwise).
+- **Phase 15 — `gate_design` (Gate 6)**: Approval gate for the generated design documents.
+- Security Review moves to **Phase 16**.
+
+Optional guidance file: `guidance/design.md` — shapes the structure, emphasis, and level of detail for both design documents.
+
+State schema update: `approvals.gate_design` field added. v1.3 state files are auto-migrated on first load (no data loss).
+
+---
+
 ## v1.3 — Modular Architecture
 
 SDLE v1.3 splits the single 725-line SKILL.md into four files with lazy-loading:
@@ -277,7 +300,7 @@ SDLE v1.3 splits the single 725-line SKILL.md into four files with lazy-loading:
 - **SKILL.md** (~450 lines, always loaded): CORE RULES, workflow table, Internal Constants, Steps 1–4, Step 9 state schema, Step 10 errors, routing pointers.
 - **modules/phase-execution.md** (108 lines): Phase Execution Map for all 8 active phases, Post-SpecKit Verification, Post-Execution Self-Check. Read by the orchestrator when entering any execution phase.
 - **modules/gate-protocol.md** (83 lines): Approval Gate Protocol (Steps 6 + 7 combined), rejection & remediation flow. Read when `current_phase` ∈ GATE_PHASES or on approve/reject commands.
-- **modules/security-review.md** (89 lines): Evidence-gathering procedure and review-file template for Phase 14 only. Read exclusively at `security_review`.
+- **modules/security-review.md** (89 lines): Evidence-gathering procedure and review-file template for Phase 16 only. Read exclusively at `security_review`.
 
 No behavior changes from v1.2. The state schema is unchanged; v1.2 state files are auto-migrated (version string bumped to `"1.3"` on first load).
 
@@ -290,10 +313,12 @@ SDLE v1.1 adds 8 robustness fixes over the original happy-path-only v1. Here is 
 ### State Assertion Header
 Every response begins with a machine-parseable comment:
 ```
-<!-- SDLE_STATE phase=<id> status=<status> progress=<N/14> -->
-📋 SDLE Status: Phase N/14 — Label [STATUS]
+<!-- SDLE_STATE phase=<id> status=<status> progress=<N/16> -->
+📋 SDLE Status: Phase N/16 — Label [STATUS]
 ```
 If Claude's stated phase disagrees with what you know, say "your phase is wrong" — it will re-read `state.json` from disk and reconcile.
+
+
 
 ### SpecKit Skill Name Discovery
 On first run, SDLE probes `.claude\skills\` (local) and `%USERPROFILE%\.claude\skills\` (global) to find the actual installed prefix (`speckit-` vs `speckit.`). The resolved prefix is stored in `state.json → speckit_skill_prefix`. No hardcoded assumptions.
@@ -308,7 +333,7 @@ At every approval gate, the full artifact content is inlined in the conversation
 When you reject at a gate, your comments are written to `.specify/sdle-feedback.md`. When regeneration runs, SpecKit is explicitly instructed to incorporate that file. After successful re-generation, the feedback is archived to `.specify/sdle-feedback-archive-<timestamp>.md`.
 
 ### Honest Security Review
-The Phase 14 security review:
+The Phase 16 security review:
 - Runs `git diff --stat` and `git diff HEAD~1` to capture real implementation changes.
 - Maps your detected tech stack to OWASP Top 10 relevance.
 - Lists specific tool commands to run (`npm audit`, `bandit`, `semgrep`, etc.).
