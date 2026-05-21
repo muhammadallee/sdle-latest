@@ -43,10 +43,20 @@ Please review the content above, then respond with:
 1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
 2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
 3. Append to audit: `[<ISO>] Gate <N> approved. Comments: <text or none>.`
-4. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
-5. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
-6. Save state.
-7. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
+4. **If comments are non-empty:** Write `clarifications/<current_phase>-<YYYY-MM-DD-HHMM>.clarify` (create `clarifications/` if it does not exist):
+   ```markdown
+   # Clarification — <current_phase> — <ISO timestamp>
+   **Phase:** <current_phase>
+   **Gate:** <gate_label> (Gate <gate_number>/6)
+   **Decision:** approved
+   **Timestamp:** <ISO>
+   **Comments:**
+   <comments text>
+   ```
+5. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
+6. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
+7. Save state.
+8. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**
 - Go to Step 7: Rejection & Remediation (below).
@@ -61,7 +71,17 @@ Please review the content above, then respond with:
    - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.
 3. Set `status` to `rejected`. Save state immediately.
 4. Append to audit: `[<ISO>] Gate <N> rejected. Comments: <text>.`
-5. Write `.specify/sdle-feedback.md` as a **convenience copy** for SpecKit context (not canonical):
+5. Write `clarifications/<current_phase>-<YYYY-MM-DD-HHMM>.clarify` (create `clarifications/` if it does not exist):
+   ```markdown
+   # Clarification — <current_phase> — <ISO timestamp>
+   **Phase:** <current_phase>
+   **Gate:** <gate_label> (Gate <gate_number>/6)
+   **Decision:** rejected
+   **Timestamp:** <ISO>
+   **Comments:**
+   <comments text>
+   ```
+6. Write `.specify/sdle-feedback.md` as a **convenience copy** for SpecKit context (not canonical):
    ```markdown
    # SDLE Feedback for <phase_id> — <ISO timestamp>
    **Gate:** <gate_label>
@@ -69,7 +89,7 @@ Please review the content above, then respond with:
    **Reviewer comments:**
    <rejection comments>
    ```
-6. Respond:
+7. Respond:
 ```
 Understood — I've recorded your feedback in state.json:
 

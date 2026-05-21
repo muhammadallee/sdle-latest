@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.6. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output.
+description: SDLE — Spec Driven Lifecycle Engine v1.7. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Saves all user-provided comments as timestamped .clarify files in clarifications/.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.6. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.6)
+# SDLE — Spec Driven Lifecycle Engine (v1.7)
 
 > **Rate limiting:** All SpecKit re-invocations (remediation loops and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
 
@@ -387,16 +387,17 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 | `"1.2"` | Apply migration: no schema changes. Then continue to 1.3 migration. |
 | `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
 | `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Then continue to 1.5 migration. |
-| `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue. |
-| `"1.6"` | No migration needed. Continue. |
-| Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
+| `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue to 1.6 migration. |
+| `"1.6"` | Apply migration: no schema changes. Set `workflow_version` to `"1.7"`. Save immediately. Then continue. |
+| `"1.7"` | No migration needed. Continue. |
+| any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
 
 Template:
 ```json
 {
-  "workflow_version": "1.6",
+  "workflow_version": "1.7",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
