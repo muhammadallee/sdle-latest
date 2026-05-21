@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.7. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Saves all user-provided comments as timestamped .clarify files in clarifications/.
+description: SDLE — Spec Driven Lifecycle Engine v1.7. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Tracks user clarification responses in clarifications/.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -31,6 +31,8 @@ By default SDLE operates silently on internal steps. The user sees only workflow
 - All error and halt messages (rate limits, verification failures, state inconsistency, missing SpecKit)
 - Proposed next action ("Shall I proceed?")
 - `approve` / `reject` acknowledgement and next-step proposal
+- Clarification prompt (questions from speckit-clarify, or the analyze clarification invitation)
+- Clarification save confirmation (`✓ Clarification saved to clarifications/…`)
 
 ### Suppress by default; show only when `verbose: true`:
 - Module file reads (`Reading modules/phase-execution.md…`)
@@ -327,6 +329,26 @@ Parse user messages using **strict prefix-match with explicit precedence**. Toke
 - Longer patterns take precedence over shorter ones (e.g., `approve with comments:` matches before `approve`).
 - If the message contains multiple possible commands (e.g., `approve and restart phase 3`), it is **ambiguous** — go to the Ambiguous Input handler below.
 
+**Clarification Response Handler (evaluate BEFORE the pattern table):**
+
+If `state.json → clarification_phase` is not null:
+1. Check whether the user's message matches any pattern in the pattern table below (approve, reject, continue, resume, status, retry, verbose, restart, skip, start, begin).
+2. **If a command pattern matches:** Clear `clarification_phase: null` in `state.json` (user is skipping the clarification). Save state. Fall through to normal command handling below.
+3. **If no command pattern matches:** This is a clarification response. Handle as `CLARIFICATION_RESPONSE`:
+   a. Ensure `clarifications/` directory exists in the project root (create with PowerShell if needed: `New-Item -ItemType Directory -Force clarifications`).
+   b. Compute filename: `<clarification_phase>-<YYYY-MM-DD-HHmm>.clarify` using local time.
+   c. Write `clarifications/<filename>` with this exact content:
+      ```
+      Phase: <clarification_phase>
+      Saved: <ISO-8601 timestamp>
+
+      <user's message verbatim>
+      ```
+   d. Clear `clarification_phase: null` in `state.json`. Save state.
+   e. Append to audit: `[<ISO>] User clarification saved: clarifications/<filename>.`
+   f. **Always show** (regardless of verbose): `✓ Clarification saved to clarifications/<filename>.`
+   g. Advance: if `current_phase` ∈ GATE_PHASES or `current_phase` is `analyze` → read `modules/gate-protocol.md` and present the gate. If `current_phase` is `checklist_draft` or `tasks_draft` → proceed automatically to the next phase.
+
 **Pattern table (try in this order):**
 
 | Priority | Pattern (case-insensitive prefix) | Parsed as | Action |
@@ -388,16 +410,16 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 | `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
 | `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Then continue to 1.5 migration. |
 | `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue to 1.6 migration. |
-| `"1.6"` | Apply migration: no schema changes. Set `workflow_version` to `"1.7"`. Save immediately. Then continue. |
+| `"1.6"` | Apply migration: add `clarification_phase: null` if missing. Set `workflow_version` to `"1.7"`. Save immediately. Then continue. |
 | `"1.7"` | No migration needed. Continue. |
-| any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
+| Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
 
 Template:
 ```json
 {
-  "workflow_version": "1.7",
+  "workflow_version": "1.6",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -409,6 +431,7 @@ Template:
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "verbose": false,
+  "clarification_phase": null,
   "rate_limits": {
     "max_remediation_attempts": 3,
     "max_retry_attempts": 3
@@ -431,6 +454,7 @@ Template:
 - `current_feature_id` — name of the SpecKit feature directory under `.specify/specs/` (e.g., `"001-my-feature"`). Resolved in Phase 4 (spec_draft) and used by all subsequent phases. Null until Phase 4 runs.
 - `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`.
 - `verbose` — boolean (default `false`). Controls output verbosity (see Output Verbosity section). Set via `--verbose` flag or `verbose on/off` command.
+- `clarification_phase` — string or null (default `null`). Set to the current `phase_id` when awaiting a user clarification response (after speckit-clarify questions or analyze completion). Cleared after the user responds or skips. Drives the Clarification Response Handler in Step 4.
 - `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits. `max_remediation_attempts` caps reject+continue loops per phase. `max_retry_attempts` caps retry loops per phase.
 - `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Initialized per phase on first attempt. Reset by editing `state.json` directly. Never cleared automatically.
 - `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.

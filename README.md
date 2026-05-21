@@ -139,7 +139,7 @@ These skill names are installed by `specify init . --skills --here`.
 │   ├── app/app-design.md         (context, components, sequence diagrams, decisions)
 │   └── db/db-design.md           (ERD, data dictionary, decisions — if applicable)
 ├── clarifications/
-│   └── <gate-phase>-YYYY-MM-DD-HHMM.clarify  ← User comments at each gate
+│   └── <phase-name>-YYYY-MM-DD-HHmm.clarify  ← user clarification responses
 ├── reviews/
 │   └── security-review-YYYY-MM-DD-HHMM.md
 └── .workflow/
@@ -281,14 +281,25 @@ Each `approvals.<gate>` entry:
 
 ## v1.7 — Clarification Tracking
 
-SDLE v1.7 saves all user-provided gate comments as timestamped `.clarify` files in a `clarifications/` folder in the target project.
+SDLE v1.7 persists user-provided clarification responses to disk so they are never lost in conversation history.
 
-- **When written:** Any `approve with comments:` (if comments are non-empty) or `reject with comments:` at a gate.
-- **Naming convention:** `clarifications/<gate-phase>-YYYY-MM-DD-HHMM.clarify` — e.g. `clarifications/gate_spec-2026-05-21-1430.clarify`
-- **Content:** Phase ID, gate label, decision (approved/rejected), timestamp, and the comment text.
-- **Purpose:** Provides a human-readable audit trail of every piece of reviewer feedback across all gates, independent of `state.json` and the SpecKit feedback mechanism.
+**When clarifications are captured:**
+- After `speckit-clarify` asks questions (Phases 2, 4, 6, 8, 9): SDLE pauses, displays the questions, and waits for the user's response. Once the user answers, the response is written to `clarifications/<phase-name>-<YYYY-MM-DD-HHmm>.clarify` and the workflow advances to the gate.
+- After `speckit-analyze` completes (Phase 10): SDLE invites the user to provide additional context before the Gate 4 prompt. If the user provides text, it is written to `clarifications/analyze-<YYYY-MM-DD-HHmm>.clarify`; saying `continue`/`approve`/`reject` skips straight to the gate.
 
-No state schema changes. v1.6 state files are auto-migrated on first load (version string bumped to `"1.7"`, no data loss).
+**Gate approvals are NOT included** — those remain in `state.json → approvals` and `audit.md` as before.
+
+**File format:**
+```
+Phase: <phase_id>
+Saved: <ISO-8601 timestamp>
+
+<user's response verbatim>
+```
+
+**To skip a clarification without saving:** Say `continue`. The workflow proceeds to the gate immediately with no file written.
+
+State schema update: `clarification_phase` field added (string | null, default null). v1.6 state files are auto-migrated on first load.
 
 ---
 

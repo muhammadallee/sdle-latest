@@ -68,9 +68,10 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 
 **Phase 10 — `analyze`:**
 - Invoke `speckit-analyze` using the Skill tool. If `guidance/analyze.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/analyze.md>\n---\nAlign your output with this guidance."`
-- After completion: update state to `gate_analyze` / `awaiting_approval`.
-- Append audit: "Analysis complete."
-- Present the gate prompt.
+- After the skill completes: set `state.json → clarification_phase: "analyze"`. Save state.
+- Append to audit: `[<ISO>] Analysis complete. Awaiting optional user clarifications.`
+- Tell the user: "Analysis is complete. If you have additional context or clarifications to add, provide them now — they will be saved to `clarifications/analyze-<YYYY-MM-DD-HHmm>.clarify`. Say `continue`, `approve`, or `reject` to proceed straight to the gate."
+- **HALT** — wait for the Clarification Response Handler in Step 4 to process the user's next message before presenting the gate.
 
 **Phase 12 — `implement`:**
 - Invoke `speckit-implement` using the Skill tool. If `guidance/implement.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/implement.md>\n---\nAlign your output with this guidance."`
@@ -112,10 +113,16 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 After Post-SpecKit Verification passes for Phases 2, 4, 6, 8, and 9, invoke the clarify skill **before** presenting the gate or advancing to the next phase:
 
 1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: the current phase name and the path of the verified artifact (e.g. `"Phase: constitution_draft. Artifact: .specify/memory/constitution.md"`).
-2. If clarify fails or produces no output: surface a warning but **do not block the workflow** — log to audit and continue to the gate/next phase. Clarify is a best-effort enrichment step, not a hard gate.
-3. Append to audit: `[<ISO>] Clarify ran for <phase_id>.`
+2. If clarify **fails or produces no output**: log to audit and continue to the gate/next phase normally. Do not block.
+3. If clarify **produces output (questions)**:
+   - Display the questions to the user.
+   - Set `state.json → clarification_phase: <current_phase_id>`. Save state.
+   - Append to audit: `[<ISO>] Clarify produced questions for <phase_id>. Awaiting user clarification response.`
+   - Tell the user: "Please answer the above questions — your response will be saved to `clarifications/<phase_id>-<YYYY-MM-DD-HHmm>.clarify`. Say `continue` to skip without saving."
+   - **HALT** — do not advance to the gate or next phase. The Clarification Response Handler in Step 4 will process the user's next message.
+4. If clarify produces informational output only (no questions): log to audit and continue to gate/next phase normally.
 
-This step does not apply to `analyze` (Phase 10), `implement` (Phase 12), or `design_generation` (Phase 14) — these are not SpecKit generation phases.
+This step does not apply to `analyze` (Phase 10), `implement` (Phase 12), or `design_generation` (Phase 14).
 
 ### Post-SpecKit Verification (MANDATORY — after every SpecKit skill invocation)
 
