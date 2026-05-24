@@ -40,13 +40,41 @@ Please review the content above, then respond with:
 ```
 
 **On `approve` or `approve with comments`:**
+
+> **Drift Re-Approval Mode check (evaluate FIRST, before normal approve flow):**
+>
+> If `state.json → drift_queue` is non-empty, this approval is a drift re-approval, not a normal gate advance. Handle as follows:
+>
+> 1. `gate_key` = `drift_queue[0]` (the gate being re-approved; do NOT use PHASE_TO_GATE_KEY here).
+> 2. Resolve the artifact path from **ARTIFACT_OWNERSHIP** using `gate_key` (substitute `current_feature_id` if needed).
+> 3. Compute current SHA: `(Get-FileHash -Algorithm SHA256 "<path>").Hash`.
+> 4. Update `state.json → approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or 're-approved after artifact drift'>", "timestamp": "<ISO>" }`.
+> 5. Update `state.json → artifact_shas[gate_key]` = new computed SHA (this is now the new baseline).
+> 6. Remove `drift_queue[0]` from `drift_queue`. Save state.
+> 7. Append to audit: `[<ISO>] Drift re-approval: <gate_key> re-approved. New baseline SHA: <sha>. Comments: <text or none>.`
+>
+> - **If `drift_queue` is now empty:**
+>   - Restore `current_phase` = `state.json → pending_phase`. Clear `pending_phase = null`. Set `status = "in_progress"`. Save state.
+>   - Confirm to user: "✅ All drift re-approvals complete. Resuming {pending_phase}…"
+>   - Read `modules/phase-execution.md` and execute the restored `current_phase` (starting from step 1 — the drift check in step 0 will now pass).
+> - **If `drift_queue` is still non-empty:**
+>   - Present the next drifted gate's full artifact content for re-approval (same RE-APPROVAL gate prompt format from phase-execution.md step 0.5). Show `(Re-approval {completed+1}/{total} …)`.
+>   - HALT — do not execute the normal approve flow below.
+>
+> **DO NOT proceed to the normal approve flow when in drift re-approval mode.**
+
 1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
 2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
-3. Append to audit: `[<ISO>] Gate <N> approved. Comments: <text or none>.`
-4. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
-5. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
-6. Save state.
-7. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
+3. **Record approval-time SHA:** Compute current SHA of `current_artifact`:
+   ```powershell
+   (Get-FileHash -Algorithm SHA256 "<current_artifact>").Hash
+   ```
+   Write to `state.json → artifact_shas[gate_key]` = computed SHA. This is the baseline for future drift detection. (Skip if `current_artifact` is null or `gate_key` is `gate_implement`.)
+4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
+5. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
+6. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
+7. Save state.
+8. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**
 - Go to Step 7: Rejection & Remediation (below).
@@ -56,6 +84,26 @@ Please review the content above, then respond with:
 ## Step 7: Rejection & Remediation
 
 **On rejection:**
+
+> **Drift Re-Approval Mode check (evaluate FIRST):**
+>
+> If `state.json → drift_queue` is non-empty, this rejection is during a drift re-approval. Handle as follows:
+>
+> 1. `gate_key` = `drift_queue[0]`.
+> 2. Record in `state.json → approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
+> 3. Clear `drift_queue = []`. Clear `pending_phase = null`. Set `status = "rejected"`. Save state.
+> 4. Append to audit: `[<ISO>] Drift re-approval REJECTED for <gate_key>. Feedback: <text>. Drift queue cleared.`
+> 5. Respond:
+>    ```
+>    Drift re-approval rejected for {gate_label}.
+>
+>    Your feedback: "{rejection comments}"
+>
+>    The drift re-approval queue has been cleared. To fix this, you need to regenerate the artifact that was modified.
+>    Use `restart phase <N>` where N is the phase number for the preceding execution phase (the one that originally produced this artifact), then re-run the workflow from there.
+>    ```
+> 6. HALT — do not execute the normal rejection flow below.
+
 1. Derive `gate_key` from **PHASE_TO_GATE_KEY** (Internal Constants) using `current_phase`.
 2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
    - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.

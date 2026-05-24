@@ -18,6 +18,48 @@ Before invoking SpecKit for any phase, check whether the user has placed a guida
 | `design_generation` | `guidance/design.md` |
 
 ### BEFORE executing any phase:
+
+**Step 0 — Artifact Drift Check (MANDATORY — runs before updating status):**
+
+For each `gate_key` in `state.json → approvals` where `decision == "approved"`:
+
+a. Look up `gate_key` in **ARTIFACT_OWNERSHIP** (Internal Constants). Get `artifact_path_template`.
+b. If `artifact_path_template` is `"(none)"` → skip this gate.
+c. If `state.json → artifact_shas[gate_key]` is null or missing → skip this gate (pre-v1.8 approval, no baseline SHA recorded).
+d. Resolve path: replace `{current_feature_id}` with `state.json → current_feature_id` if the template contains it.
+e. Compute the current SHA of the resolved file using PowerShell:
+   ```powershell
+   (Get-FileHash -Algorithm SHA256 "<resolved_path>").Hash
+   ```
+   If the file does not exist: treat as drifted (SHA = `"FILE_MISSING"`).
+f. Compare computed SHA to `artifact_shas[gate_key]`. If they differ: add `gate_key` to a local `drifted_gates` list.
+
+After checking all approved gates:
+
+- **If `drifted_gates` is empty:** proceed normally to step 1 below.
+- **If `drifted_gates` is non-empty:**
+  1. Sort `drifted_gates` by their corresponding gate phase position in **PHASE_SEQUENCE** (ascending — most upstream gate first).
+  2. Save to state: `drift_queue = drifted_gates`, `pending_phase = current_phase`, `status = "awaiting_reapproval"`. Save state.
+  3. Append to audit: `[<ISO>] Artifact drift detected for gates: <gate_keys>. Entering drift re-approval mode. Pending phase: <current_phase>.`
+  4. Surface the following (always shown, regardless of verbose):
+     ```
+     ⚠️ Artifact drift detected — {N} previously-approved artifact(s) changed since approval:
+
+     {for each gate_key in drifted_gates (sorted):}
+       • {gate_label} ({gate_key})
+         Path:          {resolved_artifact_path}
+         Approved SHA:  {artifact_shas[gate_key]}
+         Current SHA:   {computed_sha}
+
+     These artifact(s) must be re-approved before {current_phase} can proceed.
+     ```
+  5. Present the first drifted gate's full artifact content for re-approval — same format as Step 6 gate prompt (read `modules/gate-protocol.md`), but with the header:
+     ```
+     ✋ RE-APPROVAL REQUIRED — Gate {gate_number}/6: {Gate Label}
+     (Re-approval {1}/{total_drifted}: artifact was modified after original approval)
+     ```
+  6. **HALT** — do not proceed with phase execution. The drift re-approval flow in gate-protocol.md will handle `approve`/`reject with comments` from here.
+
 1. Update `state.json`: set `status` to `in_progress`.
 2. Append to `.workflow/audit.md`: `[<ISO timestamp>] Phase <N> (<phase_id>) started.`
 3. Tell the user what you are about to do.

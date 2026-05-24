@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.7. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Tracks user clarification responses in clarifications/.
+description: SDLE — Spec Driven Lifecycle Engine v1.8. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Tracks user clarification responses in clarifications/. Detects and requires re-approval when a later phase modifies a previously-approved artifact (artifact drift detection).
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.7. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.7)
+# SDLE — Spec Driven Lifecycle Engine (v1.8)
 
 > **Rate limiting:** All SpecKit re-invocations (remediation loops and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
 
@@ -148,6 +148,18 @@ When writing or reading `approvals.<key>`, always derive the key from this table
 
 ### GATE_PHASES (set of phases that require user approval)
 `gate_constitution`, `gate_spec`, `gate_plan`, `gate_analyze`, `gate_implement`, `gate_design`
+
+### ARTIFACT_OWNERSHIP (maps each gate_key to the artifact it owns — used for drift detection)
+| gate_key | artifact_path | path type |
+|---|---|---|
+| `gate_constitution` | `.specify/memory/constitution.md` | static |
+| `gate_spec` | `.specify/specs/{current_feature_id}/spec.md` | substitute `current_feature_id` from state |
+| `gate_plan` | `.specify/specs/{current_feature_id}/plan.md` | substitute `current_feature_id` from state |
+| `gate_analyze` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` from state |
+| `gate_implement` | `(none)` | multi-file output — drift check skipped |
+| `gate_design` | `design/app/app-design.md` | static |
+
+To resolve a path: look up the gate_key row, take the artifact_path, replace `{current_feature_id}` with `state.json → current_feature_id` if the path type is "substitute". Use the resulting absolute-relative path from the project root.
 
 ### PROGRESS_MAP
 | phase | progress |
@@ -410,8 +422,9 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 | `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
 | `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Then continue to 1.5 migration. |
 | `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue to 1.6 migration. |
-| `"1.6"` | Apply migration: add `clarification_phase: null` if missing. Set `workflow_version` to `"1.7"`. Save immediately. Then continue. |
-| `"1.7"` | No migration needed. Continue. |
+| `"1.6"` | Apply migration: add `clarification_phase: null` if missing. Set `workflow_version` to `"1.7"`. Save immediately. Then continue to 1.7 migration. |
+| `"1.7"` | Apply migration: add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. Set `workflow_version` to `"1.8"`. Save immediately. |
+| `"1.8"` | No migration needed. Continue. |
 | Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
@@ -419,7 +432,7 @@ After reading `state.json`, check `workflow_version` before doing anything else:
 Template:
 ```json
 {
-  "workflow_version": "1.6",
+  "workflow_version": "1.8",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -445,6 +458,9 @@ Template:
     "gate_implement": null,
     "gate_design": null
   },
+  "artifact_shas": {},
+  "drift_queue": [],
+  "pending_phase": null,
   "phase_history": []
 }
 ```
@@ -458,6 +474,9 @@ Template:
 - `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits. `max_remediation_attempts` caps reject+continue loops per phase. `max_retry_attempts` caps retry loops per phase.
 - `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Initialized per phase on first attempt. Reset by editing `state.json` directly. Never cleared automatically.
 - `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.
+- `artifact_shas` — map of `{ "<gate_key>": "<sha256_hex>" }`. Written at approval time (gate-protocol.md). Used by the drift check in phase-execution.md to detect modifications after approval. A null or missing entry means no SHA was recorded (pre-v1.8 approval); skip drift check for that gate.
+- `drift_queue` — ordered list of `gate_key` strings that have drifted and need re-approval. Populated by the drift check in phase-execution.md. Emptied as user approves each drifted gate. When non-empty, `approve` triggers drift re-approval mode (gate-protocol.md) instead of normal phase advancement.
+- `pending_phase` — the `phase_id` that was about to execute when drift was detected. Restored as `current_phase` once `drift_queue` is empty. Null when not in drift re-approval mode.
 - `progress` — derived from **PROGRESS_MAP** (Internal Constants). Do not compute independently.
 
 **`phase_history` entries** (append one per completed phase):

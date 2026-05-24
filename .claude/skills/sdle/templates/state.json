@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.7",
+  "workflow_version": "1.8",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",
@@ -25,5 +25,8 @@
     "gate_implement": null,
     "gate_design": null
   },
+  "artifact_shas": {},
+  "drift_queue": [],
+  "pending_phase": null,
   "phase_history": []
 }
