@@ -1,4 +1,4 @@
-> **SDLE module — loaded on demand.** Assumes Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_TO_GATE_KEY, GATE_PHASES, PROGRESS_MAP) are already in context from SKILL.md. Do not duplicate them here.
+> **SDLE module — loaded on demand.** Assumes Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_TO_GATE_KEY, GATE_PHASES, PROGRESS_MAP, ARTIFACT_OWNERSHIP, PHASE_LABEL_MAP) are already in context from SKILL.md. Do not duplicate them here.
 
 ## Step 6: Approval Gate Protocol
 
@@ -25,7 +25,7 @@ The user must never need to open an external file to know what they are approvin
 
 ```
 ---
-✋ APPROVAL REQUIRED — Gate {gate_number}/6: {Gate Label}
+✋ APPROVAL REQUIRED — Gate {gate_number}/8: {Gate Label}
 
 <artifact content displayed above>
 
@@ -72,9 +72,32 @@ Please review the content above, then respond with:
    Write to `state.json → artifact_shas[gate_key]` = computed SHA. This is the baseline for future drift detection. (Skip if `current_artifact` is null or `gate_key` is `gate_implement`.)
 4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
 5. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
-6. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
-7. Save state.
-8. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
+6. **gate_security special case:** If `gate_key` is `gate_security`:
+   a. Write `.workflow/completion-summary.json`:
+      ```json
+      {
+        "workflow_version": "<state.workflow_version>",
+        "project_name": "<state.project_name>",
+        "completed_at": "<ISO timestamp>",
+        "phases_completed": <count of phase_history entries>,
+        "security_review_artifact": "<state.security_review_artifact>",
+        "all_gates_approved": true
+      }
+      ```
+   b. Set `current_phase` to `complete`, `status` to `completed`, update `progress` from **PROGRESS_MAP**.
+   c. Save state.
+   d. Append to audit: `[<ISO>] Gate 8/8 (security) approved. Workflow complete. Completion summary written.`
+   e. Congratulate the user:
+      ```
+      ✅ Security review approved. Workflow complete!
+
+      All 8 gates passed. Completion summary: .workflow/completion-summary.json
+      Security review: <security_review_artifact>
+      ```
+   f. HALT — do not propose a next phase.
+7. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
+8. Save state.
+9. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**
 - Go to Step 7: Rejection & Remediation (below).

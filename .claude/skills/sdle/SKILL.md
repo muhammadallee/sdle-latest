@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.8. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Tracks user clarification responses in clarifications/. Detects and requires re-approval when a later phase modifies a previously-approved artifact (artifact drift detection).
+description: SDLE — Spec Driven Lifecycle Engine v1.9. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. Orchestrates SpecKit internally — the user never runs SpecKit commands directly. Rate-limits remediation loops and retry loops to prevent quota exhaustion. Supports --verbose flag for detailed internal output. Tracks user clarification responses in clarifications/. Detects and requires re-approval when a later phase modifies a previously-approved artifact (artifact drift detection). Design is generated before implementation so design informs code. Tasks and security review each have explicit approval gates (Gates 4 and 8).
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.8. Use when the user says 
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.8)
+# SDLE — Spec Driven Lifecycle Engine (v1.9)
 
 > **Rate limiting:** All SpecKit re-invocations (remediation loops and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
 
@@ -64,7 +64,7 @@ Your role combines: AI Delivery Manager + AI Architect + AI QA Reviewer + AI Sec
 
 ---
 
-## The 16-Phase Workflow
+## The 18-Phase Workflow
 
 | Phase | ID | Label | Action |
 |---|---|---|---|
@@ -77,14 +77,18 @@ Your role combines: AI Delivery Manager + AI Architect + AI QA Reviewer + AI Sec
 | 7 | `gate_plan` | **GATE 3** | Await approval |
 | 8 | `checklist_draft` | Generate Checklist | Invoke `speckit-checklist` |
 | 9 | `tasks_draft` | Generate Tasks | Invoke `speckit-tasks` |
-| 10 | `analyze` | Analyze | Invoke `speckit-analyze` |
-| 11 | `gate_analyze` | **GATE 4** | Await approval |
-| 12 | `implement` | Implement | Invoke `speckit-implement` |
-| 13 | `gate_implement` | **GATE 5** | Await approval |
-| 14 | `design_generation` | Generate Design | Generate app & DB design documents |
-| 15 | `gate_design` | **GATE 6** | Await approval |
-| 16 | `security_review` | Security Review | Generate timestamped review file |
+| 10 | `gate_tasks` | **GATE 4** | Await approval |
+| 11 | `analyze` | Analyze | Invoke `speckit-analyze` |
+| 12 | `gate_analyze` | **GATE 5** | Await approval |
+| 13 | `design_generation` | Generate Design | Generate app & DB design documents |
+| 14 | `gate_design` | **GATE 6** | Await approval |
+| 15 | `implement` | Implement | Invoke `speckit-implement` |
+| 16 | `gate_implement` | **GATE 7** | Await approval |
+| 17 | `security_review` | Security Review | Generate timestamped review file |
+| 18 | `gate_security` | **GATE 8** | Await approval |
 | — | `complete` | Complete | Workflow done |
+
+> **Design before implementation:** Phase 13 (design) intentionally precedes Phase 15 (implement) so that the app and DB design documents can inform SpecKit's implementation phase.
 
 ---
 
@@ -101,14 +105,16 @@ Your role combines: AI Delivery Manager + AI Architect + AI QA Reviewer + AI Sec
 7.  gate_plan
 8.  checklist_draft
 9.  tasks_draft
-10. analyze
-11. gate_analyze
-12. implement
-13. gate_implement
-14. design_generation
-15. gate_design
-16. security_review
-17. complete
+10. gate_tasks
+11. analyze
+12. gate_analyze
+13. design_generation
+14. gate_design
+15. implement
+16. gate_implement
+17. security_review
+18. gate_security
+19. complete
 ```
 
 ### NEXT_PHASE (exhaustive transition table)
@@ -122,14 +128,16 @@ Your role combines: AI Delivery Manager + AI Architect + AI QA Reviewer + AI Sec
 | `plan_draft` | `gate_plan` |
 | `gate_plan` | `checklist_draft` |
 | `checklist_draft` | `tasks_draft` |
-| `tasks_draft` | `analyze` |
+| `tasks_draft` | `gate_tasks` |
+| `gate_tasks` | `analyze` |
 | `analyze` | `gate_analyze` |
-| `gate_analyze` | `implement` |
-| `implement` | `gate_implement` |
-| `gate_implement` | `design_generation` |
+| `gate_analyze` | `design_generation` |
 | `design_generation` | `gate_design` |
-| `gate_design` | `security_review` |
-| `security_review` | `complete` |
+| `gate_design` | `implement` |
+| `implement` | `gate_implement` |
+| `gate_implement` | `security_review` |
+| `security_review` | `gate_security` |
+| `gate_security` | `complete` |
 | `complete` | *(terminal — no next phase)* |
 
 To advance: look up `current_phase` in NEXT_PHASE. Use no other source.
@@ -140,47 +148,76 @@ To advance: look up `current_phase` in NEXT_PHASE. Use no other source.
 | `gate_constitution` | `gate_constitution` | 1 |
 | `gate_spec` | `gate_spec` | 2 |
 | `gate_plan` | `gate_plan` | 3 |
-| `gate_analyze` | `gate_analyze` | 4 |
-| `gate_implement` | `gate_implement` | 5 |
+| `gate_tasks` | `gate_tasks` | 4 |
+| `gate_analyze` | `gate_analyze` | 5 |
 | `gate_design` | `gate_design` | 6 |
+| `gate_implement` | `gate_implement` | 7 |
+| `gate_security` | `gate_security` | 8 |
 
 When writing or reading `approvals.<key>`, always derive the key from this table — never infer it from `current_phase` string directly.
 
 ### GATE_PHASES (set of phases that require user approval)
-`gate_constitution`, `gate_spec`, `gate_plan`, `gate_analyze`, `gate_implement`, `gate_design`
+`gate_constitution`, `gate_spec`, `gate_plan`, `gate_tasks`, `gate_analyze`, `gate_design`, `gate_implement`, `gate_security`
 
 ### ARTIFACT_OWNERSHIP (maps each gate_key to the artifact it owns — used for drift detection)
-| gate_key | artifact_path | path type |
+| gate_key | artifact_path_template | path type |
 |---|---|---|
 | `gate_constitution` | `.specify/memory/constitution.md` | static |
-| `gate_spec` | `.specify/specs/{current_feature_id}/spec.md` | substitute `current_feature_id` from state |
-| `gate_plan` | `.specify/specs/{current_feature_id}/plan.md` | substitute `current_feature_id` from state |
-| `gate_analyze` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` from state |
-| `gate_implement` | `(none)` | multi-file output — drift check skipped |
+| `gate_spec` | `.specify/specs/{current_feature_id}/spec.md` | substitute `current_feature_id` |
+| `gate_plan` | `.specify/specs/{current_feature_id}/plan.md` | substitute `current_feature_id` |
+| `gate_tasks` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` |
+| `gate_analyze` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` |
 | `gate_design` | `design/app/app-design.md` | static |
+| `gate_implement` | `.workflow/implementation-manifest.md` | static |
+| `gate_security` | `{security_review_artifact}` | substitute `security_review_artifact` from state |
 
-To resolve a path: look up the gate_key row, take the artifact_path, replace `{current_feature_id}` with `state.json → current_feature_id` if the path type is "substitute". Use the resulting absolute-relative path from the project root.
+To resolve a path: look up `gate_key`, take the template, replace `{current_feature_id}` with `state.json → current_feature_id` and `{security_review_artifact}` with `state.json → security_review_artifact` where applicable. If the substituted value is `null`, skip the drift check for that gate.
+
+### PHASE_LABEL_MAP
+| phase_id | label |
+|---|---|
+| `requirements_check` | Requirements Check |
+| `constitution_draft` | Generate Constitution |
+| `gate_constitution` | Gate 1: Constitution Approval |
+| `spec_draft` | Generate Specification |
+| `gate_spec` | Gate 2: Specification Approval |
+| `plan_draft` | Generate Plan |
+| `gate_plan` | Gate 3: Plan Approval |
+| `checklist_draft` | Generate Checklist |
+| `tasks_draft` | Generate Tasks |
+| `gate_tasks` | Gate 4: Tasks Approval |
+| `analyze` | Analyze |
+| `gate_analyze` | Gate 5: Analysis Approval |
+| `design_generation` | Generate Design |
+| `gate_design` | Gate 6: Design Approval |
+| `implement` | Implement |
+| `gate_implement` | Gate 7: Implementation Approval |
+| `security_review` | Security Review |
+| `gate_security` | Gate 8: Security Review Approval |
+| `complete` | Complete |
 
 ### PROGRESS_MAP
 | phase | progress |
 |---|---|
-| `requirements_check` | 1/16 |
-| `constitution_draft` | 2/16 |
-| `gate_constitution` | 3/16 |
-| `spec_draft` | 4/16 |
-| `gate_spec` | 5/16 |
-| `plan_draft` | 6/16 |
-| `gate_plan` | 7/16 |
-| `checklist_draft` | 8/16 |
-| `tasks_draft` | 9/16 |
-| `analyze` | 10/16 |
-| `gate_analyze` | 11/16 |
-| `implement` | 12/16 |
-| `gate_implement` | 13/16 |
-| `design_generation` | 14/16 |
-| `gate_design` | 15/16 |
-| `security_review` | 16/16 |
-| `complete` | 16/16 |
+| `requirements_check` | 1/18 |
+| `constitution_draft` | 2/18 |
+| `gate_constitution` | 3/18 |
+| `spec_draft` | 4/18 |
+| `gate_spec` | 5/18 |
+| `plan_draft` | 6/18 |
+| `gate_plan` | 7/18 |
+| `checklist_draft` | 8/18 |
+| `tasks_draft` | 9/18 |
+| `gate_tasks` | 10/18 |
+| `analyze` | 11/18 |
+| `gate_analyze` | 12/18 |
+| `design_generation` | 13/18 |
+| `gate_design` | 14/18 |
+| `implement` | 15/18 |
+| `gate_implement` | 16/18 |
+| `security_review` | 17/18 |
+| `gate_security` | 18/18 |
+| `complete` | 18/18 |
 
 ---
 
@@ -196,6 +233,7 @@ Before any other action, perform these checks in order:
 
 **If the file exists:**
 - Read `.workflow/state.json`.
+- Apply version migration (Step 9) BEFORE reading any other field.
 - Extract: `current_phase`, `status`, `progress`, `current_artifact`, `approvals`.
 - Display the status header (see Step 3: Status Display).
 - Then go to Step 4: Command Dispatcher.
@@ -230,7 +268,7 @@ Probe the following paths in order to determine the installed SpecKit skill nami
 
 **If a match is found:**
 - Store `speckit_skill_prefix` in `state.json` (e.g., `"speckit-"`).
-- All subsequent SpecKit skill invocations use this prefix: `{speckit_skill_prefix}constitution`, `{speckit_skill_prefix}specify`, etc.
+- All subsequent SpecKit skill invocations use this prefix: `{speckit_skill_prefix}constitution`, etc.
 
 **If no match is found:**
 ```
@@ -248,7 +286,7 @@ Stop here.
 After loading `state.json`, validate that `current_phase` is consistent with `phase_history`. Use **PHASE_SEQUENCE** (from Internal Constants) as the authoritative ordering — do not infer order from any other source.
 
 1. Find the last entry in `phase_history` where `outcome` is `"approved"` or `"completed"`. Call this `last_confirmed_phase`.
-2. Determine `expected_current_phase` by looking up `last_confirmed_phase` in the **NEXT_PHASE** table (Internal Constants). This is the phase that should logically follow the last confirmed one.
+2. Determine `expected_current_phase` by looking up `last_confirmed_phase` in the **NEXT_PHASE** table. This is the phase that should logically follow the last confirmed one.
 3. Determine the ordinal index of both `expected_current_phase` and actual `current_phase` in **PHASE_SEQUENCE**.
 4. Compare:
 
@@ -271,6 +309,20 @@ After loading `state.json`, validate that `current_phase` is consistent with `ph
    - **actual index is within 2 of expected index** (normal): Trust `current_phase`, continue.
 
 5. If `phase_history` is empty (very early workflow), skip this check.
+
+### 1e. Guidance File Discovery (on first invocation only)
+
+When starting a new workflow (no `state.json`), glob `guidance/` for any `.md` files. If any exist, inform the user before proceeding:
+
+```
+Found guidance files that will shape SDLE's output:
+  <list each file with its name, one per line>
+
+These are optional overrides — if you want to change guidance before starting, edit the files now.
+Say "start workflow" or "begin" to proceed.
+```
+
+If `guidance/` does not exist or is empty: skip silently.
 
 ---
 
@@ -306,27 +358,30 @@ Stop here.
 When state exists, the **absolute first two lines** of your response must be:
 
 ```
-<!-- SDLE_STATE phase=<phase_id> status=<status> progress=<N/16> -->
-📋 SDLE Status: Phase N/16 — <Phase Label> [STATUS]
+<!-- SDLE_STATE phase=<phase_id> status=<status> progress=<N/18> -->
+📋 SDLE Status: Phase N/18 — <Phase Label> [STATUS]
 ```
 
 The HTML comment is machine-parseable and locks in the state claim before any reasoning. Examples:
 
 ```
-<!-- SDLE_STATE phase=gate_constitution status=awaiting_approval progress=3/16 -->
-📋 SDLE Status: Phase 3/16 — Gate 1: Constitution Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_constitution status=awaiting_approval progress=3/18 -->
+📋 SDLE Status: Phase 3/18 — Gate 1: Constitution Approval [AWAITING APPROVAL]
 
-<!-- SDLE_STATE phase=plan_draft status=in_progress progress=6/16 -->
-📋 SDLE Status: Phase 6/16 — Generate Plan [IN PROGRESS]
+<!-- SDLE_STATE phase=plan_draft status=in_progress progress=6/18 -->
+📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
 ```
 
 **Status values:**
 - `pending` → show as `PENDING`
 - `in_progress` → show as `IN PROGRESS`
 - `awaiting_approval` → show as `AWAITING APPROVAL`
+- `awaiting_reapproval` → show as `AWAITING RE-APPROVAL (DRIFT DETECTED)`
 - `completed` → show as `COMPLETED`
 - `rejected` → show as `REJECTED — REMEDIATION NEEDED`
 - `failed` → show as `FAILED — ACTION REQUIRED`
+
+Use the label from **PHASE_LABEL_MAP** (Internal Constants). Do not invent label text.
 
 **Drift recovery:** If the user says your stated phase is wrong, immediately re-read `.workflow/state.json` from disk, display the raw values you read, reconcile with the user's claim, and do not proceed until both agree on the current phase.
 
@@ -344,7 +399,7 @@ Parse user messages using **strict prefix-match with explicit precedence**. Toke
 **Clarification Response Handler (evaluate BEFORE the pattern table):**
 
 If `state.json → clarification_phase` is not null:
-1. Check whether the user's message matches any pattern in the pattern table below (approve, reject, continue, resume, status, retry, verbose, restart, skip, start, begin).
+1. Check whether the user's message matches any pattern in the pattern table below (approve, reject, continue, resume, status, retry, verbose, restart, skip, start, begin, reset, confirm, rollback).
 2. **If a command pattern matches:** Clear `clarification_phase: null` in `state.json` (user is skipping the clarification). Save state. Fall through to normal command handling below.
 3. **If no command pattern matches:** This is a clarification response. Handle as `CLARIFICATION_RESPONSE`:
    a. Ensure `clarifications/` directory exists in the project root (create with PowerShell if needed: `New-Item -ItemType Directory -Force clarifications`).
@@ -361,6 +416,16 @@ If `state.json → clarification_phase` is not null:
    f. **Always show** (regardless of verbose): `✓ Clarification saved to clarifications/<filename>.`
    g. Advance: if `current_phase` ∈ GATE_PHASES or `current_phase` is `analyze` → read `modules/gate-protocol.md` and present the gate. If `current_phase` is `checklist_draft` or `tasks_draft` → proceed automatically to the next phase.
 
+**Drift Guard (evaluate BEFORE the pattern table, AFTER Clarification Response Handler):**
+
+If `state.json → drift_queue` is non-empty AND the user's message matches `retry`:
+```
+⛔ Cannot retry while artifact drift re-approvals are pending.
+Use `approve` or `reject with comments: <feedback>` to handle the drifted artifact first.
+Once all re-approvals are resolved, retry will be available.
+```
+Halt. Do not execute the retry.
+
 **Pattern table (try in this order):**
 
 | Priority | Pattern (case-insensitive prefix) | Parsed as | Action |
@@ -368,18 +433,20 @@ If `state.json → clarification_phase` is not null:
 | 1 | `approve with comments:` | `APPROVE_WITH_COMMENTS(text=<rest>)` | Step 6 approval with comments |
 | 2 | `reject with comments:` | `REJECT_WITH_COMMENTS(text=<rest>)` | Step 7 rejection |
 | 3 | `approve` | `APPROVE` | Step 6 approval, no comments |
-| 4 | `reject` | `REJECT_WITH_COMMENTS(text="")` | Step 7, ask for comments before proceeding |
-| 5 | `restart phase ` | `RESTART(n=<integer after "phase ">)` | Reset to phase N in PHASE_SEQUENCE; validate 1–16 |
-| 6 | `show state` | `STATUS` | Display full state dump |
-| 7 | `status` | `STATUS` | Display full state dump |
-| 8 | `resume` | `RESUME` | Re-enter current phase |
-| 9 | `continue` | `RESUME` | Re-enter current phase |
-| 10 | `retry` | `RETRY` | Re-run last failed SpecKit step |
-| 11 | `skip with warning` | `SKIP_WARNED` | Skip current failed step with audit warning |
-| 12 | `start workflow` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
-| 13 | `begin` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
-| 14 | `verbose on` | `VERBOSE_ON` | Set `state.json → verbose: true`. Confirm: "Verbose mode enabled." |
-| 15 | `verbose off` | `VERBOSE_OFF` | Set `state.json → verbose: false`. Confirm: "Verbose mode disabled." |
+| 4 | `reject` | `REJECT_PROMPT` | Ask: "Please provide your feedback: `reject with comments: <your feedback>`". Do NOT record any rejection or advance state. |
+| 5 | `restart phase ` | `RESTART(n=<integer after "phase ">)` | Step 7.5 — validate 1–18 |
+| 6 | `reset workflow` | `RESET_WORKFLOW` | Step 7.6 — request confirmation |
+| 7 | `confirm reset` | `CONFIRM_RESET` | Step 7.6 — execute confirmed reset |
+| 8 | `show state` | `STATUS_DUMP` | Step 7.7 — full state dump |
+| 9 | `status` | `STATUS_DUMP` | Step 7.7 — full state dump |
+| 10 | `resume` | `RESUME` | Re-enter current phase |
+| 11 | `continue` | `RESUME` | Re-enter current phase |
+| 12 | `retry` | `RETRY` | Re-run last failed SpecKit step |
+| 13 | `skip with warning` | `SKIP_WARNED` | Skip current failed step with audit warning |
+| 14 | `start workflow` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
+| 15 | `begin` | `START` | New workflow or resume. If message contains `--verbose`, set `state.json → verbose: true` |
+| 16 | `verbose on` | `VERBOSE_ON` | Set `state.json → verbose: true`. Confirm: "Verbose mode enabled." |
+| 17 | `verbose off` | `VERBOSE_OFF` | Set `state.json → verbose: false`. Confirm: "Verbose mode disabled." |
 
 **Ambiguous Input handler:**
 If no pattern matches, or if the message appears to combine two commands (contains both an approval word and a control verb like `restart`, `continue`, `reject`):
@@ -408,39 +475,157 @@ When `current_phase` ∈ GATE_PHASES (see Internal Constants) and `status` is `a
 
 ---
 
+## Step 7.5: Restart Phase N
+
+**Triggered by:** `RESTART(n=<N>)`
+
+1. **Validate N:**
+   - N must be an integer between 1 and 18.
+   - Resolve `target_phase` = the phase_id at position N in **PHASE_SEQUENCE** (1-indexed).
+   - If N is out of range: "Invalid phase number. Use a number between 1 and 18." Halt.
+   - If `target_phase` ∈ GATE_PHASES: "Phase N is a gate phase — restarting a gate is not meaningful. Did you mean phase N-1 (the preceding execution phase)?" Halt until user confirms intent.
+
+2. **Confirm with user:**
+   ```
+   ⚠️ You are about to restart from Phase <N>: <label>.
+
+   This will:
+     • Clear all approvals and artifact SHAs for phases <N> and later
+     • Remove phase_history entries from Phase <N> onward
+     • Preserve all state prior to Phase <N>
+
+   Say "confirm restart phase <N>" to proceed, or anything else to cancel.
+   ```
+   Halt until user responds with `confirm restart phase <N>` (exact match, case-insensitive).
+
+3. **Execute restart (after confirmed):**
+   a. Determine which gate_keys correspond to phases at or after `target_phase`. Look up each phase in **PHASE_TO_GATE_KEY** — collect all gate_keys for gate phases whose PHASE_SEQUENCE index ≥ N.
+   b. For each collected `gate_key`: set `state.json → approvals[gate_key]` = `null`. Delete `state.json → artifact_shas[gate_key]` (remove the key entirely).
+   c. Trim `phase_history`: remove all entries where the phase's PHASE_SEQUENCE index ≥ N.
+   d. Clear `drift_queue: []`. Clear `pending_phase: null`. Clear `phase_checkpoint: null`.
+   e. Set `current_phase` = `target_phase`. Set `status` = `"pending"`. Update `progress` from **PROGRESS_MAP**.
+   f. Save state.
+   g. Append to audit: `[<ISO>] Restart: rolled back to Phase <N> (<target_phase>). Cleared downstream approvals: <gate_keys>. phase_history trimmed.`
+   h. Confirm: "✅ Restarted at Phase <N>: <label>. All downstream approvals cleared. Say 'continue' to execute this phase."
+
+> **Backward branching note:** Restarting re-runs SpecKit phases. If the requirements or specification have changed since the original run, later artifacts will be regenerated fresh. This is the intended behavior.
+
+---
+
+## Step 7.6: Reset Workflow
+
+**Triggered by:** `RESET_WORKFLOW`
+
+1. Show the following warning and halt:
+   ```
+   ⚠️ FULL WORKFLOW RESET
+
+   This will:
+     • Delete .workflow/state.json and .workflow/audit.md
+     • Preserve all generated artifacts (.specify/, design/, reviews/, clarifications/)
+
+   This action cannot be undone.
+
+   Say "confirm reset" to proceed, or anything else to cancel.
+   ```
+
+**Triggered by:** `CONFIRM_RESET` (only valid when waiting for reset confirmation; if the user says "confirm reset" outside of this flow, treat as ambiguous and explain reset must be initiated with "reset workflow" first)
+
+2. On `CONFIRM_RESET`:
+   a. Delete `.workflow/state.json`.
+   b. Delete `.workflow/audit.md`.
+   c. Confirm: "✅ Workflow reset. All state cleared. Generated artifacts preserved. Say 'start workflow' to begin fresh."
+
+---
+
+## Step 7.7: Status Dump
+
+**Triggered by:** `STATUS_DUMP` (from `show state` or `status` command)
+
+Display a structured summary of the current workflow state:
+
+```
+## SDLE Workflow State
+
+| Field | Value |
+|---|---|
+| Version | <workflow_version> |
+| Phase | <current_phase> (<N>/18) |
+| Label | <PHASE_LABEL_MAP[current_phase]> |
+| Status | <status> |
+| Progress | <progress> |
+| Last Updated | <last_updated> |
+| Verbose | <verbose> |
+
+### Approvals
+| Gate | Decision | Timestamp |
+|---|---|---|
+| gate_constitution | <decision or "pending"> | <timestamp or —> |
+| gate_spec | <decision or "pending"> | <timestamp or —> |
+| gate_plan | <decision or "pending"> | <timestamp or —> |
+| gate_tasks | <decision or "pending"> | <timestamp or —> |
+| gate_analyze | <decision or "pending"> | <timestamp or —> |
+| gate_design | <decision or "pending"> | <timestamp or —> |
+| gate_implement | <decision or "pending"> | <timestamp or —> |
+| gate_security | <decision or "pending"> | <timestamp or —> |
+
+### Artifacts
+- Current artifact: <current_artifact or "none">
+- Current SHA: <current_artifact_sha or "none">
+- Feature ID: <current_feature_id or "none">
+- Security review artifact: <security_review_artifact or "none">
+
+### Rate Limits
+- Max remediation attempts: <rate_limits.max_remediation_attempts>
+- Max retry attempts: <rate_limits.max_retry_attempts>
+- Per-phase counts: <attempt_counts — list each phase with remediations/retries, or "none recorded">
+
+### Drift State
+- Drift queue: <drift_queue — list gate_keys or "empty">
+- Pending phase: <pending_phase or "none">
+
+### Phase History
+<for each entry in phase_history: "Phase <id> — <outcome> at <completed_at>">
+```
+
+---
+
 ## Step 9: State File Management
 
-### Version Migration (run after reading state.json in Step 1a)
+### Version Migration (run immediately after reading state.json in Step 1a)
 
-After reading `state.json`, check `workflow_version` before doing anything else:
+Apply migrations in sequence. Each migration sets its own target version string and saves before chaining to the next.
 
-| `workflow_version` | Action |
+| `workflow_version` | Migration action |
 |---|---|
-| `"1.0"` | Apply migration: add missing fields `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null`. Then continue to 1.3 migration. |
-| `"1.1"` | Apply migration: add missing field `current_feature_id: null`. Then continue to 1.3 migration. |
-| `"1.2"` | Apply migration: no schema changes. Then continue to 1.3 migration. |
-| `"1.3"` | Apply migration: add `approvals.gate_design: null` if missing. Then continue to 1.4 migration. |
-| `"1.4"` | Apply migration: add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Then continue to 1.5 migration. |
-| `"1.5"` | Apply migration: add `verbose: false` if missing. Set `workflow_version` to `"1.6"`. Save immediately. Then continue to 1.6 migration. |
-| `"1.6"` | Apply migration: add `clarification_phase: null` if missing. Set `workflow_version` to `"1.7"`. Save immediately. Then continue to 1.7 migration. |
-| `"1.7"` | Apply migration: add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. Set `workflow_version` to `"1.8"`. Save immediately. |
-| `"1.8"` | No migration needed. Continue. |
-| Any other value | Warn user: `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
+| `"1.0"` | Add `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null` if missing. Set `workflow_version: "1.1"`. Save. Continue to 1.1 migration. |
+| `"1.1"` | Add `current_feature_id: null` if missing. Set `workflow_version: "1.2"`. Save. Continue to 1.2 migration. |
+| `"1.2"` | Set `workflow_version: "1.3"`. Save. Continue to 1.3 migration. |
+| `"1.3"` | Add `approvals.gate_design: null` if missing. Set `workflow_version: "1.4"`. Save. Continue to 1.4 migration. |
+| `"1.4"` | Add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }` and `attempt_counts: {}` if missing. Set `workflow_version: "1.5"`. Save. Continue to 1.5 migration. |
+| `"1.5"` | Add `verbose: false` if missing. Set `workflow_version: "1.6"`. Save. Continue to 1.6 migration. |
+| `"1.6"` | Add `clarification_phase: null` if missing. Set `workflow_version: "1.7"`. Save. Continue to 1.7 migration. |
+| `"1.7"` | Add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. Set `workflow_version: "1.8"`. Save. Continue to 1.8 migration. |
+| `"1.8"` | Add `phase_checkpoint: null`, `security_review_artifact: null` if missing. Add `approvals.gate_tasks: null`, `approvals.gate_security: null` if missing. Set `workflow_version: "1.9"`. Save. |
+| `"1.9"` | No migration needed. Continue. |
+| Any other value | `"⚠️ state.json has unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt until user responds. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
 
-Template:
+Template (v1.9):
 ```json
 {
-  "workflow_version": "1.8",
+  "workflow_version": "1.9",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
-  "progress": "1/16",
+  "progress": "1/18",
   "last_updated": "<ISO-8601 timestamp>",
   "current_artifact": null,
   "current_artifact_sha": null,
   "current_feature_id": null,
+  "security_review_artifact": null,
+  "phase_checkpoint": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "verbose": false,
@@ -454,9 +639,11 @@ Template:
     "gate_constitution": null,
     "gate_spec": null,
     "gate_plan": null,
+    "gate_tasks": null,
     "gate_analyze": null,
+    "gate_design": null,
     "gate_implement": null,
-    "gate_design": null
+    "gate_security": null
   },
   "artifact_shas": {},
   "drift_queue": [],
@@ -466,17 +653,19 @@ Template:
 ```
 
 **Field notes:**
-- `current_artifact_sha` — SHA-256 hex string computed via `Get-FileHash -Algorithm SHA256`. Written after every artifact verification. Actual content hash — any file change changes the hash.
+- `current_artifact_sha` — SHA-256 hex string computed via `Get-FileHash -Algorithm SHA256`. Written after every artifact verification.
 - `current_feature_id` — name of the SpecKit feature directory under `.specify/specs/` (e.g., `"001-my-feature"`). Resolved in Phase 4 (spec_draft) and used by all subsequent phases. Null until Phase 4 runs.
+- `security_review_artifact` — full relative path to the generated security review file (e.g., `"reviews/security-review-2026-05-25-1430.md"`). Set during Phase 17. Used by ARTIFACT_OWNERSHIP for gate_security drift detection.
+- `phase_checkpoint` — string or null (default `null`). Set to a sub-step identifier when a phase is partially complete (e.g., `"design_app_done"`). Cleared when the phase completes. Allows crash recovery without re-running completed sub-steps.
 - `speckit_skill_prefix` — discovered in Step 1c. Either `"speckit-"` or `"speckit."`.
-- `verbose` — boolean (default `false`). Controls output verbosity (see Output Verbosity section). Set via `--verbose` flag or `verbose on/off` command.
-- `clarification_phase` — string or null (default `null`). Set to the current `phase_id` when awaiting a user clarification response (after speckit-clarify questions or analyze completion). Cleared after the user responds or skips. Drives the Clarification Response Handler in Step 4.
-- `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits. `max_remediation_attempts` caps reject+continue loops per phase. `max_retry_attempts` caps retry loops per phase.
-- `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Initialized per phase on first attempt. Reset by editing `state.json` directly. Never cleared automatically.
+- `verbose` — boolean (default `false`). Controls output verbosity (see Output Verbosity section).
+- `clarification_phase` — string or null. Set to the current `phase_id` when awaiting a user clarification response. Drives the Clarification Response Handler in Step 4.
+- `rate_limits` — configurable caps. Edit directly in `state.json` to raise limits.
+- `attempt_counts` — map of `{ "<phase_id>": { "remediations": N, "retries": N } }`. Reset on success (retries counter reset to 0 after any successful artifact verification). Never manually reset needed for remediations — edit state.json directly.
 - `approvals` keys — must match **PHASE_TO_GATE_KEY** exactly. Do not add or rename keys.
-- `artifact_shas` — map of `{ "<gate_key>": "<sha256_hex>" }`. Written at approval time (gate-protocol.md). Used by the drift check in phase-execution.md to detect modifications after approval. A null or missing entry means no SHA was recorded (pre-v1.8 approval); skip drift check for that gate.
-- `drift_queue` — ordered list of `gate_key` strings that have drifted and need re-approval. Populated by the drift check in phase-execution.md. Emptied as user approves each drifted gate. When non-empty, `approve` triggers drift re-approval mode (gate-protocol.md) instead of normal phase advancement.
-- `pending_phase` — the `phase_id` that was about to execute when drift was detected. Restored as `current_phase` once `drift_queue` is empty. Null when not in drift re-approval mode.
+- `artifact_shas` — map of `{ "<gate_key>": "<sha256_hex>" }`. Written at approval time. Used by drift check in phase-execution.md.
+- `drift_queue` — ordered list of `gate_key` strings awaiting re-approval. Populated by drift check. Emptied as each drifted gate is re-approved.
+- `pending_phase` — phase that was about to execute when drift was detected. Restored as `current_phase` once `drift_queue` is empty.
 - `progress` — derived from **PROGRESS_MAP** (Internal Constants). Do not compute independently.
 
 **`phase_history` entries** (append one per completed phase):
@@ -489,10 +678,10 @@ Template:
 Format for each entry:
 ```
 ## AUDIT [<ISO-8601 UTC>] | <phase_id> — <event_type>
-**Actor:** <git username | git email >
+**Actor:** <git username | git email>
 **Action:** <what happened in clear verb phrase>
 **Artifact:** <file_path | null>
-**Artifact Version (GIT SHA):** <git_sha | version_tag | hash | n/a>
+**Artifact SHA (SHA-256):** <sha256_hex | n/a>
 **Gate Decision:** <APPROVED | REJECTED | n/a>
 **Comments:** <text or "None">
 ```
@@ -503,7 +692,7 @@ Format for each entry:
 
 **If a SpecKit skill call fails or produces no output:**
 ```
-⚠️ The SpecKit step ({skill name}) did not complete successfully.
+⚠️ The SpecKit step did not complete successfully.
 
 Options:
   • Say "retry" to try again
@@ -514,7 +703,7 @@ Do NOT advance the phase. Keep `status` as `in_progress`.
 
 **If `.workflow/state.json` is corrupted or unreadable:**
 - Inform the user.
-- Offer to reset: "I can reset the workflow to the last known good phase, or start fresh. Which do you prefer?"
+- Offer to reset: "I can reset the workflow state. Say 'reset workflow' to clear state (generated artifacts are preserved), or 'show state' to inspect the raw file."
 
 **If `./requirements/` is deleted mid-workflow:**
 - Warn the user but allow continuation since constitution/spec may already capture the requirements.
@@ -522,6 +711,12 @@ Do NOT advance the phase. Keep `status` as `in_progress`.
 **If git is not initialized:**
 - Skip `git diff` in security review; note this in the review file.
 - Everything else works normally.
+
+**Context size warning:**
+- If `phase_history` has 10 or more completed entries and the workflow is still in progress, surface once (not on every turn): "The conversation context is growing. If you experience slowdowns, consider `/clear` between phases — SDLE will reload from `state.json` on the next invocation."
+
+**Backward branching after restart:**
+- When `restart phase N` rolls back to an early phase, later artifacts (specs, plans, design documents) become stale. SDLE will regenerate them when those phases re-execute. If the user manually edited any of those files before restarting, they will be overwritten. Surface a one-time warning after confirming restart: "Note: any manual edits to artifacts from Phase N onward will be overwritten when those phases re-run."
 
 ---
 
@@ -543,6 +738,11 @@ When invoking SpecKit via the Skill tool, use the **dynamic prefix** from `state
 **How to invoke:** Use the `Skill` tool with the constructed full skill name. Pass relevant context (project name, feedback reference) as the `args` parameter.
 
 **If invocation fails:** The skill name may be wrong. Re-run Step 1c to re-discover the prefix, update `state.json`, and retry.
+
+**Idempotency protocol (`phase_checkpoint`):**
+- Before invoking any SpecKit skill (or starting any multi-step SDLE-native phase), set `phase_checkpoint` to a named sub-step identifier and save state (e.g., `"speckit_invoked"`).
+- On crash+resume: if `phase_checkpoint` is non-null when entering a phase, check whether the expected artifact already exists and passes size verification. If it does: skip re-invocation and proceed to the gate. If it does not: clear `phase_checkpoint` and re-invoke normally.
+- Clear `phase_checkpoint: null` after Post-SpecKit Verification passes.
 
 ---
 

@@ -1,4 +1,4 @@
-> **SDLE module — loaded on demand.** Assumes Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_TO_GATE_KEY, GATE_PHASES, PROGRESS_MAP) are already in context from SKILL.md. Do not duplicate them here.
+> **SDLE module — loaded on demand.** Assumes Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_TO_GATE_KEY, GATE_PHASES, PROGRESS_MAP, PHASE_LABEL_MAP) are already in context from SKILL.md. Do not duplicate them here.
 
 ## Step 8: Security Review — Assisted, Evidence-Based Format
 
@@ -23,7 +23,7 @@ Create `reviews/security-review-<YYYY-MM-DD-HHMM>.md` with this structure:
 ```markdown
 # AI-Assisted Security Review — <Project Name>
 **Date:** <YYYY-MM-DD HH:MM>
-**Phase:** 14/14 — Final Security Review
+**Phase:** 17/18 — Security Review
 **Disclaimer:** This is an AI-assisted review based on artifacts and a git diff.
 It is NOT a substitute for SAST/DAST tools, dependency scanners, or a professional audit.
 
