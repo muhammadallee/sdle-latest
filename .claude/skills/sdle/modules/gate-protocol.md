@@ -88,8 +88,9 @@ Please review the content above, then respond with:
    ```
    Write to `state.json → artifact_shas[gate_key]` = computed SHA. This is the baseline for future drift detection. (Skip only if `current_artifact` is null.)
 4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
-5. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
-6. **gate_security special case:** If `gate_key` is `gate_security`:
+5. Append to `state.json → phase_history`: `{ "phase": "<current_phase>", "completed_at": "<ISO>", "outcome": "approved" }`. Set `last_updated`. Save state.
+6. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
+7. **gate_security special case:** If `gate_key` is `gate_security`:
    a. Write `.workflow/completion-summary.json`:
       ```json
       {
@@ -112,8 +113,7 @@ Please review the content above, then respond with:
       Security review: <security_review_artifact>
       ```
    f. HALT — do not propose a next phase.
-7. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**.
-8. Save state.
+8. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**. Set `last_updated`. Save state.
 9. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**
@@ -147,17 +147,9 @@ Please review the content above, then respond with:
 1. Derive `gate_key` from **PHASE_TO_GATE_KEY** (Internal Constants) using `current_phase`.
 2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
    - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.
-3. Set `status` to `rejected`. Save state immediately.
+3. Set `status` to `rejected`. Set `last_updated`. Save state immediately.
 4. Append to audit: `[<ISO>] Gate <N> rejected. Comments: <text>.`
-5. Write `.specify/sdle-feedback.md` as a **convenience copy** for SpecKit context (not canonical):
-   ```markdown
-   # SDLE Feedback for <phase_id> — <ISO timestamp>
-   **Gate:** <gate_label>
-   **Canonical source:** .workflow/state.json → approvals[<gate_key>].comments
-   **Reviewer comments:**
-   <rejection comments>
-   ```
-6. Respond:
+5. Respond:
 ```
 Understood — I've recorded your feedback in state.json:
 

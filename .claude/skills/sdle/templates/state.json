@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.10",
+  "workflow_version": "1.11",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",

@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.10. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass.
+description: SDLE — Spec Driven Lifecycle Engine v1.11. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -13,7 +13,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.10. Orchestrates a gated 1
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.10)
+# SDLE — Spec Driven Lifecycle Engine (v1.11)
 
 > **Rate limiting:** All SpecKit re-invocations (remediation and retry loops) are capped per phase. Limits are stored in `state.json → rate_limits` and are configurable. When a limit is hit, the orchestrator halts and tells the user how to raise or reset the counter.
 
@@ -315,10 +315,11 @@ Then say "start workflow" or "continue".
 ```
 
 **If valid:**
-- Initialize `.workflow/state.json` (phase `requirements_check`, status `in_progress`).
+- **Infer `project_name`:** Scan the first requirements document for a top-level `#` heading and use it as the project name. If no heading exists, use the basename of the current working directory. If still ambiguous, ask: "What should I call this project?" Record the result as `project_name`.
+- Initialize `.workflow/state.json` (phase `requirements_check`, status `in_progress`, `project_name` as determined above, `last_updated` = current ISO timestamp).
 - Initialize `.workflow/audit.md`.
 - Summarize requirements found.
-- Advance to `constitution_draft` / `pending`.
+- Append to `phase_history`: `{ "phase": "requirements_check", "completed_at": "<ISO>", "outcome": "completed" }`. Advance `current_phase` to `constitution_draft`, `status` to `pending`. Update `progress` from **PROGRESS_MAP**. Set `last_updated`. Save state.
 - Propose: "Requirements look good. I'll now generate the project constitution. Shall I proceed?"
 
 ---
@@ -384,10 +385,9 @@ If `state.json → clarification_phase` is not null:
    d. Clear `clarification_phase: null`. Save state.
    e. Audit: `[<ISO>] User clarification saved: clarifications/<filename>.`
    f. Always show: `✓ Clarification saved to clarifications/<filename>.`
-   g. **Advance:**
-      - If `current_phase` ∈ GATE_PHASES or `current_phase` is `analyze` → read `modules/gate-protocol.md` and present the gate.
-      - If `current_phase` is `checklist_draft` → proceed automatically to `tasks_draft` execution (read `modules/phase-execution.md`).
-      - If `current_phase` is `tasks_draft` → read `modules/gate-protocol.md` and present gate_tasks (Gate 4).
+   g. **Advance** (phase-execution.md advances `current_phase` before halting, so these routes are correct):
+      - If `current_phase` ∈ GATE_PHASES → read `modules/gate-protocol.md` and present the gate prompt for `current_phase`.
+      - If `current_phase` is `tasks_draft` → read `modules/phase-execution.md` and execute Phase 9 (tasks_draft).
 
 ---
 
@@ -399,6 +399,15 @@ If `drift_queue` is non-empty AND user message matches `retry`:
 Use `approve` or `reject with comments: <feedback>` to handle the drifted artifact first.
 ```
 Halt.
+
+---
+
+**Pre-dispatch check C — Stale Confirmation Guard:**
+
+If `state.json → pending_confirm_action` is non-null AND the incoming command does NOT begin with `confirm restart phase`, `confirm reset`, or `accept state`:
+- Clear `pending_confirm_action: null`. Set `last_updated`. Save state.
+- Append to audit: `[<ISO>] Pending confirmation "<pending_confirm_action>" cancelled — new command received.`
+- Continue with normal dispatch (do not halt).
 
 ---
 
@@ -613,11 +622,8 @@ When `current_phase` ∈ GATE_PHASES and `status` is `awaiting_approval`, OR whe
    Halt.
 2. Audit: `[<ISO>] ⚠️ SKIPPED WITH WARNING: Phase <current_phase> advanced without a verified artifact. Downstream phases may fail or produce incorrect output.`
 3. Set `current_artifact: null`, `current_artifact_sha: null` in state.
-4. If `current_phase` ∈ GATE_PHASES:
-   - Derive `gate_key` from **PHASE_TO_GATE_KEY**.
-   - Record `approvals[gate_key]: { "decision": "skipped_with_warning", "timestamp": "<ISO>", "comments": "Skipped by user without artifact verification" }`.
-5. Derive `next_phase` from **NEXT_PHASE**. Set `current_phase = next_phase`, `status = "pending"`. Update `progress`. Save state.
-6. Warn:
+4. Derive `next_phase` from **NEXT_PHASE**. Set `current_phase = next_phase`, `status = "pending"`. Update `progress` from **PROGRESS_MAP**. Set `last_updated`. Save state.
+5. Warn:
    ```
    ⚠️ Phase <N>: <label> skipped without artifact verification.
    This may cause downstream phases to fail or produce incorrect output.
@@ -645,16 +651,17 @@ Apply migrations in sequence. Each migration sets its own version string and sav
 | `"1.6"` | Add `clarification_phase: null` if missing. Set version `"1.7"`. Save. Continue. |
 | `"1.7"` | Add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. Set version `"1.8"`. Save. Continue. |
 | `"1.8"` | Add `phase_checkpoint: null`, `security_review_artifact: null`, `pending_confirm_action: null` if missing. Add `approvals.gate_tasks: null`, `approvals.gate_security: null` if missing. Re-compute `progress` by looking up `current_phase` in **PROGRESS_MAP** (new /18 denominator). If `current_phase` ∈ {`implement`, `gate_implement`, `security_review`, `complete`}: after saving, warn the user: "⚠️ This workflow was created under SDLE v1.8, which had a different phase order. Phases gate_tasks (Gate 4), design_generation (Phase 13), and gate_design (Gate 6) were not part of the original run. You may continue from your current position or `restart phase 13` to generate design documents before the implementation review." Set version `"1.9"`. Save. Continue. |
-| `"1.9"` | Add `pending_confirm_action: null` if missing. Set version `"1.10"`. Save. |
-| `"1.10"` | No migration needed. Continue. |
+| `"1.9"` | Add `pending_confirm_action: null` if missing. Set version `"1.10"`. Save. Continue. |
+| `"1.10"` | Add `last_updated: null` if missing. Set version `"1.11"`. Save. Continue. |
+| `"1.11"` | No migration needed. Continue. |
 | Any other value | `"⚠️ Unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
 
-Template (v1.10):
+Template (v1.11):
 ```json
 {
-  "workflow_version": "1.10",
+  "workflow_version": "1.11",
   "project_name": "<inferred from requirements or ask user>",
   "current_phase": "requirements_check",
   "status": "pending",
@@ -702,6 +709,7 @@ Template (v1.10):
 - `drift_queue` — gate_keys with drifted artifacts awaiting re-approval.
 - `pending_phase` — phase that was about to execute when drift was detected.
 - `progress` — from **PROGRESS_MAP** only. Do not compute independently.
+- `last_updated` — set to the current ISO-8601 timestamp on **every** write to `state.json`. Whenever this document says "Save state", updating `last_updated` is implicit and mandatory. Never leave null after initialization.
 
 **`phase_history` entry:**
 ```json
