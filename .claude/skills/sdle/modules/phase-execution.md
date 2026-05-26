@@ -109,10 +109,17 @@ If `state.json → phase_checkpoint` is non-null:
 **Phase 8 — `checklist_draft`:**
 - Set `phase_checkpoint: "speckit_invoked"`. Save state.
 - Invoke `speckit-checklist` using the Skill tool. If `guidance/checklist.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/checklist.md>\n---\nAlign your output with this guidance."`
-- Record artifact: `.specify/specs/{state.current_feature_id}/checklist.md` if the file was created. **Do not fail if checklist.md is not produced** — some projects may not require a checklist; note its absence in the audit and continue.
-- Run Post-Generation Clarify (skip size check for checklist if file is absent).
-- Clear `phase_checkpoint: null`. Save state.
-- Append audit: "Checklist generated (or not produced by SpecKit)."
+- **Checklist artifact handling (conditional):**
+  - If `.specify/specs/{state.current_feature_id}/checklist.md` was produced and is ≥100 bytes:
+    - Record artifact path in state.
+    - Run Post-SpecKit Verification (clears `phase_checkpoint` on success, records SHA).
+    - Run Post-Generation Clarify.
+    - Append audit: "Checklist generated."
+  - If checklist.md was **not produced** or is <100 bytes:
+    - Append audit: "Checklist not produced by SpecKit — proceeding without it."
+    - Clear `phase_checkpoint: null`. Save state.
+    - Run Post-Generation Clarify (no artifact to verify — pass phase_id as context only).
+    - Do **not** set status to "failed". Do not halt.
 - Immediately proceed to Phase 9.
 
 **Phase 9 — `tasks_draft`:**
@@ -122,7 +129,8 @@ If `state.json → phase_checkpoint` is non-null:
 - Run Post-SpecKit Verification (clear `phase_checkpoint` on success), then run Post-Generation Clarify.
 - After completion: update state to `gate_tasks` / `awaiting_approval`.
 - Append audit: "Tasks generated."
-- Present the gate prompt. Display both `checklist.md` (if it exists) and `tasks.md` at this gate so the user can review both together before approving.
+- **Before presenting the gate prompt:** If `.specify/specs/{state.current_feature_id}/checklist.md` exists, Read it and display its full content to the user under the header `### Checklist (Phase 8 output — review alongside Tasks)`. This ensures the user can compare both artifacts before approving.
+- Present the gate prompt (read `modules/gate-protocol.md` for gate_tasks/Gate 4). The gate artifact is `tasks.md`.
 
 **Phase 10 — `gate_tasks`:**
 This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_tasks (Gate 4/8).
@@ -130,9 +138,9 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 **Phase 11 — `analyze`:**
 - Set `phase_checkpoint: "speckit_invoked"`. Save state.
 - Invoke `speckit-analyze` using the Skill tool. If `guidance/analyze.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/analyze.md>\n---\nAlign your output with this guidance."`
-- Clear `phase_checkpoint: null`. Save state.
-- After the skill completes: set `state.json → clarification_phase: "analyze"`. Save state.
-- Append to audit: `[<ISO>] Analysis complete. Awaiting optional user clarifications.`
+- After the skill completes: set `current_artifact` to `.specify/specs/{state.current_feature_id}/tasks.md`. Compute SHA-256 via PowerShell: `(Get-FileHash -Algorithm SHA256 ".specify/specs/{current_feature_id}/tasks.md").Hash`. Set `current_artifact_sha` to the returned hash. Clear `phase_checkpoint: null`. Save state.
+- Set `state.json → clarification_phase: "analyze"`. Save state.
+- Append to audit: `[<ISO>] Analysis complete. Artifact fingerprinted (tasks.md). Awaiting optional user clarifications.`
 - Tell the user: "Analysis is complete. If you have additional context or clarifications to add, provide them now — they will be saved to `clarifications/analyze-<YYYY-MM-DD-HHmm>.clarify`. Say `continue`, `approve`, or `reject` to proceed straight to the gate."
 - **HALT** — wait for the Clarification Response Handler in Step 4 to process the user's next message before presenting the gate.
 
@@ -142,6 +150,10 @@ This is a gate phase. The artifact for this gate is the most recently updated `t
 **Phase 13 — `design_generation`:**
 - Do NOT invoke SpecKit. This is an SDLE-native phase.
 - **Guidance:** If `guidance/design.md` was read in step 4 above, use its content to shape the structure, emphasis, and level of detail in both design documents.
+- **Checkpoint recovery (Phase 13 — overrides generic Step 0b for this phase):**
+  - If `phase_checkpoint == "design_app_started"`: App design was started but not confirmed complete. If `design/app/app-design.md` exists and is ≥100 bytes, advance checkpoint to `"design_app_done"` (save state) and skip to Step B. Otherwise, clear checkpoint (save state) and re-run from Step A.
+  - If `phase_checkpoint == "design_app_done"`: App design is confirmed complete. Skip Step A and proceed directly to Step B.
+  - If `phase_checkpoint` is null: proceed normally from Step A.
 - **Step A — App Design (`design/app/app-design.md`):**
   - Set `phase_checkpoint: "design_app_started"`. Save state.
   - Create the `design/app/` directory if it does not exist.
@@ -200,11 +212,13 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 This is a gate phase. The artifact is `.workflow/implementation-manifest.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_implement (Gate 7/8).
 
 **Phase 17 — `security_review`:**
-- Do NOT invoke SpecKit. Read `modules/security-review.md` and follow its procedure.
-- After the review file is written: set `state.json → security_review_artifact` to the full path of the generated review file (e.g., `"reviews/security-review-2026-05-25-1430.md"`). Save state.
-- Set `current_artifact` to the review file path. Run Post-SpecKit Verification (size ≥ 100 bytes, SHA-256 fingerprint). Clear `phase_checkpoint` on success.
+- Do NOT invoke SpecKit.
+- **Pre-compute the review filename** using the current local time: `review_filename = "reviews/security-review-<YYYY-MM-DD-HHmm>.md"` (e.g., `reviews/security-review-2026-05-26-1430.md`). Use the actual current date/time — do not use a placeholder.
+- Set `phase_checkpoint: "security_review_started"` and `security_review_artifact = review_filename` in state immediately. Save state. (This ensures crash recovery and drift detection know the target path before generation begins.)
+- Read `modules/security-review.md` and follow its procedure. Pass `review_filename` as the explicit output path — the module must write to this exact path, not generate a new timestamped name.
+- After the review file is confirmed written at `review_filename`: set `current_artifact` to `review_filename`. Run Post-SpecKit Verification (size ≥ 100 bytes, SHA-256 fingerprint). Clear `phase_checkpoint` on success.
 - After completion: update state to `gate_security` / `awaiting_approval`.
-- Append audit: "Security review complete. Artifact: <review file path>."
+- Append audit: `"Security review complete. Artifact: <review_filename>."`
 - Present the gate prompt (read `modules/gate-protocol.md`).
 
 **Phase 18 — `gate_security`:**
