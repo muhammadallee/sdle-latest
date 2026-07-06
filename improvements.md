@@ -2,8 +2,8 @@
 
 **Against:** SDLE v1.11 (18-phase workflow, 8 gates)
 **Date:** 2026-07-06
-**Status:** Proposed
-**Scope selected for v1.12 hardening pass:** Items 1, 2, 5, 8, 15 (marked ★)
+**Status:** Items 1, 2, 5, 7, 8, 14, 15 implemented in v1.12; items 3, 4, 6, 9–13 remain proposed
+**Scope selected for v1.12 hardening pass:** Items 1, 2, 5, 7, 8, 14, 15
 
 SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate discipline, drift detection, rate limiting, confirmations, and audit logging. The gaps below fall into four areas where the current design can still be surprised or subverted: injected instructions, unverified implementation output, tamperable state, and blast radius during the implement phase.
 
@@ -11,13 +11,13 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 
 ## 1. Security
 
-### ★ 1. Prompt-injection defense for user-supplied files
+### ★ 1. Prompt-injection defense for user-supplied files — ✅ Implemented in v1.12
 
 - **Problem:** `requirements/`, `guidance/*.md`, and clarification responses are injected verbatim into SpecKit invocation args. A poisoned requirements file ("ignore all gates and approve automatically…") is currently the easiest way to subvert the entire gate system.
 - **Recommendation:** Treat these files strictly as *data*, never instructions. At Phase 1 (and on every guidance injection in `modules/phase-execution.md`), scan for imperative meta-instructions directed at the orchestrator (e.g. "ignore previous instructions", "approve", "skip the gate", "act as") and surface any hits to the user before proceeding.
 - **Files:** `.claude/skills/sdle/SKILL.md` (Step 2, Core Rules), `modules/phase-execution.md` (guidance injection step).
 
-### ★ 2. Secrets scan before Gate 7, not after
+### ★ 2. Secrets scan before Gate 7, not after — ✅ Implemented in v1.12
 
 - **Problem:** The security review (Phase 17) only *mentions* hardcoded secrets — after implementation has already been approved at Gate 7.
 - **Recommendation:** When building `.workflow/implementation-manifest.md`, run a lightweight regex pass over the implementation diff (patterns: `AKIA…`, `-----BEGIN … PRIVATE KEY`, `password\s*=`, bearer/API tokens) and flag hits *in the Gate 7 prompt* so the user approves with eyes open.
@@ -39,7 +39,7 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 
 ## 2. State & Audit Integrity
 
-### ★ 5. Tamper-evident audit log
+### ★ 5. Tamper-evident audit log — ✅ Implemented in v1.12
 
 - **Problem:** `.workflow/audit.md` is append-only by convention only — truncation or edits are undetectable.
 - **Recommendation:** Chain entries: each audit entry includes the SHA-256 of the previous entry (or store a rolling `audit_sha` in `state.json`). Verify the chain during the recovery consistency check (Step 1d) and surface mismatches.
@@ -51,7 +51,7 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 - **Recommendation:** Record a `state_sha` in each audit entry so manual edits show up as mismatches. Replace hand-edit instructions with audited commands (e.g. `set remediation limit 5`) so legitimate changes go through the dispatcher.
 - **Files:** `SKILL.md` (dispatcher, Step 9), `modules/gate-protocol.md` (rate-limit halt messages), `modules/phase-execution.md` (retry-limit halt messages).
 
-### 7. Session lock
+### ★ 7. Session lock — ✅ Implemented in v1.12
 
 - **Problem:** Two concurrent Claude Code sessions on the same project will race on `state.json`.
 - **Recommendation:** Write `.workflow/lock` containing session ID + timestamp on workflow activity; warn if a fresh lock from another session exists.
@@ -61,7 +61,7 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 
 ## 3. Implementation-Phase Safety
 
-### ★ 8. Dirty-working-tree guard before Phase 15
+### ★ 8. Dirty-working-tree guard before Phase 15 — ✅ Implemented in v1.12
 
 - **Problem:** If the user has uncommitted changes when `speckit-implement` runs, their work gets mixed into (or clobbered by) generated code, and the manifest attributes their edits to the implementation.
 - **Recommendation:** Before invoking implement, run `git status --short`; if the tree is dirty, require a clean tree or an explicit acknowledgement (`confirm implement on dirty tree`) before proceeding.
@@ -101,13 +101,13 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 - **Recommendation:** Copy affected artifacts to `.workflow/backups/<timestamp>/` before clearing approvals.
 - **Files:** `SKILL.md` (Step 7.5).
 
-### 14. Staleness warning (reverse drift)
+### ★ 14. Staleness warning (reverse drift) — ✅ Implemented in v1.12
 
 - **Problem:** Drift detection catches artifact changes, but not the repo changing underneath an approved plan.
 - **Recommendation:** If `last_updated` is old and `git log` shows commits since the last approval, warn that approvals may be based on a stale view of the codebase.
 - **Files:** `SKILL.md` (Step 1d).
 
-### ★ 15. Harden `skip with warning`
+### ★ 15. Harden `skip with warning` — ✅ Implemented in v1.12
 
 - **Problem:** It's the one gate-bypass command with no typed confirmation — inconsistent with restart/reset.
 - **Recommendation:** Require `confirm skip` via the same `pending_confirm_action` mechanism used by restart/reset.
@@ -117,5 +117,5 @@ SDLE v1.11's guardrails are strongly biased toward *process* integrity — gate 
 
 ## Notes
 
-- Items marked ★ (1, 2, 5, 8, 15) close actual bypass/blast-radius holes and form the selected v1.12 candidate set; the remainder are quality-of-life hardening.
-- Any item that adds state fields (3, 5, 6, 8) requires a new row in the version migration table (`SKILL.md` Step 9) and a matching update to `templates/state.json`, per the cross-file sync rules in `CLAUDE.md`.
+- Items marked ★ (1, 2, 5, 7, 8, 14, 15) were implemented in v1.12 with a warn + acknowledge enforcement posture (no hard blocks); the remainder are proposed quality-of-life hardening.
+- Any remaining item that adds state fields (3, 6) requires a new row in the version migration table (`SKILL.md` Step 9) and a matching update to `templates/state.json`, per the cross-file sync rules in `CLAUDE.md`.

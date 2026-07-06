@@ -4,12 +4,12 @@
 | Field | Value |
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
-| **Covers software version** | SDLE v1.11 (18-phase workflow, 8 approval gates) |
-| **Document version** | 1.0 |
+| **Covers software version** | SDLE v1.12 (18-phase workflow, 8 approval gates) |
+| **Document version** | 1.1 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
 | **Status** | Active |
-| **Last updated** | 2026-06-20 |
+| **Last updated** | 2026-07-06 |
 
 ---
 
@@ -136,10 +136,11 @@ SDLE Orchestrator (Claude Code Skill)
 | `.specify/specs/<feature-id>/tasks.md` | Phase 9 (refined Phase 11) | Granular task breakdown |
 | `design/app/app-design.md` | Phase 13 | Architecture & sequence diagrams, design decisions |
 | `design/db/db-design.md` | Phase 13 (conditional) | ERD, data dictionary, data design decisions |
-| `.workflow/implementation-manifest.md` | Phase 15 | Reviewable summary of all files changed by implementation |
+| `.workflow/implementation-manifest.md` | Phase 15 | Reviewable summary of all files changed by implementation, including a mandatory secrets-scan section |
 | `reviews/security-review-<timestamp>.md` | Phase 17 | Evidence-based security review |
 | `.workflow/state.json` | Orchestrator | Canonical workflow state (the single source of truth) |
-| `.workflow/audit.md` | Orchestrator | Append-only event ledger |
+| `.workflow/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
+| `.workflow/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `.workflow/completion-summary.json` | Gate 8 approval | Final, signed closure record |
 | `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to SpecKit clarification questions |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
@@ -210,7 +211,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 1 — Requirements Check (`requirements_check`)
 
-**What it does:** Validates that a `requirements/` directory exists and contains at least one document; infers a project name from it.
+**What it does:** Validates that a `requirements/` directory exists and contains at least one document; runs the Untrusted Content Scan on each file (flagging instruction-like lines directed at the orchestrator, which require an explicit `accept content` acknowledgement); infers a project name from it.
 
 **Why it matters:** This is the only phase whose input is guaranteed to be human-authored, unmediated by the AI. Every subsequent artifact ultimately traces back to this one.
 
@@ -366,7 +367,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 15 — Implement (`implement`)
 
-**What it does:** Invokes SpecKit's implementation generator against `tasks.md`, explicitly informed by the Phase 13 design documents. Afterward, SDLE captures `git status --short` and `git diff --name-only HEAD` (combined and deduplicated, so untracked new files are not missed) and writes `.workflow/implementation-manifest.md` — a complete, reviewable list of every changed or added file plus a summary of what was implemented.
+**What it does:** First runs a **dirty-tree guard**: if the working tree has uncommitted changes (outside SDLE's own artifact directories), the phase halts and requires an explicit `confirm implement` — otherwise the user's own edits would be mixed into, or overwritten by, the generated implementation and misattributed in the manifest. It then invokes SpecKit's implementation generator against `tasks.md`, explicitly informed by the Phase 13 design documents. Afterward, SDLE captures `git status --short` and `git diff --name-only HEAD` (combined and deduplicated, so untracked new files are not missed), runs a **secrets scan** over the changed files (AWS keys, private key material, GitHub/API tokens, hardcoded credential assignments, bearer tokens — findings masked and audited), and writes `.workflow/implementation-manifest.md` — a complete, reviewable list of every changed or added file, a mandatory `Potential Secrets Detected` section, and a summary of what was implemented.
 
 **Why it matters:** This is the only phase that produces the actual deliverable. The implementation manifest exists because asking a reviewer to manually inspect an entire repository for "what changed" does not scale and is error-prone — a single consolidated, generated list is the reviewable surface instead.
 
@@ -378,7 +379,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 16 — Gate 7: Implementation Approval (`gate_implement`)
 
-**What is being approved:** The actual generated code, as summarized in the implementation manifest — the first and only gate at which real code, rather than a planning document, is under review.
+**What is being approved:** The actual generated code, as summarized in the implementation manifest — the first and only gate at which real code, rather than a planning document, is under review. Because the manifest is the gate artifact and is displayed in full, any secrets-scan findings from Phase 15 are necessarily in front of the reviewer at the moment of decision; approving the gate is the explicit acknowledgement of those findings.
 
 **Why this is high-leverage:** This is the mandatory human-in-the-loop checkpoint before AI-generated code is treated as a candidate for security review and delivery. It catches functional and quality issues outside the scope of the dedicated security review that follows.
 
@@ -507,7 +508,7 @@ Every gate follows an identical, non-negotiable sequence — consistency here is
 Rejecting a gate is not "ask the AI to try again." It is a structured remediation cycle:
 
 1. The reviewer's feedback is recorded as the canonical source of truth in `state.json`, then mirrored to `.specify/sdle-feedback.md` so the regeneration step can read it directly.
-2. A per-phase **remediation counter** is checked against `rate_limits.max_remediation_attempts` (default 3). If the limit is reached, SDLE halts and will not re-invoke generation automatically — the reviewer must explicitly raise the limit, reset the counter, restart the phase from scratch, or accept the current state with `skip with warning`.
+2. A per-phase **remediation counter** is checked against `rate_limits.max_remediation_attempts` (default 3). If the limit is reached, SDLE halts and will not re-invoke generation automatically — the reviewer must explicitly raise the limit, reset the counter, restart the phase from scratch, or accept the current state with `skip with warning` (itself a two-step command: it only executes after a typed `confirm skip`, consistent with restart and reset).
 3. The relevant generator (SpecKit skill, or the SDLE-native design/security-review module) is re-invoked with the feedback explicitly embedded in its instructions, both via the feedback file and inline as a fallback.
 4. Once the new artifact passes verification, the feedback file is archived (timestamped) rather than deleted outright, and the gate is re-presented with the new content.
 
@@ -532,11 +533,13 @@ Approved artifacts are ordinary files on disk. Nothing prevents a human from ope
 
 ### 12.1 `state.json` — the canonical state machine
 
-`state.json` is not a cache or a convenience log — it is the single source of truth for workflow position. It is read first on every turn, migrated forward through schema versions automatically, and validated against `phase_history` for consistency (catching both accidental rollback and unexplained forward jumps). No other source — not conversation history, not the AI's own recollection — is treated as authoritative.
+`state.json` is not a cache or a convenience log — it is the single source of truth for workflow position. It is read first on every turn, migrated forward through schema versions automatically, and validated against `phase_history` for consistency (catching both accidental rollback and unexplained forward jumps). No other source — not conversation history, not the AI's own recollection — is treated as authoritative. On load, two further checks run: the **Audit Integrity Check** (below) and a **repository staleness check** that warns — without halting — when the repo has commits newer than the latest gate approval, i.e. when approvals may reflect a stale view of the codebase.
 
 ### 12.2 `audit.md` — the append-only ledger
 
 Every gate decision, phase completion, rejection, remediation, drift event, and rate-limit trip is appended (never edited) to `audit.md` with: a UTC timestamp, the acting identity (resolved from git username/email), the action taken, the artifact involved, its SHA-256 fingerprint, the gate decision (if any), and any comments. This is the record an enterprise audit, post-incident review, or compliance check would consult.
+
+Since v1.12 the ledger is **tamper-evident**: after every append, the SHA-256 of the entire file is recorded in `state.json → audit_sha`, and verified on every load. A mismatch (edit, truncation, deletion, or a write from another session) halts the workflow until the operator explicitly re-baselines with `accept audit` — an action that is itself logged. Note the precise guarantee: tamper-*evident*, not tamper-*proof* — an actor who edits both `audit.md` and `audit_sha` in `state.json` defeats the check. The defense target is accidental or casual modification, not a determined adversary with full filesystem access. Concurrent-session writes, one common source of accidental corruption, are additionally warned about via the `.workflow/lock` session lock.
 
 ### 12.3 `.workflow/completion-summary.json` — the closure record
 
@@ -583,6 +586,9 @@ SDLE's audit trail can support a compliance review; it does not, by itself, cons
 - **Dependent on SpecKit.** SDLE orchestrates SpecKit; it does not generate constitution/spec/plan/tasks/implementation content itself. SpecKit's generation quality is a ceiling on SDLE's output quality.
 - **Dependent on git for two specific artifacts.** The implementation manifest and the security review both rely on `git diff`/`git status` for accuracy. In a repository without git initialized, both degrade to approximate, explicitly-labeled fallbacks.
 - **Rate limits can become a blocker, not just a safeguard.** If a root cause is never actually fixed, the remediation/retry limits will eventually halt the workflow rather than loop forever — this is intentional, but it does mean a misconfigured limit (set too low) can interrupt legitimate iterative work.
+- **The audit log is tamper-evident, not tamper-proof.** The `audit_sha` hash chain detects edits, truncation, and out-of-band writes, but an actor who modifies both `audit.md` and `state.json` consistently defeats it. True non-repudiation would require signing with a secret SDLE does not hold.
+- **Content scans are pattern-based.** The untrusted-content scan and the secrets scan are regex heuristics: they can false-positive on legitimate text (e.g. a requirements document that discusses "approval gates") and false-negative on obfuscated content. Both are deliberately warn-and-acknowledge, never silent-block, for exactly this reason.
+- **The session lock is advisory.** Concurrent sessions are detected and warned about via `.workflow/lock`; nothing physically prevents two sessions from writing state simultaneously.
 
 ### 15.2 Non-goals (what SDLE is not)
 
@@ -787,7 +793,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 ## Appendix B — State Schema Reference
 
-`.workflow/state.json` (v1.11):
+`.workflow/state.json` (v1.12):
 
 | Field | Type | Description |
 |---|---|---|
@@ -802,7 +808,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `current_feature_id` | string \| null | SpecKit feature directory name; set after Phase 4. |
 | `security_review_artifact` | string \| null | Path to the timestamped security review file. |
 | `phase_checkpoint` | string \| null | Sub-step marker for crash-recovery idempotency. |
-| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `accept_state_jump`). |
+| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`). |
 | `speckit_initialized` | boolean | Whether `.specify/` exists. |
 | `speckit_skill_prefix` | string \| null | Discovered SpecKit invocation prefix (`speckit-` or `speckit.`). |
 | `verbose` | boolean | Display-only verbosity toggle. |
@@ -811,6 +817,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `attempt_counts` | object | Per-phase `{ remediations, retries }` counters. |
 | `approvals` | object | One entry per gate: `{ decision, comments, timestamp }` or `null`. |
 | `artifact_shas` | object | Approval-time SHA-256 baseline per gate, for drift detection. |
+| `audit_sha` | string \| null | SHA-256 of the entire `audit.md`, recomputed after every append — audit tamper-evidence baseline. |
 | `drift_queue` | array | Gate keys awaiting re-approval due to detected drift. |
 | `pending_phase` | string \| null | Phase that was about to execute when drift was detected. |
 | `phase_history` | array | Ordered `{ phase, completed_at, outcome }` entries. |
@@ -831,7 +838,10 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `restart phase <N>` | Roll back to phase N; clears all downstream approvals and history. Requires `confirm restart phase <N>`. |
 | `reset workflow` | Delete all workflow state (artifacts preserved). Requires `confirm reset`. |
 | `accept state` | Acknowledge a detected forward state jump and proceed. |
-| `skip with warning` | Advance past a *failed* (not rejected) phase without a verified artifact. Logged, discouraged. |
+| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file; proceed treating it as data. |
+| `accept audit` | Acknowledge an audit-log integrity mismatch; re-baseline `audit_sha` (logged). |
+| `confirm implement` | Proceed with Phase 15 despite uncommitted working-tree changes (dirty-tree guard). |
+| `skip with warning` | Advance past a *failed* (not rejected) phase without a verified artifact. Logged, discouraged. Requires `confirm skip`. |
 | `verbose on` / `verbose off` | Toggle display verbosity. |
 
 ---
@@ -840,4 +850,5 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 | Version | Date | Summary |
 |---|---|---|
+| 1.1 | 2026-07-06 | Updated for SDLE v1.12: untrusted-content scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha`), session lock, dirty-tree guard, repo staleness warning, two-step `confirm skip`. |
 | 1.0 | 2026-06-20 | Initial enterprise reference guide, covering SDLE v1.11 (18-phase, 8-gate workflow). |

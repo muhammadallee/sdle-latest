@@ -1,4 +1,4 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.11)
+# SDLE — Spec Driven Lifecycle Engine (v1.12)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
@@ -98,7 +98,10 @@ For *why* each phase and gate exists in this exact order — and what specifical
 | `restart phase <N>` | Roll back to phase N (1–18); clears all downstream approvals. Requires `confirm restart phase <N>`. |
 | `reset workflow` | Delete all workflow state (artifacts preserved). Requires `confirm reset`. |
 | `accept state` | Acknowledge a detected forward state jump and proceed. |
-| `skip with warning` | Skip a failed step without a verified artifact (not recommended; logged). |
+| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file and proceed treating it as data. |
+| `accept audit` | Acknowledge an audit-log integrity mismatch and re-baseline the audit hash. |
+| `confirm implement` | Proceed with implementation despite uncommitted working-tree changes (dirty-tree guard). |
+| `skip with warning` | Skip a failed step without a verified artifact (not recommended; logged). Requires `confirm skip`. |
 | `verbose on` / `verbose off` | Toggle display of internal operational detail. |
 
 ---
@@ -157,8 +160,9 @@ These skill names are installed by `specify init . --skills --here`. SDLE auto-d
 │   └── security-review-YYYY-MM-DD-HHmm.md
 └── .workflow/
     ├── state.json                 ← SDLE orchestration state (canonical source of truth)
-    ├── audit.md                   ← Append-only event log
-    ├── implementation-manifest.md ← Gate 7 artifact (git-derived file list + summary)
+    ├── audit.md                   ← Append-only event log (hash-chained via state.json → audit_sha)
+    ├── lock                       ← Session lock (concurrent-session detection)
+    ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + summary)
     └── completion-summary.json    ← Written on final Gate 8 approval
 ```
 
@@ -267,7 +271,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 
 ## State Schema Reference
 
-`.workflow/state.json` (v1.11) — key fields:
+`.workflow/state.json` (v1.12) — key fields:
 
 | Field | Type | Description |
 |---|---|---|
@@ -282,6 +286,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `security_review_artifact` | string\|null | Path to the timestamped security review file |
 | `approvals` | object | One key per gate: `{ decision, comments, timestamp }` or `null` |
 | `artifact_shas` | object | Approval-time SHA-256 baseline per gate — drift-detection baseline |
+| `audit_sha` | string\|null | SHA-256 of `.workflow/audit.md`, updated after every append — tamper-evidence baseline |
 | `drift_queue` / `pending_phase` | array / string\|null | Re-approval state when artifact drift is detected |
 | `rate_limits` / `attempt_counts` | object | Configurable remediation/retry caps and per-phase counters |
 | `pending_confirm_action` | string\|null | Tracks a pending `restart`/`reset`/`accept_state_jump` confirmation |
@@ -318,6 +323,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.12** | 7-item guardrail hardening: untrusted-content (prompt-injection) scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha` hash chain), session lock, dirty-tree guard before implement, repo staleness warning, and two-step `confirm skip`. |
 | **v1.11** | 12-gap hardening pass across all skill files (edge cases in drift, rate limiting, and state migration). |
 | **v1.10** | 15-gap hardening pass; fixed 3 gate-bypass vulnerabilities (forward-jump and stale-confirmation guards). |
 | **v1.9** | 30-gap hardening: expanded to the current 18-phase / 8-gate workflow; idempotency via `phase_checkpoint`. |
