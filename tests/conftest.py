@@ -12,6 +12,9 @@ Two rules hold everywhere in this suite:
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import json
 import shutil
 import subprocess
@@ -25,17 +28,42 @@ SDLE_PY = REPO_ROOT / "scripts" / "sdle.py"
 SKILL_SRC = REPO_ROOT / ".claude" / "skills" / "sdle"
 
 
+def _load_sdle():
+    """Import sdle.py once, by path.
+
+    Invoking in-process rather than spawning an interpreter per call keeps the
+    suite usable: a full workflow run is ~25 invocations, and process startup
+    on Windows dominates everything else. `main()` returns the same exit code
+    the CLI would, so the contract under test is unchanged. The genuine CLI
+    boundary (argv parsing, tracebacks escaping) is covered separately by the
+    subprocess-based tests in test_units_cli.py.
+    """
+    spec = importlib.util.spec_from_file_location("sdle_under_test", SDLE_PY)
+    module = importlib.util.module_from_spec(spec)
+    # Register before executing: @dataclass resolves its own module by name.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+sdle = _load_sdle()
+
+
 class Result:
     """One sdle.py invocation: exit code, parsed stdout envelope, stderr."""
 
-    def __init__(self, completed: subprocess.CompletedProcess):
-        self.exit_code = completed.returncode
-        self.stderr = completed.stderr
-        self.stdout = completed.stdout
+    def __init__(self, exit_code: int, stdout: str, stderr: str):
+        self.exit_code = exit_code
+        self.stderr = stderr
+        self.stdout = stdout
         try:
-            self.envelope = json.loads(completed.stdout)
+            self.envelope = json.loads(stdout)
         except json.JSONDecodeError:
             self.envelope = {}
+
+    @classmethod
+    def from_completed(cls, completed: subprocess.CompletedProcess) -> "Result":
+        return cls(completed.returncode, completed.stdout, completed.stderr)
 
     @property
     def ok(self) -> bool:
@@ -65,22 +93,29 @@ class Project:
 
     # -- invocation ------------------------------------------------------
 
-    def run(self, *args: str, session: str | None = None) -> Result:
-        command = [
-            sys.executable,
-            str(SDLE_PY),
-            "--project-root",
-            str(self.root),
-            "--skill-root",
-            str(self.skill_root),
-        ]
+    def _argv(self, args, session: str | None) -> list[str]:
+        argv = ["--project-root", str(self.root), "--skill-root", str(self.skill_root)]
         if session:
-            command += ["--session", session]
-        command += [str(a) for a in args]
-        completed = subprocess.run(
-            command, capture_output=True, text=True, encoding="utf-8"
+            argv += ["--session", session]
+        return argv + [str(a) for a in args]
+
+    def run(self, *args: str, session: str | None = None) -> Result:
+        """Invoke in-process. `main()` returns the CLI's exit code."""
+        out, err = io.StringIO(), io.StringIO()
+        argv = self._argv(args, session)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = sdle.main(argv)
+        except SystemExit as exc:  # argparse usage errors
+            code = exc.code if isinstance(exc.code, int) else 2
+        return Result(code, out.getvalue(), err.getvalue())
+
+    def run_cli(self, *args: str, session: str | None = None) -> Result:
+        """Invoke through a real subprocess — for the CLI boundary itself."""
+        command = [sys.executable, str(SDLE_PY), *self._argv(args, session)]
+        return Result.from_completed(
+            subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
         )
-        return Result(completed)
 
     def ok(self, *args: str, session: str | None = None) -> Result:
         """Run and assert success — keeps happy-path setup terse."""
@@ -179,5 +214,24 @@ def project(tmp_path: Path) -> Project:
 @pytest.fixture
 def started(project: Project) -> Project:
     """A project with an initialised workflow, sitting at constitution_draft."""
+    project.ok("init", session="testsess")
+    return project
+
+
+@pytest.fixture
+def git_project(project: Project) -> Project:
+    """A scratch project under git, for diff, staleness and dirty-tree paths.
+
+    The workflow is NOT initialised — tests that drive a full run call `init`
+    themselves so the bootstrap turn is part of what is asserted.
+    """
+    project.init_git()
+    return project
+
+
+@pytest.fixture
+def started_git(project: Project) -> Project:
+    """Git-backed and already initialised, sitting at constitution_draft."""
+    project.init_git()
     project.ok("init", session="testsess")
     return project

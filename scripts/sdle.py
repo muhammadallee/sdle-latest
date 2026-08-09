@@ -481,12 +481,23 @@ def git_available(paths: Paths) -> bool:
     return code == 0
 
 
+_ACTOR_CACHE: dict[str, str] = {}
+
+
 def actor(paths: Paths) -> str:
-    _, name = git(paths, "config", "user.name")
-    _, email = git(paths, "config", "user.email")
-    if name and email:
-        return f"{name} <{email}>"
-    return name or email or "unknown"
+    """Who is acting, for the audit ledger.
+
+    Cached per project: this is called once per audit entry, and shelling out
+    to `git config` twice each time dominated the runtime of a full workflow.
+    """
+    key = str(paths.project_root)
+    if key not in _ACTOR_CACHE:
+        _, name = git(paths, "config", "user.name")
+        _, email = git(paths, "config", "user.email")
+        _ACTOR_CACHE[key] = (
+            f"{name} <{email}>" if name and email else (name or email or "unknown")
+        )
+    return _ACTOR_CACHE[key]
 
 
 # --------------------------------------------------------------------------
@@ -1180,6 +1191,640 @@ def cmd_state_dump(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
+# Artifact path resolution
+# --------------------------------------------------------------------------
+
+
+def resolve_artifact_path(
+    state: dict, consts: Constants, gate_key: str
+) -> tuple[str | None, str | None]:
+    """Resolve ARTIFACT_OWNERSHIP's template for ``gate_key``.
+
+    Returns ``(resolved_path, skip_reason)``. A skip reason means the gate has
+    no comparable artifact yet — not that something failed.
+    """
+    template = consts.artifact_ownership.get(gate_key)
+    if not template or template == "(none)":
+        return None, "no artifact registered for this gate"
+
+    resolved = template
+    for placeholder, field_name in (
+        ("{current_feature_id}", "current_feature_id"),
+        ("{security_review_artifact}", "security_review_artifact"),
+    ):
+        if placeholder in resolved:
+            value = state.get(field_name)
+            if not value:
+                return None, f"{field_name} is not resolved yet"
+            resolved = resolved.replace(placeholder, str(value))
+    return resolved, None
+
+
+def cmd_artifact_path(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    if args.gate not in consts.artifact_ownership:
+        raise Refused(
+            "unknown_gate",
+            f"'{args.gate}' is not a gate key in ARTIFACT_OWNERSHIP.",
+            {"gate": args.gate, "known": sorted(consts.artifact_ownership)},
+        )
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    emit(
+        "artifact path",
+        {
+            "gate": args.gate,
+            "template": consts.artifact_ownership.get(args.gate),
+            "resolved": resolved,
+            "skipped_reason": skipped,
+            "exists": bool(resolved and (paths.project_root / resolved).is_file()),
+        },
+    )
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Advancing — where gate discipline is enforced
+# --------------------------------------------------------------------------
+
+
+def gate_key_for(consts: Constants, phase: str) -> str | None:
+    return consts.phase_to_gate_key.get(phase)
+
+
+def approval_decision(state: dict, gate_key: str) -> str | None:
+    entry = (state.get("approvals") or {}).get(gate_key)
+    if isinstance(entry, dict):
+        return entry.get("decision")
+    return None
+
+
+def apply_advance(
+    paths: Paths,
+    state: dict,
+    consts: Constants,
+    target: str,
+    status: str | None,
+    outcome: str,
+) -> dict:
+    """Move to ``target``, enforcing the two refusals that matter.
+
+    Refuses a forward jump (any target that is not NEXT_PHASE[current]) and
+    refuses to leave a gate phase whose approval is not recorded. These are the
+    guardrails the model must not be able to reason its way around.
+    """
+    current = state.get("current_phase")
+    if current is None:
+        raise IntegrityError(
+            "state_unreadable", "state.json has no current_phase.", {}
+        )
+
+    expected = consts.next_phase.get(current)
+    if target != expected:
+        current_index = consts.index(current)
+        target_index = consts.index(target)
+        raise Refused(
+            "forward_jump",
+            f"Cannot advance {current} -> {target}. The only permitted next "
+            f"phase is {expected}. Forward jumps are not allowed; to advance "
+            "through the workflow, approve the intervening gates.",
+            {
+                "from": current,
+                "requested": target,
+                "expected": expected,
+                "from_index": current_index,
+                "requested_index": target_index,
+            },
+        )
+
+    gate_key = gate_key_for(consts, current)
+    if gate_key is not None:
+        decision = approval_decision(state, gate_key)
+        if decision != "approved":
+            raise Refused(
+                "gate_not_approved",
+                f"{current} has not been approved (decision: {decision or 'none'}). "
+                "A gate can only be passed by an explicit approval.",
+                {"gate": gate_key, "phase": current, "decision": decision},
+            )
+
+    if status is None:
+        status = "awaiting_approval" if target in consts.phase_to_gate_key else "pending"
+
+    state.setdefault("phase_history", []).append(
+        {"phase": current, "completed_at": now_iso(), "outcome": outcome}
+    )
+    state["current_phase"] = target
+    state["status"] = status
+    state["progress"] = consts.progress_for(target)
+    return {
+        "from": current,
+        "to": target,
+        "status": status,
+        "progress": state["progress"],
+    }
+
+
+def cmd_advance(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    moved = apply_advance(
+        paths, state, consts, args.to, args.status, args.outcome or "completed"
+    )
+    append_audit(
+        paths,
+        state,
+        phase=moved["from"],
+        event="phase_advance",
+        message=f"Advanced {moved['from']} -> {moved['to']} "
+        f"({moved['progress']}, {moved['status']}).",
+    )
+    save_state(paths, state, args.session)
+    emit("advance", moved)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Gates
+# --------------------------------------------------------------------------
+
+
+def require_gate(consts: Constants, gate_key: str) -> str:
+    for phase, key in consts.phase_to_gate_key.items():
+        if key == gate_key:
+            return phase
+    raise Refused(
+        "unknown_gate",
+        f"'{gate_key}' is not a registered gate key.",
+        {"gate": gate_key, "known": sorted(consts.phase_to_gate_key.values())},
+    )
+
+
+def cmd_gate_show(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    gate_phase = require_gate(consts, args.gate)
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    full = paths.project_root / resolved if resolved else None
+    emit(
+        "gate show",
+        {
+            "gate": args.gate,
+            "gate_phase": gate_phase,
+            "gate_number": consts.gate_number.get(args.gate),
+            "gate_total": len(consts.gate_phases),
+            "label": consts.phase_label.get(gate_phase),
+            "execution_phase": consts.gate_to_execution_phase.get(args.gate),
+            "artifact_path": resolved,
+            "skipped_reason": skipped,
+            "exists": bool(full and full.is_file()),
+            "artifact_sha": sha256_file(full) if full and full.is_file() else None,
+            "baseline_sha": (state.get("artifact_shas") or {}).get(args.gate),
+            "decision": approval_decision(state, args.gate),
+        },
+    )
+    return EXIT_OK
+
+
+def write_completion_summary(paths: Paths, state: dict) -> str:
+    summary = {
+        "workflow_version": state.get("workflow_version"),
+        "project_name": state.get("project_name"),
+        "completed_at": now_iso(),
+        "phases_completed": len(state.get("phase_history") or []),
+        "security_review_artifact": state.get("security_review_artifact"),
+        "all_gates_approved": True,
+    }
+    target = paths.workflow / "completion-summary.json"
+    write_atomic(target, json.dumps(summary, indent=2) + "\n")
+    return str(target.relative_to(paths.project_root)).replace(os.sep, "/")
+
+
+def cmd_gate_approve(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    stamp = now_iso()
+
+    queue = state.get("drift_queue") or []
+    if queue:
+        return _approve_drift(args, paths, state, consts, stamp)
+
+    gate_phase = require_gate(consts, args.gate)
+    if state.get("current_phase") != gate_phase:
+        raise Refused(
+            "not_at_gate",
+            f"Cannot approve {args.gate}: the workflow is at "
+            f"{state.get('current_phase')}, not {gate_phase}.",
+            {"gate": args.gate, "current_phase": state.get("current_phase")},
+        )
+
+    resolved, _ = resolve_artifact_path(state, consts, args.gate)
+    sha = None
+    if resolved:
+        full = paths.project_root / resolved
+        if not full.is_file():
+            raise Refused(
+                "artifact_missing",
+                f"Cannot approve {args.gate}: {resolved} does not exist. "
+                "A gate is an approval of specific content.",
+                {"gate": args.gate, "path": resolved},
+            )
+        sha = sha256_file(full)
+        state.setdefault("artifact_shas", {})[args.gate] = sha
+
+    gate_precondition_hook(paths, state, consts, args.gate, resolved)
+
+    state.setdefault("approvals", {})[args.gate] = {
+        "decision": "approved",
+        "comments": args.comments,
+        "timestamp": stamp,
+    }
+    number = consts.gate_number.get(args.gate)
+    append_audit(
+        paths,
+        state,
+        phase=gate_phase,
+        event="gate_approved",
+        message=f"Gate {number} approved. Baseline SHA recorded: {sha or 'n/a'}.",
+        artifact=resolved,
+        artifact_sha=sha,
+        decision="APPROVED",
+        comments=args.comments,
+    )
+
+    is_final = consts.next_phase.get(gate_phase) == "complete"
+    moved = apply_advance(paths, state, consts, "complete" if is_final
+                          else consts.next_phase[gate_phase],
+                          "completed" if is_final else None, "approved")
+
+    summary_path = None
+    if is_final:
+        summary_path = write_completion_summary(paths, state)
+        append_audit(
+            paths,
+            state,
+            phase="complete",
+            event="workflow_complete",
+            message=f"Gate {number}/{len(consts.gate_phases)} (security) approved. "
+            "Workflow complete. Completion summary written.",
+            artifact=summary_path,
+        )
+
+    save_state(paths, state, args.session)
+    emit(
+        "gate approve",
+        {
+            "gate": args.gate,
+            "sha": sha,
+            "drift_mode": False,
+            "remaining_drift": [],
+            "next_phase": moved["to"],
+            "status": moved["status"],
+            "progress": moved["progress"],
+            "completion_summary": summary_path,
+        },
+    )
+    return EXIT_OK
+
+
+def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
+                   stamp: str) -> int:
+    """Drift re-approval: the queue head is re-baselined to current content."""
+    queue = list(state.get("drift_queue") or [])
+    gate_key = queue[0]
+    if args.gate and args.gate != gate_key:
+        raise Refused(
+            "drift_pending",
+            f"Drift re-approval is pending for {gate_key}; approve that first.",
+            {"expected": gate_key, "requested": args.gate, "queue": queue},
+        )
+
+    resolved, _ = resolve_artifact_path(state, consts, gate_key)
+    sha = None
+    if resolved and (paths.project_root / resolved).is_file():
+        sha = sha256_file(paths.project_root / resolved)
+        state.setdefault("artifact_shas", {})[gate_key] = sha
+
+    state.setdefault("approvals", {})[gate_key] = {
+        "decision": "approved",
+        "comments": args.comments or "re-approved after artifact drift",
+        "timestamp": stamp,
+    }
+    queue.pop(0)
+    state["drift_queue"] = queue
+
+    append_audit(
+        paths,
+        state,
+        phase=state.get("current_phase", "unknown"),
+        event="drift_reapproved",
+        message=f"Drift re-approval: {gate_key} re-approved. "
+        f"New baseline SHA: {sha or 'n/a'}.",
+        artifact=resolved,
+        artifact_sha=sha,
+        decision="APPROVED",
+        comments=args.comments,
+    )
+
+    resumed = None
+    if not queue:
+        resumed = state.get("pending_phase")
+        if resumed:
+            state["current_phase"] = resumed
+            state["progress"] = consts.progress_for(resumed)
+        state["pending_phase"] = None
+        state["status"] = "in_progress"
+
+    save_state(paths, state, args.session)
+    emit(
+        "gate approve",
+        {
+            "gate": gate_key,
+            "sha": sha,
+            "drift_mode": True,
+            "remaining_drift": queue,
+            "resumed_phase": resumed,
+            "status": state["status"],
+        },
+    )
+    return EXIT_OK
+
+
+def cmd_gate_reject(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    stamp = now_iso()
+
+    queue = list(state.get("drift_queue") or [])
+    if queue:
+        gate_key = queue[0]
+        state.setdefault("approvals", {})[gate_key] = {
+            "decision": "rejected",
+            "comments": args.reason,
+            "timestamp": stamp,
+        }
+        state["drift_queue"] = []
+        state["pending_phase"] = None
+        state["status"] = "rejected"
+        append_audit(
+            paths,
+            state,
+            phase=state.get("current_phase", "unknown"),
+            event="drift_rejected",
+            message=f"Drift re-approval REJECTED for {gate_key}. "
+            f"Feedback: {args.reason}. Drift queue cleared.",
+            decision="REJECTED",
+            comments=args.reason,
+        )
+        save_state(paths, state, args.session)
+        emit(
+            "gate reject",
+            {
+                "gate": gate_key,
+                "drift_mode": True,
+                "execution_phase": consts.gate_to_execution_phase.get(gate_key),
+                "status": "rejected",
+            },
+        )
+        return EXIT_OK
+
+    gate_phase = require_gate(consts, args.gate)
+    if state.get("current_phase") != gate_phase:
+        raise Refused(
+            "not_at_gate",
+            f"Cannot reject {args.gate}: the workflow is at "
+            f"{state.get('current_phase')}, not {gate_phase}.",
+            {"gate": args.gate, "current_phase": state.get("current_phase")},
+        )
+
+    state.setdefault("approvals", {})[args.gate] = {
+        "decision": "rejected",
+        "comments": args.reason,
+        "timestamp": stamp,
+    }
+    state["status"] = "rejected"
+    append_audit(
+        paths,
+        state,
+        phase=gate_phase,
+        event="gate_rejected",
+        message=f"Gate {consts.gate_number.get(args.gate)} rejected. "
+        f"Comments: {args.reason}.",
+        decision="REJECTED",
+        comments=args.reason,
+    )
+    save_state(paths, state, args.session)
+    emit(
+        "gate reject",
+        {
+            "gate": args.gate,
+            "drift_mode": False,
+            "execution_phase": consts.gate_to_execution_phase.get(args.gate),
+            "status": "rejected",
+            "remediations": ((state.get("attempt_counts") or {})
+                             .get(gate_phase, {}).get("remediations", 0)),
+        },
+    )
+    return EXIT_OK
+
+
+def _git_diff_for(paths: Paths, relative: str) -> str | None:
+    """The actual change, when the artifact is git-tracked.
+
+    Fingerprints tell a reviewer *that* something changed; a diff tells them
+    *what*, which is what re-approval actually requires.
+    """
+    code, _ = git(paths, "ls-files", "--error-unmatch", relative)
+    if code != 0:
+        return None
+    code, out = git(paths, "diff", "--", relative)
+    if code != 0 or not out:
+        return None
+    return out
+
+
+def compute_drift(paths: Paths, state: dict, consts: Constants,
+                  with_diff: bool = False) -> list[dict]:
+    drifted: list[dict] = []
+    approvals = state.get("approvals") or {}
+    baselines = state.get("artifact_shas") or {}
+
+    for gate_phase in consts.gate_phases:
+        gate_key = consts.phase_to_gate_key[gate_phase]
+        entry = approvals.get(gate_key)
+        if not isinstance(entry, dict) or entry.get("decision") != "approved":
+            continue
+        baseline = baselines.get(gate_key)
+        if not baseline:
+            continue  # pre-v1.8 approval: no baseline to compare against
+        resolved, _ = resolve_artifact_path(state, consts, gate_key)
+        if not resolved:
+            continue
+
+        full = paths.project_root / resolved
+        current = sha256_file(full) if full.is_file() else "FILE_MISSING"
+        if current == baseline.lower():
+            continue
+
+        record = {
+            "gate": gate_key,
+            "gate_phase": gate_phase,
+            "label": consts.phase_label.get(gate_phase),
+            "path": resolved,
+            "approved_sha": baseline,
+            "current_sha": current,
+            "diff": None,
+        }
+        if with_diff and current != "FILE_MISSING":
+            record["diff"] = _git_diff_for(paths, resolved)
+        drifted.append(record)
+
+    return drifted
+
+
+def cmd_drift_check(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    drifted = compute_drift(paths, state, consts, with_diff=args.diff)
+
+    queued = False
+    if drifted and args.queue:
+        state["drift_queue"] = [d["gate"] for d in drifted]
+        state["pending_phase"] = args.pending_phase or state.get("current_phase")
+        state["status"] = "awaiting_reapproval"
+        append_audit(
+            paths,
+            state,
+            phase=state.get("current_phase", "unknown"),
+            event="drift_detected",
+            message="Artifact drift detected for gates: "
+            f"{', '.join(d['gate'] for d in drifted)}. Entering drift "
+            f"re-approval mode. Pending phase: {state['pending_phase']}.",
+        )
+        save_state(paths, state, args.session)
+        queued = True
+
+    emit(
+        "drift check",
+        {
+            "drifted": drifted,
+            "queue": state.get("drift_queue") or [],
+            "pending_phase": state.get("pending_phase"),
+            "queued": queued,
+        },
+    )
+    return EXIT_OK
+
+
+def cmd_drift_rebaseline(args, paths: Paths) -> int:
+    """Move a gate's baseline to current content without a re-approval.
+
+    Only legitimate where the same file is deliberately refined between two
+    gates that both own it — analyze refining tasks.md, which Gate 4 already
+    fingerprinted. Without this the drift check would raise a false alarm on a
+    clean run.
+    """
+    consts = load_constants(paths)
+    state = read_state(paths)
+    if args.gate not in consts.artifact_ownership:
+        raise Refused(
+            "unknown_gate", f"'{args.gate}' is not a registered gate key.",
+            {"gate": args.gate},
+        )
+    if (state.get("artifact_shas") or {}).get(args.gate) is None:
+        emit("drift rebaseline", {"gate": args.gate, "sha": None,
+                                  "skipped": "no baseline recorded"})
+        return EXIT_OK
+
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    if not resolved or not (paths.project_root / resolved).is_file():
+        raise Refused(
+            "artifact_missing",
+            f"Cannot rebaseline {args.gate}: {resolved or skipped}.",
+            {"gate": args.gate, "path": resolved},
+        )
+    sha = sha256_file(paths.project_root / resolved)
+    state["artifact_shas"][args.gate] = sha
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="drift_rebaseline",
+        message=f"Drift baseline updated for {args.gate}.",
+        artifact=resolved, artifact_sha=sha,
+    )
+    save_state(paths, state, args.session)
+    emit("drift rebaseline", {"gate": args.gate, "sha": sha})
+    return EXIT_OK
+
+
+def cmd_feature_resolve(args, paths: Paths) -> int:
+    """Identify the SpecKit feature directory created by the specify step."""
+    state = read_state(paths)
+    specs = paths.project_root / ".specify" / "specs"
+    candidates = sorted(
+        (p for p in specs.glob("*") if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    ) if specs.is_dir() else []
+
+    if not candidates:
+        raise Refused(
+            "feature_unresolved",
+            "No feature directory found under .specify/specs/. The "
+            "specification step did not produce one.",
+            {"searched": str(specs)},
+        )
+
+    chosen = candidates[0].name
+    ambiguous = (
+        len(candidates) > 1
+        and candidates[0].stat().st_mtime == candidates[1].stat().st_mtime
+    )
+    if ambiguous:
+        raise Refused(
+            "feature_ambiguous",
+            "Multiple feature directories share the newest timestamp; "
+            "cannot choose between them.",
+            {"candidates": [p.name for p in candidates]},
+        )
+
+    state["current_feature_id"] = chosen
+    save_state(paths, state, args.session)
+    emit(
+        "feature resolve",
+        {"feature_id": chosen, "candidates": [p.name for p in candidates]},
+    )
+    return EXIT_OK
+
+
+def cmd_security_review_begin(args, paths: Paths) -> int:
+    """Pin the review filename before generation, so crash recovery and drift
+    detection both know the target path."""
+    state = read_state(paths)
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    filename = f"reviews/security-review-{stamp}.md"
+    state["security_review_artifact"] = filename
+    state["phase_checkpoint"] = "security_review_started"
+    save_state(paths, state, args.session)
+    emit(
+        "security-review begin",
+        {
+            "review_filename": filename,
+            "base_ref": state.get("implementation_base_ref"),
+        },
+    )
+    return EXIT_OK
+
+
+def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
+                           gate_key: str, resolved: str | None) -> None:
+    """Gate-specific refusals that must hold at the choke point.
+
+    Extended by later steps (Gate 7 requires a complete manifest).
+    """
+    return None
+
+
+# --------------------------------------------------------------------------
 # Output envelope
 # --------------------------------------------------------------------------
 
@@ -1444,6 +2089,55 @@ def build_parser() -> argparse.ArgumentParser:
         "rebaseline", help="Acknowledge a mismatch and re-baseline (logged)."
     )
     rebased.set_defaults(handler=cmd_audit_rebaseline)
+
+    sub = subparsers.add_parser("advance", help="Move to the next phase.")
+    sub.add_argument("--to", required=True, help="Target phase id.")
+    sub.add_argument("--status", help="Override the derived status.")
+    sub.add_argument("--outcome", help="phase_history outcome (default: completed).")
+    sub.set_defaults(handler=cmd_advance)
+
+    gate_p = subparsers.add_parser("gate", help="Approval gates.")
+    gate_sub = gate_p.add_subparsers(dest="subcommand", required=True)
+    shown = gate_sub.add_parser("show", help="Gate number, label, artifact.")
+    shown.add_argument("--gate", required=True)
+    shown.set_defaults(handler=cmd_gate_show)
+    approved = gate_sub.add_parser("approve", help="Record an approval.")
+    approved.add_argument("--gate", required=True)
+    approved.add_argument("--comments")
+    approved.set_defaults(handler=cmd_gate_approve)
+    rejected_p = gate_sub.add_parser("reject", help="Record a rejection.")
+    rejected_p.add_argument("--gate", required=True)
+    rejected_p.add_argument("--reason", required=True)
+    rejected_p.set_defaults(handler=cmd_gate_reject)
+
+    drift_p = subparsers.add_parser("drift", help="Artifact drift detection.")
+    drift_sub = drift_p.add_subparsers(dest="subcommand", required=True)
+    dcheck = drift_sub.add_parser("check", help="Compare baselines to disk.")
+    dcheck.add_argument("--diff", action="store_true",
+                        help="Include git diff for tracked artifacts.")
+    dcheck.add_argument("--queue", action="store_true",
+                        help="Populate drift_queue and halt the workflow.")
+    dcheck.add_argument("--pending-phase", help="Phase that was interrupted.")
+    dcheck.set_defaults(handler=cmd_drift_check)
+    drebase = drift_sub.add_parser("rebaseline", help="Move a gate's baseline.")
+    drebase.add_argument("--gate", required=True)
+    drebase.set_defaults(handler=cmd_drift_rebaseline)
+
+    feature_p = subparsers.add_parser("feature", help="SpecKit feature directory.")
+    feature_sub = feature_p.add_subparsers(dest="subcommand", required=True)
+    fresolve = feature_sub.add_parser("resolve", help="Identify current_feature_id.")
+    fresolve.set_defaults(handler=cmd_feature_resolve)
+
+    sr_p = subparsers.add_parser("security-review", help="Phase 17 support.")
+    sr_sub = sr_p.add_subparsers(dest="subcommand", required=True)
+    sr_begin = sr_sub.add_parser("begin", help="Pin the review filename.")
+    sr_begin.set_defaults(handler=cmd_security_review_begin)
+
+    artifact_p = subparsers.add_parser("artifact", help="Artifact bookkeeping.")
+    artifact_sub = artifact_p.add_subparsers(dest="subcommand", required=True)
+    pathed = artifact_sub.add_parser("path", help="Resolve a gate's artifact path.")
+    pathed.add_argument("--gate", required=True)
+    pathed.set_defaults(handler=cmd_artifact_path)
 
     lock_p = subparsers.add_parser("lock", help="Session lock.")
     lock_sub = lock_p.add_subparsers(dest="subcommand", required=True)
