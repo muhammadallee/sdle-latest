@@ -278,6 +278,7 @@ Implementing against tasks.md, informed by the approved design documents...
 
 Implementation complete. Building the implementation manifest...
 Secrets scan: no high-risk patterns found in the changed files.
+Test evidence: pytest detected — 28 passed (exit 0).
 
 ---
 ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
@@ -296,6 +297,14 @@ requirements.txt
 
 ## Potential Secrets Detected
 None detected.
+
+## Test Evidence
+Runner: pytest
+Result: passed (exit 0)
+
+```
+28 passed in 3.41s
+```
 
 ## Summary
 Implemented the Todo REST API per tasks.md: CRUD endpoints, filtering,

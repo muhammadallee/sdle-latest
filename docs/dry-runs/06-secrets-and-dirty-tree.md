@@ -72,7 +72,7 @@ tests/test_todos.py
 notes/ideas.md        ← pre-existing uncommitted change (see dirty-tree acknowledgement)
 
 ## Potential Secrets Detected
-src/config.py:12 — hardcoded credential assignment — api_key = "sk-p" ****(masked)
+src/config.py:12 — secret API key — sk-p ****(masked)
 
 ## Summary
 Implemented the Todo REST API per tasks.md: CRUD endpoints, filtering,
@@ -136,6 +136,10 @@ Secrets scan: no high-risk patterns found in the changed files.
 ## Potential Secrets Detected
 None detected.
 
+## Test Evidence
+Runner: pytest
+Result: passed (exit 0)
+
 [... abridged ...]
 ---
 ```
@@ -150,5 +154,6 @@ None detected.
 
 - Dirty-tree guard: runs before `phase_checkpoint` is set; skipped entirely when git is absent or when arriving via `confirm implement` (one-shot bypass). Audit: `Dirty-tree guard triggered before implement. 1 uncommitted entries.`
 - Secrets findings are masked to their first 4 characters in both the manifest and the audit entry (`⚠️ Secrets scan flagged 1 potential secret(s) in the implementation diff.`) — the transcript never reproduces the full secret.
+- **v1.13:** the manifest is built by `sdle.py manifest build`, and Gate 7 *refuses* a manifest missing its `## Potential Secrets Detected` or `## Test Evidence` section. A hook can be skipped; that refusal sits at the choke point, so an implementation whose tests never ran cannot reach a human decision.
 - Approving Gate 7 with findings present is the explicit acknowledgement; rejecting (as here) routes through the standard remediation flow, and the regenerated manifest re-runs the scan.
 - The scan is regex-based (AWS keys, private key blocks, GitHub/API tokens, credential assignments, bearer tokens) — a heuristic tripwire before human review, not a replacement for `trufflehog`/`semgrep`, which the Phase 17 review recommends running.

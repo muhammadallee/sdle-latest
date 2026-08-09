@@ -1,12 +1,13 @@
 # SDLE Dry-Run Conversation Transcripts
 
-Simulated, end-to-end conversation flows for **SDLE v1.12**, showing exactly what the orchestrator says and does in each notable scenario. These are *dry runs*: no SpecKit was invoked and no artifacts were generated — every SDLE turn is derived from the skill files (`SKILL.md`, `modules/*.md`) and reproduces their specified output formats verbatim (status assertion headers, gate prompts, halt messages, confirmation flows).
+Simulated, end-to-end conversation flows for **SDLE v1.13**, showing exactly what the orchestrator says and does in each notable scenario. These are *dry runs*: no SpecKit was invoked and no artifacts were generated — every SDLE turn is derived from the skill files (`SKILL.md`, `modules/*.md`) and reproduces their specified output formats verbatim (status assertion headers, gate prompts, halt messages, confirmation flows).
 
 Use them as:
 
 - **Onboarding** — read `01-happy-path.md` first to see the whole 18-phase / 8-gate flow.
 - **Acceptance spec** — each transcript is the expected conversational behavior for its scenario; a deviation in a real run is a bug in either the run or the skill files.
-- **Guardrail reference** — scenarios 02–09 each exercise specific guardrails (item numbers refer to `../../improvements.md`).
+- **Test fixtures** — `tests/test_integration_01..09` derive their asserted state transitions from these transcripts. Deliberate v1.13 divergences are marked inline and recorded in `../architecture/ADR-001-deterministic-core.md`; there is no third category.
+- **Guardrail reference** — scenarios 02–09 each exercise specific guardrails (item numbers refer to the gap analysis recovered at `git show 22f3f3b^:improvements.md`).
 
 All transcripts use the repo's test fixture (`requirements/todo-api.md` — Todo List REST API) as the subject project. Hashes are illustrative and truncated; artifact bodies are abridged (`[... abridged ...]`) because the transcripts document *orchestration behavior*, not SpecKit output quality.
 
