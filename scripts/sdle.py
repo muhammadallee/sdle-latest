@@ -2661,7 +2661,9 @@ SECRET_PATTERNS = [
     ("AWS access key", r"AKIA[0-9A-Z]{16}"),
     ("private key material", r"-----BEGIN [A-Z ]*PRIVATE KEY"),
     ("GitHub token", r"ghp_[A-Za-z0-9]{36}"),
-    ("secret API key", r"sk-[A-Za-z0-9]{20,}"),
+    # v1.12 used sk-[A-Za-z0-9]{20,}, which misses the current sk-proj-...
+    # format: the hyphen ends the character class four characters in.
+    ("secret API key", r"sk-[A-Za-z0-9_-]{20,}"),
     ("hardcoded credential assignment",
      r"(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}"),
     ("bearer token", r"Bearer [A-Za-z0-9\-_.]{20,}"),
