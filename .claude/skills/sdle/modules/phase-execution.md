@@ -85,8 +85,10 @@ If `state.json → phase_checkpoint` is non-null:
 - Run Post-SpecKit Verification (clear `phase_checkpoint` on success).
 - Update state: set `current_phase = gate_constitution`, `status = awaiting_approval`, update `progress` from **PROGRESS_MAP**. Append to `phase_history`: `{ "phase": "constitution_draft", "completed_at": "<ISO>", "outcome": "completed" }`. Set `last_updated`. Save state.
 - Append audit: "Constitution generated. Advanced to gate_constitution."
-- Run Post-Generation Clarify. (If clarify halts for questions, `current_phase` is already `gate_constitution` — `continue` and CLARIFICATION_RESPONSE both route correctly to the gate without re-running this phase.)
 - Present the gate prompt (read `modules/gate-protocol.md`).
+
+**Phase 3 — `gate_constitution`:**
+This is a gate phase. The artifact is `.specify/memory/constitution.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_constitution (Gate 1/8).
 
 **Phase 4 — `spec_draft`:**
 - Set `phase_checkpoint: "speckit_invoked"`. Save state.
@@ -99,6 +101,9 @@ If `state.json → phase_checkpoint` is non-null:
 - Run Post-Generation Clarify. (If clarify halts, `current_phase` is already `gate_spec`.)
 - Present the gate prompt.
 
+**Phase 5 — `gate_spec`:**
+This is a gate phase. The artifact is `.specify/specs/{current_feature_id}/spec.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_spec (Gate 2/8).
+
 **Phase 6 — `plan_draft`:**
 - Set `phase_checkpoint: "speckit_invoked"`. Save state.
 - Invoke `speckit-plan` using the Skill tool. If `guidance/plan.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/plan.md>\n---\nAlign your output with this guidance."`
@@ -106,8 +111,10 @@ If `state.json → phase_checkpoint` is non-null:
 - Run Post-SpecKit Verification (clear `phase_checkpoint` on success).
 - Update state: set `current_phase = gate_plan`, `status = awaiting_approval`, update `progress` from **PROGRESS_MAP**. Append to `phase_history`: `{ "phase": "plan_draft", "completed_at": "<ISO>", "outcome": "completed" }`. Set `last_updated`. Save state.
 - Append audit: "Plan generated. Advanced to gate_plan."
-- Run Post-Generation Clarify. (If clarify halts, `current_phase` is already `gate_plan`.)
 - Present the gate prompt.
+
+**Phase 7 — `gate_plan`:**
+This is a gate phase. The artifact is `.specify/specs/{current_feature_id}/plan.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_plan (Gate 3/8).
 
 **Phase 8 — `checklist_draft`:**
 - Set `phase_checkpoint: "speckit_invoked"`. Save state.
@@ -121,7 +128,6 @@ If `state.json → phase_checkpoint` is non-null:
     - Append audit: "Checklist not produced by SpecKit — proceeding without it."
     - Clear `phase_checkpoint: null`. Do **not** set status to "failed". Do not halt.
 - Append to `phase_history`: `{ "phase": "checklist_draft", "completed_at": "<ISO>", "outcome": "completed" }`. Update state: set `current_phase = tasks_draft`, `status = pending`, update `progress` from **PROGRESS_MAP**. Set `last_updated`. Save state.
-- Run Post-Generation Clarify (pass phase_id as context; if clarify halts, `current_phase` is already `tasks_draft` — `continue` or CLARIFICATION_RESPONSE will correctly trigger tasks_draft execution).
 - Proceed to Phase 9 (tasks_draft execution).
 
 **Phase 9 — `tasks_draft`:**
@@ -131,7 +137,6 @@ If `state.json → phase_checkpoint` is non-null:
 - Run Post-SpecKit Verification (clear `phase_checkpoint` on success).
 - Update state: set `current_phase = gate_tasks`, `status = awaiting_approval`, update `progress` from **PROGRESS_MAP**. Append to `phase_history`: `{ "phase": "tasks_draft", "completed_at": "<ISO>", "outcome": "completed" }`. Set `last_updated`. Save state.
 - Append audit: "Tasks generated. Advanced to gate_tasks."
-- Run Post-Generation Clarify. (If clarify halts, `current_phase` is already `gate_tasks`.)
 - **Before presenting the gate prompt:** If `.specify/specs/{state.current_feature_id}/checklist.md` exists, Read it and display its full content to the user under the header `### Checklist (Phase 8 output — review alongside Tasks)`. This ensures the user can compare both artifacts before approving.
 - Present the gate prompt (read `modules/gate-protocol.md` for gate_tasks/Gate 4). The gate artifact is `tasks.md`.
 
@@ -262,21 +267,23 @@ On approve: write `.workflow/completion-summary.json` (see gate-protocol.md for 
 
 ---
 
-### Post-Generation Clarify (MANDATORY — for constitution, spec, plan, checklist, tasks)
+### Post-Generation Clarify (MANDATORY — spec only)
 
-After Post-SpecKit Verification passes for Phases 2, 4, 6, 8, and 9, invoke the clarify skill **before** presenting the gate or advancing to the next phase:
+SpecKit's `clarify` is scoped to a single artifact: it resolves the current feature directory and reads `spec.md`, then writes any answers back into that file's `## Clarifications` section. It is designed to run once, after `/specify` and before `/plan`. Invoking it at any other phase reads no artifact relevant to that phase's output and — worse — mutates `spec.md` after Gate 2 has already fingerprinted it, tripping a false drift re-approval on `gate_spec` (and `gate_plan`, once plan is also approved). SDLE therefore invokes clarify **only** after Phase 4 (`spec_draft`), before Gate 2.
 
-1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: the current phase name and the path of the verified artifact (e.g. `"Phase: constitution_draft. Artifact: .specify/memory/constitution.md"`).
-2. If clarify **fails or produces no output**: log to audit and continue to the gate/next phase normally. Do not block.
+After Post-SpecKit Verification passes for Phase 4 (`spec_draft`), invoke the clarify skill **before** presenting Gate 2:
+
+1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: `"Phase: spec_draft. Artifact: .specify/specs/{current_feature_id}/spec.md"`.
+2. If clarify **fails or produces no output**: log to audit and continue to the gate normally. Do not block.
 3. If clarify **produces output (questions)**:
    - Display the questions to the user.
-   - Set `state.json → clarification_phase: <current_phase_id>`. Save state.
-   - Append to audit: `[<ISO>] Clarify produced questions for <phase_id>. Awaiting user clarification response.`
-   - Tell the user: "Please answer the above questions — your response will be saved to `clarifications/<phase_id>-<YYYY-MM-DD-HHmm>.clarify`. Say `continue` to skip without saving."
-   - **HALT** — `current_phase` has already been advanced to the gate (or `tasks_draft` for checklist_draft). The Clarification Response Handler in Step 4 will route correctly: CLARIFICATION_RESPONSE → gate-protocol.md (if gate phase) or tasks_draft execution; `continue` → RESUME → Step 5 → gate phase block → gate-protocol.md.
-4. If clarify produces informational output only (no questions): log to audit and continue to gate/next phase normally.
+   - Set `state.json → clarification_phase: "spec_draft"`. Save state.
+   - Append to audit: `[<ISO>] Clarify produced questions for spec_draft. Awaiting user clarification response.`
+   - Tell the user: "Please answer the above questions — your response will be saved to `clarifications/spec_draft-<YYYY-MM-DD-HHmm>.clarify`. Say `continue` to skip without saving."
+   - **HALT** — `current_phase` has already been advanced to `gate_spec`. The Clarification Response Handler in Step 4 will route correctly: CLARIFICATION_RESPONSE → gate-protocol.md; `continue` → RESUME → Step 5 → gate phase block → gate-protocol.md.
+4. If clarify produces informational output only (no questions): log to audit and continue to the gate normally.
 
-This step does not apply to `implement` (Phase 15) or `design_generation` (Phase 13). For `analyze` (Phase 11), the clarification halt occurs after `current_phase` has been advanced to `gate_analyze`.
+All other phases skip this step entirely. For `analyze` (Phase 11), the free-text clarification prompt is SDLE-native (not a `speckit-clarify` invocation) and its halt occurs after `current_phase` has been advanced to `gate_analyze`.
 
 ---
 

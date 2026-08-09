@@ -41,7 +41,7 @@ By default SDLE operates silently on internal steps. Check `state.json → verbo
 - `state.json` field-level read/write narration
 - `audit.md` append details
 - Guidance file read and injection details
-- Clarify step invocation and raw output
+- Clarify step invocation and raw output (spec phase only)
 - Feature-ID glob resolution steps
 - Version migration steps
 
@@ -88,27 +88,27 @@ You are the **SDLE Orchestrator** — an autonomous SDLC workflow engine running
 ## Internal Constants (single source of truth — referenced everywhere)
 
 ### PHASE_SEQUENCE (ordered)
-```
-1.  requirements_check
-2.  constitution_draft
-3.  gate_constitution
-4.  spec_draft
-5.  gate_spec
-6.  plan_draft
-7.  gate_plan
-8.  checklist_draft
-9.  tasks_draft
-10. gate_tasks
-11. analyze
-12. gate_analyze
-13. design_generation
-14. gate_design
-15. implement
-16. gate_implement
-17. security_review
-18. gate_security
-19. complete
-```
+| index | phase_id |
+|---|---|
+| 1 | `requirements_check` |
+| 2 | `constitution_draft` |
+| 3 | `gate_constitution` |
+| 4 | `spec_draft` |
+| 5 | `gate_spec` |
+| 6 | `plan_draft` |
+| 7 | `gate_plan` |
+| 8 | `checklist_draft` |
+| 9 | `tasks_draft` |
+| 10 | `gate_tasks` |
+| 11 | `analyze` |
+| 12 | `gate_analyze` |
+| 13 | `design_generation` |
+| 14 | `gate_design` |
+| 15 | `implement` |
+| 16 | `gate_implement` |
+| 17 | `security_review` |
+| 18 | `gate_security` |
+| 19 | `complete` |
 
 ### NEXT_PHASE
 | current_phase | next_phase |
@@ -147,8 +147,7 @@ To advance: look up `current_phase` in NEXT_PHASE. Use no other source.
 | `gate_implement` | `gate_implement` | 7 |
 | `gate_security` | `gate_security` | 8 |
 
-### GATE_PHASES
-`gate_constitution`, `gate_spec`, `gate_plan`, `gate_tasks`, `gate_analyze`, `gate_design`, `gate_implement`, `gate_security`
+> **GATE_PHASES** is *derived*, not stored: it is the `gate_phase` column of PHASE_TO_GATE_KEY, in PHASE_SEQUENCE order. Ask the script (`sdle.py constants`) rather than maintaining a second list.
 
 ### ARTIFACT_OWNERSHIP
 | gate_key | artifact_path_template | path type |
@@ -750,26 +749,25 @@ When `current_phase` ∈ GATE_PHASES and `status` is `awaiting_approval`, OR whe
 
 ## Step 9: State File Management
 
-### Version Migration (run immediately after reading state.json)
+### VERSION_MIGRATION
 
-Apply migrations in sequence. Each migration sets its own version string and saves before chaining.
+Migrations are applied in chain order by `sdle.py migrate`, which is the only thing that writes them. This table is the **authoritative version chain** — the script asserts its own migration steps against it and `lint-skill` fails if they disagree. An unrecognised `workflow_version` halts: *"⚠️ Unrecognized workflow_version: `<value>`. Options: 'reset workflow' to start fresh, or 'show state' to inspect."*
 
-| `workflow_version` | Migration action |
-|---|---|
-| `"1.0"` | Add `speckit_skill_prefix: null`, `current_artifact_sha: null`, `current_feature_id: null` if missing. Set version `"1.1"`. Save. Continue. |
-| `"1.1"` | Add `current_feature_id: null` if missing. Set version `"1.2"`. Save. Continue. |
-| `"1.2"` | Set version `"1.3"`. Save. Continue. |
-| `"1.3"` | Add `approvals.gate_design: null` if missing. Set version `"1.4"`. Save. Continue. |
-| `"1.4"` | Add `rate_limits: { "max_remediation_attempts": 3, "max_retry_attempts": 3 }`, `attempt_counts: {}` if missing. Set version `"1.5"`. Save. Continue. |
-| `"1.5"` | Add `verbose: false` if missing. Set version `"1.6"`. Save. Continue. |
-| `"1.6"` | Add `clarification_phase: null` if missing. Set version `"1.7"`. Save. Continue. |
-| `"1.7"` | Add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. Set version `"1.8"`. Save. Continue. |
-| `"1.8"` | Add `phase_checkpoint: null`, `security_review_artifact: null`, `pending_confirm_action: null` if missing. Add `approvals.gate_tasks: null`, `approvals.gate_security: null` if missing. Re-compute `progress` by looking up `current_phase` in **PROGRESS_MAP** (new /18 denominator). If `current_phase` ∈ {`implement`, `gate_implement`, `security_review`, `complete`}: after saving, warn the user: "⚠️ This workflow was created under SDLE v1.8, which had a different phase order. Phases gate_tasks (Gate 4), design_generation (Phase 13), and gate_design (Gate 6) were not part of the original run. You may continue from your current position or `restart phase 13` to generate design documents before the implementation review." Set version `"1.9"`. Save. Continue. |
-| `"1.9"` | Add `pending_confirm_action: null` if missing. Set version `"1.10"`. Save. Continue. |
-| `"1.10"` | Add `last_updated: null` if missing. Set version `"1.11"`. Save. Continue. |
-| `"1.11"` | Add `audit_sha: null` if missing. Set version `"1.12"`. Save. Continue. |
-| `"1.12"` | No migration needed. Continue. |
-| Any other value | `"⚠️ Unrecognized workflow_version: <value>. Options: 'reset workflow' to start fresh, or 'show state' to inspect."` Halt. |
+| from_version | to_version | action |
+|---|---|---|
+| `1.0` | `1.1` | Add `speckit_skill_prefix`, `current_artifact_sha`, `current_feature_id` (null) if missing. |
+| `1.1` | `1.2` | Add `current_feature_id: null` if missing. |
+| `1.2` | `1.3` | No field change. |
+| `1.3` | `1.4` | Add `approvals.gate_design: null` if missing. |
+| `1.4` | `1.5` | Add `rate_limits` (`max_remediation_attempts: 3`, `max_retry_attempts: 3`) and `attempt_counts: {}` if missing. |
+| `1.5` | `1.6` | Add `verbose: false` if missing. |
+| `1.6` | `1.7` | Add `clarification_phase: null` if missing. |
+| `1.7` | `1.8` | Add `artifact_shas: {}`, `drift_queue: []`, `pending_phase: null` if missing. |
+| `1.8` | `1.9` | Add `phase_checkpoint`, `security_review_artifact`, `pending_confirm_action` (null) and `approvals.gate_tasks`, `approvals.gate_security` if missing. Re-compute `progress` from PROGRESS_MAP. If `current_phase` is one of `implement`, `gate_implement`, `security_review`, `complete`, warn that this workflow predates Gate 4, Phase 13 and Gate 6, and offer `restart phase 13`. |
+| `1.9` | `1.10` | Add `pending_confirm_action: null` if missing. |
+| `1.10` | `1.11` | Add `last_updated: null` if missing. |
+| `1.11` | `1.12` | Add `audit_sha: null` if missing. |
+| `1.12` | `1.13` | Add `implementation_base_ref: null` if missing. Normalise every recorded SHA in `artifact_shas`, `current_artifact_sha` and `audit_sha` to lowercase hex — v1.12 recorded PowerShell's uppercase `Get-FileHash` output, which would otherwise false-drift every gate on first v1.13 run. |
 
 ### `.workflow/state.json` — read and write on every turn that changes state.
 

@@ -119,7 +119,7 @@ For *why* each phase and gate exists in this exact order — and what specifical
 | Tasks | `speckit-tasks` |
 | Analyze | `speckit-analyze` |
 | Implement | `speckit-implement` |
-| Clarify (post-generation, Phases 2/4/6/8/9) | `speckit-clarify` |
+| Clarify (post-generation, Phase 4 only) | `speckit-clarify` |
 | Design Generation | *(SDLE-native, no SpecKit call)* |
 | Security Review | *(SDLE-native, no SpecKit call)* |
 

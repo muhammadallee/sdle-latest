@@ -71,7 +71,7 @@ Please review the content above, then respond with:
 ---
 ```
 
-*(Internally: `speckit-constitution` invoked; Post-SpecKit Verification passed (file ≥100 bytes, SHA-256 recorded); clarify step produced no questions; phase advanced to `gate_constitution`, status `awaiting_approval`.)*
+*(Internally: `speckit-constitution` invoked; Post-SpecKit Verification passed (file ≥100 bytes, SHA-256 recorded); phase advanced to `gate_constitution`, status `awaiting_approval`. Post-Generation Clarify only runs after `spec_draft`, so it is skipped here.)*
 
 ---
 

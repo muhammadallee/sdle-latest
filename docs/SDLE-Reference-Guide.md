@@ -142,7 +142,7 @@ SDLE Orchestrator (Claude Code Skill)
 | `.workflow/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `.workflow/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `.workflow/completion-summary.json` | Gate 8 approval | Final, signed closure record |
-| `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to SpecKit clarification questions |
+| `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 11 analyze prompt |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
 
 ### 4.3 Why a state file, not conversation memory
@@ -179,7 +179,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 | **Rate Limit** | A configurable per-phase cap on remediation attempts and retry attempts, preventing infinite loops against an unresolved root cause. |
 | **Phase Checkpoint** | A sub-step marker (`phase_checkpoint`) saved before any generation call, enabling crash-recovery without duplicate work. |
 | **Guidance File** | An optional, user-authored file in `guidance/` that, if present, is injected into the relevant phase's generation call to steer its output. Absence changes nothing. |
-| **Clarification** | A user response to a SpecKit `clarify` question, persisted to `clarifications/` so it survives outside conversation memory. |
+| **Clarification** | A user response to a spec-phase SpecKit `clarify` question, or to the Phase 11 analyze prompt, persisted to `clarifications/` so it survives outside conversation memory. |
 | **Audit Trail (`audit.md`)** | The append-only, timestamped, attributed ledger of every meaningful workflow event. |
 | **Forward Jump** | An attempt for `current_phase` to be more than 2 phases ahead of the last confirmed history entry — flagged by the Recovery Consistency Check as a possible state inconsistency requiring explicit acknowledgement. |
 | **Restart Phase N** | A user command that rolls the workflow *backward* to phase N, clearing all approvals and history from that point forward. The only sanctioned way to undo progress. |
