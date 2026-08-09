@@ -1,4 +1,4 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.12)
+# SDLE — Spec Driven Lifecycle Engine (v1.13)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
@@ -15,6 +15,10 @@ Users interact only with SDLE — SpecKit commands never surface directly.
 
 ### 1. Prerequisites
 
+**Python 3.11+** must be on PATH. SDLE's guardrails run in `scripts/sdle.py`;
+the launcher resolves `py -3`, `python3`, `python`, then falls back to
+`uv run --python 3.11` (which SpecKit already requires) before giving up.
+
 Install SpecKit with skills mode in your **target project** (not this folder):
 
 ```powershell
@@ -24,15 +28,22 @@ uvx --from git+https://github.com/github/spec-kit.git specify init . --skills --
 
 ### 2. Install This Skill
 
-Copy (or symlink) this skill into your target project's local skills:
+SDLE is no longer only a skill folder. The engine (`scripts/`), the commands
+(`.claude/commands/`) and the guardrail hooks (`.claude/hooks/` plus their
+registration in `.claude/settings.json`) live outside `.claude/skills/sdle/`,
+so copying the skill folder alone installs a half-engine.
 
-```powershell
-# Option A: copy
-xcopy /E /I ".claude\skills\sdle" "<your-project>\.claude\skills\sdle"
+Copy all four into your target project:
 
-# Option B: or install globally
-xcopy /E /I ".claude\skills\sdle" "%USERPROFILE%\.claude\skills\sdle"
 ```
+.claude/skills/sdle/     the orchestrator prompt files
+.claude/commands/        the nine /sdle-* commands
+.claude/hooks/           the four guardrail hooks
+scripts/                 sdle.py and its launchers
+```
+
+Then merge `.claude/settings.json`'s `hooks` block into your project's
+settings. Run `scripts/sdle.sh preflight` to confirm the install.
 
 ### 3. Add Requirements
 
@@ -60,24 +71,24 @@ SDLE will handle everything from there.
 ## 18-Phase Workflow
 
 ```
-Phase  1  Requirements Check          — Validates requirements/ folder
-Phase  2  Generate Constitution        — SpecKit: constitution
-Phase  3  ★ GATE 1: Constitution       — Await your approval
-Phase  4  Generate Specification       — SpecKit: specify
-Phase  5  ★ GATE 2: Specification      — Await your approval
-Phase  6  Generate Plan                — SpecKit: plan
-Phase  7  ★ GATE 3: Plan               — Await your approval
-Phase  8  Generate Checklist           — SpecKit: checklist
-Phase  9  Generate Tasks               — SpecKit: tasks
-Phase 10  ★ GATE 4: Tasks              — Await your approval (checklist shown alongside)
-Phase 11  Analyze                      — SpecKit: analyze (refines tasks.md)
-Phase 12  ★ GATE 5: Analysis           — Await your approval
-Phase 13  Generate Design              — SDLE-native: app & DB design docs
-Phase 14  ★ GATE 6: Design             — Await your approval
-Phase 15  Implement                    — SpecKit: implement
-Phase 16  ★ GATE 7: Implementation     — Await your approval
-Phase 17  Security Review              — SDLE-native: evidence-based review file
-Phase 18  ★ GATE 8: Security Review    — Await your approval → workflow complete
+Phase  1  Requirements Check       requirements_check   Validates requirements/
+Phase  2  Generate Constitution    constitution_draft   SpecKit: constitution
+Phase  3  ★ GATE 1: Constitution   gate_constitution    Await your approval
+Phase  4  Generate Specification   spec_draft           SpecKit: specify
+Phase  5  ★ GATE 2: Specification  gate_spec            Await your approval
+Phase  6  Generate Plan            plan_draft           SpecKit: plan
+Phase  7  ★ GATE 3: Plan           gate_plan            Await your approval
+Phase  8  Generate Checklist       checklist_draft      SpecKit: checklist
+Phase  9  Generate Tasks           tasks_draft          SpecKit: tasks
+Phase 10  ★ GATE 4: Tasks          gate_tasks           Checklist shown alongside
+Phase 11  Analyze                  analyze              SpecKit: analyze
+Phase 12  ★ GATE 5: Analysis       gate_analyze         Await your approval
+Phase 13  Generate Design          design_generation    SDLE-native: app & DB docs
+Phase 14  ★ GATE 6: Design         gate_design          Await your approval
+Phase 15  Implement                implement            SpecKit: implement
+Phase 16  ★ GATE 7: Implementation gate_implement       Manifest + secrets + tests
+Phase 17  Security Review          security_review      SDLE-native: review file
+Phase 18  ★ GATE 8: Security       gate_security        Approve -> complete
 ```
 
 **8 approval gates total.** Phases 8–9 run automatically (checklist then tasks, no gate between them) and are reviewed together at Gate 4. Design (Phase 13) deliberately precedes Implementation (Phase 15) so architecture decisions inform the generated code, not the other way around.
@@ -87,6 +98,9 @@ For *why* each phase and gate exists in this exact order — and what specifical
 ---
 
 ## Commands
+
+Every verb is a slash command; the natural-language phrasing on the left still
+routes to the same place.
 
 | Command | Effect |
 |---|---|
@@ -129,17 +143,30 @@ These skill names are installed by `specify init . --skills --here`. SDLE auto-d
 
 ## File Layout
 
-### In this repo (skill source):
+### In this repo (engine source):
 ```
-.claude/skills/sdle/
-├── SKILL.md                  ← Orchestrator entry point (always loaded)
-├── modules/
-│   ├── phase-execution.md    ← Phase logic (loaded when executing a phase)
-│   ├── gate-protocol.md      ← Gate + rejection logic (loaded at gate phases)
-│   └── security-review.md    ← Security review template (loaded at Phase 17)
-└── templates/
-    └── state.json            ← Initial state template
+scripts/
+├── sdle.py                   ← Deterministic core: state machine, gates,
+│                               fingerprints, audit chain, drift, locking
+├── sdle.sh / sdle.ps1        ← Launchers (resolve Python 3.11+)
+└── README.md                 ← Output and exit-code contract
+.claude/
+├── skills/sdle/
+│   ├── SKILL.md              ← Orchestrator entry point (always loaded).
+│   │                           Hosts the constant tables sdle.py parses.
+│   ├── modules/
+│   │   ├── phase-execution.md    ← Phase logic (loaded when executing)
+│   │   ├── gate-protocol.md      ← Gate + rejection (loaded at gates)
+│   │   └── security-review.md    ← Review template (loaded at Phase 17)
+│   └── templates/state.json  ← Initial state template (the only copy)
+├── commands/                 ← The nine /sdle-* slash commands
+├── hooks/                    ← Four guardrail hooks
+└── settings.json             ← Hook registration
+tests/                        ← pytest: units, 9 transcript integrations, hooks
 ```
+
+Run `scripts/sdle.sh lint-skill` after editing any of it — the cross-file sync
+rules are checked mechanically rather than by hand.
 
 ### In your target project (runtime state):
 ```
@@ -273,7 +300,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 
 ## State Schema Reference
 
-`.workflow/state.json` (v1.12) — key fields:
+`.workflow/state.json` (v1.13) — key fields:
 
 | Field | Type | Description |
 |---|---|---|
@@ -291,6 +318,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `audit_sha` | string\|null | SHA-256 of `.workflow/audit.md`, updated after every append — tamper-evidence baseline |
 | `drift_queue` / `pending_phase` | array / string\|null | Re-approval state when artifact drift is detected |
 | `rate_limits` / `attempt_counts` | object | Configurable remediation/retry caps and per-phase counters |
+| `implementation_base_ref` | string\|null | HEAD SHA pinned when Phase 15 starts; Phase 17 diffs against it |
 | `pending_confirm_action` | string\|null | Tracks a pending `restart`/`reset`/`accept_state_jump` confirmation |
 | `phase_history` | array | Ordered list of completed phases with outcomes |
 
@@ -309,7 +337,7 @@ Full field-by-field reference: **[Appendix B of the Reference Guide](docs/SDLE-R
 
 ## Extending SDLE
 
-**Add a new phase:** Insert a new row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP, PROGRESS_MAP) and add a corresponding block to `modules/phase-execution.md`.
+**Add a new phase:** Insert a row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP, PROGRESS_MAP) and add a block to `modules/phase-execution.md`. Then run `scripts/sdle.sh lint-skill` — it checks every cross-file rule mechanically, so you no longer hand-verify them.
 
 **Add a new gate:** Add a `gate_<name>` phase between two execution phases, register it in GATE_PHASES / PHASE_TO_GATE_KEY / ARTIFACT_OWNERSHIP, and in `state.json`'s `approvals` object.
 
@@ -325,6 +353,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |
 | **v1.12** | 7-item guardrail hardening: untrusted-content (prompt-injection) scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha` hash chain), session lock, dirty-tree guard before implement, repo staleness warning, and two-step `confirm skip`. |
 | **v1.11** | 12-gap hardening pass across all skill files (edge cases in drift, rate limiting, and state migration). |
 | **v1.10** | 15-gap hardening pass; fixed 3 gate-bypass vulnerabilities (forward-jump and stale-confirmation guards). |

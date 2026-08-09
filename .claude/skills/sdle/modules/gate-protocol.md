@@ -64,11 +64,7 @@ Please review the content above, then respond with:
 >
 > 1. `gate_key` = `drift_queue[0]` (the gate being re-approved; do NOT use PHASE_TO_GATE_KEY here).
 > 2. Resolve the artifact path from **ARTIFACT_OWNERSHIP** using `gate_key` (substitute `current_feature_id` if needed).
-> 3. Compute current SHA: `(Get-FileHash -Algorithm SHA256 "<path>").Hash`.
-> 4. Update `state.json → approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or 're-approved after artifact drift'>", "timestamp": "<ISO>" }`.
-> 5. Update `state.json → artifact_shas[gate_key]` = new computed SHA (this is now the new baseline).
-> 6. Remove `drift_queue[0]` from `drift_queue`. Save state.
-> 7. Append to audit: `[<ISO>] Drift re-approval: <gate_key> re-approved. New baseline SHA: <sha>. Comments: <text or none>.`
+> 3. Run `sdle.sh gate approve --gate <drift_queue[0]>` (add `--comments`). The script re-fingerprints the artifact as the new baseline, records the approval, pops the queue and audits it. Approving out of queue order is refused.
 >
 > - **If `drift_queue` is now empty:**
 >   - Restore `current_phase` = `state.json → pending_phase`. Clear `pending_phase = null`. Set `status = "in_progress"`. Save state.
@@ -82,11 +78,7 @@ Please review the content above, then respond with:
 
 1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
 2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
-3. **Record approval-time SHA:** Compute current SHA of `current_artifact`:
-   ```powershell
-   (Get-FileHash -Algorithm SHA256 "<current_artifact>").Hash
-   ```
-   Write to `state.json → artifact_shas[gate_key]` = computed SHA. This is the baseline for future drift detection. (Skip only if `current_artifact` is null.)
+3. **Record approval-time SHA:** the script fingerprints the artifact and writes `artifact_shas[gate_key]` as the drift baseline.
 4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
 5. Append to `state.json → phase_history`: `{ "phase": "<current_phase>", "completed_at": "<ISO>", "outcome": "approved" }`. Set `last_updated`. Save state.
 6. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
@@ -161,29 +153,12 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
 **On `continue` after rejection:**
 1. Read feedback text from `state.json → approvals[gate_key].comments` (canonical source).
 2. Derive `gate_key` from `current_phase` using **PHASE_TO_GATE_KEY**. Look up `gate_key` in **GATE_TO_EXECUTION_PHASE** (above) to determine whether re-execution is SpecKit-based or SDLE-native.
-3. **Remediation rate-limit check:**
-   - If `attempt_counts[current_phase]` does not exist in `state.json`, initialize it: `{ "remediations": 0, "retries": 0 }`.
-   - Compare `attempt_counts[current_phase].remediations` against `rate_limits.max_remediation_attempts`.
-   - If **at or over the limit** (remediations ≥ max): **DO NOT re-invoke any skill.** Surface:
-     ```
-     ⛔ Remediation limit reached: {current_phase} has been remediated {N}/{max} times.
+3. **Remediation rate-limit check:** `sdle.sh remediate begin --gate <gate_key>`.
 
-     To continue, choose one of:
-       • Raise the limit: edit .workflow/state.json → rate_limits.max_remediation_attempts
-       • Reset this phase's counter: edit .workflow/state.json → attempt_counts.{current_phase}.remediations to 0
-       • `restart phase <N>` — restart this phase from scratch
-       • `skip with warning` — advance without re-running (not recommended)
-     ```
-     Halt until user acts. Do NOT advance `status` or invoke any skill.
-   - If **under the limit**: increment `attempt_counts[current_phase].remediations` by 1. Save state. Continue to step 4.
-4. Set `status` to `in_progress`. Save state. Write `.specify/sdle-feedback.md`:
-   ```markdown
-   # SDLE Feedback for <phase_id> — <ISO timestamp>
-   **Gate:** <gate_label>
-   **Canonical source:** .workflow/state.json → approvals[<gate_key>].comments
-   **Reviewer comments:**
-   <feedback text>
-   ```
+   The script reads the canonical feedback from `approvals[<gate_key>].comments`, checks the counter against `max_remediation_attempts` for the *execution* phase, and refuses with `rate_limit_exceeded` at the limit — **without invoking anything**. On refusal show the message, which names the audited commands to raise the limit or reset the counter, and halt.
+
+   On success it increments the counter, sets `status: in_progress`, and writes `.specify/sdle-feedback.md` from canonical state.
+
 5. **If execution type is SDLE-native** (gate_design or gate_security):
    - **For `gate_design`:** Read `modules/phase-execution.md`. Re-execute Phase 13 (`design_generation`) with this context prepended: `"REMEDIATION RUN — Reviewer feedback to incorporate: <paste feedback text>. Ensure both design documents address these concerns."` After generation and Post-SpecKit Verification, proceed to step 7.
    - **For `gate_security`:** Pre-compute a new `review_filename` with an updated timestamp. Update `security_review_artifact` in state to the new filename. Save state. Read `modules/security-review.md`. Re-run the security review with this context prepended: `"REMEDIATION RUN — Reviewer feedback to address: <paste feedback text>."` Pass the new `review_filename` as the output path. After generation and Post-SpecKit Verification, proceed to step 7.
@@ -191,8 +166,5 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
    - If `.specify/sdle-feedback.md` content does not match current state (re-check after writing in step 4), re-write it. The file must match canonical state before invoking SpecKit.
    - Re-invoke the relevant SpecKit skill via the Skill tool. Include in args: `"Incorporate reviewer feedback from .specify/sdle-feedback.md. Feedback: <paste comments text directly into args as well, as a fallback>."`
    *(Embedding the text directly in args means the feedback reaches SpecKit even if file lookup fails.)*
-7. After the skill/module completes and Post-SpecKit Verification passes (see `modules/phase-execution.md`):
-   - Archive: write `.specify/sdle-feedback-archive-<ISO-timestamp>.md` with the same content as `.specify/sdle-feedback.md`.
-   - Delete `.specify/sdle-feedback.md`.
-   - Append to audit: `[<ISO>] Remediation complete for <phase_id>. Feedback archived.`
+7. After the skill/module completes and Post-SpecKit Verification passes: `sdle.sh remediate finish --gate <gate_key>`. It archives the feedback file, deletes the working copy, and audits the completion.
 8. Present the gate prompt (Step 6 above) with the newly regenerated artifact.

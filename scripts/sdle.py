@@ -3100,6 +3100,199 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
         )
     )
 
+    checks.append(_check_single_state_template(paths))
+    checks.append(_check_version_consistency(paths))
+    checks.append(_check_migration_covers_state_fields(paths, consts))
+    checks.append(_check_no_powershell(paths))
+    checks.append(_check_no_hardcoded_progress(paths, consts))
+    checks.extend(_check_doc_phase_tables(paths, consts))
+    return checks
+
+
+REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
+
+
+def _skill_files(paths: Paths) -> list[Path]:
+    return [
+        p for p in (
+            paths.skill_md,
+            paths.phase_execution_md,
+            paths.gate_protocol_md,
+            paths.security_review_md,
+        ) if p.is_file()
+    ]
+
+
+def _repo_root(paths: Paths) -> Path:
+    """The source repo, when the skill lives inside one."""
+    candidate = paths.skill_root.parent.parent.parent
+    return candidate if (candidate / "README.md").is_file() else paths.project_root
+
+
+def _check_single_state_template(paths: Paths) -> Check:
+    """The template must exist in exactly one place.
+
+    v1.12 kept a second copy embedded in SKILL.md Step 9 and the two had
+    already diverged (project_name and last_updated). One fact, one file.
+    """
+    if not paths.state_template.is_file():
+        return Check("single_state_template", False,
+                     "templates/state.json is missing")
+    text = paths.skill_md.read_text(encoding="utf-8")
+    if re.search(r'"workflow_version"\s*:\s*"', text):
+        return Check(
+            "single_state_template", False,
+            "SKILL.md embeds a second copy of the state template; "
+            "templates/state.json must be the only host",
+        )
+    return Check("single_state_template", True,
+                 "templates/state.json is the only host")
+
+
+def _check_version_consistency(paths: Paths) -> Check:
+    """One version string, four documents."""
+    template = json.loads(paths.state_template.read_text(encoding="utf-8"))
+    version = template.get("workflow_version")
+    found: dict[str, str | None] = {"templates/state.json": version}
+
+    skill = paths.skill_md.read_text(encoding="utf-8")
+    frontmatter = re.search(r"Lifecycle Engine v([0-9]+\.[0-9]+)", skill)
+    heading = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", skill, re.MULTILINE)
+    found["SKILL.md frontmatter"] = frontmatter.group(1) if frontmatter else None
+    found["SKILL.md heading"] = heading.group(1) if heading else None
+
+    root = _repo_root(paths)
+    readme = root / "README.md"
+    if readme.is_file():
+        text = readme.read_text(encoding="utf-8")
+        title = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", text, re.MULTILINE)
+        row = re.search(r"\*\*v([0-9]+\.[0-9]+)\*\*", text)
+        found["README title"] = title.group(1) if title else None
+        found["README version table"] = row.group(1) if row else None
+
+    guide = root / "docs" / "SDLE-Reference-Guide.md"
+    if guide.is_file():
+        header = re.search(r"SDLE v([0-9]+\.[0-9]+)",
+                           guide.read_text(encoding="utf-8"))
+        found["Reference Guide header"] = header.group(1) if header else None
+
+    mismatched = {k: v for k, v in found.items() if v != version}
+    return Check(
+        "version_string_consistent",
+        not mismatched,
+        f"all four locations report v{version}" if not mismatched
+        else f"expected v{version}, found {mismatched}",
+    )
+
+
+def _check_migration_covers_state_fields(paths: Paths, consts: Constants) -> Check:
+    """Every field in the template is introduced by the chain.
+
+    Without this, a new state field ships with no upgrade path and older
+    state.json files break on load.
+    """
+    template = json.loads(paths.state_template.read_text(encoding="utf-8"))
+    rows = parse_md_table(paths.skill_md, "VERSION_MIGRATION")
+    actions = " ".join((_column(r, "action") or "") for r in rows)
+
+    base = {
+        "workflow_version", "project_name", "current_phase", "status",
+        "progress", "current_artifact", "speckit_initialized", "phase_history",
+        "approvals",
+    }
+    missing = [
+        key for key in template
+        if key not in base and key not in actions
+    ]
+    return Check(
+        "migration_covers_every_state_field",
+        not missing,
+        "every field has a migration row" if not missing
+        else f"no migration row introduces {missing}",
+    )
+
+
+POWERSHELL_ONLY = (
+    "Get-FileHash", "New-Item -ItemType", "Get-ChildItem", "Set-Content",
+    "Out-File", "%USERPROFILE%", "Get-Content",
+)
+
+
+def _check_no_powershell(paths: Paths) -> Check:
+    """Prompt files must not embed Windows-only commands.
+
+    They are what blocked Linux, macOS and CI. The engine is cross-platform
+    now; the prose has to be too.
+    """
+    offenders = []
+    for path in _skill_files(paths):
+        text = path.read_text(encoding="utf-8")
+        for cmdlet in POWERSHELL_ONLY:
+            if cmdlet in text:
+                offenders.append(f"{path.name}:{cmdlet}")
+    return Check(
+        "no_powershell_only_cmdlets",
+        not offenders,
+        "none found" if not offenders else f"found {offenders}",
+    )
+
+
+def _check_no_hardcoded_progress(paths: Paths, consts: Constants) -> Check:
+    """No literal 'N/18' in orchestrator instructions.
+
+    Scoped to instruction text: artifact body templates legitimately contain
+    a progress string, because SDLE writes it into the artifact.
+    """
+    denominator = consts.phase_count
+    pattern = re.compile(rf"\b\d+/{denominator}\b")
+    offenders = []
+    for path in _skill_files(paths):
+        in_fence = False
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(),
+                                      start=1):
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue  # artifact template bodies live in fences
+            if path.name == "SKILL.md" and "|" in line and "PROGRESS" not in line:
+                # PROGRESS_MAP itself is the one legitimate home.
+                if re.match(r"^\|\s*`?[a-z_]+`?\s*\|\s*\d+/\d+\s*\|", line.strip()):
+                    continue
+            if pattern.search(line):
+                offenders.append(f"{path.name}:{number}")
+    return Check(
+        "no_hardcoded_progress_outside_progress_map",
+        not offenders,
+        "none found" if not offenders else f"found {offenders}",
+    )
+
+
+def _check_doc_phase_tables(paths: Paths, consts: Constants) -> list[Check]:
+    """README and the Reference Guide restate the phase list for humans.
+
+    They are derived views, so they are allowed to exist — but they must
+    agree with PHASE_SEQUENCE.
+    """
+    checks = []
+    root = _repo_root(paths)
+    for relative in REPO_DOCS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        missing = [
+            phase for phase in consts.phase_sequence
+            if phase != "complete" and f"`{phase}`" not in text
+            and phase not in text
+        ]
+        checks.append(
+            Check(
+                f"doc_lists_every_phase_{Path(relative).stem}",
+                not missing,
+                "all phases present" if not missing else f"missing={missing}",
+            )
+        )
     return checks
 
 
