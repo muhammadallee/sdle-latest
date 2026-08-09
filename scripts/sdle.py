@@ -23,9 +23,11 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 # --------------------------------------------------------------------------
@@ -447,6 +449,737 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 # --------------------------------------------------------------------------
+# Time and actor
+# --------------------------------------------------------------------------
+
+
+def now_iso() -> str:
+    """UTC, second resolution, Z-suffixed. One format everywhere."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def git(paths: Paths, *args: str) -> tuple[int, str]:
+    """Run git in the project root. Never raises — git may be absent."""
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=str(paths.project_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, ValueError):
+        return 127, ""
+    return completed.returncode, (completed.stdout or "").strip()
+
+
+def git_available(paths: Paths) -> bool:
+    code, _ = git(paths, "rev-parse", "--is-inside-work-tree")
+    return code == 0
+
+
+def actor(paths: Paths) -> str:
+    _, name = git(paths, "config", "user.name")
+    _, email = git(paths, "config", "user.email")
+    if name and email:
+        return f"{name} <{email}>"
+    return name or email or "unknown"
+
+
+# --------------------------------------------------------------------------
+# State IO
+# --------------------------------------------------------------------------
+
+CURRENT_VERSION = "1.13"
+
+STATUS_DISPLAY = {
+    "pending": "PENDING",
+    "in_progress": "IN PROGRESS",
+    "awaiting_approval": "AWAITING APPROVAL",
+    "awaiting_reapproval": "AWAITING RE-APPROVAL (DRIFT DETECTED)",
+    "completed": "COMPLETED",
+    "rejected": "REJECTED — REMEDIATION NEEDED",
+    "failed": "FAILED — ACTION REQUIRED",
+}
+
+
+def read_state(paths: Paths) -> dict:
+    if not paths.state_file.is_file():
+        raise IntegrityError(
+            "state_unreadable",
+            "No .workflow/state.json in this project. "
+            "Run `init` to start a workflow.",
+            {"path": str(paths.state_file)},
+        )
+    try:
+        return json.loads(paths.state_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise IntegrityError(
+            "state_unreadable",
+            f".workflow/state.json is not valid JSON: {exc}. "
+            "Options: 'reset workflow' to start fresh, or inspect the file.",
+            {"path": str(paths.state_file), "error": str(exc)},
+        ) from None
+
+
+def save_state(paths: Paths, state: dict, session: str | None = None) -> None:
+    """Persist state atomically. ``last_updated`` is implicit and mandatory."""
+    state["last_updated"] = now_iso()
+    write_atomic(paths.state_file, json.dumps(state, indent=2) + "\n")
+    touch_lock(paths, session)
+
+
+def load_template(paths: Paths) -> dict:
+    if not paths.state_template.is_file():
+        raise IntegrityError(
+            "template_missing",
+            f"State template not found at {paths.state_template}.",
+            {"path": str(paths.state_template)},
+        )
+    return json.loads(paths.state_template.read_text(encoding="utf-8"))
+
+
+# --------------------------------------------------------------------------
+# Session lock
+# --------------------------------------------------------------------------
+
+LOCK_FRESH_SECONDS = 600
+
+
+def touch_lock(paths: Paths, session: str | None) -> None:
+    if not session:
+        return
+    paths.workflow.mkdir(parents=True, exist_ok=True)
+    write_atomic(paths.lock_file, f"{now_iso()} {session}\n")
+
+
+def read_lock(paths: Paths) -> tuple[str, str] | None:
+    if not paths.lock_file.is_file():
+        return None
+    raw = paths.lock_file.read_text(encoding="utf-8").strip()
+    parts = raw.split()
+    if len(parts) != 2:
+        return None
+    return parts[0], parts[1]
+
+
+def cmd_lock_acquire(args, paths: Paths) -> int:
+    if not args.session:
+        raise UsageError(
+            "session_required",
+            "lock acquire needs a session token: --session <token>.",
+            {},
+        )
+    existing = read_lock(paths)
+    foreign = False
+    fresh = False
+    age = None
+    held_by = None
+    if existing:
+        stamp, token = existing
+        held_by = token
+        foreign = token != args.session
+        try:
+            when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            age = int((datetime.now(timezone.utc) - when).total_seconds())
+            fresh = age < LOCK_FRESH_SECONDS
+        except ValueError:
+            age = None
+            fresh = False
+
+    touch_lock(paths, args.session)
+    emit(
+        "lock acquire",
+        {
+            "held_by": held_by,
+            "session": args.session,
+            "age_seconds": age,
+            "foreign": foreign,
+            "fresh": fresh,
+            "warn": bool(foreign and fresh),
+        },
+    )
+    if foreign and fresh:
+        print(
+            f"Another session may be operating on this workflow "
+            f"(lock touched {age}s ago).",
+            file=sys.stderr,
+        )
+    return EXIT_OK
+
+
+def cmd_lock_release(args, paths: Paths) -> int:
+    existed = paths.lock_file.is_file()
+    if existed:
+        paths.lock_file.unlink()
+    emit("lock release", {"released": existed})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Audit — per-entry prev_sha chain plus whole-file audit_sha
+# --------------------------------------------------------------------------
+
+GENESIS = "genesis"
+_ENTRY_SPLIT = re.compile(r"^## AUDIT ", re.MULTILINE)
+
+
+def _entry_digest(block: str) -> str:
+    return hashlib.sha256(block.strip().encode("utf-8")).hexdigest()
+
+
+def split_audit_entries(text: str) -> list[str]:
+    parts = _ENTRY_SPLIT.split(text)
+    return [f"## AUDIT {chunk}".strip() for chunk in parts[1:]]
+
+
+def append_audit(
+    paths: Paths,
+    state: dict,
+    phase: str,
+    event: str,
+    message: str,
+    artifact: str | None = None,
+    artifact_sha: str | None = None,
+    decision: str | None = None,
+    comments: str | None = None,
+) -> str:
+    """Append an entry, chain it, and rebaseline ``audit_sha``.
+
+    Ordering is load-bearing: append -> hash file -> save state.
+    """
+    paths.workflow.mkdir(parents=True, exist_ok=True)
+    existing = (
+        paths.audit_file.read_text(encoding="utf-8")
+        if paths.audit_file.is_file()
+        else ""
+    )
+    entries = split_audit_entries(existing)
+    prev = _entry_digest(entries[-1]) if entries else GENESIS
+
+    block = (
+        f"## AUDIT [{now_iso()}] | {phase} — {event}\n"
+        f"**Actor:** {actor(paths)}\n"
+        f"**Action:** {message}\n"
+        f"**Artifact:** {artifact or 'null'}\n"
+        f"**Artifact SHA (SHA-256):** {artifact_sha or 'n/a'}\n"
+        f"**Gate Decision:** {decision or 'n/a'}\n"
+        f"**Comments:** {comments or 'None'}\n"
+        f"**Prev:** {prev}\n"
+    )
+    separator = "" if not existing or existing.endswith("\n\n") else "\n"
+    write_atomic(paths.audit_file, existing + separator + block)
+
+    state["audit_sha"] = sha256_file(paths.audit_file)
+    return state["audit_sha"]
+
+
+def cmd_audit_append(args, paths: Paths) -> int:
+    state = read_state(paths)
+    sha = append_audit(
+        paths,
+        state,
+        phase=args.phase,
+        event=args.event,
+        message=args.message,
+        artifact=args.artifact,
+        decision=args.decision,
+    )
+    save_state(paths, state, args.session)
+    emit("audit append", {"audit_sha": sha, "phase": args.phase, "event": args.event})
+    return EXIT_OK
+
+
+def cmd_audit_verify(args, paths: Paths) -> int:
+    state = read_state(paths)
+    expected = state.get("audit_sha")
+
+    if expected is None:
+        emit(
+            "audit verify",
+            {"expected": None, "actual": None, "matches": True, "entries": 0,
+             "skipped": "no baseline recorded"},
+        )
+        return EXIT_OK
+
+    if not paths.audit_file.is_file():
+        emit(
+            "audit verify",
+            {"expected": expected, "actual": "FILE_MISSING", "matches": False,
+             "entries": 0, "chain_ok": False},
+            ok=False,
+            reason="audit_chain_broken",
+            message=".workflow/audit.md is missing.",
+        )
+        print("audit_chain_broken: .workflow/audit.md is missing.", file=sys.stderr)
+        return EXIT_INTEGRITY
+
+    actual = sha256_file(paths.audit_file)
+    entries = split_audit_entries(paths.audit_file.read_text(encoding="utf-8"))
+
+    chain_ok = True
+    broken_at = None
+    prev = GENESIS
+    for index, block in enumerate(entries, start=1):
+        match = re.search(r"^\*\*Prev:\*\*\s*(\S+)\s*$", block, flags=re.MULTILINE)
+        recorded = match.group(1) if match else None
+        if recorded != prev:
+            chain_ok = False
+            broken_at = index
+            break
+        prev = _entry_digest(block)
+
+    matches = actual == expected and chain_ok
+    data = {
+        "expected": expected,
+        "actual": actual,
+        "matches": matches,
+        "entries": len(entries),
+        "chain_ok": chain_ok,
+        "broken_at_entry": broken_at,
+    }
+    if matches:
+        emit("audit verify", data)
+        return EXIT_OK
+
+    detail = (
+        f"entry {broken_at} breaks the prev-hash chain"
+        if not chain_ok
+        else "whole-file hash does not match the recorded baseline"
+    )
+    emit(
+        "audit verify",
+        data,
+        ok=False,
+        reason="audit_chain_broken",
+        message=f"Audit log integrity check failed: {detail}.",
+    )
+    print(f"audit_chain_broken: {detail}.", file=sys.stderr)
+    return EXIT_INTEGRITY
+
+
+def cmd_audit_rebaseline(args, paths: Paths) -> int:
+    """The `accept audit` path. Logged, so it can never happen silently."""
+    state = read_state(paths)
+    append_audit(
+        paths,
+        state,
+        phase=state.get("current_phase", "unknown"),
+        event="audit_rebaseline",
+        message="User acknowledged audit integrity mismatch. Audit hash re-baselined.",
+    )
+    save_state(paths, state, args.session)
+    emit("audit rebaseline", {"audit_sha": state["audit_sha"]})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Migration
+# --------------------------------------------------------------------------
+
+
+def _add_missing(state: dict, **defaults) -> None:
+    for key, value in defaults.items():
+        state.setdefault(key, value)
+
+
+def _mig_1_0(state, paths, consts):
+    _add_missing(
+        state,
+        speckit_skill_prefix=None,
+        current_artifact_sha=None,
+        current_feature_id=None,
+    )
+
+
+def _mig_1_1(state, paths, consts):
+    _add_missing(state, current_feature_id=None)
+
+
+def _mig_1_2(state, paths, consts):
+    pass
+
+
+def _mig_1_3(state, paths, consts):
+    state.setdefault("approvals", {}).setdefault("gate_design", None)
+
+
+def _mig_1_4(state, paths, consts):
+    _add_missing(
+        state,
+        rate_limits={"max_remediation_attempts": 3, "max_retry_attempts": 3},
+        attempt_counts={},
+    )
+
+
+def _mig_1_5(state, paths, consts):
+    _add_missing(state, verbose=False)
+
+
+def _mig_1_6(state, paths, consts):
+    _add_missing(state, clarification_phase=None)
+
+
+def _mig_1_7(state, paths, consts):
+    _add_missing(state, artifact_shas={}, drift_queue=[], pending_phase=None)
+
+
+def _mig_1_8(state, paths, consts):
+    _add_missing(
+        state,
+        phase_checkpoint=None,
+        security_review_artifact=None,
+        pending_confirm_action=None,
+    )
+    approvals = state.setdefault("approvals", {})
+    approvals.setdefault("gate_tasks", None)
+    approvals.setdefault("gate_security", None)
+    phase = state.get("current_phase")
+    if phase in consts.progress:
+        state["progress"] = consts.progress[phase]
+    if phase in {"implement", "gate_implement", "security_review", "complete"}:
+        state.setdefault("_migration_warnings", []).append(
+            "This workflow was created under SDLE v1.8, which had a different "
+            "phase order. Phases gate_tasks (Gate 4), design_generation "
+            "(Phase 13), and gate_design (Gate 6) were not part of the "
+            "original run. You may continue from your current position or "
+            "`restart phase 13` to generate design documents before the "
+            "implementation review."
+        )
+
+
+def _mig_1_9(state, paths, consts):
+    _add_missing(state, pending_confirm_action=None)
+
+
+def _mig_1_10(state, paths, consts):
+    _add_missing(state, last_updated=None)
+
+
+def _mig_1_11(state, paths, consts):
+    _add_missing(state, audit_sha=None)
+
+
+def _mig_1_12(state, paths, consts):
+    """v1.13: pin the security diff range, and normalise SHA case.
+
+    v1.12 recorded PowerShell's uppercase Get-FileHash output. hashlib emits
+    lowercase. Without normalising, every approved gate false-drifts on the
+    first v1.13 run.
+    """
+    _add_missing(state, implementation_base_ref=None)
+
+    normalised = 0
+    shas = state.get("artifact_shas") or {}
+    for key, value in list(shas.items()):
+        if isinstance(value, str) and value != value.lower():
+            shas[key] = value.lower()
+            normalised += 1
+    for key in ("current_artifact_sha", "audit_sha"):
+        value = state.get(key)
+        if isinstance(value, str) and value != value.lower():
+            state[key] = value.lower()
+            normalised += 1
+    if normalised:
+        state.setdefault("_migration_notes", []).append(
+            f"Normalised {normalised} SHA value(s) to lowercase hex."
+        )
+
+
+MIGRATIONS: list[tuple[str, str, object]] = [
+    ("1.0", "1.1", _mig_1_0),
+    ("1.1", "1.2", _mig_1_1),
+    ("1.2", "1.3", _mig_1_2),
+    ("1.3", "1.4", _mig_1_3),
+    ("1.4", "1.5", _mig_1_4),
+    ("1.5", "1.6", _mig_1_5),
+    ("1.6", "1.7", _mig_1_6),
+    ("1.7", "1.8", _mig_1_7),
+    ("1.8", "1.9", _mig_1_8),
+    ("1.9", "1.10", _mig_1_9),
+    ("1.10", "1.11", _mig_1_10),
+    ("1.11", "1.12", _mig_1_11),
+    ("1.12", "1.13", _mig_1_12),
+]
+
+
+def migrate_state(state: dict, paths: Paths, consts: Constants) -> list[str]:
+    version = state.get("workflow_version")
+    known = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
+    if version not in known:
+        raise Refused(
+            "unknown_version",
+            f"Unrecognized workflow_version: {version}. Options: "
+            "'reset workflow' to start fresh, or 'show state' to inspect.",
+            {"workflow_version": version, "known": sorted(known)},
+        )
+
+    steps: list[str] = []
+    guard = 0
+    while state.get("workflow_version") != CURRENT_VERSION:
+        guard += 1
+        if guard > len(MIGRATIONS) + 1:
+            raise IntegrityError(
+                "migration_loop",
+                "Migration chain did not terminate.",
+                {"workflow_version": state.get("workflow_version")},
+            )
+        current = state.get("workflow_version")
+        for frm, to, func in MIGRATIONS:
+            if frm == current:
+                func(state, paths, consts)
+                state["workflow_version"] = to
+                steps.append(f"{frm}->{to}")
+                break
+        else:
+            raise Refused(
+                "unknown_version",
+                f"No migration path from {current}.",
+                {"workflow_version": current},
+            )
+    return steps
+
+
+def cmd_migrate(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    before = state.get("workflow_version")
+    steps = migrate_state(state, paths, consts)
+    warnings = state.pop("_migration_warnings", [])
+    notes = state.pop("_migration_notes", [])
+    if steps:
+        append_audit(
+            paths,
+            state,
+            phase=state.get("current_phase", "unknown"),
+            event="migration",
+            message=f"State migrated {before} -> {CURRENT_VERSION} ({', '.join(steps)}).",
+        )
+        save_state(paths, state, args.session)
+    for text in warnings + notes:
+        print(text, file=sys.stderr)
+    emit(
+        "migrate",
+        {
+            "from": before,
+            "to": state.get("workflow_version"),
+            "steps": steps,
+            "warnings": warnings,
+            "notes": notes,
+        },
+    )
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# init / state / header
+# --------------------------------------------------------------------------
+
+
+def infer_project_name(paths: Paths) -> str | None:
+    req_dir = paths.project_root / "requirements"
+    if not req_dir.is_dir():
+        return None
+    for candidate in sorted(req_dir.glob("*.md")):
+        for line in candidate.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.match(r"^#\s+(.+?)\s*$", line)
+            if match:
+                return match.group(1)
+    return None
+
+
+def cmd_init(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+
+    if paths.state_file.is_file():
+        raise Refused(
+            "already_initialized",
+            "A workflow already exists in .workflow/state.json. "
+            "Use `reset --confirm` to clear it, or resume where you left off.",
+            {"path": str(paths.state_file)},
+        )
+
+    req_dir = paths.project_root / "requirements"
+    requirements = sorted(p.name for p in req_dir.glob("*")) if req_dir.is_dir() else []
+    if not requirements:
+        raise Refused(
+            "requirements_missing",
+            "I need requirements before starting the workflow. Create a "
+            "`requirements/` folder and add at least one document.",
+            {"path": str(req_dir)},
+        )
+
+    name = args.project or infer_project_name(paths) or paths.project_root.name
+
+    state = load_template(paths)
+    state["project_name"] = name
+    state["current_phase"] = "requirements_check"
+    state["status"] = "in_progress"
+    state["progress"] = consts.progress_for("requirements_check")
+
+    paths.workflow.mkdir(parents=True, exist_ok=True)
+    append_audit(
+        paths,
+        state,
+        phase="requirements_check",
+        event="workflow_initialized",
+        message=f"Workflow initialized for '{name}'. "
+        f"{len(requirements)} requirements document(s) found.",
+    )
+
+    # Requirements check completes immediately; the workflow advances to the
+    # first generation phase, matching dry-run 01's first turn.
+    state["phase_history"].append(
+        {
+            "phase": "requirements_check",
+            "completed_at": now_iso(),
+            "outcome": "completed",
+        }
+    )
+    nxt = consts.next_phase["requirements_check"]
+    state["current_phase"] = nxt
+    state["status"] = "pending"
+    state["progress"] = consts.progress_for(nxt)
+    append_audit(
+        paths,
+        state,
+        phase="requirements_check",
+        event="phase_complete",
+        message=f"Requirements validated. Advanced to {nxt}.",
+    )
+    save_state(paths, state, args.session)
+
+    emit(
+        "init",
+        {
+            "project_name": name,
+            "requirements": requirements,
+            "current_phase": state["current_phase"],
+            "status": state["status"],
+            "progress": state["progress"],
+            "audit_sha": state["audit_sha"],
+        },
+    )
+    return EXIT_OK
+
+
+def cmd_state_get(args, paths: Paths) -> int:
+    state = read_state(paths)
+    if args.field:
+        if args.field not in state:
+            raise Refused(
+                "unknown_field",
+                f"No field '{args.field}' in state.json.",
+                {"field": args.field, "known": sorted(state)},
+            )
+        emit("state get", {"field": args.field, "value": state[args.field]})
+    else:
+        emit("state get", state)
+    return EXIT_OK
+
+
+def render_header(state: dict, consts: Constants) -> str:
+    phase = state.get("current_phase", "unknown")
+    status = state.get("status", "unknown")
+    progress = state.get("progress") or consts.progress.get(phase, "?")
+    label = consts.phase_label.get(phase, phase)
+    display = STATUS_DISPLAY.get(status, status.upper())
+    return (
+        f"<!-- SDLE_STATE phase={phase} status={status} progress={progress} -->\n"
+        f"📋 SDLE Status: Phase {progress} — {label} [{display}]"
+    )
+
+
+def cmd_header(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    rendered = render_header(state, consts)
+    print(rendered, file=sys.stderr)
+    emit(
+        "header",
+        {
+            "rendered": rendered,
+            "phase": state.get("current_phase"),
+            "status": state.get("status"),
+            "progress": state.get("progress"),
+            "label": consts.phase_label.get(state.get("current_phase", ""), None),
+        },
+    )
+    return EXIT_OK
+
+
+def cmd_state_dump(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    phase = state.get("current_phase", "unknown")
+
+    lines = [
+        "## SDLE Workflow State",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Version | {state.get('workflow_version')} |",
+        f"| Phase | {phase} ({state.get('progress')}) |",
+        f"| Label | {consts.phase_label.get(phase, phase)} |",
+        f"| Status | {state.get('status')} |",
+        f"| Progress | {state.get('progress')} |",
+        f"| Last Updated | {state.get('last_updated')} |",
+        f"| Verbose | {state.get('verbose')} |",
+        f"| Pending Confirm | {state.get('pending_confirm_action') or 'none'} |",
+        "",
+        "### Approvals",
+        "| Gate | Decision | Timestamp |",
+        "|---|---|---|",
+    ]
+    approvals = state.get("approvals") or {}
+    for gate_phase in consts.gate_phases:
+        key = consts.phase_to_gate_key[gate_phase]
+        entry = approvals.get(key)
+        decision = entry.get("decision") if isinstance(entry, dict) else "pending"
+        stamp = entry.get("timestamp") if isinstance(entry, dict) else "—"
+        lines.append(f"| {key} | {decision or 'pending'} | {stamp or '—'} |")
+
+    limits = state.get("rate_limits") or {}
+    lines += [
+        "",
+        "### Artifacts",
+        f"- Current artifact: {state.get('current_artifact') or 'none'}",
+        f"- Current SHA: {state.get('current_artifact_sha') or 'none'}",
+        f"- Feature ID: {state.get('current_feature_id') or 'none'}",
+        f"- Security review artifact: {state.get('security_review_artifact') or 'none'}",
+        f"- Implementation base ref: {state.get('implementation_base_ref') or 'none'}",
+        "",
+        "### Rate Limits",
+        f"- Max remediation attempts: {limits.get('max_remediation_attempts')}",
+        f"- Max retry attempts: {limits.get('max_retry_attempts')}",
+        f"- Per-phase counts: {state.get('attempt_counts') or 'none'}",
+        "",
+        "### Drift State",
+        f"- Drift queue: {state.get('drift_queue') or 'empty'}",
+        f"- Pending phase: {state.get('pending_phase') or 'none'}",
+        "",
+        "### Phase History",
+    ]
+    history = state.get("phase_history") or []
+    if history:
+        for entry in history:
+            lines.append(
+                f"Phase {entry.get('phase')} — {entry.get('outcome')} "
+                f"at {entry.get('completed_at')}"
+            )
+    else:
+        lines.append("(none)")
+
+    rendered = "\n".join(lines)
+    print(rendered, file=sys.stderr)
+    emit("state dump", {"rendered": rendered})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # Output envelope
 # --------------------------------------------------------------------------
 
@@ -669,10 +1402,55 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--project-root", help="Target project (default: cwd).")
     parser.add_argument("--skill-root", help="Directory holding SKILL.md.")
+    parser.add_argument(
+        "--session",
+        help="Conversation session token; refreshes .workflow/lock on write.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     sub = subparsers.add_parser("lint-skill", help="Verify cross-file sync rules.")
     sub.set_defaults(handler=cmd_lint_skill)
+
+    sub = subparsers.add_parser("init", help="Create .workflow/ and initial state.")
+    sub.add_argument("--project", help="Project name (default: infer from heading).")
+    sub.set_defaults(handler=cmd_init)
+
+    sub = subparsers.add_parser("header", help="Render the status assertion header.")
+    sub.set_defaults(handler=cmd_header)
+
+    sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
+    sub.set_defaults(handler=cmd_migrate)
+
+    state_p = subparsers.add_parser("state", help="Read workflow state.")
+    state_sub = state_p.add_subparsers(dest="subcommand", required=True)
+    got = state_sub.add_parser("get", help="Full state, or one field.")
+    got.add_argument("--field")
+    got.set_defaults(handler=cmd_state_get)
+    dumped = state_sub.add_parser("dump", help="Render the full status dump.")
+    dumped.set_defaults(handler=cmd_state_dump)
+
+    audit_p = subparsers.add_parser("audit", help="Append-only audit ledger.")
+    audit_sub = audit_p.add_subparsers(dest="subcommand", required=True)
+    appended = audit_sub.add_parser("append", help="Append a chained entry.")
+    appended.add_argument("--phase", required=True)
+    appended.add_argument("--event", required=True)
+    appended.add_argument("--message", required=True)
+    appended.add_argument("--artifact")
+    appended.add_argument("--decision")
+    appended.set_defaults(handler=cmd_audit_append)
+    verified = audit_sub.add_parser("verify", help="Walk and verify the chain.")
+    verified.set_defaults(handler=cmd_audit_verify)
+    rebased = audit_sub.add_parser(
+        "rebaseline", help="Acknowledge a mismatch and re-baseline (logged)."
+    )
+    rebased.set_defaults(handler=cmd_audit_rebaseline)
+
+    lock_p = subparsers.add_parser("lock", help="Session lock.")
+    lock_sub = lock_p.add_subparsers(dest="subcommand", required=True)
+    acquired = lock_sub.add_parser("acquire")
+    acquired.set_defaults(handler=cmd_lock_acquire)
+    released = lock_sub.add_parser("release")
+    released.set_defaults(handler=cmd_lock_release)
 
     sub = subparsers.add_parser("sha", help="SHA-256 of a file (lowercase hex).")
     sub.add_argument("path")
