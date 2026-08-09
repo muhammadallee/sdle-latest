@@ -48,7 +48,7 @@ Check `verbose` (`sdle.sh state get --field verbose`) at the start of every turn
 
 **Suppress unless `verbose` is true:** module reads · SpecKit skill names and args · script invocations and their JSON · SHA computation · byte-count checks · state and audit write narration · guidance injection detail · clarify invocation output · feature-ID resolution · migration steps.
 
-Toggle with `verbose on` / `verbose off`, or `--verbose` on `start workflow`.
+Toggle with `verbose on` / `verbose off`, or `--verbose` on `start workflow`; both run `sdle.sh state set --field verbose --value true|false`.
 
 ---
 
@@ -293,7 +293,7 @@ Verb-shaped actions are slash commands in `.claude/commands/`. Natural language 
 
 **A bare `reject`** records nothing. Reply: `Please provide your feedback: reject with comments: <your feedback>`.
 
-**`retry` while drift is pending** is refused — handle the drifted artifact first.
+**`retry`** goes through `sdle.sh retry`, which refuses with `drift_pending` while a drift re-approval is outstanding — the drifted artifact is handled first.
 
 **Ambiguous input:** do not guess. List `approve`, `reject with comments:`, `status`, `continue` and ask.
 
@@ -340,6 +340,8 @@ Construct skill names from `speckit_skill_prefix` in state (`sdle.sh preflight` 
 | Clarify (Phase 4 only) | `{prefix}clarify` |
 
 These names are never shown to the user (verbose mode excepted). If an invocation fails, re-run `sdle.sh preflight` to re-discover the prefix, then retry.
+
+Only three state fields are yours to set — `verbose`, `clarification_phase` and `speckit_skill_prefix` — and `sdle.sh state set` is how, so the change is audited. Everything else is derived by the engine from a transition, a verification or an approval. The write fence denies direct edits to `.workflow/`.
 
 **Idempotency:** set `sdle.sh checkpoint set --value <sub-step>` before a long step; on resume, `checkpoint get` tells you whether the step was interrupted. Clear it once the artifact verifies.
 

@@ -110,7 +110,7 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 - **Drift baseline update:** `sdle.sh drift rebaseline --gate gate_tasks`. Both gates own the same `tasks.md`, which the analyze step may have refined; without this the next drift check raises a false alarm on a clean run.
 - Advance: `sdle.sh advance --to gate_analyze`.
 - Append to audit: `[<ISO>] Analysis complete. Artifact fingerprinted (tasks.md). Drift baseline updated. Advanced to gate_analyze.`
-- Set `state.json → clarification_phase: "analyze"`. Save state.
+- `sdle.sh state set --field clarification_phase --value analyze`
 - Tell the user: "Analysis is complete. If you have additional context or clarifications to add, provide them now — they will be saved to `clarifications/analyze-<YYYY-MM-DD-HHmm>.clarify`. Say `continue`, `approve`, or `reject` to proceed straight to the gate."
 - **HALT** — `current_phase` is already `gate_analyze`. The Clarification Response Handler in Step 4 will route correctly to the gate via the GATE_PHASES case.
 
@@ -196,7 +196,7 @@ After Post-SpecKit Verification passes for Phase 4 (`spec_draft`), invoke the cl
 2. If clarify **fails or produces no output**: log to audit and continue to the gate normally. Do not block.
 3. If clarify **produces output (questions)**:
    - Display the questions to the user.
-   - Set `state.json → clarification_phase: "spec_draft"`. Save state.
+   - `sdle.sh state set --field clarification_phase --value spec_draft`
    - Append to audit: `[<ISO>] Clarify produced questions for spec_draft. Awaiting user clarification response.`
    - Tell the user: "Please answer the above questions — your response will be saved to `clarifications/spec_draft-<YYYY-MM-DD-HHmm>.clarify`. Say `continue` to skip without saving."
    - **HALT** — `current_phase` has already been advanced to `gate_spec`. The Clarification Response Handler in Step 4 will route correctly: CLARIFICATION_RESPONSE → gate-protocol.md; `continue` → RESUME → Step 5 → gate phase block → gate-protocol.md.

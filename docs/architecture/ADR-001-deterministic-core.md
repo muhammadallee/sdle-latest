@@ -68,9 +68,23 @@ Per the acceptance criterion, every difference from `docs/dry-runs/01..09` is ei
 | D9 | Gates 1–3 gained blocks in `phase-execution.md` | Gates 4–8 had them and 1–3 did not. Surfaced by `lint-skill` on its first run; the blocks mirror the existing ones and change no behaviour | none |
 | D10 | Nine slash commands; the natural-language dispatcher is reduced to aliases | Wave brief. Purely additive — every v1.12 phrasing still routes | none |
 
+### Hooks are Python, not shell
+
+The first implementation used `sh` scripts. They passed 23 tests and **never fired**: `sh` does not resolve on Windows outside Git Bash, and `.claude/settings.json` invoked it directly. The tests had exercised the script by locating `sh.exe` themselves — a path production never takes. A guardrail that does not run is not a guardrail, and a test that proves the wrong thing is worse than no test.
+
+Rewritten as one `hooks.py`, registered as `python .claude/hooks/hooks.py <guard>`. Python is already a hard requirement, and it resolves in cmd, PowerShell and sh alike. Two further benefits: the hooks now **import** the injection and secret patterns from `sdle.py` rather than restating them — the shell versions had forked a fact that is supposed to live in one place (invariant 7) — and the fragile `sed`-based JSON extraction is gone.
+
+The hook tests now drive the exact command string from `settings.json`, and one test asserts that the interpreter it names actually resolves on PATH.
+
 ## Defects found by writing the tests
 
-Not divergences — bugs in v1.12 that the transcript-derived tests exposed:
+Not divergences — bugs the tests exposed:
+
+- **The write fence never blocked `.workflow/`.** It keyed on the directory name `workflow`, but the directory is `.workflow`. The single most important fence in the product matched nothing. Caught the moment the tests started driving the registered command.
+- **Three state fields had no sanctioned writer.** `verbose`, `clarification_phase` and `speckit_skill_prefix` were set by prompt instructions telling the model to edit `state.json` — which the new write fence correctly denies, and which violates single-writer. Added `state set`, whitelisted to exactly those three fields and audited; every other field stays engine-derived. `preflight` now persists the discovered SpecKit prefix itself.
+- **`retry` while drift was pending was prompt-only.** Now `sdle.py retry` refuses mechanically.
+
+And in v1.12 itself:
 
 - **`git status --short` collapses an untracked directory to `?? src/`.** Every file inside escaped both the dirty-tree guard and the secrets scan. A whole new folder of generated code would have been scanned as nothing. Fixed with `-uall`.
 - **Repo staleness compared ISO strings.** Git reports a local offset (`+04:00`); approvals record `Z`. Any afternoon commit looked newer than any morning approval. Now compares parsed instants.

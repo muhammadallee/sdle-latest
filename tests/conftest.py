@@ -192,6 +192,14 @@ def project(tmp_path: Path) -> Project:
     skill_root.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(SKILL_SRC, skill_root)
 
+    # Mirror the documented install layout: the engine, the commands and the
+    # hooks live outside the skill folder, so a fixture that only copies the
+    # skill would not be a realistic install.
+    shutil.copytree(REPO_ROOT / "scripts", root / "scripts")
+    shutil.copytree(REPO_ROOT / ".claude" / "hooks", root / ".claude" / "hooks")
+    shutil.copy(REPO_ROOT / ".claude" / "settings.json",
+                root / ".claude" / "settings.json")
+
     (root / "requirements").mkdir()
     (root / "requirements" / "todo-api.md").write_text(
         "# Todo List REST API\n\n"

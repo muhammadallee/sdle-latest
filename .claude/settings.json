@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/write-fence.sh\""
+            "command": "python .claude/hooks/hooks.py write-fence"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/untrusted-read.sh\""
+            "command": "python .claude/hooks/hooks.py untrusted-read"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/dirty-tree.sh\""
+            "command": "python .claude/hooks/hooks.py dirty-tree"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/secrets-scan.sh\""
+            "command": "python .claude/hooks/hooks.py secrets-scan"
           }
         ]
       }

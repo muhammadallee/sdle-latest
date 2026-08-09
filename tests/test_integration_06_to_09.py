@@ -219,23 +219,42 @@ def test_07_foreign_fresh_lock_warns_but_never_halts(started):
     assert result.data["warn"] is True
 
 
+def commit_at(project, when: str, message: str) -> None:
+    """Commit with an explicit committer date.
+
+    `%cI` has one-second resolution, so a test that relies on wall-clock
+    ordering between an approval and a commit is a coin flip. Pin both.
+    """
+    import os
+    import subprocess
+    project.git("add", "-A")
+    subprocess.run(
+        ["git", "commit", "-q", "-m", message],
+        cwd=str(project.root), capture_output=True, text=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when},
+    )
+
+
 def test_07_staleness_is_scoped_to_recorded_artifact_paths(git_project):
     """A commit touching unrelated files must not make an approval stale."""
     git_project.ok("init", session="t")
     git_project.write_artifact(".specify/memory/constitution.md")
-    git_project.git("add", "-A")
-    git_project.git("commit", "-q", "-m", "constitution")
+    commit_at(git_project, "2026-01-01T00:00:00+00:00", "constitution")
+
     git_project.ok("advance", "--to", "gate_constitution")
     git_project.ok("gate", "approve", "--gate", "gate_constitution")
+    state = git_project.state()
+    state["approvals"]["gate_constitution"]["timestamp"] = "2026-01-02T00:00:00Z"
+    git_project.write_state(state)
 
     (git_project.root / "UNRELATED.md").write_text("noise\n", encoding="utf-8")
-    git_project.git("add", "-A")
-    git_project.git("commit", "-q", "-m", "unrelated change")
-    assert git_project.ok("repo-staleness").data["stale"] is False
+    commit_at(git_project, "2026-01-03T00:00:00+00:00", "unrelated change")
+    assert git_project.ok("repo-staleness").data["stale"] is False, (
+        "a commit touching no recorded artifact must not make an approval stale"
+    )
 
     git_project.write_artifact(".specify/memory/constitution.md", "# Changed\n" * 20)
-    git_project.git("add", "-A")
-    git_project.git("commit", "-q", "-m", "touch the approved artifact")
+    commit_at(git_project, "2026-01-04T00:00:00+00:00", "touch the approved artifact")
     assert git_project.ok("repo-staleness").data["stale"] is True
 
 

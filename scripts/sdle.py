@@ -1131,6 +1131,78 @@ def cmd_state_get(args, paths: Paths) -> int:
     return EXIT_OK
 
 
+# Fields the orchestrator legitimately sets, and the only ones `state set`
+# will touch. Everything else is engine-owned: it is derived from a transition,
+# a verification or an approval, and letting the model set it directly would
+# reintroduce exactly the hand-edited state the write fence exists to stop.
+SETTABLE_FIELDS = {
+    "verbose": bool,
+    "clarification_phase": str,
+    "speckit_skill_prefix": str,
+}
+
+
+def _coerce(field: str, raw: str | None):
+    kind = SETTABLE_FIELDS[field]
+    if raw is None or raw.lower() in {"null", "none"}:
+        return None
+    if kind is bool:
+        if raw.lower() in {"true", "yes", "on", "1"}:
+            return True
+        if raw.lower() in {"false", "no", "off", "0"}:
+            return False
+        raise UsageError(
+            "bad_value",
+            f"{field} is a boolean; got {raw!r}.",
+            {"field": field, "value": raw},
+        )
+    return raw
+
+
+def cmd_state_set(args, paths: Paths) -> int:
+    if args.field not in SETTABLE_FIELDS:
+        raise Refused(
+            "field_not_settable",
+            f"'{args.field}' is not orchestrator-settable. Settable fields: "
+            f"{', '.join(sorted(SETTABLE_FIELDS))}. Everything else is derived "
+            "by the engine — use the subcommand that owns it.",
+            {"field": args.field, "settable": sorted(SETTABLE_FIELDS)},
+        )
+    state = read_state(paths)
+    value = _coerce(args.field, args.value)
+    before = state.get(args.field)
+    state[args.field] = value
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="state_set",
+        message=f"{args.field}: {before!r} -> {value!r}.",
+    )
+    save_state(paths, state, args.session)
+    emit("state set", {"field": args.field, "value": value, "previous": before})
+    return EXIT_OK
+
+
+def cmd_retry(args, paths: Paths) -> int:
+    """Guard the retry path.
+
+    Retrying while a drift re-approval is pending would re-run generation over
+    an artifact the user has not re-accepted.
+    """
+    state = read_state(paths)
+    queue = state.get("drift_queue") or []
+    if queue:
+        raise Refused(
+            "drift_pending",
+            "Cannot retry while artifact drift re-approvals are pending. Use "
+            "`approve` or `reject with comments: <feedback>` to handle the "
+            "drifted artifact first.",
+            {"drift_queue": queue, "pending_phase": state.get("pending_phase")},
+        )
+    emit("retry", {"phase": state.get("current_phase"),
+                   "status": state.get("status")})
+    return EXIT_OK
+
+
 def render_header(state: dict, consts: Constants) -> str:
     phase = state.get("current_phase", "unknown")
     status = state.get("status", "unknown")
@@ -2902,6 +2974,14 @@ def cmd_preflight(args, paths: Paths) -> int:
         if guidance_dir.is_dir() else []
     )
 
+    # Persist the discovered prefix so the orchestrator does not have to
+    # re-probe, and does not have to write state itself to record it.
+    if prefix and paths.state_file.is_file():
+        state = read_state(paths)
+        if state.get("speckit_skill_prefix") != prefix:
+            state["speckit_skill_prefix"] = prefix
+            save_state(paths, state, args.session)
+
     data = {
         "speckit_present": speckit_present,
         "skill_prefix": prefix,
@@ -3375,6 +3455,16 @@ def build_parser() -> argparse.ArgumentParser:
     got.set_defaults(handler=cmd_state_get)
     dumped = state_sub.add_parser("dump", help="Render the full status dump.")
     dumped.set_defaults(handler=cmd_state_dump)
+    setter = state_sub.add_parser(
+        "set", help="Set an orchestrator-settable field (audited)."
+    )
+    setter.add_argument("--field", required=True, choices=sorted(SETTABLE_FIELDS))
+    setter.add_argument("--value")
+    setter.set_defaults(handler=cmd_state_set)
+
+    subparsers.add_parser(
+        "retry", help="Guarded retry: refuses while drift re-approval is pending."
+    ).set_defaults(handler=cmd_retry)
 
     audit_p = subparsers.add_parser("audit", help="Append-only audit ledger.")
     audit_sub = audit_p.add_subparsers(dest="subcommand", required=True)
