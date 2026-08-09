@@ -460,6 +460,19 @@ def now_iso() -> str:
     )
 
 
+def parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 instant, tolerating both 'Z' and numeric offsets."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def git(paths: Paths, *args: str) -> tuple[int, str]:
     """Run git in the project root. Never raises — git may be absent."""
     try:
@@ -593,13 +606,10 @@ def cmd_lock_acquire(args, paths: Paths) -> int:
         stamp, token = existing
         held_by = token
         foreign = token != args.session
-        try:
-            when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        when = parse_iso(stamp)
+        if when is not None:
             age = int((datetime.now(timezone.utc) - when).total_seconds())
             fresh = age < LOCK_FRESH_SECONDS
-        except ValueError:
-            age = None
-            fresh = False
 
     touch_lock(paths, args.session)
     emit(
@@ -772,18 +782,47 @@ def cmd_audit_verify(args, paths: Paths) -> int:
     return EXIT_INTEGRITY
 
 
+def rechain_audit(paths: Paths) -> int:
+    """Recompute every entry's Prev link over the ledger as it now stands.
+
+    Needed by the rebaseline path: an edited ledger breaks the entry chain at
+    the edit, and appending an acknowledgement cannot repair links that come
+    before it. Re-chaining does not conceal anything — the acknowledgement
+    entry itself records that the ledger was edited, and that entry is
+    appended after the repair, so it is covered by the new chain.
+    """
+    if not paths.audit_file.is_file():
+        return 0
+    entries = split_audit_entries(paths.audit_file.read_text(encoding="utf-8"))
+    rebuilt: list[str] = []
+    prev = GENESIS
+    for block in entries:
+        fixed = re.sub(
+            r"^\*\*Prev:\*\*.*$", f"**Prev:** {prev}", block, flags=re.MULTILINE
+        )
+        if "**Prev:**" not in fixed:
+            fixed = f"{fixed}\n**Prev:** {prev}"
+        rebuilt.append(fixed.strip())
+        prev = _entry_digest(rebuilt[-1])
+    write_atomic(paths.audit_file, "\n\n".join(rebuilt) + "\n")
+    return len(rebuilt)
+
+
 def cmd_audit_rebaseline(args, paths: Paths) -> int:
     """The `accept audit` path. Logged, so it can never happen silently."""
     state = read_state(paths)
+    repaired = rechain_audit(paths)
     append_audit(
         paths,
         state,
         phase=state.get("current_phase", "unknown"),
         event="audit_rebaseline",
-        message="User acknowledged audit integrity mismatch. Audit hash re-baselined.",
+        message="User acknowledged audit integrity mismatch. Audit hash "
+                f"re-baselined; {repaired} existing entrie(s) re-chained.",
     )
     save_state(paths, state, args.session)
-    emit("audit rebaseline", {"audit_sha": state["audit_sha"]})
+    emit("audit rebaseline",
+         {"audit_sha": state["audit_sha"], "rechained": repaired})
     return EXIT_OK
 
 
@@ -1815,13 +1854,1081 @@ def cmd_security_review_begin(args, paths: Paths) -> int:
     return EXIT_OK
 
 
+REQUIRED_MANIFEST_SECTIONS = (
+    "## Changed/Added Files",
+    "## Potential Secrets Detected",
+    "## Test Evidence",
+)
+
+
 def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
                            gate_key: str, resolved: str | None) -> None:
     """Gate-specific refusals that must hold at the choke point.
 
-    Extended by later steps (Gate 7 requires a complete manifest).
+    Gate 7 is the one gate whose artifact is machine-generated, so it is the
+    one gate whose completeness can be checked mechanically. A hook can be
+    skipped; this refusal cannot — an implementation whose secrets scan or
+    tests never ran does not reach a human decision.
     """
+    if gate_key != "gate_implement" or not resolved:
+        return None
+
+    body = (paths.project_root / resolved).read_text(
+        encoding="utf-8", errors="replace"
+    )
+    missing = [s for s in REQUIRED_MANIFEST_SECTIONS if s not in body]
+    if missing:
+        raise Refused(
+            "manifest_incomplete",
+            f"Cannot approve Gate 7: {resolved} is missing "
+            f"{', '.join(missing)}. Rebuild it with `manifest build` so the "
+            "secrets scan and test evidence are in front of the reviewer at "
+            "the moment of decision.",
+            {"path": resolved, "missing": missing},
+        )
     return None
+
+
+# --------------------------------------------------------------------------
+# Attempt counters
+#
+# Retries are keyed by the phase that failed. Remediations are keyed by the
+# EXECUTION phase behind a gate, not the gate phase itself — v1.12 reports
+# "spec_draft has been remediated 3/3" while current_phase is gate_spec.
+# --------------------------------------------------------------------------
+
+
+def counters_for(state: dict, phase: str) -> dict:
+    counts = state.setdefault("attempt_counts", {})
+    return counts.setdefault(phase, {"remediations": 0, "retries": 0})
+
+
+def limit(state: dict, name: str) -> int:
+    return int((state.get("rate_limits") or {}).get(name, 3))
+
+
+# --------------------------------------------------------------------------
+# Artifact verification — Post-SpecKit Verification, mechanised
+# --------------------------------------------------------------------------
+
+
+def cmd_artifact_record(args, paths: Paths) -> int:
+    state = read_state(paths)
+    phase = args.phase or state.get("current_phase")
+    target = paths.project_root / args.path
+    exists = target.is_file()
+    size = target.stat().st_size if exists else 0
+
+    if exists and size >= MIN_ARTIFACT_BYTES:
+        sha = sha256_file(target)
+        state["current_artifact"] = args.path
+        state["current_artifact_sha"] = sha
+        counters_for(state, phase)["retries"] = 0
+        state["phase_checkpoint"] = None
+        append_audit(
+            paths, state, phase=phase, event="artifact_recorded",
+            message=f"Artifact verified and fingerprinted ({size} bytes).",
+            artifact=args.path, artifact_sha=sha,
+        )
+        save_state(paths, state, args.session)
+        emit("artifact record",
+             {"path": args.path, "sha256": sha, "bytes": size, "optional": False})
+        return EXIT_OK
+
+    if args.optional:
+        # Phase 8's checklist: absent or thin is tolerated, and recorded.
+        append_audit(
+            paths, state, phase=phase, event="artifact_absent",
+            message=f"Optional artifact {args.path} not produced "
+                    "— proceeding without it.",
+        )
+        state["phase_checkpoint"] = None
+        save_state(paths, state, args.session)
+        emit("artifact record",
+             {"path": args.path, "sha256": None, "bytes": size, "optional": True,
+              "skipped": True})
+        return EXIT_OK
+
+    # Verification failed. Freeze, count the retry, then decide.
+    state["status"] = "failed"
+    counters = counters_for(state, phase)
+    counters["retries"] += 1
+    attempts = counters["retries"]
+    maximum = limit(state, "max_retry_attempts")
+    reason = "artifact_missing" if not exists else "artifact_too_small"
+
+    append_audit(
+        paths, state, phase=phase, event="verification_failed",
+        message=f"Verification failed for {args.path} "
+                f"({'missing' if not exists else f'{size} bytes'}). "
+                f"Retry {attempts}/{maximum}.",
+        artifact=args.path,
+    )
+    save_state(paths, state, args.session)
+
+    if attempts >= maximum:
+        raise Refused(
+            "rate_limit_exceeded",
+            f"Retry limit reached: {phase} has failed {attempts}/{maximum} times. "
+            "Raise the limit with `limit set --retries <n>`, reset the counter "
+            f"with `limit reset --phase {phase} --retries`, `skip` to advance "
+            "without a verified artifact, or `restart` this phase.",
+            {"phase": phase, "attempts": attempts, "max": maximum,
+             "retry_offered": False},
+        )
+
+    raise Refused(
+        reason,
+        f"Verification failed: {args.path} was not created or is too small "
+        f"(<{MIN_ARTIFACT_BYTES} bytes). Retry attempt {attempts}/{maximum}.",
+        {"path": args.path, "bytes": size, "attempts": attempts, "max": maximum,
+         "retry_offered": True},
+    )
+
+
+def cmd_limit_set(args, paths: Paths) -> int:
+    """Replaces v1.12's 'edit state.json by hand' instruction with an audited
+    command — hand-editing defeats the audit chain this version hardens."""
+    state = read_state(paths)
+    limits = state.setdefault("rate_limits", {})
+    changed = {}
+    if args.retries is not None:
+        limits["max_retry_attempts"] = args.retries
+        changed["max_retry_attempts"] = args.retries
+    if args.remediations is not None:
+        limits["max_remediation_attempts"] = args.remediations
+        changed["max_remediation_attempts"] = args.remediations
+    if not changed:
+        raise UsageError("nothing_to_set",
+                         "Pass --retries and/or --remediations.", {})
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="rate_limit_changed",
+        message=f"Rate limits changed: {changed}.",
+    )
+    save_state(paths, state, args.session)
+    emit("limit set", {"rate_limits": limits, "changed": changed})
+    return EXIT_OK
+
+
+def cmd_limit_reset(args, paths: Paths) -> int:
+    state = read_state(paths)
+    counters = counters_for(state, args.phase)
+    cleared = []
+    if args.retries:
+        counters["retries"] = 0
+        cleared.append("retries")
+    if args.remediations:
+        counters["remediations"] = 0
+        cleared.append("remediations")
+    if not cleared:
+        raise UsageError("nothing_to_reset",
+                         "Pass --retries and/or --remediations.", {})
+    append_audit(
+        paths, state, phase=args.phase, event="counter_reset",
+        message=f"Attempt counters reset for {args.phase}: {', '.join(cleared)}.",
+    )
+    save_state(paths, state, args.session)
+    emit("limit reset", {"phase": args.phase, "cleared": cleared,
+                         "counters": counters})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Checkpoints — crash-recovery idempotency inside a phase
+# --------------------------------------------------------------------------
+
+
+def cmd_checkpoint(args, paths: Paths) -> int:
+    state = read_state(paths)
+    if args.subcommand == "set":
+        state["phase_checkpoint"] = args.value
+        save_state(paths, state, args.session)
+    elif args.subcommand == "clear":
+        state["phase_checkpoint"] = None
+        save_state(paths, state, args.session)
+    emit(f"checkpoint {args.subcommand}",
+         {"checkpoint": state.get("phase_checkpoint")})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Confirmations — two-step destructive actions
+# --------------------------------------------------------------------------
+
+CONFIRMABLE = {
+    "reset", "skip", "implement_dirty_tree", "accept_state_jump",
+    "accept_audit_mismatch",
+}
+
+
+def cmd_confirm(args, paths: Paths) -> int:
+    state = read_state(paths)
+    pending = state.get("pending_confirm_action")
+
+    if args.subcommand == "set":
+        state["pending_confirm_action"] = args.action
+        save_state(paths, state, args.session)
+        emit("confirm set", {"pending": args.action})
+        return EXIT_OK
+
+    if args.subcommand == "check":
+        matched = pending == args.action
+        emit("confirm check", {"pending": pending, "matched": matched},
+             ok=matched,
+             reason=None if matched else "no_pending_confirmation",
+             message=None if matched else
+             f"No '{args.action}' confirmation is pending.")
+        return EXIT_OK if matched else EXIT_REFUSED
+
+    # clear: the stale-confirmation guard. Any other command cancels a pending
+    # confirmation, so one can never fire out of context.
+    if pending:
+        append_audit(
+            paths, state, phase=state.get("current_phase", "unknown"),
+            event="confirmation_cancelled",
+            message=f'Pending confirmation "{pending}" cancelled '
+                    "— new command received.",
+        )
+        state["pending_confirm_action"] = None
+        save_state(paths, state, args.session)
+    emit("confirm clear", {"cleared": pending})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Remediation
+# --------------------------------------------------------------------------
+
+FEEDBACK_FILE = ".specify/sdle-feedback.md"
+
+
+def cmd_remediate_begin(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    gate_key = args.gate
+    execution_phase = consts.gate_to_execution_phase.get(gate_key)
+    if not execution_phase:
+        raise Refused("unknown_gate", f"'{gate_key}' is not a registered gate.",
+                      {"gate": gate_key})
+
+    entry = (state.get("approvals") or {}).get(gate_key) or {}
+    feedback = entry.get("comments")
+    if entry.get("decision") != "rejected" or not feedback:
+        raise Refused(
+            "nothing_to_remediate",
+            f"{gate_key} has no recorded rejection to remediate.",
+            {"gate": gate_key, "decision": entry.get("decision")},
+        )
+
+    counters = counters_for(state, execution_phase)
+    maximum = limit(state, "max_remediation_attempts")
+    if counters["remediations"] >= maximum:
+        raise Refused(
+            "rate_limit_exceeded",
+            f"Remediation limit reached: {execution_phase} has been remediated "
+            f"{counters['remediations']}/{maximum} times. Raise the limit with "
+            "`limit set --remediations <n>`, reset the counter with "
+            f"`limit reset --phase {execution_phase} --remediations`, restart "
+            "the phase, or skip.",
+            {"phase": execution_phase, "attempts": counters["remediations"],
+             "max": maximum},
+        )
+
+    counters["remediations"] += 1
+    state["status"] = "in_progress"
+
+    feedback_path = paths.project_root / FEEDBACK_FILE
+    write_atomic(
+        feedback_path,
+        f"# SDLE Feedback for {execution_phase} — {now_iso()}\n"
+        f"**Gate:** {consts.phase_label.get(require_gate(consts, gate_key))}\n"
+        f"**Canonical source:** .workflow/state.json → "
+        f"approvals[{gate_key}].comments\n"
+        f"**Reviewer comments:**\n{feedback}\n",
+    )
+    append_audit(
+        paths, state, phase=execution_phase, event="remediation_started",
+        message=f"Remediation attempt {counters['remediations']}/{maximum} "
+                f"for {execution_phase}.",
+        artifact=FEEDBACK_FILE,
+    )
+    save_state(paths, state, args.session)
+    emit("remediate begin", {
+        "gate": gate_key, "execution_phase": execution_phase,
+        "attempt": counters["remediations"], "max": maximum,
+        "feedback_path": FEEDBACK_FILE, "feedback": feedback,
+    })
+    return EXIT_OK
+
+
+def cmd_remediate_finish(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    execution_phase = consts.gate_to_execution_phase.get(args.gate)
+    source = paths.project_root / FEEDBACK_FILE
+    archive = None
+    if source.is_file():
+        stamp = now_iso().replace(":", "").replace("-", "")
+        archive = f".specify/sdle-feedback-archive-{stamp}.md"
+        write_atomic(paths.project_root / archive,
+                     source.read_text(encoding="utf-8"))
+        source.unlink()
+    append_audit(
+        paths, state, phase=execution_phase or state.get("current_phase", "unknown"),
+        event="remediation_complete",
+        message=f"Remediation complete for {execution_phase}. Feedback archived.",
+        artifact=archive,
+    )
+    save_state(paths, state, args.session)
+    emit("remediate finish",
+         {"gate": args.gate, "archive_path": archive,
+          "feedback_removed": not source.is_file()})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# skip / restart / reset
+# --------------------------------------------------------------------------
+
+
+def cmd_skip(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    phase = state.get("current_phase")
+
+    if not args.confirm:
+        if state.get("status") != "failed":
+            raise Refused(
+                "not_failed",
+                "`skip` is only valid after a failed step. Current status: "
+                f"{state.get('status')}.",
+                {"status": state.get("status")},
+            )
+        state["pending_confirm_action"] = "skip"
+        save_state(paths, state, args.session)
+        emit("skip", {
+            "pending": True, "phase": phase,
+            "label": consts.phase_label.get(phase),
+            "index": consts.index(phase),
+        })
+        return EXIT_OK
+
+    if state.get("pending_confirm_action") != "skip":
+        raise Refused(
+            "no_pending_confirmation",
+            "No skip confirmation is pending. Issue `skip` first.",
+            {"pending": state.get("pending_confirm_action")},
+        )
+
+    state["pending_confirm_action"] = None
+    state["current_artifact"] = None
+    state["current_artifact_sha"] = None
+    append_audit(
+        paths, state, phase=phase, event="skipped",
+        message=f"⚠️ SKIPPED WITH WARNING: Phase {phase} advanced without a "
+                "verified artifact. Downstream phases may fail or produce "
+                "incorrect output.",
+        decision="SKIPPED",
+    )
+    target = consts.next_phase.get(phase)
+    moved = apply_advance(paths, state, consts, target, "pending", "skipped")
+    save_state(paths, state, args.session)
+    emit("skip", {"pending": False, **moved,
+                  "next_label": consts.phase_label.get(moved["to"])})
+    return EXIT_OK
+
+
+def cmd_restart(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    total = len(consts.phase_sequence) - 1  # `complete` is not restartable
+
+    if not 1 <= args.to <= total:
+        raise Refused("invalid_phase_number",
+                      f"Invalid phase number. Use 1–{total}.", {"requested": args.to})
+
+    target = consts.phase_at(args.to)
+    if target in consts.phase_to_gate_key:
+        raise Refused(
+            "gate_phase",
+            f"Phase {args.to} is a gate phase — restarting a gate is not "
+            f"meaningful. Did you mean phase {args.to - 1}?",
+            {"target": target, "suggest": args.to - 1},
+        )
+
+    current_index = consts.index(state.get("current_phase"))
+    if args.to > current_index:
+        raise Refused(
+            "forward_jump",
+            "Forward jumps are not allowed. `restart` is a rollback tool — it "
+            "can only go to a phase you have already passed. Current phase: "
+            f"{state.get('current_phase')} (index {current_index}). Requested: "
+            f"{target} (index {args.to}). To advance, approve the intervening "
+            "gates.",
+            {"current": state.get("current_phase"), "current_index": current_index,
+             "requested": target, "requested_index": args.to},
+        )
+
+    cleared = [
+        consts.phase_to_gate_key[p]
+        for p in consts.gate_phases
+        if consts.index(p) >= args.to
+    ]
+
+    if not args.confirm:
+        state["pending_confirm_action"] = f"restart:{args.to}"
+        save_state(paths, state, args.session)
+        emit("restart", {"pending": True, "target": target, "index": args.to,
+                         "label": consts.phase_label.get(target),
+                         "cleared_gates": cleared})
+        return EXIT_OK
+
+    if state.get("pending_confirm_action") != f"restart:{args.to}":
+        raise Refused(
+            "no_pending_confirmation",
+            f"No restart confirmation is pending for phase {args.to}. "
+            f"Issue `restart --to {args.to}` first.",
+            {"pending": state.get("pending_confirm_action")},
+        )
+
+    state["pending_confirm_action"] = None
+    for gate_key in cleared:
+        (state.setdefault("approvals", {}))[gate_key] = None
+        (state.setdefault("artifact_shas", {})).pop(gate_key, None)
+    before = len(state.get("phase_history") or [])
+    state["phase_history"] = [
+        entry for entry in (state.get("phase_history") or [])
+        if entry.get("phase") in consts.phase_sequence
+        and consts.index(entry["phase"]) < args.to
+    ]
+    trimmed = before - len(state["phase_history"])
+    state["drift_queue"] = []
+    state["pending_phase"] = None
+    state["phase_checkpoint"] = None
+    state["current_phase"] = target
+    state["status"] = "pending"
+    state["progress"] = consts.progress_for(target)
+
+    append_audit(
+        paths, state, phase=target, event="restart",
+        message=f"Restart: rolled back to Phase {args.to} ({target}). "
+                f"Cleared downstream approvals: {', '.join(cleared) or 'none'}. "
+                f"phase_history trimmed by {trimmed}.",
+    )
+    save_state(paths, state, args.session)
+    emit("restart", {"pending": False, "target": target, "index": args.to,
+                     "label": consts.phase_label.get(target),
+                     "cleared_gates": cleared, "trimmed": trimmed})
+    return EXIT_OK
+
+
+def cmd_reset(args, paths: Paths) -> int:
+    state = read_state(paths)
+    if not args.confirm:
+        state["pending_confirm_action"] = "reset"
+        save_state(paths, state, args.session)
+        emit("reset", {"pending": True})
+        return EXIT_OK
+
+    if state.get("pending_confirm_action") != "reset":
+        raise Refused(
+            "no_pending_confirmation",
+            "No workflow reset is pending. Issue `reset` first.",
+            {"pending": state.get("pending_confirm_action")},
+        )
+
+    deleted = []
+    for path in (paths.state_file, paths.audit_file, paths.lock_file):
+        if path.is_file():
+            path.unlink()
+            deleted.append(path.name)
+    emit("reset", {"pending": False, "deleted": deleted})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# doctor — the recovery consistency check
+# --------------------------------------------------------------------------
+
+
+def cmd_doctor(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    current = state.get("current_phase")
+    history = state.get("phase_history") or []
+
+    confirmed = [
+        e["phase"] for e in history
+        if e.get("outcome") in {"approved", "completed"}
+        and e.get("phase") in consts.phase_sequence
+    ]
+    if not confirmed:
+        emit("doctor", {"verdict": "ok", "reason": "no phase history yet",
+                        "expected": None, "actual": current, "gap": 0})
+        return EXIT_OK
+
+    last = confirmed[-1]
+    expected = consts.next_phase.get(last) or last
+    gap = consts.index(current) - consts.index(expected)
+
+    if gap < 0:
+        verdict = "backwards"
+    elif gap > 2:
+        verdict = "jump"
+    else:
+        verdict = "ok"
+
+    data = {"verdict": verdict, "last_confirmed": last, "expected": expected,
+            "actual": current, "gap": gap}
+    if verdict == "ok":
+        emit("doctor", data)
+        return EXIT_OK
+
+    if verdict == "backwards":
+        message = (
+            "State inconsistency: current_phase is earlier than history "
+            f"suggests. Last confirmed: {last}. Expected: {expected}. "
+            f"Actual: {current}."
+        )
+    else:
+        state["pending_confirm_action"] = "accept_state_jump"
+        save_state(paths, state, args.session)
+        message = (
+            f"State jump detected: current_phase is {gap} phases ahead of last "
+            f"confirmed history. Current: {current}. Expected: {expected}. "
+            "Unapproved gates between them will not be enforced retroactively."
+        )
+    emit("doctor", data, ok=False, reason=f"state_{verdict}", message=message)
+    print(message, file=sys.stderr)
+    return EXIT_REFUSED
+
+
+def cmd_accept_state(args, paths: Paths) -> int:
+    state = read_state(paths)
+    if state.get("pending_confirm_action") != "accept_state_jump":
+        raise Refused("no_pending_confirmation",
+                      "No state jump is pending acknowledgement.",
+                      {"pending": state.get("pending_confirm_action")})
+    state["pending_confirm_action"] = None
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="state_jump_accepted",
+        message=f"User acknowledged state jump to {state.get('current_phase')}.",
+    )
+    save_state(paths, state, args.session)
+    emit("accept-state", {"current_phase": state.get("current_phase")})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# repo-staleness — scoped to recorded artifact paths
+# --------------------------------------------------------------------------
+
+
+def cmd_repo_staleness(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+    state = read_state(paths)
+    approvals = state.get("approvals") or {}
+    stamps = [
+        entry["timestamp"] for entry in approvals.values()
+        if isinstance(entry, dict) and entry.get("decision") == "approved"
+        and entry.get("timestamp")
+    ]
+    if not stamps or not git_available(paths):
+        emit("repo-staleness", {"stale": False, "newest_approval": None,
+                                "newest_commit": None, "paths": [],
+                                "reason": "no approvals or git unavailable"})
+        return EXIT_OK
+
+    newest_approval = max(stamps)
+    approval_dt = parse_iso(newest_approval)
+
+    # Scope to the paths of recorded artifacts rather than the whole repo: a
+    # commit touching unrelated files does not make an approval stale.
+    tracked = []
+    for gate_key in consts.artifact_ownership:
+        resolved, _ = resolve_artifact_path(state, consts, gate_key)
+        if resolved:
+            tracked.append(resolved)
+    tracked = sorted(set(tracked))
+
+    args_list = ["log", "-1", "--format=%cI"]
+    if tracked:
+        args_list += ["--", *tracked]
+    code, newest_commit = git(paths, *args_list)
+    # Compare instants, not strings: git reports a local offset (+04:00) while
+    # approvals are recorded in Z, so lexical comparison is simply wrong.
+    commit_dt = parse_iso(newest_commit) if code == 0 else None
+    stale = bool(commit_dt and approval_dt and commit_dt > approval_dt)
+
+    emit("repo-staleness", {
+        "stale": stale, "newest_approval": newest_approval,
+        "newest_commit": newest_commit or None, "paths": tracked,
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Untrusted content scan
+# --------------------------------------------------------------------------
+
+INJECTION_PATTERNS = [
+    ("ignore_previous_instructions", r"ignore (all|previous|prior).{0,20}instructions"),
+    ("disregard_rules", r"disregard.{0,30}(instructions|rules|gates)"),
+    ("you_are_now", r"you are now"),
+    ("act_as_orchestrator", r"act as (the )?(orchestrator|sdle|system)"),
+    ("new_persona", r"new persona"),
+    ("approve_gate", r"approve.{0,15}gate"),
+    ("skip_gate", r"skip.{0,15}(gate|phase|approval)"),
+    ("advance_phase", r"advance.{0,15}phase"),
+    ("mark_approved", r"mark.{0,15}approved"),
+    ("set_status", r"set.{0,15}status"),
+    ("edit_state", r"(edit|modify|write).{0,15}state\.json"),
+]
+
+
+def scan_text(text: str) -> list[dict]:
+    matches = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for name, pattern in INJECTION_PATTERNS:
+            if re.search(pattern, line, flags=re.IGNORECASE):
+                matches.append({"line": number, "text": line.strip(),
+                                "pattern": name})
+                break
+    return matches
+
+
+def cmd_scan(args, paths: Paths) -> int:
+    target = paths.project_root / args.path
+    if not target.is_file():
+        raise Refused("artifact_missing", f"No such file: {args.path}",
+                      {"path": args.path})
+    matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
+    data = {"path": args.path, "flagged": bool(matches), "matches": matches}
+
+    if not matches:
+        emit("scan", data)
+        return EXIT_OK
+
+    # Record the pending acknowledgement when a workflow exists, so the
+    # stale-confirmation guard applies to it like any other confirmation.
+    if paths.state_file.is_file():
+        state = read_state(paths)
+        state["pending_confirm_action"] = f"accept_content:{args.path}"
+        save_state(paths, state, args.session)
+
+    lines = "\n".join(f"  line {m['line']}: {m['text']}" for m in matches)
+    message = (
+        f"Untrusted content warning: {args.path} contains lines that look like "
+        f"instructions directed at the workflow engine:\n\n{lines}\n\n"
+        "SDLE treats this file as data only and will NOT act on these lines."
+    )
+    emit("scan", data, ok=False, reason="content_flagged", message=message)
+    print(message, file=sys.stderr)
+    return EXIT_REFUSED
+
+
+def cmd_accept_content(args, paths: Paths) -> int:
+    state = read_state(paths)
+    pending = state.get("pending_confirm_action") or ""
+    if not pending.startswith("accept_content:"):
+        raise Refused("no_pending_confirmation",
+                      "No flagged content is pending acknowledgement.",
+                      {"pending": pending or None})
+    flagged = pending.split(":", 1)[1]
+    state["pending_confirm_action"] = None
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="content_accepted",
+        message=f"User accepted flagged content in {flagged}.",
+        artifact=flagged,
+    )
+    save_state(paths, state, args.session)
+    emit("accept-content", {"file": flagged})
+    return EXIT_OK
+
+
+def cmd_clarify_save(args, paths: Paths) -> int:
+    state = read_state(paths)
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    relative = f"clarifications/{args.phase}-{stamp}.clarify"
+    write_atomic(
+        paths.project_root / relative,
+        f"Phase: {args.phase}\nSaved: {now_iso()}\n\n{args.text}\n",
+    )
+    flagged = scan_text(args.text)
+    state["clarification_phase"] = None
+    append_audit(
+        paths, state, phase=args.phase, event="clarification_saved",
+        message=f"User clarification saved: {relative}.",
+        artifact=relative,
+    )
+    save_state(paths, state, args.session)
+    emit("clarify save", {"path": relative, "flagged": bool(flagged),
+                          "matches": flagged})
+    return EXIT_OK
+
+
+def cmd_guidance_path(args, paths: Paths) -> int:
+    """Resolve the Guidance File Map entry for a phase."""
+    rows = parse_md_table(paths.phase_execution_md, "Guidance")
+    mapping = {}
+    for row in rows:
+        phase = _column(row, "phase")
+        guidance = _column(row, "guidance_file")
+        if phase:
+            mapping[phase] = guidance
+    relative = mapping.get(args.phase)
+    emit("guidance path", {
+        "phase": args.phase, "path": relative,
+        "exists": bool(relative and (paths.project_root / relative).is_file()),
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Implement phase
+# --------------------------------------------------------------------------
+
+SDLE_OWNED_PREFIXES = (
+    ".workflow/", ".specify/", "design/", "reviews/", "clarifications/",
+    "guidance/", "requirements/",
+)
+
+
+def cmd_implement_preflight(args, paths: Paths) -> int:
+    state = read_state(paths)
+
+    if not git_available(paths):
+        state["implementation_base_ref"] = None
+        save_state(paths, state, args.session)
+        emit("implement preflight",
+             {"dirty": False, "entries": [], "base_ref": None,
+              "skipped": "git not initialized"})
+        return EXIT_OK
+
+    # Pin the diff range for Phase 17 before any code is written.
+    _, head = git(paths, "rev-parse", "HEAD")
+    state["implementation_base_ref"] = head or None
+
+    # -uall: without it git collapses an untracked directory to "?? src/",
+    # and every file inside it escapes both the dirty-tree guard and the
+    # secrets scan.
+    _, status = git(paths, "status", "--short", "-uall")
+    entries = [
+        line for line in status.splitlines()
+        if line.strip()
+        and not any(line[3:].strip().replace("\\", "/").startswith(prefix)
+                    for prefix in SDLE_OWNED_PREFIXES)
+    ]
+
+    if entries and not args.bypass:
+        state["pending_confirm_action"] = "implement_dirty_tree"
+        append_audit(
+            paths, state, phase="implement", event="dirty_tree_guard",
+            message=f"Dirty-tree guard triggered before implement. "
+                    f"{len(entries)} uncommitted entries.",
+        )
+        save_state(paths, state, args.session)
+        raise Refused(
+            "dirty_tree",
+            "Uncommitted changes detected in the working tree:\n\n"
+            + "\n".join(f"  {e}" for e in entries)
+            + "\n\nThese may be mixed into or overwritten by the "
+            "implementation, and will appear in the implementation manifest "
+            "as if the implementation produced them. Commit or stash them "
+            "first, or confirm to proceed anyway (logged).",
+            {"entries": entries, "base_ref": state["implementation_base_ref"]},
+        )
+
+    if entries and args.bypass:
+        state["pending_confirm_action"] = None
+        append_audit(
+            paths, state, phase="implement", event="dirty_tree_bypassed",
+            message=f"Proceeding with implement despite {len(entries)} "
+                    "uncommitted entries (user confirmed).",
+        )
+
+    save_state(paths, state, args.session)
+    emit("implement preflight",
+         {"dirty": bool(entries), "entries": entries,
+          "base_ref": state["implementation_base_ref"], "bypassed": args.bypass})
+    return EXIT_OK
+
+
+SECRET_PATTERNS = [
+    ("AWS access key", r"AKIA[0-9A-Z]{16}"),
+    ("private key material", r"-----BEGIN [A-Z ]*PRIVATE KEY"),
+    ("GitHub token", r"ghp_[A-Za-z0-9]{36}"),
+    ("secret API key", r"sk-[A-Za-z0-9]{20,}"),
+    ("hardcoded credential assignment",
+     r"(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}"),
+    ("bearer token", r"Bearer [A-Za-z0-9\-_.]{20,}"),
+]
+
+TEXT_SUFFIXES = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".rb", ".rs", ".php",
+    ".cs", ".c", ".h", ".cpp", ".sh", ".ps1", ".yml", ".yaml", ".json", ".toml",
+    ".ini", ".cfg", ".env", ".md", ".txt", ".sql", ".html", ".css",
+}
+
+
+def detect_test_runner(paths: Paths) -> tuple[str, list[str]] | None:
+    """Find a runner we can actually execute. Item 11: an implementation whose
+    tests never ran must not reach Gate 7 unchallenged."""
+    root = paths.project_root
+    package = root / "package.json"
+    if package.is_file():
+        try:
+            data = json.loads(package.read_text(encoding="utf-8"))
+            if (data.get("scripts") or {}).get("test"):
+                return "npm test", ["npm", "test", "--silent"]
+        except (json.JSONDecodeError, OSError):
+            pass
+    if (root / "pytest.ini").is_file() or (root / "tests").is_dir() or (
+        (root / "pyproject.toml").is_file()
+        and "pytest" in (root / "pyproject.toml").read_text(
+            encoding="utf-8", errors="replace")
+    ):
+        return "pytest", [sys.executable, "-m", "pytest", "-q"]
+    if (root / "Cargo.toml").is_file():
+        return "cargo test", ["cargo", "test", "--quiet"]
+    if (root / "pom.xml").is_file():
+        return "mvn test", ["mvn", "-q", "test"]
+    if (root / "build.gradle").is_file() or (root / "build.gradle.kts").is_file():
+        return "gradle test", ["gradle", "test", "--quiet"]
+    return None
+
+
+def run_tests(paths: Paths, timeout: int) -> dict:
+    detected = detect_test_runner(paths)
+    if not detected:
+        return {"runner": None, "exit_code": None, "output": None,
+                "status": "no runner detected"}
+    name, command = detected
+    try:
+        completed = subprocess.run(
+            command, cwd=str(paths.project_root), capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"runner": name, "exit_code": None, "output": None,
+                "status": "runner not installed"}
+    except subprocess.TimeoutExpired:
+        return {"runner": name, "exit_code": None, "output": None,
+                "status": f"timed out after {timeout}s"}
+    output = ((completed.stdout or "") + (completed.stderr or "")).strip()
+    tail = "\n".join(output.splitlines()[-40:])
+    return {
+        "runner": name,
+        "exit_code": completed.returncode,
+        "output": tail,
+        "status": "passed" if completed.returncode == 0 else "FAILED",
+    }
+
+
+def cmd_manifest_build(args, paths: Paths) -> int:
+    state = read_state(paths)
+    relative = ".workflow/implementation-manifest.md"
+
+    if git_available(paths):
+        # -uall: without it git collapses an untracked directory to "?? src/",
+        # and every file inside it escapes the secrets scan entirely.
+        _, status = git(paths, "status", "--short", "-uall")
+        _, tracked = git(paths, "diff", "--name-only", "HEAD")
+        files = {line[3:].strip() for line in status.splitlines() if line.strip()}
+        files |= {line.strip() for line in tracked.splitlines() if line.strip()}
+        note = None
+    else:
+        files = {
+            str(p.relative_to(paths.project_root)).replace(os.sep, "/")
+            for p in paths.project_root.rglob("*")
+            if p.is_file() and p.suffix in TEXT_SUFFIXES
+            and not str(p.relative_to(paths.project_root)).startswith(".")
+        }
+        note = "git not initialized — file list is approximate."
+
+    changed = sorted(
+        f for f in files
+        if not f.replace("\\", "/").startswith(".workflow/")
+    )
+
+    findings = []
+    for name in changed:
+        candidate = paths.project_root / name
+        if not candidate.is_file() or candidate.suffix not in TEXT_SUFFIXES:
+            continue
+        try:
+            body = candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for number, line in enumerate(body.splitlines(), start=1):
+            for label, pattern in SECRET_PATTERNS:
+                found = re.search(pattern, line)
+                if found:
+                    masked = found.group(0)[:4] + " ****(masked)"
+                    findings.append(f"{name}:{number} — {label} — {masked}")
+                    break
+
+    tests = run_tests(paths, args.test_timeout) if not args.skip_tests else {
+        "runner": None, "exit_code": None, "output": None,
+        "status": "skipped by caller",
+    }
+
+    secrets_block = "\n".join(findings) if findings else "None detected."
+    if tests["runner"] is None:
+        tests_block = f"No test runner detected ({tests['status']})."
+    else:
+        tests_block = (
+            f"Runner: {tests['runner']}\n"
+            f"Result: {tests['status']}"
+            + (f" (exit {tests['exit_code']})" if tests["exit_code"] is not None
+               else "")
+            + (f"\n\n```\n{tests['output']}\n```" if tests["output"] else "")
+        )
+
+    body = (
+        "# Implementation Manifest\n"
+        f"Generated: {now_iso()}\n"
+        f"Phase: implement ({state.get('progress', '15/18')})\n"
+        + (f"\n> {note}\n" if note else "")
+        + "\n## Changed/Added Files\n"
+        + ("\n".join(changed) if changed else "(none)")
+        + "\n\n## Potential Secrets Detected\n"
+        + secrets_block
+        + "\n\n## Test Evidence\n"
+        + tests_block
+        + "\n\n## Summary\n"
+        + (args.summary or "Implementation produced the files listed above.")
+        + "\n"
+    )
+    write_atomic(paths.project_root / relative, body)
+
+    if findings:
+        append_audit(
+            paths, state, phase="implement", event="secrets_flagged",
+            message=f"⚠️ Secrets scan flagged {len(findings)} potential "
+                    "secret(s) in the implementation diff.",
+        )
+    if tests["runner"] and tests["exit_code"] not in (0, None):
+        append_audit(
+            paths, state, phase="implement", event="tests_failed",
+            message=f"Test evidence: {tests['runner']} FAILED "
+                    f"(exit {tests['exit_code']}).",
+        )
+    state["current_artifact"] = relative
+    save_state(paths, state, args.session)
+
+    emit("manifest build", {
+        "path": relative, "files": changed, "secrets": findings, "tests": tests,
+    })
+    return EXIT_OK
+
+
+def cmd_security_review_evidence(args, paths: Paths) -> int:
+    state = read_state(paths)
+    base = state.get("implementation_base_ref")
+    if not git_available(paths):
+        emit("security-review evidence",
+             {"base_ref": None, "stat": None, "diff": None, "artifacts": [],
+              "note": "Git not available — diff analysis skipped."})
+        return EXIT_OK
+
+    ref = base or "HEAD~1"
+    _, stat = git(paths, "diff", "--stat", ref)
+    _, diff = git(
+        paths, "diff", ref, "--", ".", ":(exclude).specify", ":(exclude).workflow"
+    )
+
+    feature = state.get("current_feature_id")
+    candidates = [".specify/memory/constitution.md"]
+    if feature:
+        candidates += [
+            f".specify/specs/{feature}/{name}.md"
+            for name in ("spec", "plan", "tasks")
+        ]
+    present = [c for c in candidates if (paths.project_root / c).is_file()]
+
+    emit("security-review evidence", {
+        "base_ref": ref,
+        "pinned": bool(base),
+        "stat": stat or None,
+        "diff": diff or None,
+        "artifacts": present,
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# preflight
+# --------------------------------------------------------------------------
+
+
+def cmd_preflight(args, paths: Paths) -> int:
+    root = paths.project_root
+    problems = []
+
+    speckit_present = (root / ".specify").is_dir()
+    if not speckit_present:
+        problems.append("speckit_missing")
+
+    prefix = None
+    probes = [
+        (root / ".claude" / "skills" / "speckit-constitution" / "SKILL.md", "speckit-"),
+        (root / ".claude" / "skills" / "speckit.constitution" / "SKILL.md", "speckit."),
+        (Path.home() / ".claude" / "skills" / "speckit-constitution" / "SKILL.md",
+         "speckit-"),
+        (Path.home() / ".claude" / "skills" / "speckit.constitution" / "SKILL.md",
+         "speckit."),
+    ]
+    for probe, candidate in probes:
+        if probe.is_file():
+            prefix = candidate
+            break
+    if speckit_present and prefix is None:
+        problems.append("speckit_skills_missing")
+
+    req_dir = root / "requirements"
+    requirements = sorted(p.name for p in req_dir.glob("*")) if req_dir.is_dir() else []
+    if not requirements:
+        problems.append("requirements_missing")
+
+    guidance_dir = root / "guidance"
+    guidance = (
+        sorted(p.name for p in guidance_dir.glob("*.md"))
+        if guidance_dir.is_dir() else []
+    )
+
+    data = {
+        "speckit_present": speckit_present,
+        "skill_prefix": prefix,
+        "requirements": requirements,
+        "guidance": guidance,
+        "interpreter": sys.executable,
+        "python_version": ".".join(str(v) for v in sys.version_info[:3]),
+        "script_reachable": True,
+        "problems": problems,
+    }
+
+    if problems:
+        messages = {
+            "speckit_missing": "SDLE requires SpecKit to be initialized in this "
+            "project. Run: uvx --from git+https://github.com/github/spec-kit.git "
+            "specify init . --skills --here",
+            "speckit_skills_missing": "SDLE cannot locate SpecKit skills. "
+            "Re-initialize SpecKit with --skills.",
+            "requirements_missing": "I need requirements before starting the "
+            "workflow. Create a `requirements/` folder and add at least one "
+            "document.",
+        }
+        first = problems[0]
+        emit("preflight", data, ok=False, reason=first, message=messages[first])
+        print(messages[first], file=sys.stderr)
+        return EXIT_REFUSED
+
+    emit("preflight", data)
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -2132,12 +3239,128 @@ def build_parser() -> argparse.ArgumentParser:
     sr_sub = sr_p.add_subparsers(dest="subcommand", required=True)
     sr_begin = sr_sub.add_parser("begin", help="Pin the review filename.")
     sr_begin.set_defaults(handler=cmd_security_review_begin)
+    sr_ev = sr_sub.add_parser(
+        "evidence", help="Diff against implementation_base_ref, not HEAD~1."
+    )
+    sr_ev.set_defaults(handler=cmd_security_review_evidence)
 
     artifact_p = subparsers.add_parser("artifact", help="Artifact bookkeeping.")
     artifact_sub = artifact_p.add_subparsers(dest="subcommand", required=True)
     pathed = artifact_sub.add_parser("path", help="Resolve a gate's artifact path.")
     pathed.add_argument("--gate", required=True)
     pathed.set_defaults(handler=cmd_artifact_path)
+    recorded = artifact_sub.add_parser(
+        "record", help="Verify size, fingerprint, and record an artifact."
+    )
+    recorded.add_argument("--phase")
+    recorded.add_argument("--path", required=True)
+    recorded.add_argument("--optional", action="store_true",
+                          help="Absence is tolerated (Phase 8 checklist).")
+    recorded.set_defaults(handler=cmd_artifact_record)
+
+    limit_p = subparsers.add_parser("limit", help="Rate limits and counters.")
+    limit_sub = limit_p.add_subparsers(dest="subcommand", required=True)
+    lset = limit_sub.add_parser("set", help="Change a configured maximum.")
+    lset.add_argument("--retries", type=int)
+    lset.add_argument("--remediations", type=int)
+    lset.set_defaults(handler=cmd_limit_set)
+    lreset = limit_sub.add_parser("reset", help="Zero a phase's counters.")
+    lreset.add_argument("--phase", required=True)
+    lreset.add_argument("--retries", action="store_true")
+    lreset.add_argument("--remediations", action="store_true")
+    lreset.set_defaults(handler=cmd_limit_reset)
+
+    cp_p = subparsers.add_parser("checkpoint", help="In-phase crash recovery.")
+    cp_sub = cp_p.add_subparsers(dest="subcommand", required=True)
+    cpset = cp_sub.add_parser("set")
+    cpset.add_argument("--value", required=True)
+    cpset.set_defaults(handler=cmd_checkpoint)
+    cp_sub.add_parser("get").set_defaults(handler=cmd_checkpoint)
+    cp_sub.add_parser("clear").set_defaults(handler=cmd_checkpoint)
+
+    confirm_p = subparsers.add_parser("confirm", help="Two-step confirmations.")
+    confirm_sub = confirm_p.add_subparsers(dest="subcommand", required=True)
+    cset = confirm_sub.add_parser("set")
+    cset.add_argument("--action", required=True, choices=sorted(CONFIRMABLE))
+    cset.set_defaults(handler=cmd_confirm)
+    ccheck = confirm_sub.add_parser("check")
+    ccheck.add_argument("--action", required=True)
+    ccheck.set_defaults(handler=cmd_confirm)
+    confirm_sub.add_parser(
+        "clear", help="Stale-confirmation guard: cancel anything pending."
+    ).set_defaults(handler=cmd_confirm)
+
+    rem_p = subparsers.add_parser("remediate", help="Post-rejection re-run.")
+    rem_sub = rem_p.add_subparsers(dest="subcommand", required=True)
+    rbegin = rem_sub.add_parser("begin", help="Check the limit, write feedback.")
+    rbegin.add_argument("--gate", required=True)
+    rbegin.set_defaults(handler=cmd_remediate_begin)
+    rfinish = rem_sub.add_parser("finish", help="Archive the feedback file.")
+    rfinish.add_argument("--gate", required=True)
+    rfinish.set_defaults(handler=cmd_remediate_finish)
+
+    sub = subparsers.add_parser("skip", help="Advance without a verified artifact.")
+    sub.add_argument("--confirm", action="store_true")
+    sub.set_defaults(handler=cmd_skip)
+
+    sub = subparsers.add_parser("restart", help="Roll back to an earlier phase.")
+    sub.add_argument("--to", type=int, required=True)
+    sub.add_argument("--confirm", action="store_true")
+    sub.set_defaults(handler=cmd_restart)
+
+    sub = subparsers.add_parser("reset", help="Delete all workflow state.")
+    sub.add_argument("--confirm", action="store_true")
+    sub.set_defaults(handler=cmd_reset)
+
+    subparsers.add_parser(
+        "doctor", help="Recovery consistency check."
+    ).set_defaults(handler=cmd_doctor)
+    subparsers.add_parser(
+        "accept-state", help="Acknowledge a detected state jump."
+    ).set_defaults(handler=cmd_accept_state)
+    subparsers.add_parser(
+        "accept-content", help="Acknowledge flagged file content."
+    ).set_defaults(handler=cmd_accept_content)
+    subparsers.add_parser(
+        "repo-staleness", help="Commits newer than the newest approval."
+    ).set_defaults(handler=cmd_repo_staleness)
+    subparsers.add_parser(
+        "preflight", help="Bootstrap prerequisites."
+    ).set_defaults(handler=cmd_preflight)
+
+    sub = subparsers.add_parser("scan", help="Untrusted-content scan.")
+    sub.add_argument("--path", required=True)
+    sub.set_defaults(handler=cmd_scan)
+
+    clarify_p = subparsers.add_parser("clarify", help="Clarification responses.")
+    clarify_sub = clarify_p.add_subparsers(dest="subcommand", required=True)
+    csave = clarify_sub.add_parser("save")
+    csave.add_argument("--phase", required=True)
+    csave.add_argument("--text", required=True)
+    csave.set_defaults(handler=cmd_clarify_save)
+
+    guidance_p = subparsers.add_parser("guidance", help="Per-phase steering files.")
+    guidance_sub = guidance_p.add_subparsers(dest="subcommand", required=True)
+    gpath = guidance_sub.add_parser("path")
+    gpath.add_argument("--phase", required=True)
+    gpath.set_defaults(handler=cmd_guidance_path)
+
+    impl_p = subparsers.add_parser("implement", help="Phase 15 support.")
+    impl_sub = impl_p.add_subparsers(dest="subcommand", required=True)
+    ipre = impl_sub.add_parser(
+        "preflight", help="Dirty-tree guard; pin implementation_base_ref."
+    )
+    ipre.add_argument("--bypass", action="store_true",
+                      help="Proceed despite a dirty tree (logged).")
+    ipre.set_defaults(handler=cmd_implement_preflight)
+
+    man_p = subparsers.add_parser("manifest", help="Gate 7 artifact.")
+    man_sub = man_p.add_subparsers(dest="subcommand", required=True)
+    mbuild = man_sub.add_parser("build", help="File list, secrets scan, tests.")
+    mbuild.add_argument("--summary")
+    mbuild.add_argument("--skip-tests", action="store_true")
+    mbuild.add_argument("--test-timeout", type=int, default=600)
+    mbuild.set_defaults(handler=cmd_manifest_build)
 
     lock_p = subparsers.add_parser("lock", help="Session lock.")
     lock_sub = lock_p.add_subparsers(dest="subcommand", required=True)

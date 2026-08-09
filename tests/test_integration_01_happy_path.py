@@ -90,8 +90,10 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_design")
     note()  # implement
 
-    # Phase 15 -> Gate 7
-    project.write_artifact(".workflow/implementation-manifest.md")
+    # Phase 15 -> Gate 7. The manifest is built, not faked: Gate 7 refuses a
+    # manifest without a secrets scan and test evidence.
+    project.ok("implement", "preflight", "--bypass")
+    project.ok("manifest", "build", "--summary", "Implemented the Todo REST API.")
     project.ok("advance", "--to", "gate_implement")
     note()
     project.ok("gate", "approve", "--gate", "gate_implement")
