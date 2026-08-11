@@ -35,8 +35,24 @@ jobs:
       - name: Cross-file sync rules
         run: python scripts/sdle.py lint-skill
 
+      # Failures are echoed as ::error:: annotations, which are readable on a
+      # public repo without a token. Job logs are not, so without this a red
+      # build tells a contributor nothing they can act on.
       - name: Test suite
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q --tb=line -rf 2>&1 | tee pytest-out.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E '^(FAILED|ERROR)' pytest-out.txt | head -40 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            grep -E '^[^ ].*\.py:[0-9]+: ' pytest-out.txt | head -40 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+          fi
+          exit "$status"
 
       - name: Launcher resolves an interpreter (POSIX)
         if: runner.os != 'Windows'
