@@ -60,6 +60,9 @@ class TestLauncherResolution:
         )
 
     def test_refuses_when_nothing_qualifies(self, tmp_path):
+        """PATH is stripped to nothing, which is also the case in which the
+        launcher must still be able to report its own failure — so this
+        doubles as proof it depends on no external binary."""
         result = self.run_launcher(tmp_path)
         assert result.returncode == EXIT_REFUSED
         payload = json.loads(result.stdout)
@@ -84,7 +87,10 @@ class TestLauncherResolution:
         fake_interpreter(tmp_path, "python3", (3, 9))
         marker = tmp_path / "uv-was-used"
         uv = tmp_path / "uv"
-        uv.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 0\n',
+        # ':' redirection, not touch: PATH is deliberately stripped here, so
+        # external binaries are unreachable — the same condition the launcher
+        # itself has to survive.
+        uv.write_text(f'#!/bin/sh\n: > "{marker}"\nexit 0\n',
                       encoding="utf-8", newline="\n")
         uv.chmod(uv.stat().st_mode | stat.S_IEXEC)
 
@@ -95,7 +101,7 @@ class TestLauncherResolution:
     def test_sdle_python_override_wins(self, tmp_path):
         marker = tmp_path / "override-was-used"
         override = tmp_path / "myinterp"
-        override.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 0\n',
+        override.write_text(f'#!/bin/sh\n: > "{marker}"\nexit 0\n',
                             encoding="utf-8", newline="\n")
         override.chmod(override.stat().st_mode | stat.S_IEXEC)
 

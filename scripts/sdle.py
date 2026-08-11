@@ -39,6 +39,27 @@ EXIT_REFUSED = 1
 EXIT_USAGE = 2
 EXIT_INTEGRITY = 3
 
+
+def _force_utf8_streams() -> None:
+    """Emit UTF-8 regardless of the platform's default encoding.
+
+    The status header carries '📋' and an em dash. On Windows the default
+    stream encoding is the ANSI code page, so those bytes are not valid UTF-8
+    — a caller decoding UTF-8 (which is what every caller does) gets mojibake,
+    or a decode error that surfaces as an empty stream. Both streams are part
+    of the contract, so both are pinned.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
+_force_utf8_streams()
+
 MIN_ARTIFACT_BYTES = 100
 
 

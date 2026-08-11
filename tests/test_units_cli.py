@@ -70,6 +70,27 @@ def test_success_and_refusal_share_one_envelope_shape(started):
     assert refused["reason"] == "forward_jump"
 
 
+def test_output_is_utf8_regardless_of_platform_encoding(started):
+    """The header carries an emoji and an em dash. On Windows the default
+    stream encoding is the ANSI code page, so without pinning UTF-8 a caller
+    decoding UTF-8 gets mojibake — or, as CI showed, a decode error that
+    surfaces as an empty stream and a confusing TypeError."""
+    import os
+    import subprocess
+
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    completed = subprocess.run(
+        [sys.executable, str(SDLE_PY), "--project-root", str(started.root),
+         "--skill-root", str(started.skill_root), "header"],
+        capture_output=True, text=True, encoding="utf-8", env=env,
+    )
+    assert completed.returncode == EXIT_OK
+    assert completed.stderr is not None, "stderr failed to decode as UTF-8"
+    assert "SDLE Status" in completed.stderr
+    assert "📋" in completed.stderr
+    json.loads(completed.stdout)
+
+
 def test_skill_root_can_be_pointed_elsewhere(project):
     """Tests and installed layouts both rely on this override."""
     result = project.run_cli("constants")
