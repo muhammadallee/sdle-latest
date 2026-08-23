@@ -104,7 +104,7 @@ routes to the same place.
 
 | Command | Effect |
 |---|---|
-| `start workflow` / `begin` | Start or resume the workflow. Append `--verbose` to enable verbose mode. |
+| `start workflow` / `begin` | Start or resume the workflow. On a new workflow you are asked for a WorkItem name first; say `auto generate` to have one inferred. Append `--verbose` to enable verbose mode. |
 | `approve` | Approve the current gate and advance. |
 | `approve with comments: <text>` | Approve and record your notes. |
 | `reject with comments: <text>` | Reject and trigger remediation (rate-limited). |
@@ -119,6 +119,50 @@ routes to the same place.
 | `confirm implement` | Proceed with implementation despite uncommitted working-tree changes (dirty-tree guard). |
 | `skip with warning` | Skip a failed step without a verified artifact (not recommended; logged). Requires `confirm skip`. |
 | `verbose on` / `verbose off` | Toggle display of internal operational detail. |
+
+### WorkItem identity
+
+A **WorkItem** is the durable name for a piece of work. It is created *before*
+the workflow is initialised and never changes afterwards. Runtime state still
+lives in `.workflow/` — the WorkItem is identity, not state.
+
+```
+scripts/sdle.sh workitem create --name "Customer Notification Service"
+scripts/sdle.sh workitem list
+```
+
+The name is normalised to kebab-case (`Customer Notification Service` →
+`customer-notification-service`): trimmed, lowercased, whitespace and `_`
+become `-`, unsupported punctuation is dropped, repeated hyphens collapse, and
+the result must be unique. Duplicates are refused — SDLE never invents
+`foo-2`. `--auto-generate` mints `WI-<name>-<YYYYMMDDTHHMMSSZ>` instead.
+
+Two files are written, and both are meant to be committed:
+
+```
+workitems/
+├── index.md                          ← append-only creation registry
+└── customer-notification-service/
+    └── workitem.json                 ← immutable metadata
+```
+
+```json
+{
+  "id": "customer-notification-service",
+  "name": "customer-notification-service",
+  "title": "Customer Notification Service",
+  "type": "enhancement",
+  "synopsis": "Add configurable customer notifications.",
+  "createdAt": "2026-08-16T17:05:30Z",
+  "createdBy": { "gitUserName": "...", "gitUserEmail": "..." },
+  "git": { "initialBranch": "feature/customer-notification-service" },
+  "sdleVersion": "1.13"
+}
+```
+
+`index.md` is append-only and carries no mutable status column. If it is
+structurally damaged, `workitem create` and `workitem list` both fail with
+`index_malformed` (exit 3) and change nothing — repair it by hand.
 
 ---
 
@@ -172,6 +216,10 @@ rules are checked mechanically rather than by hand.
 ```
 <target-project>/
 ├── requirements/              ← Your input (required)
+├── workitems/                 ← WorkItem identity (versioned, not runtime state)
+│   ├── index.md               ← Append-only creation registry
+│   └── <workitem-id>/
+│       └── workitem.json      ← Immutable WorkItem metadata
 ├── guidance/                  ← Optional per-phase steering files (e.g. guidance/plan.md)
 ├── .specify/                  ← SpecKit's artifacts
 │   ├── memory/constitution.md

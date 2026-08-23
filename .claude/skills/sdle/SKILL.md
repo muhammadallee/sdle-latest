@@ -240,7 +240,11 @@ Run these in order. Each is one script call; each refusal halts the turn.
 
 For a **new workflow** (no state file) run **`sdle.sh preflight`** first. It refuses with the exact message to show when SpecKit is missing, its skills are undiscoverable, or `requirements/` is absent or empty. Nothing is initialised on a refusal.
 
-Then scan each requirements file (`sdle.sh scan --path <file>`) before doing anything with it, and if `guidance/*.md` files exist, list them and invite the user to edit before starting. Initialise with **`sdle.sh init`**, which infers `project_name` from the first `#` heading, writes the first audit entries, and advances to `constitution_draft`.
+Then scan each requirements file (`sdle.sh scan --path <file>`) before doing anything with it, and if `guidance/*.md` files exist, list them and invite the user to edit before starting.
+
+**Identity comes before initialisation.** Ask `WorkItem name?` and run **`sdle.sh workitem create --name "<what the user typed>"`** before `init`. The engine normalises the name to kebab-case and writes an immutable identity — `workitems/<id>/workitem.json` plus a row in the append-only `workitems/index.md`. Only if the user explicitly says `auto generate` do you infer a concise name yourself and add `--auto-generate`. On exit 1 `workitem_exists`, ask `Resume existing WorkItem? or Provide another name?` — never invent a suffix. On exit 3 `index_malformed`, show the message and stop; the registry is repaired by hand and never rewritten by SDLE. A **resume** (state file already present) never asks for a WorkItem name.
+
+Then initialise with **`sdle.sh init`**, which infers `project_name` from the first `#` heading, writes the first audit entries, and advances to `constitution_draft`. The WorkItem is the durable identity; `.workflow/` is still the runtime state, and `init` is unchanged by the step above.
 
 ---
 

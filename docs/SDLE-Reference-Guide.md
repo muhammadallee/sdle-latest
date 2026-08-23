@@ -145,6 +145,44 @@ SDLE Orchestrator (Claude Code Skill)
 | `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 11 analyze prompt |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
 
+### WorkItem identity
+
+A **WorkItem** is the durable name for a piece of work. It is created *before*
+the workflow is initialised, and it never changes afterwards. It is identity,
+not state: runtime state remains `.workflow/`, `init` neither requires nor
+records a WorkItem, and every phase and gate behaves exactly as it did before
+WorkItems existed.
+
+Two id shapes are accepted:
+
+| How it was created | Shape | Example |
+|---|---|---|
+| From a user-supplied name (default) | normalised kebab-case | `customer-notification-service` |
+| `--auto-generate` | `WI-<name>-<YYYYMMDDTHHMMSSZ>` | `WI-payment-retry-20260816T170530Z` |
+
+Normalisation is deterministic: trim, lowercase, whitespace and `_` become `-`,
+unsupported punctuation is dropped, repeated hyphens collapse, leading and
+trailing hyphens are stripped, and only `[a-z0-9-]` survives. An empty result
+is refused, as is a name that carries a path separator or a pipe, one that
+normalises to more than 64 characters, and one that lands on a Windows
+reserved device name. Uniqueness is enforced case-insensitively against both
+the registry and the directory listing; a duplicate is refused rather than
+suffixed, and the caller is asked to resume the existing WorkItem or supply
+another name.
+
+Each WorkItem gets `workitems/<id>/workitem.json` — id, name, human title,
+type, synopsis, creation instant, the Git identity and branch captured at
+creation, and the SDLE version. Missing Git is recorded as `null`, never
+refused. Every creation also appends one row to `workitems/index.md`, an
+append-only registry with no mutable status column. The registry's structure is
+validated before each append; if it is damaged, `workitem create` and
+`workitem list` both fail as an integrity error and change nothing, because a
+corrupt ledger is repaired deliberately, not silently rewritten.
+
+Both files are intended to be committed. They are the durable creation record,
+which is why WorkItem creation does not append to `.workflow/audit.md` — the
+audit ledger belongs to a workflow, and a WorkItem exists before one does.
+
 ### 4.3 Why a state file, not conversation memory
 
 Conversation context is volatile: it can be summarized, truncated, or lost entirely between sessions. SDLE treats `.workflow/state.json` as the only authoritative record of workflow position. Every turn re-reads it, re-validates it against `phase_history` (the **Recovery Consistency Check**), and re-derives the status header from it. This means a workflow can be paused for days, resumed in a brand-new conversation, or recovered after a crash mid-phase, and SDLE will behave identically to a continuous session.

@@ -1323,6 +1323,310 @@ def cmd_state_dump(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
+# WorkItem identity
+# --------------------------------------------------------------------------
+#
+# A WorkItem is an immutable identity created *before* a workflow is
+# initialised. It does not own runtime state: `.workflow/` remains the runtime
+# location, and `init` neither requires nor records a WorkItem. Identity is
+# added alongside the legacy runtime, not over it.
+
+WORKITEM_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+AUTO_ID_RE = re.compile(r"^WI-[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d{8}T\d{6}Z$")
+WORKITEM_NAME_MAX = 64
+
+# Windows refuses to create a directory with any of these names, whatever the
+# extension. The engine is cross-platform, so the id vocabulary is the
+# intersection of what every target filesystem accepts.
+RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{n}" for n in range(1, 10)}
+    | {f"lpt{n}" for n in range(1, 10)}
+)
+
+INDEX_HEADING = "# Work Items"
+INDEX_COLUMNS = ["Created", "WorkItem", "Type", "Title", "Synopsis"]
+
+# Path separators and pipes never survive normalisation as themselves — they
+# would either be dropped (turning `a/b` into the *valid* id `ab`, silently
+# accepting a traversal-shaped name) or corrupt the pipe-delimited registry.
+# Refuse the raw name instead of quietly rewriting it.
+_RAW_NAME_FORBIDDEN = re.compile(r"[/\\|\x00-\x1f\x7f]")
+_INDEX_UNSAFE = re.compile(r"[|\r\n\t]")
+
+
+def _name_invalid(rule: str, raw: str | None, detail: str) -> Refused:
+    return Refused(
+        "workitem_name_invalid",
+        f"WorkItem name {raw!r} is not usable: {detail}.",
+        {"rule": rule, "name": raw},
+    )
+
+
+def normalize_workitem_name(raw: str | None) -> str:
+    """Contract §7 rules 1-9 (uniqueness, rule 10, is the caller's job).
+
+    trim, lowercase, whitespace -> '-', '_' -> '-', drop unsupported
+    punctuation, collapse repeated hyphens, strip leading/trailing hyphens,
+    allow only [a-z0-9-], reject empty.
+    """
+    text = (raw or "").strip()
+    if not text:
+        raise _name_invalid("empty", raw, "it is empty or only whitespace")
+    if _RAW_NAME_FORBIDDEN.search(text):
+        raise _name_invalid(
+            "unsafe_character", raw,
+            "it contains a path separator, a pipe or a control character",
+        )
+
+    value = text.lower()
+    value = re.sub(r"\s+", "-", value)
+    value = value.replace("_", "-")
+    value = re.sub(r"[^a-z0-9-]+", "", value)
+    value = re.sub(r"-{2,}", "-", value)
+    value = value.strip("-")
+
+    if not value:
+        raise _name_invalid(
+            "empty_after_normalization", raw,
+            "nothing usable remains after normalisation",
+        )
+    if len(value) > WORKITEM_NAME_MAX:
+        raise _name_invalid(
+            "too_long", raw,
+            f"it normalises to {len(value)} characters, over the "
+            f"{WORKITEM_NAME_MAX}-character limit",
+        )
+    if not WORKITEM_ID_RE.match(value):
+        raise _name_invalid("charset", raw, "it is not kebab-case [a-z0-9-]")
+    if value in RESERVED_NAMES:
+        raise _name_invalid(
+            "reserved_name", raw,
+            f"'{value}' is a reserved device name on Windows",
+        )
+    return value
+
+
+def workitems_root(paths: Paths) -> Path:
+    return paths.project_root / "workitems"
+
+
+def workitem_index_file(paths: Paths) -> Path:
+    return workitems_root(paths) / "index.md"
+
+
+def workitem_dir(paths: Paths, workitem_id: str) -> Path:
+    """Locate a WorkItem directory, refusing anything outside the registry.
+
+    The id regex already makes traversal unreachable; this is a second fence,
+    not the primary control.
+    """
+    root = workitems_root(paths)
+    if (root / workitem_id).resolve().parent != root.resolve():
+        raise _name_invalid(
+            "path_escape", workitem_id,
+            "it does not resolve inside workitems/",
+        )
+    return root / workitem_id
+
+
+def _index_malformed(path: Path, detail: str) -> IntegrityError:
+    return IntegrityError(
+        "index_malformed",
+        f"workitems/index.md is not a valid WorkItem registry: {detail}. "
+        "SDLE will not rewrite it — repair the file by hand.",
+        {"path": str(path), "detail": detail},
+    )
+
+
+def read_index(paths: Paths) -> list[dict[str, str]]:
+    """Parse the append-only registry. An absent file is an empty registry.
+
+    Structure is validated before anything else happens, so a corrupt registry
+    stops both `create` and `list` before a single byte is written.
+    """
+    path = workitem_index_file(paths)
+    if not path.is_file():
+        return []
+
+    lines = [
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not lines or lines[0].strip() != INDEX_HEADING:
+        raise _index_malformed(path, f"first line must be '{INDEX_HEADING}'")
+    if len(lines) < 3:
+        raise _index_malformed(path, "header row or separator row is missing")
+
+    header = [cell.strip() for cell in _split_row(lines[1])]
+    if header != INDEX_COLUMNS:
+        raise _index_malformed(
+            path, f"columns must be {INDEX_COLUMNS}, found {header}"
+        )
+    if not _is_separator(lines[2]):
+        raise _index_malformed(path, "separator row is missing")
+
+    rows: list[dict[str, str]] = []
+    for line in lines[3:]:
+        cells = [cell.strip() for cell in _split_row(line)]
+        if len(cells) != len(INDEX_COLUMNS):
+            raise _index_malformed(
+                path,
+                f"row has {len(cells)} cells, expected {len(INDEX_COLUMNS)}: "
+                f"{line.strip()}",
+            )
+        rows.append(dict(zip(INDEX_COLUMNS, cells)))
+    return rows
+
+
+def _index_cell(value: str | None) -> str:
+    """Registry cells are pipe-delimited and unescaped, so neutralise the
+    delimiter rather than let one synopsis corrupt every later read."""
+    text = _INDEX_UNSAFE.sub(" ", (value or "").strip())
+    return re.sub(r"\s+", " ", text).strip() or "-"
+
+
+def append_index_row(paths: Paths, row: dict[str, str]) -> None:
+    """Read, validate, append exactly one row, then write the whole file.
+
+    Building the full text in memory and handing it to ``write_atomic`` is why
+    a crash can never leave a torn registry.
+    """
+    rows = read_index(paths) + [row]
+    lines = [
+        INDEX_HEADING,
+        "",
+        "| " + " | ".join(INDEX_COLUMNS) + " |",
+        "|" + "---|" * len(INDEX_COLUMNS),
+    ]
+    lines += [
+        "| " + " | ".join(_index_cell(entry.get(c)) for c in INDEX_COLUMNS) + " |"
+        for entry in rows
+    ]
+    write_atomic(workitem_index_file(paths), "\n".join(lines) + "\n")
+
+
+def _git_value(paths: Paths, *args: str) -> str | None:
+    """A git fact, or None. Metadata records what is knowable; missing git is
+    never a refusal."""
+    code, out = git(paths, *args)
+    return out if code == 0 and out else None
+
+
+def cmd_workitem_create(args, paths: Paths) -> int:
+    raw = (args.name or "").strip()
+    name = normalize_workitem_name(raw)
+
+    # One clock read for the whole command: two would let createdAt and the
+    # generated id straddle a second boundary.
+    stamp = now_iso()
+    if args.auto_generate:
+        workitem_id = f"WI-{name}-{stamp.replace('-', '').replace(':', '')}"
+        if not AUTO_ID_RE.match(workitem_id):
+            raise _name_invalid(
+                "auto_id_malformed", raw,
+                f"generated id {workitem_id!r} is not a valid WorkItem id",
+            )
+    else:
+        workitem_id = name
+
+    # Every validation precedes every write.
+    existing = read_index(paths)
+    target = workitem_dir(paths, workitem_id)
+
+    known: dict[str, str] = {}
+    for entry in existing:
+        known.setdefault(entry["WorkItem"].lower(), entry["WorkItem"])
+    root = workitems_root(paths)
+    if root.is_dir():
+        for child in sorted(root.iterdir()):
+            if child.is_dir():
+                known.setdefault(child.name.lower(), child.name)
+    if workitem_id.lower() in known:
+        collision = known[workitem_id.lower()]
+        raise Refused(
+            "workitem_exists",
+            f"WorkItem '{collision}' already exists. Resume the existing "
+            "WorkItem, or provide another name — SDLE never auto-suffixes.",
+            {"id": collision, "requested": workitem_id},
+        )
+
+    branch = _git_value(paths, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch == "HEAD":  # detached: there is no branch to record
+        branch = None
+    synopsis = (args.synopsis or "").strip() or None
+
+    metadata = {
+        "id": workitem_id,
+        "name": name,
+        "title": raw,
+        "type": (args.type or "").strip() or "enhancement",
+        "synopsis": synopsis,
+        "createdAt": stamp,
+        "createdBy": {
+            "gitUserName": _git_value(paths, "config", "user.name"),
+            "gitUserEmail": _git_value(paths, "config", "user.email"),
+        },
+        "git": {"initialBranch": branch},
+        "sdleVersion": CURRENT_VERSION,
+    }
+
+    metadata_file = target / "workitem.json"
+    fresh_dir = not target.exists()
+    try:
+        write_atomic(metadata_file, json.dumps(metadata, indent=2) + "\n")
+        append_index_row(paths, {
+            "Created": stamp,
+            "WorkItem": workitem_id,
+            "Type": metadata["type"],
+            "Title": raw,
+            "Synopsis": synopsis,
+        })
+    except BaseException:
+        # All-or-nothing: an orphaned metadata file would make the id look
+        # taken while the registry says otherwise.
+        try:
+            metadata_file.unlink(missing_ok=True)
+            if fresh_dir:
+                target.rmdir()
+        except OSError:
+            pass
+        raise
+
+    emit("workitem create", {
+        "id": workitem_id,
+        "name": name,
+        "title": metadata["title"],
+        "type": metadata["type"],
+        "synopsis": synopsis,
+        "created_at": stamp,
+        "path": str(target),
+        "metadata_file": str(metadata_file),
+        "index_file": str(workitem_index_file(paths)),
+    })
+    return EXIT_OK
+
+
+def cmd_workitem_list(args, paths: Paths) -> int:
+    """Project the registry, in creation order. The index is the single source
+    of truth — never the directory listing."""
+    rows = read_index(paths)
+    emit("workitem list", {
+        "count": len(rows),
+        "workitems": [
+            {
+                "id": entry["WorkItem"],
+                "created": entry["Created"],
+                "type": entry["Type"],
+                "title": entry["Title"],
+            }
+            for entry in rows
+        ],
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # Artifact path resolution
 # --------------------------------------------------------------------------
 
@@ -3468,6 +3772,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
     sub.set_defaults(handler=cmd_migrate)
+
+    workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
+    workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)
+    wi_create = workitem_sub.add_parser(
+        "create", help="Create an immutable WorkItem identity."
+    )
+    wi_create.add_argument("--name", required=True, help="Raw WorkItem name.")
+    wi_create.add_argument("--type", help="Classification (default: enhancement).")
+    wi_create.add_argument("--synopsis", help="One-line summary.")
+    wi_create.add_argument(
+        "--auto-generate", action="store_true",
+        help="Mint WI-<name>-<UTC timestamp> instead of using the name as the id.",
+    )
+    wi_create.set_defaults(handler=cmd_workitem_create)
+    wi_list = workitem_sub.add_parser("list", help="List registered WorkItems.")
+    wi_list.set_defaults(handler=cmd_workitem_list)
 
     state_p = subparsers.add_parser("state", help="Read workflow state.")
     state_sub = state_p.add_subparsers(dest="subcommand", required=True)
