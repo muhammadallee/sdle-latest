@@ -145,6 +145,48 @@ def test_write_atomic_replaces_completely(tmp_path):
     assert json.loads(target.read_text(encoding="utf-8")) == {"b": 2}
 
 
+def test_write_atomic_survives_a_transient_permission_error(tmp_path, monkeypatch):
+    """A scanner or indexer holding the file briefly must not fail the write."""
+    target = tmp_path / "state.json"
+    real_replace = sdle.os.replace
+    attempts = []
+
+    def flaky(src, dst, *args, **kwargs):
+        attempts.append(1)
+        if len(attempts) < 4:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(sdle.os, "replace", flaky)
+    sdle.write_atomic(target, '{"written": true}')
+
+    assert len(attempts) == 4
+    assert json.loads(target.read_text(encoding="utf-8")) == {"written": True}
+    leftovers = [p for p in tmp_path.iterdir() if p.name.startswith(".state.json.")]
+    assert leftovers == [], f"temp file was not cleaned up: {leftovers}"
+
+
+def test_write_atomic_still_raises_on_a_permanent_permission_error(tmp_path, monkeypatch):
+    """The retry is a short window, not a swallow: a real denial must surface."""
+    target = tmp_path / "state.json"
+    target.write_text('{"original": true}', encoding="utf-8")
+    attempts = []
+
+    def always_denied(*args, **kwargs):
+        attempts.append(1)
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(sdle.os, "replace", always_denied)
+    with pytest.raises(PermissionError):
+        sdle.write_atomic(target, '{"replacement": true}')
+
+    # Bounded: four backoff attempts plus one final attempt that raises.
+    assert len(attempts) == 5
+    assert json.loads(target.read_text(encoding="utf-8")) == {"original": True}
+    leftovers = [p for p in tmp_path.iterdir() if p.name.startswith(".state.json.")]
+    assert leftovers == [], f"temp file was not cleaned up: {leftovers}"
+
+
 def test_state_writes_survive_repeated_saves(started):
     for index in range(20):
         started.ok("state", "set", "--field", "clarification_phase",

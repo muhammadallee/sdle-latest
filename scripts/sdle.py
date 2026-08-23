@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -460,7 +461,20 @@ def write_atomic(path: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(handle.name, path)
+        # On Windows a transient external holder (on-access scanner, indexer,
+        # backup agent) can hold the freshly written temp file or the
+        # destination just long enough for os.replace to raise WinError 5.
+        # ponytail: short retry window, not a lock. A permanent PermissionError
+        # still raises on the final attempt -- atomicity is never weakened into
+        # a silent swallow, and test_units_infra.py asserts that.
+        for delay in (0.01, 0.02, 0.04, 0.08):
+            try:
+                os.replace(handle.name, path)
+                break
+            except PermissionError:
+                time.sleep(delay)
+        else:
+            os.replace(handle.name, path)
     except BaseException:
         try:
             os.unlink(handle.name)
