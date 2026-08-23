@@ -83,7 +83,7 @@ if tool in {"Bash", "PowerShell"} and MODE in {"planner", "verifier"}:
     cmd = str(inputs.get("command") or "")
     forbidden = [
         r"(^|\s)(rm|del|erase|rmdir|mv|move|cp|copy|touch|mkdir|md)\b",
-        r"(^|\s)(git\s+(add|commit|reset|checkout|switch|clean|restore|merge|rebase|cherry-pick|tag|push))\b",
+        r"(^|\s)(git\s+(add|commit|reset|checkout|switch|clean|restore|merge(?!-base)|rebase|cherry-pick|tag|push))\b",
         r"(^|\s)(sed\s+-i|perl\s+-pi)\b",
         r"(^|\s)(tee)\b",
         # Output redirection to a file. Deliberately does NOT fire on stderr

@@ -230,3 +230,32 @@ e8babae5977abdaa…                                                  (after)
 **Evidence — 24-case command corpus, all pass.** Now `ALLOWED` (were blocked): `2>/dev/null`, `2>$null`, `2>&1`, `-> int` annotations, `4 -> 5` in a comment, `>=`, `!=`. Still `BLOCKED`: `echo … > transition.md`, `>> progress.md`, `> out.txt`, `cat a > b`, `rm -rf`, `git commit`, `git push`, `sed -i`, `tee`, `Set-Content`, `mv`.
 
 **Write-scope matrix re-run: 20/20 still agree** in both absolute and relative path form. The §9 fix is undisturbed.
+
+---
+
+## 11. Third authorized control-plane change (post-T00, `git merge-base` false positive)
+
+Same artifact, same authorization pattern as §9 and §10. Applied while T01 implementation was in flight; changes no T00 evidence, no T01 plan, and no product file.
+
+**Trigger.** The T01 planner reported that the guard blocked `git merge-base --is-ancestor …`. Cause confirmed by driving the pattern directly: `\b` after each subcommand matches at a hyphen, so `git merge-base` — a pure read — matched the `git merge` mutation deny.
+
+This is not cosmetic. Contract §1 item 2 requires every phase to confirm the baseline is an ancestor of the working branch, and `git merge-base --is-ancestor` is the canonical way to do it. The guard was blocking a contract-mandated check. The T01 planner substituted two `git rev-list --count` calls and recorded the method (ledger E2a) — correct behaviour under a wrong constraint.
+
+**Decision.** The user authorized the fix and granted **standing approval for future guard false-positive fixes**, scoped strictly: only changes that stop the guard blocking provably read-only or otherwise sanctioned operations. Anything that would let the guard permit a *new mutation* still requires explicit approval. Every such fix keeps the full procedure — patch, re-sign only the `agent_guard.py` manifest line via `validate.py::sha256`, re-run all three matrices, record here — and is reported, never silent.
+
+**Change.** One targeted exemption, deliberately narrower than relaxing the word boundary:
+
+```python
+r"…|clean|restore|merge|rebase|cherry-pick|tag|push))\b"            # before
+r"…|clean|restore|merge(?!-base)|rebase|cherry-pick|tag|push))\b"   # after
+```
+
+Loosening `\b` to `(?![\w-])` globally was rejected: it would also permit `git checkout-index`, which genuinely writes files.
+
+**Manifest re-signed** (`agent_guard.py` line only): `e8babae5977abdaa…` → `bd90f138d100491a…`. `validate.py` exit 0 after.
+
+**Evidence — three matrices, 62 cases, zero mismatches.**
+
+- *Git corpus, 22 cases.* Now `ALLOWED`: `git merge-base --is-ancestor`, `git merge-base HEAD origin/main`. Still `BLOCKED`: `git merge --abort`, `git merge origin/main`, `git checkout-index -a`, `git checkout`, `add`, `commit`, `push`, `reset --hard`, `clean -fd`, `restore`, `rebase`, `cherry-pick`, `tag`, `switch`. Still `ALLOWED`: `log`, `diff`, `rev-parse`, `show`, `status`, `rev-list`.
+- *Redirection corpus, 20 cases* (§10 regression) — all still pass.
+- *Write-scope matrix, 20 cases* (§9 regression) — all still agree in both path forms.
