@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,30 +101,77 @@ class IntegrityError(SdleError):
 
 @dataclass
 class Paths:
-    """Locations the engine works with.
+    """Locations the engine works with — repository plus the active WorkItem.
 
-    ``project_root`` is the target project: the one with ``.workflow/``.
+    ``project_root`` is the target project (the repository context).
     ``skill_root`` is the directory holding ``SKILL.md`` — the constants host.
+    ``workitem`` is the bound WorkItem id, or ``None`` for the transitional
+    legacy layout. It is the *only* switch between the two runtime locations:
+    every runtime path below derives from ``runtime``, so no command ever
+    concatenates a WorkItem-owned path of its own.
     """
 
     project_root: Path
     skill_root: Path
+    workitem: str | None = None
 
     @property
-    def workflow(self) -> Path:
+    def legacy_workflow(self) -> Path:
+        """Repository-global runtime. Transitional: migration source only."""
         return self.project_root / ".workflow"
 
     @property
+    def workitem_root(self) -> Path | None:
+        if self.workitem is None:
+            return None
+        return self.project_root / "workitems" / self.workitem
+
+    @property
+    def runtime(self) -> Path:
+        root = self.workitem_root
+        return self.legacy_workflow if root is None else root / ".sdle"
+
+    @property
+    def runtime_relative(self) -> str:
+        """The runtime directory as a repo-relative POSIX prefix.
+
+        Emitted paths and git pathspecs use ``/`` on every platform.
+        """
+        return str(self.runtime.relative_to(self.project_root)).replace(os.sep, "/")
+
+    # `workflow` is retained as an alias so call sites that only ever meant
+    # "the runtime directory" did not have to move in T02.
+    @property
+    def workflow(self) -> Path:
+        return self.runtime
+
+    @property
     def state_file(self) -> Path:
-        return self.workflow / "state.json"
+        return self.runtime / "state.json"
 
     @property
     def audit_file(self) -> Path:
-        return self.workflow / "audit.md"
+        return self.runtime / "audit.md"
 
     @property
     def lock_file(self) -> Path:
-        return self.workflow / "lock"
+        return self.runtime / "lock"
+
+    @property
+    def execution_file(self) -> Path:
+        return self.runtime / "execution.json"
+
+    @property
+    def manifest_file(self) -> Path:
+        return self.runtime / "implementation-manifest.md"
+
+    @property
+    def completion_file(self) -> Path:
+        return self.runtime / "completion-summary.json"
+
+    @property
+    def evidence_dir(self) -> Path:
+        return self.runtime / "evidence"
 
     @property
     def skill_md(self) -> Path:
@@ -552,7 +599,7 @@ def actor(paths: Paths) -> str:
 # State IO
 # --------------------------------------------------------------------------
 
-CURRENT_VERSION = "1.13"
+CURRENT_VERSION = "1.14"
 
 STATUS_DISPLAY = {
     "pending": "PENDING",
@@ -566,10 +613,11 @@ STATUS_DISPLAY = {
 
 
 def read_state(paths: Paths) -> dict:
+    relative = paths.runtime_relative
     if not paths.state_file.is_file():
         raise IntegrityError(
             "state_unreadable",
-            "No .workflow/state.json in this project. "
+            f"No {relative}/state.json in this project. "
             "Run `init` to start a workflow.",
             {"path": str(paths.state_file)},
         )
@@ -578,7 +626,7 @@ def read_state(paths: Paths) -> dict:
     except json.JSONDecodeError as exc:
         raise IntegrityError(
             "state_unreadable",
-            f".workflow/state.json is not valid JSON: {exc}. "
+            f"{relative}/state.json is not valid JSON: {exc}. "
             "Options: 'reset workflow' to start fresh, or inspect the file.",
             {"path": str(paths.state_file), "error": str(exc)},
         ) from None
@@ -749,6 +797,22 @@ def cmd_audit_append(args, paths: Paths) -> int:
     return EXIT_OK
 
 
+def verify_audit_chain(entries: list[str]) -> tuple[bool, int | None]:
+    """Walk the ``prev_sha`` chain. Returns ``(ok, first_broken_entry_number)``.
+
+    Extracted unchanged from ``cmd_audit_verify`` at T02 so `migrate-workflow`
+    can verify a ledger at a second location without restating the rule.
+    """
+    prev = GENESIS
+    for index, block in enumerate(entries, start=1):
+        match = re.search(r"^\*\*Prev:\*\*\s*(\S+)\s*$", block, flags=re.MULTILINE)
+        recorded = match.group(1) if match else None
+        if recorded != prev:
+            return False, index
+        prev = _entry_digest(block)
+    return True, None
+
+
 def cmd_audit_verify(args, paths: Paths) -> int:
     state = read_state(paths)
     expected = state.get("audit_sha")
@@ -768,25 +832,17 @@ def cmd_audit_verify(args, paths: Paths) -> int:
              "entries": 0, "chain_ok": False},
             ok=False,
             reason="audit_chain_broken",
-            message=".workflow/audit.md is missing.",
+            message=f"{paths.runtime_relative}/audit.md is missing.",
         )
-        print("audit_chain_broken: .workflow/audit.md is missing.", file=sys.stderr)
+        print(
+            f"audit_chain_broken: {paths.runtime_relative}/audit.md is missing.",
+            file=sys.stderr,
+        )
         return EXIT_INTEGRITY
 
     actual = sha256_file(paths.audit_file)
     entries = split_audit_entries(paths.audit_file.read_text(encoding="utf-8"))
-
-    chain_ok = True
-    broken_at = None
-    prev = GENESIS
-    for index, block in enumerate(entries, start=1):
-        match = re.search(r"^\*\*Prev:\*\*\s*(\S+)\s*$", block, flags=re.MULTILINE)
-        recorded = match.group(1) if match else None
-        if recorded != prev:
-            chain_ok = False
-            broken_at = index
-            break
-        prev = _entry_digest(block)
+    chain_ok, broken_at = verify_audit_chain(entries)
 
     matches = actual == expected and chain_ok
     data = {
@@ -974,6 +1030,22 @@ def _mig_1_12(state, paths, consts):
         )
 
 
+def _mig_1_13(state, paths, consts):
+    """Add ``workitem``, bound from where the state file actually lives.
+
+    The state file becomes self-describing, so a file copied to the wrong
+    WorkItem is detectable. Derivation is deterministic, never a guess: a state
+    under ``workitems/<id>/.sdle/`` records ``<id>``; a state still at the
+    legacy ``.workflow/`` location keeps ``null`` until `migrate-workflow`
+    binds it.
+    """
+    _add_missing(state, workitem=None)
+    if state.get("workitem") is None:
+        parent = paths.state_file.parent
+        if parent.name == ".sdle":
+            state["workitem"] = parent.parent.name
+
+
 MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.0", "1.1", _mig_1_0),
     ("1.1", "1.2", _mig_1_1),
@@ -988,6 +1060,7 @@ MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.10", "1.11", _mig_1_10),
     ("1.11", "1.12", _mig_1_11),
     ("1.12", "1.13", _mig_1_12),
+    ("1.13", "1.14", _mig_1_13),
 ]
 
 
@@ -1082,7 +1155,7 @@ def cmd_init(args, paths: Paths) -> int:
     if paths.state_file.is_file():
         raise Refused(
             "already_initialized",
-            "A workflow already exists in .workflow/state.json. "
+            f"A workflow already exists in {paths.runtime_relative}/state.json. "
             "Use `reset --confirm` to clear it, or resume where you left off.",
             {"path": str(paths.state_file)},
         )
@@ -1097,15 +1170,29 @@ def cmd_init(args, paths: Paths) -> int:
             {"path": str(req_dir)},
         )
 
-    name = args.project or infer_project_name(paths) or paths.project_root.name
+    # The WorkItem title sits *after* heading inference deliberately: it is a
+    # better identity than a directory name, but the requirements heading is
+    # still the most specific thing the project says about itself, and moving
+    # the WorkItem ahead of it would change behaviour nothing asks to change.
+    metadata = workitem_metadata(paths) or {}
+    name = (
+        args.project
+        or infer_project_name(paths)
+        or (metadata.get("title") or "").strip()
+        or paths.project_root.name
+    )
 
     state = load_template(paths)
+    state["workitem"] = paths.workitem
     state["project_name"] = name
     state["current_phase"] = "requirements_check"
     state["status"] = "in_progress"
     state["progress"] = consts.progress_for("requirements_check")
 
     paths.workflow.mkdir(parents=True, exist_ok=True)
+    stamp = now_iso()
+    execution_id = execution_identity(paths, stamp)
+    write_execution_file(paths, execution_id, stamp)
     append_audit(
         paths,
         state,
@@ -1141,6 +1228,8 @@ def cmd_init(args, paths: Paths) -> int:
         "init",
         {
             "project_name": name,
+            "workitem": paths.workitem,
+            "execution_id": execution_id,
             "requirements": requirements,
             "current_phase": state["current_phase"],
             "status": state["status"],
@@ -1341,9 +1430,9 @@ def cmd_state_dump(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 #
 # A WorkItem is an immutable identity created *before* a workflow is
-# initialised. It does not own runtime state: `.workflow/` remains the runtime
-# location, and `init` neither requires nor records a WorkItem. Identity is
-# added alongside the legacy runtime, not over it.
+# initialised, and since v1.14 it is also the runtime scope: `init` requires a
+# resolved WorkItem and writes `workitems/<id>/.sdle/`. Identity is still
+# created first and never changes; the runtime is created under it.
 
 WORKITEM_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 AUTO_ID_RE = re.compile(r"^WI-[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d{8}T\d{6}Z$")
@@ -1641,23 +1730,414 @@ def cmd_workitem_list(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
+# WorkItem resolution
+# --------------------------------------------------------------------------
+#
+# T02 implements the minimum ladder that makes the runtime addressable. CWD,
+# branch, persisted context and inference are T03. The ladder NEVER guesses:
+# when more than one WorkItem could be meant it refuses and lists them.
+
+# Commands that touch no runtime state, so the ladder never runs for them.
+# `migrate-workflow` is here because it does its own explicit binding from a
+# mandatory --workitem.
+RUNTIME_FREE_COMMANDS = frozenset({
+    "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
+})
+
+
+def registered_workitem_ids(paths: Paths) -> list[str]:
+    """Registered ids, in creation order. The index is the only source."""
+    return [row["WorkItem"] for row in read_index(paths)]
+
+
+def legacy_state_present(paths: Paths) -> bool:
+    return (paths.legacy_workflow / "state.json").is_file()
+
+
+def bind_workitem(
+    paths: Paths, explicit: str | None = None, *, for_init: bool = False
+) -> Paths:
+    """Resolve the active WorkItem and return `paths` bound to it.
+
+    Pure: it either returns a bound ``Paths`` or raises ``Refused``. Nothing is
+    printed and nothing is written, so the hooks can call it speculatively.
+
+    Ladder (contract §8, plan D2):
+
+    1. explicit ``--workitem <id>``, which must be registered;
+    2. else the sole registered WorkItem;
+    3. else zero WorkItems *and* a legacy ``.workflow/state.json`` -> legacy
+       binding (``workitem is None``). TRANSITIONAL, removed at T11: without
+       it T02 would brick a repository that already holds a workflow, because
+       every command would refuse before `migrate-workflow` could run;
+    4. else zero WorkItems -> refuse ``workitem_required``;
+    5. else -> refuse ``workitem_ambiguous``. Never pick one.
+
+    ``for_init`` is the one exception. `init` never takes rung 3 and refuses
+    ``legacy_workflow_present`` whenever legacy state exists, *whatever* the
+    registered count. Proceeding would create a second runtime while the legacy
+    one became simultaneously unbindable (rung 3 needs zero WorkItems) and
+    unmigratable (`migrate-workflow` would then refuse `target_exists`).
+    """
+    if for_init and legacy_state_present(paths):
+        raise Refused(
+            "legacy_workflow_present",
+            "A repository-global workflow still exists at "
+            f"{paths.legacy_workflow.name}/state.json. Move it under a "
+            "WorkItem first: `migrate-workflow --workitem <id>`. SDLE will "
+            "not run two runtimes side by side.",
+            {"legacy_state": str(paths.legacy_workflow / "state.json")},
+        )
+
+    known = registered_workitem_ids(paths)
+
+    if explicit:
+        if explicit not in known:
+            raise Refused(
+                "workitem_unknown",
+                f"No WorkItem '{explicit}' in workitems/index.md. Create it "
+                "with `workitem create --name <name>`, or pick one of the "
+                "registered ids.",
+                {"requested": explicit, "workitems": known},
+            )
+        return dataclass_replace(paths, workitem=explicit)
+
+    if len(known) == 1:
+        return dataclass_replace(paths, workitem=known[0])
+
+    if not known:
+        if not for_init and legacy_state_present(paths):
+            return paths  # rung 3 — transitional legacy binding
+        raise Refused(
+            "workitem_required",
+            "No WorkItem is registered in this repository. Create one first: "
+            "`workitem create --name <name>`.",
+            {"workitems": []},
+        )
+
+    raise Refused(
+        "workitem_ambiguous",
+        f"{len(known)} WorkItems are registered and none was named. Re-run "
+        "with `--workitem <id>`. SDLE never picks one for you.",
+        {"workitems": known},
+    )
+
+
+def workitem_metadata_file(paths: Paths) -> Path | None:
+    root = paths.workitem_root
+    return None if root is None else root / "workitem.json"
+
+
+def workitem_metadata(paths: Paths) -> dict | None:
+    """The bound WorkItem's `workitem.json`, or None. Never raises: metadata
+    is descriptive, and a missing or unreadable file is not a refusal."""
+    target = workitem_metadata_file(paths)
+    if target is None or not target.is_file():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+# --------------------------------------------------------------------------
+# Execution identity
+# --------------------------------------------------------------------------
+#
+# Contract §8: `<3-letter-git-user-prefix>-<UTC-datetime>`, e.g.
+# `muh-20260816T171501Z`. This is execution/audit metadata — it is never the
+# WorkItem name, and nothing resolves a WorkItem from it.
+
+
+def execution_prefix(paths: Paths) -> str:
+    """git user.name -> lowercase -> drop non-alphanumeric -> first 3 chars.
+    Falls back to the email local part, then to `usr`."""
+    for source in (
+        _git_value(paths, "config", "user.name"),
+        (_git_value(paths, "config", "user.email") or "").split("@", 1)[0],
+    ):
+        slug = re.sub(r"[^a-z0-9]", "", (source or "").lower())[:3]
+        if slug:
+            return slug
+    return "usr"
+
+
+def execution_identity(paths: Paths, stamp: str | None = None) -> str:
+    compact = (stamp or now_iso()).replace("-", "").replace(":", "")
+    return f"{execution_prefix(paths)}-{compact}"
+
+
+def write_execution_file(paths: Paths, execution_id: str, stamp: str) -> dict:
+    payload = {
+        "executionId": execution_id,
+        "workitem": paths.workitem,
+        "startedAt": stamp,
+        "sdleVersion": CURRENT_VERSION,
+    }
+    write_atomic(paths.execution_file, json.dumps(payload, indent=2) + "\n")
+    return payload
+
+
+# --------------------------------------------------------------------------
+# migrate-workflow — legacy .workflow/ to workitems/<id>/.sdle/
+# --------------------------------------------------------------------------
+#
+# Contract §20. The legacy runtime is NEVER written to, renamed or deleted
+# (§8.9): the only recovery a user ever needs is to delete the target
+# directory, after which resolution rung 3 binds the legacy runtime again.
+#
+# Crash safety: every write before the commit point is a whole-file overwrite,
+# so an interruption anywhere leaves no resolvable target workflow, keeps the
+# legacy authoritative, and makes a re-run safe. The target `state.json` is
+# written LAST and is the sole commit marker.
+
+# Fields whose survival the target verification asserts (contract §20.11).
+MIGRATION_VERIFIED_FIELDS = (
+    "current_phase", "status", "progress", "approvals", "artifact_shas",
+    "rate_limits", "attempt_counts", "implementation_base_ref", "phase_history",
+)
+
+
+def cmd_migrate_workflow(args, paths: Paths) -> int:
+    consts = load_constants(paths)
+
+    # Step 2 — an explicitly resolved, already-registered WorkItem. §20 says
+    # "resolve/create"; this narrows it to *resolve* so WorkItem creation keeps
+    # exactly one entry point, `workitem create`.
+    requested = getattr(args, "migrate_workitem", None) or args.workitem
+    if not requested:
+        raise UsageError(
+            "workitem_required",
+            "migrate-workflow needs a target: --workitem <id>.",
+            {},
+        )
+    known = registered_workitem_ids(paths)
+    if requested not in known:
+        raise Refused(
+            "workitem_unknown",
+            f"No WorkItem '{requested}' in workitems/index.md. Create it "
+            "first with `workitem create --name <name>`.",
+            {"requested": requested, "workitems": known},
+        )
+
+    legacy = dataclass_replace(paths, workitem=None)
+    target = dataclass_replace(paths, workitem=requested)
+
+    # Step 3 — re-run safety. No --force: that would be the fail-open option.
+    if target.state_file.is_file():
+        raise Refused(
+            "target_exists",
+            f"{target.runtime_relative}/state.json already exists. SDLE will "
+            "not overwrite a WorkItem's runtime; pick another WorkItem, or "
+            "remove that runtime deliberately first.",
+            {"path": str(target.state_file)},
+        )
+
+    # Step 4 — validate legacy state.
+    if not legacy.state_file.is_file():
+        raise IntegrityError(
+            "legacy_state_missing",
+            f"There is no {legacy.runtime_relative}/state.json to migrate.",
+            {"path": str(legacy.state_file)},
+        )
+    try:
+        state = json.loads(legacy.state_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise IntegrityError(
+            "legacy_state_invalid",
+            f"{legacy.runtime_relative}/state.json is not valid JSON: {exc}. "
+            "Nothing was written; repair or remove it and re-run.",
+            {"path": str(legacy.state_file), "error": str(exc)},
+        ) from None
+    known_versions = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
+    if not isinstance(state, dict) or state.get("workflow_version") not in known_versions:
+        raise IntegrityError(
+            "legacy_state_invalid",
+            f"{legacy.runtime_relative}/state.json does not carry a known "
+            "workflow_version. Nothing was written.",
+            {
+                "path": str(legacy.state_file),
+                "workflow_version": (
+                    state.get("workflow_version") if isinstance(state, dict) else None
+                ),
+                "known": sorted(known_versions),
+            },
+        )
+
+    # Step 5 — legacy audit integrity, using the same verifier `audit verify`
+    # uses. A broken chain must not be laundered by copying it somewhere new.
+    expected_audit = state.get("audit_sha")
+    audit_text = (
+        legacy.audit_file.read_text(encoding="utf-8")
+        if legacy.audit_file.is_file() else None
+    )
+    if expected_audit is not None:
+        broken = None
+        if audit_text is None:
+            broken = f"{legacy.runtime_relative}/audit.md is missing"
+        else:
+            chain_ok, broken_at = verify_audit_chain(split_audit_entries(audit_text))
+            if not chain_ok:
+                broken = f"entry {broken_at} breaks the prev-hash chain"
+            elif sha256_file(legacy.audit_file) != expected_audit:
+                broken = "audit_sha does not match the ledger on disk"
+        if broken:
+            raise Refused(
+                "legacy_audit_broken",
+                f"The legacy audit ledger is not intact ({broken}). Migrating "
+                "it would carry the break into the WorkItem. Resolve it with "
+                "`audit rebaseline` first; nothing was written.",
+                {"detail": broken, "path": str(legacy.audit_file)},
+            )
+
+    # Step 6 — capture the source facts that become migration evidence.
+    stamp = now_iso()
+    execution_id = execution_identity(paths, stamp)
+    facts = {
+        "migratedFrom": legacy.runtime_relative,
+        "at": stamp,
+        "executionId": execution_id,
+        "workitem": requested,
+        "legacyStateSha": sha256_file(legacy.state_file),
+        "legacyAuditSha": (
+            sha256_file(legacy.audit_file) if legacy.audit_file.is_file() else None
+        ),
+        "gitHead": _git_value(paths, "rev-parse", "HEAD"),
+        "sdleVersion": CURRENT_VERSION,
+    }
+
+    # Step 7 — copy, each via write_atomic, state.json deliberately excluded.
+    if audit_text is not None:
+        write_atomic(target.audit_file, audit_text)
+    for source, destination in (
+        (legacy.manifest_file, target.manifest_file),
+        (legacy.completion_file, target.completion_file),
+    ):
+        if source.is_file():
+            write_atomic(destination, source.read_text(encoding="utf-8"))
+    evidence_file = target.evidence_dir / f"migration-{execution_id}.json"
+    write_atomic(evidence_file, json.dumps(facts, indent=2) + "\n")
+    write_execution_file(target, execution_id, stamp)
+
+    # Step 8 — verify the copied ledger *at the new location* before anything
+    # commits, then migrate in memory, then append the migration entry, then
+    # write the target state.json LAST.
+    if audit_text is not None and expected_audit is not None:
+        copied_ok, _ = verify_audit_chain(
+            split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
+        )
+        if not copied_ok or sha256_file(target.audit_file) != expected_audit:
+            raise IntegrityError(
+                "migration_verify_failed",
+                "The audit ledger did not survive the copy intact. Nothing "
+                f"was committed; {legacy.runtime_relative}/ remains "
+                "authoritative.",
+                {"path": str(target.audit_file)},
+            )
+
+    migrated = json.loads(json.dumps(state))
+    steps = migrate_state(migrated, target, consts)
+    migrated.pop("_migration_warnings", None)
+    migrated.pop("_migration_notes", None)
+    migrated["workitem"] = requested
+
+    append_audit(
+        target, migrated,
+        phase=migrated.get("current_phase") or "unknown",
+        event="workflow_migrated",
+        message=f"Workflow migrated from {legacy.runtime_relative}/ to "
+                f"{target.runtime_relative}/ (execution {execution_id}). "
+                f"Legacy runtime left untouched.",
+    )
+    write_atomic(target.state_file, json.dumps(migrated, indent=2) + "\n")  # COMMIT
+
+    # Step 9 — verify the target. The anchor is the in-memory migrated state:
+    # when the version chain runs no steps it is byte-equal to the legacy
+    # values, which is the comparison contract §20.11 asks for; when the chain
+    # does run, the chain's own effect is not a migration defect.
+    reread = json.loads(target.state_file.read_text(encoding="utf-8"))
+    mismatch = [f for f in MIGRATION_VERIFIED_FIELDS
+                if reread.get(f) != migrated.get(f)]
+    if reread.get("workitem") != requested:
+        mismatch.append("workitem")
+    target_chain_ok, _ = verify_audit_chain(
+        split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
+    )
+    if not target_chain_ok or sha256_file(target.audit_file) != reread.get("audit_sha"):
+        mismatch.append("audit")
+    if mismatch:
+        # Undo the commit marker: without state.json the target does not
+        # resolve, and the legacy runtime stays the only authority.
+        target.state_file.unlink(missing_ok=True)
+        raise IntegrityError(
+            "migration_verify_failed",
+            f"The migrated state did not verify ({', '.join(mismatch)}). The "
+            f"target was rolled back; {legacy.runtime_relative}/ remains "
+            "authoritative.",
+            {"fields": mismatch},
+        )
+
+    # Step 10 — record the migration on the WorkItem's identity metadata.
+    metadata_file = workitem_metadata_file(target)
+    metadata = workitem_metadata(target) or {}
+    metadata["migration"] = {
+        "migratedFrom": facts["migratedFrom"],
+        "at": stamp,
+        "executionId": execution_id,
+        "legacyStateSha": facts["legacyStateSha"],
+    }
+    write_atomic(metadata_file, json.dumps(metadata, indent=2) + "\n")
+
+    def relative(path: Path) -> str:
+        return str(path.relative_to(paths.project_root)).replace(os.sep, "/")
+
+    # Step 12 — the legacy runtime is archival, never deleted by SDLE.
+    emit("migrate-workflow", {
+        "workitem": requested,
+        "from": legacy.runtime_relative,
+        "to": target.runtime_relative,
+        "execution_id": execution_id,
+        "migration_steps": steps,
+        "state_file": relative(target.state_file),
+        "evidence": relative(evidence_file),
+        "legacy_state_sha": facts["legacyStateSha"],
+        "legacy_audit_sha": facts["legacyAuditSha"],
+        "legacy_archive": legacy.runtime_relative,
+        "legacy_preserved": True,
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # Artifact path resolution
 # --------------------------------------------------------------------------
 
 
 def resolve_artifact_path(
-    state: dict, consts: Constants, gate_key: str
+    state: dict, consts: Constants, gate_key: str, paths: Paths | None = None
 ) -> tuple[str | None, str | None]:
     """Resolve ARTIFACT_OWNERSHIP's template for ``gate_key``.
 
     Returns ``(resolved_path, skip_reason)``. A skip reason means the gate has
     no comparable artifact yet — not that something failed.
+
+    ARTIFACT_OWNERSHIP is a SKILL.md constant table and T02 does not edit it
+    (T04 owns those templates). The one template that names the runtime —
+    Gate 7's ``.workflow/implementation-manifest.md`` — is re-pointed at the
+    active WorkItem runtime here, in the single place templates are resolved,
+    rather than by teaching every caller to concatenate. Transitional: it goes
+    away when the table itself moves.
     """
     template = consts.artifact_ownership.get(gate_key)
     if not template or template == "(none)":
         return None, "no artifact registered for this gate"
 
     resolved = template
+    legacy_prefix = ".workflow/"
+    if paths is not None and resolved.startswith(legacy_prefix):
+        resolved = paths.runtime_relative + "/" + resolved[len(legacy_prefix):]
+
     for placeholder, field_name in (
         ("{current_feature_id}", "current_feature_id"),
         ("{security_review_artifact}", "security_review_artifact"),
@@ -1679,7 +2159,7 @@ def cmd_artifact_path(args, paths: Paths) -> int:
             f"'{args.gate}' is not a gate key in ARTIFACT_OWNERSHIP.",
             {"gate": args.gate, "known": sorted(consts.artifact_ownership)},
         )
-    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     emit(
         "artifact path",
         {
@@ -1814,7 +2294,7 @@ def cmd_gate_show(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
     gate_phase = require_gate(consts, args.gate)
-    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     full = paths.project_root / resolved if resolved else None
     emit(
         "gate show",
@@ -1845,7 +2325,7 @@ def write_completion_summary(paths: Paths, state: dict) -> str:
         "security_review_artifact": state.get("security_review_artifact"),
         "all_gates_approved": True,
     }
-    target = paths.workflow / "completion-summary.json"
+    target = paths.completion_file
     write_atomic(target, json.dumps(summary, indent=2) + "\n")
     return str(target.relative_to(paths.project_root)).replace(os.sep, "/")
 
@@ -1868,7 +2348,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             {"gate": args.gate, "current_phase": state.get("current_phase")},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, args.gate)
+    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
     sha = None
     if resolved:
         full = paths.project_root / resolved
@@ -1949,7 +2429,7 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             {"expected": gate_key, "requested": args.gate, "queue": queue},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, gate_key)
+    resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
     sha = None
     if resolved and (paths.project_root / resolved).is_file():
         sha = sha256_file(paths.project_root / resolved)
@@ -2107,7 +2587,7 @@ def compute_drift(paths: Paths, state: dict, consts: Constants,
         baseline = baselines.get(gate_key)
         if not baseline:
             continue  # pre-v1.8 approval: no baseline to compare against
-        resolved, _ = resolve_artifact_path(state, consts, gate_key)
+        resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
         if not resolved:
             continue
 
@@ -2186,7 +2666,7 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
                                   "skipped": "no baseline recorded"})
         return EXIT_OK
 
-    resolved, skipped = resolve_artifact_path(state, consts, args.gate)
+    resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     if not resolved or not (paths.project_root / resolved).is_file():
         raise Refused(
             "artifact_missing",
@@ -2554,7 +3034,7 @@ def cmd_remediate_begin(args, paths: Paths) -> int:
         feedback_path,
         f"# SDLE Feedback for {execution_phase} — {now_iso()}\n"
         f"**Gate:** {consts.phase_label.get(require_gate(consts, gate_key))}\n"
-        f"**Canonical source:** .workflow/state.json → "
+        f"**Canonical source:** {paths.runtime_relative}/state.json → "
         f"approvals[{gate_key}].comments\n"
         f"**Reviewer comments:**\n{feedback}\n",
     )
@@ -2859,7 +3339,7 @@ def cmd_repo_staleness(args, paths: Paths) -> int:
     # commit touching unrelated files does not make an approval stale.
     tracked = []
     for gate_key in consts.artifact_ownership:
-        resolved, _ = resolve_artifact_path(state, consts, gate_key)
+        resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
         if resolved:
             tracked.append(resolved)
     tracked = sorted(set(tracked))
@@ -3003,8 +3483,8 @@ def cmd_guidance_path(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 
 SDLE_OWNED_PREFIXES = (
-    ".workflow/", ".specify/", "design/", "reviews/", "clarifications/",
-    "guidance/", "requirements/",
+    ".workflow/", "workitems/", ".specify/", "design/", "reviews/",
+    "clarifications/", "guidance/", "requirements/",
 )
 
 
@@ -3143,7 +3623,9 @@ def run_tests(paths: Paths, timeout: int) -> dict:
 
 def cmd_manifest_build(args, paths: Paths) -> int:
     state = read_state(paths)
-    relative = ".workflow/implementation-manifest.md"
+    relative = str(
+        paths.manifest_file.relative_to(paths.project_root)
+    ).replace(os.sep, "/")
 
     if git_available(paths):
         # -uall: without it git collapses an untracked directory to "?? src/",
@@ -3162,9 +3644,13 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         }
         note = "git not initialized — file list is approximate."
 
+    # The runtime directory is engine-owned bookkeeping, never implementation.
+    # Only the runtime is excluded here — widening this to SDLE_OWNED_PREFIXES
+    # would silently drop requirements/ and design/ edits from the manifest.
+    runtime_prefix = paths.runtime_relative + "/"
     changed = sorted(
         f for f in files
-        if not f.replace("\\", "/").startswith(".workflow/")
+        if not f.replace("\\", "/").startswith(runtime_prefix)
     )
 
     findings = []
@@ -3216,7 +3702,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         + (args.summary or "Implementation produced the files listed above.")
         + "\n"
     )
-    write_atomic(paths.project_root / relative, body)
+    write_atomic(paths.manifest_file, body)
 
     if findings:
         append_audit(
@@ -3251,7 +3737,8 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
     ref = base or "HEAD~1"
     _, stat = git(paths, "diff", "--stat", ref)
     _, diff = git(
-        paths, "diff", ref, "--", ".", ":(exclude).specify", ":(exclude).workflow"
+        paths, "diff", ref, "--", ".", ":(exclude).specify",
+        f":(exclude){paths.runtime_relative}",
     )
 
     feature = state.get("current_feature_id")
@@ -3769,15 +4256,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", help="Target project (default: cwd).")
     parser.add_argument("--skill-root", help="Directory holding SKILL.md.")
     parser.add_argument(
+        "--workitem",
+        help="Active WorkItem id. Required when more than one is registered.",
+    )
+    parser.add_argument(
         "--session",
-        help="Conversation session token; refreshes .workflow/lock on write.",
+        help="Conversation session token; refreshes the WorkItem lock on write.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     sub = subparsers.add_parser("lint-skill", help="Verify cross-file sync rules.")
     sub.set_defaults(handler=cmd_lint_skill)
 
-    sub = subparsers.add_parser("init", help="Create .workflow/ and initial state.")
+    sub = subparsers.add_parser(
+        "init", help="Create the WorkItem runtime and initial state."
+    )
     sub.add_argument("--project", help="Project name (default: infer from heading).")
     sub.set_defaults(handler=cmd_init)
 
@@ -3786,6 +4279,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
     sub.set_defaults(handler=cmd_migrate)
+
+    sub = subparsers.add_parser(
+        "migrate-workflow",
+        help="Move a legacy .workflow/ runtime under a WorkItem.",
+    )
+    # Distinct dest so `--workitem` works on either side of the subcommand:
+    # argparse would otherwise clobber the global value with this one's default.
+    sub.add_argument("--workitem", dest="migrate_workitem",
+                     help="Target WorkItem id (required, must be registered).")
+    sub.set_defaults(handler=cmd_migrate_workflow)
 
     workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
     workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)
@@ -4024,6 +4527,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         paths = resolve_paths(args.project_root, args.skill_root)
+        if args.command not in RUNTIME_FREE_COMMANDS:
+            paths = bind_workitem(
+                paths, args.workitem, for_init=args.command == "init"
+            )
         return args.handler(args, paths)
     except SdleError as exc:
         print(f"{exc.reason}: {exc.message}", file=sys.stderr)

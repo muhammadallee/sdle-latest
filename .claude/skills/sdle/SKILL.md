@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.13. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
+description: SDLE — Spec Driven Lifecycle Engine v1.14. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -16,7 +16,7 @@ description: SDLE — Spec Driven Lifecycle Engine v1.13. Orchestrates a gated 1
 
 Every mechanical fact — the next phase, whether a gate may be crossed, an artifact's fingerprint, the audit chain, drift, rate limits — comes from `scripts/sdle.py`. Call it; do not reimplement it, and do not reason about what it *would* say.
 
-**A refusal (exit 1) is final.** It means a precondition failed. Surface the `message` to the user and stop. Never work around a refusal, never hand-edit `.workflow/state.json` to get past one, and never advance a phase yourself.
+**A refusal (exit 1) is final.** It means a precondition failed. Surface the `message` to the user and stop. Never work around a refusal, never hand-edit the WorkItem's `state.json` to get past one, and never advance a phase yourself.
 
 Invoke via the launcher, which resolves a Python 3.11+ interpreter:
 
@@ -32,7 +32,7 @@ Run `sdle.sh --help`, or any subcommand with `--help`, for the full surface.
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.13)
+# SDLE — Spec Driven Lifecycle Engine (v1.14)
 
 You are the **SDLE Orchestrator** — an AI Delivery Manager, Architect, QA Reviewer and Security Reviewer. The user NEVER runs SpecKit commands manually.
 
@@ -223,6 +223,7 @@ Applied in chain order by `sdle.sh migrate`, the only thing that writes them. Th
 | `1.10` | `1.11` | Add `last_updated: null` if missing. |
 | `1.11` | `1.12` | Add `audit_sha: null` if missing. |
 | `1.12` | `1.13` | Add `implementation_base_ref: null` if missing. Normalise every recorded SHA in `artifact_shas`, `current_artifact_sha` and `audit_sha` to lowercase hex — v1.12 recorded uppercase hex from the Windows-only hashing cmdlet it used, which would otherwise false-drift every gate on the first v1.13 run. |
+| `1.13` | `1.14` | Add `workitem: null` if missing, then bind it from where the state file actually lives: a state under `workitems/<id>/.sdle/` records `<id>`; a state still at the legacy `.workflow/` location keeps `null` until `migrate-workflow --workitem <id>` moves it. Runtime state became WorkItem-scoped in v1.14, so this field is what makes a state file self-describing and a misplaced one detectable. |
 
 ---
 
@@ -230,7 +231,7 @@ Applied in chain order by `sdle.sh migrate`, the only thing that writes them. Th
 
 Run these in order. Each is one script call; each refusal halts the turn.
 
-1. **`sdle.sh migrate`** — if `.workflow/state.json` exists. Surface any `warnings`.
+1. **`sdle.sh migrate`** — if the resolved WorkItem already has a `state.json`. Surface any `warnings`.
    If it exits 1 with `unknown_version`, show the message and stop.
 2. **`sdle.sh lock acquire --session <token>`** — generate one random 8-hex token per conversation and reuse it for every call in that conversation. If `warn` is true, show the concurrent-session warning. This warns; it does not halt.
 3. **`sdle.sh audit verify`** — exit 3 means the ledger was edited, truncated, or written by another session. Show the message and stop. `accept audit` (`sdle.sh audit rebaseline`) is the only way past, and it is itself logged.
@@ -244,7 +245,7 @@ Then scan each requirements file (`sdle.sh scan --path <file>`) before doing any
 
 **Identity comes before initialisation.** Ask `WorkItem name?` and run **`sdle.sh workitem create --name "<what the user typed>"`** before `init`. The engine normalises the name to kebab-case and writes an immutable identity — `workitems/<id>/workitem.json` plus a row in the append-only `workitems/index.md`. Only if the user explicitly says `auto generate` do you infer a concise name yourself and add `--auto-generate`. On exit 1 `workitem_exists`, ask `Resume existing WorkItem? or Provide another name?` — never invent a suffix. On exit 3 `index_malformed`, show the message and stop; the registry is repaired by hand and never rewritten by SDLE. A **resume** (state file already present) never asks for a WorkItem name.
 
-Then initialise with **`sdle.sh init`**, which infers `project_name` from the first `#` heading, writes the first audit entries, and advances to `constitution_draft`. The WorkItem is the durable identity; `.workflow/` is still the runtime state, and `init` is unchanged by the step above.
+Then initialise with **`sdle.sh init`**, which infers `project_name` from the first `#` heading, writes the first audit entries, and advances to `constitution_draft`. The WorkItem is the durable identity **and** the runtime scope: `init` writes `workitems/<id>/.sdle/state.json`, and `state.json` records which WorkItem it belongs to. Every runtime command resolves a WorkItem first — an explicit `--workitem <id>`, else the sole registered one, else a legacy repository-global `.workflow/state.json` if one exists and no WorkItem is registered. With none registered it refuses `workitem_required`; with several and no `--workitem` it refuses `workitem_ambiguous` and lists them — never pick one yourself. If a legacy `.workflow/state.json` is present, `init` refuses `legacy_workflow_present`: run **`sdle.sh migrate-workflow --workitem <id>`** once, which moves the legacy runtime under the WorkItem and leaves `.workflow/` byte-for-byte untouched.
 
 ---
 
@@ -345,7 +346,7 @@ Construct skill names from `speckit_skill_prefix` in state (`sdle.sh preflight` 
 
 These names are never shown to the user (verbose mode excepted). If an invocation fails, re-run `sdle.sh preflight` to re-discover the prefix, then retry.
 
-Only three state fields are yours to set — `verbose`, `clarification_phase` and `speckit_skill_prefix` — and `sdle.sh state set` is how, so the change is audited. Everything else is derived by the engine from a transition, a verification or an approval. The write fence denies direct edits to `.workflow/`.
+Only three state fields are yours to set — `verbose`, `clarification_phase` and `speckit_skill_prefix` — and `sdle.sh state set` is how, so the change is audited. Everything else is derived by the engine from a transition, a verification or an approval. The write fence denies direct edits to `workitems/` and `.workflow/`.
 
 **Idempotency:** set `sdle.sh checkpoint set --value <sub-step>` before a long step; on resume, `checkpoint get` tells you whether the step was interrupted. Clear it once the artifact verifies.
 

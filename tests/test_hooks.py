@@ -107,6 +107,14 @@ def test_a_malformed_payload_never_breaks_the_tool_call(project):
         "/proj/guidance/plan.md",
         r"C:\proj\.workflow\state.json",
         r"C:\\proj\\guidance\\plan.md",
+        # T02: the runtime moved under the WorkItem, and the whole tree is
+        # fenced — registry, identity and runtime alike, in both path forms.
+        "/proj/workitems/index.md",
+        "/proj/workitems/wi-a/workitem.json",
+        "/proj/workitems/wi-a/.sdle/state.json",
+        "/proj/workitems/wi-a/.sdle/audit.md",
+        "workitems/wi-a/.sdle/state.json",
+        r"C:\proj\workitems\wi-a\.sdle\state.json",
     ],
 )
 def test_write_fence_denies_governance_files(project, path):
@@ -198,6 +206,30 @@ def test_dirty_tree_asks_when_preflight_has_not_run(started):
                   started.root)
     assert decision(output) == "ask"
     assert "preflight" in reason(output)
+
+
+def test_dirty_tree_is_silent_when_the_workitem_is_ambiguous(started):
+    """T02: the guard has to resolve a WorkItem to find state.json. It must
+    never guess, and a guard that cannot tell which workflow it is looking at
+    stays silent — the same posture as every other failure path here."""
+    state = started.state()
+    state.update(current_phase="implement", progress="15/18",
+                 implementation_base_ref=None)
+    started.write_state(state)
+    assert fire("dirty-tree", {"tool_name": "Bash",
+                               "tool_input": {"command": "npm install"}},
+                started.root) != {}  # one WorkItem: still resolves
+
+    started.ok("workitem", "create", "--name", "Second Item")
+    assert fire("dirty-tree", {"tool_name": "Bash",
+                               "tool_input": {"command": "npm install"}},
+                started.root) == {}
+
+
+def test_dirty_tree_is_silent_with_no_workitem_at_all(bare_project):
+    assert fire("dirty-tree", {"tool_name": "Bash",
+                               "tool_input": {"command": "npm install"}},
+                bare_project.root) == {}
 
 
 def test_dirty_tree_is_silent_once_the_base_ref_is_pinned(started):

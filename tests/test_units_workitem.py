@@ -1,10 +1,15 @@
-"""WorkItem identity — the T01 surface.
+"""WorkItem identity — the naming, registry and metadata rules.
 
-A WorkItem is created *before* legacy workflow initialisation and owns no
-runtime state: `.workflow/` is still where the workflow lives, and `init`
-neither requires nor records a WorkItem. These tests pin both halves — the
-identity rules themselves, and the fact that legacy behaviour is untouched by
-them.
+A WorkItem is created *before* the workflow is initialised, and its identity
+never changes afterwards. These tests pin the identity rules themselves: name
+normalisation, uniqueness without auto-suffixing, the append-only registry and
+its integrity, and the `workitem.json` metadata.
+
+Since v1.14 the WorkItem is also the runtime scope, so `init` requires a
+resolved WorkItem and writes `workitems/<id>/.sdle/state.json`. The runtime
+surface is pinned in `test_units_workitem_runtime.py`; what stays here is
+identity. Every case runs against `bare_project` (see the fixture below), so
+the registry assertions measure an empty starting registry.
 """
 
 from __future__ import annotations
@@ -19,6 +24,17 @@ import pytest
 
 from conftest import Project, sdle
 
+
+@pytest.fixture
+def project(bare_project: Project) -> Project:
+    """This file asserts exact registry contents, so it needs an empty one.
+
+    T02's shared `project` fixture pre-registers one WorkItem so the resolution
+    ladder binds at rung 2 for the rest of the suite. Overriding it back to
+    `bare_project` here keeps every assertion below byte-identical to T01.
+    """
+    return bare_project
+
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
 AUTO_ID = re.compile(r"^WI-[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d{8}T\d{6}Z$")
@@ -28,21 +44,6 @@ METADATA_KEYS = {
     "id", "name", "title", "type", "synopsis", "createdAt", "createdBy",
     "git", "sdleVersion",
 }
-
-
-@pytest.fixture(autouse=True)
-def isolated_git_identity(tmp_path, monkeypatch):
-    """Never read — let alone assert — the developer's real Git identity.
-
-    `git config user.name` succeeds outside a repository by falling back to the
-    machine's global config. Without this isolation the null-identity cases
-    would flake, and a real person's name and email would land in test output.
-    Repository-local identity (what `git_project` sets) is unaffected.
-    """
-    missing = tmp_path / "no-such-gitconfig"
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(missing))
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(missing))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 def index_path(project: Project) -> Path:
@@ -348,24 +349,40 @@ def test_creating_a_workitem_creates_no_runtime_state(project):
     assert not (project.root / ".workflow").exists()
 
 
-def test_init_records_no_workitem_in_state(project):
-    """The guard that stops WorkItem-scoped state leaking in early."""
+def test_init_records_the_resolved_workitem_in_state(project):
+    """T01's guard asserted the opposite — that no `workitem` key existed —
+    because T01 was forbidden from scoping state. T02 is the phase that scopes
+    it (contract §8), so the guard inverts: the state file must name the
+    WorkItem it belongs to, and must live under that WorkItem."""
     create(project, "Alpha One")
+    project.workitem = "alpha-one"
     project.ok("init", session="testsess")
     state = project.state()
-    assert [key for key in state if "workitem" in key.lower()] == []
-    assert "workitem" not in json.dumps(state).lower()
+    assert state["workitem"] == "alpha-one"
+    assert project.state_file == (
+        project.root / "workitems" / "alpha-one" / ".sdle" / "state.json"
+    )
+    assert not (project.root / ".workflow").exists()
 
 
 def test_a_workitem_does_not_change_what_init_and_advance_produce(project, tmp_path):
-    """The §7 exit criterion, mechanically: identity before initialisation,
-    with every existing behaviour identical to a project that has none."""
+    """The §7 exit criterion, mechanically: which WorkItem identity a workflow
+    carries changes nothing about what init and advance produce.
+
+    T02 makes a resolved WorkItem mandatory, so the T01 control — a project
+    with *no* WorkItem — is no longer initialisable by construction. The
+    control now carries a different identity instead of none, which is the
+    strongest comparison the post-T02 contract admits.
+    """
     control_root = tmp_path / "control"
     shutil.copytree(project.root, control_root)
-    control = Project(control_root, control_root / ".claude" / "skills" / "sdle")
+    control = Project(control_root, control_root / ".claude" / "skills" / "sdle",
+                      workitem="control-item")
+    assert create(control, "Control Item").exit_code == EXIT_OK
 
     control_init = control.run("init", session="testsess")
     assert create(project, "Customer Notification Service").exit_code == EXIT_OK
+    project.workitem = "customer-notification-service"
     project_init = project.run("init", session="testsess")
 
     assert project_init.exit_code == control_init.exit_code == EXIT_OK

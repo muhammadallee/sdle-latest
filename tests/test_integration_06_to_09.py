@@ -110,9 +110,7 @@ def test_06_manifest_always_has_the_mandatory_sections(git_project):
     at_implement(git_project)
     git_project.ok("manifest", "build", "--skip-tests")
 
-    body = (git_project.root / ".workflow" / "implementation-manifest.md").read_text(
-        "utf-8"
-    )
+    body = (git_project.runtime / "implementation-manifest.md").read_text("utf-8")
     assert "## Changed/Added Files" in body
     assert "## Potential Secrets Detected" in body
     assert "None detected." in body
@@ -124,7 +122,8 @@ def test_06_gate_seven_refuses_a_manifest_without_scan_or_tests(git_project):
     at_implement(git_project)
     git_project.ok("implement", "preflight")
     git_project.write_artifact(
-        ".workflow/implementation-manifest.md",
+        git_project.runtime.relative_to(git_project.root).as_posix()
+        + "/implementation-manifest.md",
         "# Implementation Manifest\n\nLooks fine to me.\n" * 5,
     )
     git_project.ok("advance", "--to", "gate_implement")
@@ -162,9 +161,7 @@ def test_06_test_evidence_records_a_real_failing_run(git_project):
     assert tests["exit_code"] not in (0, None)
     assert tests["status"] == "FAILED"
 
-    body = (git_project.root / ".workflow" / "implementation-manifest.md").read_text(
-        "utf-8"
-    )
+    body = (git_project.runtime / "implementation-manifest.md").read_text("utf-8")
     assert "FAILED" in body
     assert "tests_failed" in git_project.audit_file.read_text("utf-8")
 
@@ -403,7 +400,7 @@ def test_08_reset_is_two_step_and_preserves_artifacts(project):
     project.ok("reset", "--confirm")
     assert not project.state_file.exists()
     assert not project.audit_file.exists()
-    assert not (project.root / ".workflow" / "lock").exists()
+    assert not (project.runtime / "lock").exists()
     assert (project.root / f".specify/specs/{FEATURE}/spec.md").is_file()
     assert (project.root / ".specify/memory/constitution.md").is_file()
 

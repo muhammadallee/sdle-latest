@@ -85,16 +85,35 @@ class Result:
 
 
 class Project:
-    """A scratch project with its own copy of the skill files."""
+    """A scratch project with its own copy of the skill files.
 
-    def __init__(self, root: Path, skill_root: Path):
+    ``workitem`` is the WorkItem the runtime resolves to. ``None`` means the
+    transitional legacy layout (``.workflow/``); everything else resolves under
+    ``workitems/<id>/.sdle/``. Tests read ``runtime`` rather than a literal, so
+    a later phase moves one property, not fourteen call sites.
+    """
+
+    def __init__(self, root: Path, skill_root: Path, workitem: str | None = None,
+                 pin: bool = False):
         self.root = root
         self.skill_root = skill_root
+        self.workitem = workitem
+        # `pin` puts `--workitem <id>` on every invocation. Off by default so
+        # the rest of the suite exercises the resolution ladder rather than
+        # bypassing it; on for the isolation tests, which need two WorkItems
+        # addressable in one repository.
+        self.pin = pin
+
+    def as_workitem(self, workitem: str) -> "Project":
+        """A pinned view of the same repository bound to another WorkItem."""
+        return Project(self.root, self.skill_root, workitem, pin=True)
 
     # -- invocation ------------------------------------------------------
 
     def _argv(self, args, session: str | None) -> list[str]:
         argv = ["--project-root", str(self.root), "--skill-root", str(self.skill_root)]
+        if self.pin and self.workitem:
+            argv += ["--workitem", self.workitem]
         if session:
             argv += ["--session", session]
         return argv + [str(a) for a in args]
@@ -126,12 +145,18 @@ class Project:
     # -- state -----------------------------------------------------------
 
     @property
+    def runtime(self) -> Path:
+        if self.workitem is None:
+            return self.root / ".workflow"
+        return self.root / "workitems" / self.workitem / ".sdle"
+
+    @property
     def state_file(self) -> Path:
-        return self.root / ".workflow" / "state.json"
+        return self.runtime / "state.json"
 
     @property
     def audit_file(self) -> Path:
-        return self.root / ".workflow" / "audit.md"
+        return self.runtime / "audit.md"
 
     def state(self) -> dict:
         return json.loads(self.state_file.read_text(encoding="utf-8"))
@@ -177,14 +202,49 @@ class Project:
         self.git("config", "user.name", "SDLE Test")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "commit.gpgsign", "false")
-        (self.root / ".gitignore").write_text(".workflow/\n", encoding="utf-8")
+        # Mirrors the shipped .gitignore: the legacy runtime is ignored whole,
+        # but WorkItem records are versioned — only the lock is local.
+        (self.root / ".gitignore").write_text(
+            ".workflow/\nworkitems/*/.sdle/lock\n", encoding="utf-8"
+        )
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "fixture baseline")
 
 
+FIXTURE_WORKITEM_NAME = "Fixture WorkItem"
+FIXTURE_WORKITEM_ID = "fixture-workitem"
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_identity(tmp_path, monkeypatch):
+    """Never read — let alone assert — the developer's real Git identity.
+
+    `git config user.name` succeeds outside a repository by falling back to the
+    machine's global config. Without this isolation the null-identity cases
+    would flake, and a real person's name and email would land in test output
+    and in every scratch `audit.md`. Repository-local identity (what
+    `git_project` sets) is unaffected.
+
+    Introduced file-scoped at T01; promoted here at T02, which moves the audit
+    path and adds execution-identity assertions. Promotion is safe: no
+    assertion in this suite depends on the machine identity
+    (`grep -n 'Actor' tests/*.py` finds nothing).
+    """
+    missing = tmp_path / "no-such-gitconfig"
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(missing))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(missing))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 @pytest.fixture
-def project(tmp_path: Path) -> Project:
-    """A fresh scratch project: requirements present, SpecKit present."""
+def bare_project(tmp_path: Path) -> Project:
+    """A fresh scratch project with **no** WorkItem registered.
+
+    Runtime commands refuse `workitem_required` here — that is the point. Used
+    by the resolution-ladder tests, which must construct their own state rather
+    than inherit a fixture that could mask a resolution bug, and by the
+    WorkItem-identity suite, which asserts exact registry contents.
+    """
     root = tmp_path / "target"
     root.mkdir()
 
@@ -217,6 +277,20 @@ def project(tmp_path: Path) -> Project:
     )
 
     return Project(root, skill_root)
+
+
+@pytest.fixture
+def project(bare_project: Project) -> Project:
+    """A scratch project with exactly one registered WorkItem.
+
+    T02 makes the runtime WorkItem-scoped, so every runtime command needs a
+    resolved WorkItem. Registering exactly one lets the resolution ladder bind
+    it at rung 2 with no `--workitem` flag anywhere in the suite. Tests that
+    must observe resolution itself use `bare_project`.
+    """
+    bare_project.ok("workitem", "create", "--name", FIXTURE_WORKITEM_NAME)
+    bare_project.workitem = FIXTURE_WORKITEM_ID
+    return bare_project
 
 
 @pytest.fixture

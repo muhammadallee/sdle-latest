@@ -6,3 +6,4 @@ clarifications/
 __pycache__/
 *.pyc
 .pytest_cache/
+workitems/*/.sdle/lock

@@ -222,11 +222,14 @@ def test_final_gate_completes_the_workflow(started):
 
     assert state["current_phase"] == "complete"
     assert state["status"] == "completed"
-    assert result.data["completion_summary"] == ".workflow/completion-summary.json"
+    runtime_rel = started.runtime.relative_to(started.root).as_posix()
+    assert result.data["completion_summary"] == (
+        runtime_rel + "/completion-summary.json"
+    )
 
-    summary_file = started.root / ".workflow" / "completion-summary.json"
+    summary_file = started.runtime / "completion-summary.json"
     assert summary_file.is_file()
     import json
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
     assert summary["all_gates_approved"] is True
-    assert summary["workflow_version"] == "1.13"
+    assert summary["workflow_version"] == "1.14"

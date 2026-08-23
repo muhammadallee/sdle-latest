@@ -19,7 +19,8 @@ def test_init_creates_state_and_advances_to_first_generation_phase(project):
     assert result.data["progress"] == "2/18"
 
     state = project.state()
-    assert state["workflow_version"] == "1.13"
+    assert state["workflow_version"] == "1.14"
+    assert state["workitem"] == project.workitem
     assert state["last_updated"] is not None
     assert [e["phase"] for e in state["phase_history"]] == ["requirements_check"]
     assert state["phase_history"][0]["outcome"] == "completed"
@@ -52,7 +53,7 @@ def test_init_refuses_when_already_initialized(started):
 
 def test_init_writes_lock_when_session_given(project):
     project.ok("init", session="abc123")
-    lock = (project.root / ".workflow" / "lock").read_text(encoding="utf-8").strip()
+    lock = (project.runtime / "lock").read_text(encoding="utf-8").strip()
     assert lock.endswith("abc123")
 
 
@@ -143,10 +144,10 @@ def test_migrate_walks_the_whole_chain_from_1_0(started):
 
     result = started.ok("migrate")
     assert result.data["from"] == "1.0"
-    assert result.data["to"] == "1.13"
+    assert result.data["to"] == "1.14"
     assert result.data["steps"][0] == "1.0->1.1"
-    assert result.data["steps"][-1] == "1.12->1.13"
-    assert started.state()["workflow_version"] == "1.13"
+    assert result.data["steps"][-1] == "1.13->1.14"
+    assert started.state()["workflow_version"] == "1.14"
 
 
 def test_migrate_is_idempotent(started):
@@ -310,7 +311,7 @@ def test_lock_acquire_on_own_lock_is_not_foreign(started):
 
 
 def test_lock_acquire_ignores_a_stale_foreign_lock(started):
-    (started.root / ".workflow" / "lock").write_text(
+    (started.runtime / "lock").write_text(
         "2020-01-01T00:00:00Z deadbeef\n", encoding="utf-8"
     )
     result = started.ok("lock", "acquire", session="mine")
@@ -327,9 +328,9 @@ def test_lock_acquire_requires_a_session(started):
 
 def test_lock_release_removes_the_file(started):
     started.ok("lock", "acquire", session="mine")
-    assert (started.root / ".workflow" / "lock").exists()
+    assert (started.runtime / "lock").exists()
     started.ok("lock", "release")
-    assert not (started.root / ".workflow" / "lock").exists()
+    assert not (started.runtime / "lock").exists()
 
 
 # -- sha --------------------------------------------------------------------

@@ -1,4 +1,4 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.13)
+# SDLE — Spec Driven Lifecycle Engine (v1.14)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
@@ -123,13 +123,42 @@ routes to the same place.
 ### WorkItem identity
 
 A **WorkItem** is the durable name for a piece of work. It is created *before*
-the workflow is initialised and never changes afterwards. Runtime state still
-lives in `.workflow/` — the WorkItem is identity, not state.
+the workflow is initialised and never changes afterwards. As of v1.14 it is
+also the runtime scope: all workflow state lives in
+`workitems/<id>/.sdle/`, so independent WorkItems share no state, no audit
+ledger and no lock.
 
 ```
 scripts/sdle.sh workitem create --name "Customer Notification Service"
 scripts/sdle.sh workitem list
 ```
+
+Every runtime command resolves a WorkItem before it runs:
+
+1. an explicit `--workitem <id>`;
+2. otherwise the sole registered WorkItem;
+3. otherwise a legacy repository-global `.workflow/state.json`, if one exists
+   and no WorkItem is registered (transitional — see `migrate-workflow`);
+4. otherwise `workitem_required`;
+5. and when several are registered and none is named, `workitem_ambiguous`,
+   listing the candidates. SDLE never picks one for you.
+
+`lint-skill`, `sha`, `constants`, `workitem` and `migrate-workflow` touch no
+runtime state and need no resolution.
+
+A repository that already has a pre-v1.14 `.workflow/` moves it under a
+WorkItem once:
+
+```
+scripts/sdle.sh migrate-workflow --workitem customer-notification-service
+```
+
+It validates the legacy state, verifies the legacy audit chain, copies the
+ledger, manifest, completion summary and migration evidence, writes the target
+`state.json` last as the sole commit point, verifies it, and records the
+migration on `workitem.json`. `.workflow/` is left byte-for-byte untouched, so
+recovery is deleting `workitems/<id>/.sdle/`. `init` refuses while a legacy
+`.workflow/state.json` is present.
 
 The name is normalised to kebab-case (`Customer Notification Service` →
 `customer-notification-service`): trimmed, lowercased, whitespace and `_`
@@ -235,13 +264,23 @@ rules are checked mechanically rather than by hand.
 │   └── <phase-name>-YYYY-MM-DD-HHmm.clarify   ← persisted user clarification responses
 ├── reviews/
 │   └── security-review-YYYY-MM-DD-HHmm.md
-└── .workflow/
-    ├── state.json                 ← SDLE orchestration state (canonical source of truth)
-    ├── audit.md                   ← Append-only event log (hash-chained via state.json → audit_sha)
-    ├── lock                       ← Session lock (concurrent-session detection)
-    ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + summary)
-    └── completion-summary.json    ← Written on final Gate 8 approval
+└── workitems/
+    ├── index.md                       ← Append-only WorkItem registry (single source of truth)
+    └── <workitem-id>/
+        ├── workitem.json              ← Immutable WorkItem identity + migration record
+        └── .sdle/                     ← This WorkItem's runtime — nothing here is repository-global
+            ├── state.json             ← SDLE orchestration state (canonical source of truth)
+            ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>)
+            ├── audit.md               ← Append-only event log (hash-chained via state.json → audit_sha)
+            ├── lock                   ← Session lock (concurrent-session detection; the only ignored file)
+            ├── evidence/              ← Migration evidence
+            ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + summary)
+            └── completion-summary.json    ← Written on final Gate 8 approval
 ```
+
+A pre-v1.14 repository also has a `.workflow/` directory with the same runtime
+files. It is transitional: `migrate-workflow --workitem <id>` moves it under a
+WorkItem and never mutates it.
 
 ---
 
@@ -342,17 +381,18 @@ SDLE: ## SDLE Workflow State
       | gate_security | — |
 ```
 
-The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Design (Gate 6), Implement (Gate 7), and Security Review (Gate 8), at which point `.workflow/completion-summary.json` is written and the workflow is marked complete. See **[Appendix A of the Reference Guide](docs/SDLE-Reference-Guide.md#appendix-a--example-end-to-end-run)** for the full run, including a drift-detection example.
+The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Design (Gate 6), Implement (Gate 7), and Security Review (Gate 8), at which point `workitems/<id>/.sdle/completion-summary.json` is written and the workflow is marked complete. See **[Appendix A of the Reference Guide](docs/SDLE-Reference-Guide.md#appendix-a--example-end-to-end-run)** for the full run, including a drift-detection example.
 
 ---
 
 ## State Schema Reference
 
-`.workflow/state.json` (v1.13) — key fields:
+`workitems/<workitem-id>/.sdle/state.json` (v1.14) — key fields:
 
 | Field | Type | Description |
 |---|---|---|
 | `workflow_version` | string | Schema version; auto-migrated forward on load |
+| `workitem` | string\|null | The WorkItem this state belongs to; `null` only at the transitional legacy location. Makes a state file self-describing and a misplaced one detectable |
 | `project_name` | string\|null | Inferred from requirements |
 | `current_phase` | string | Phase ID (e.g., `gate_plan`) |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed` |
@@ -363,7 +403,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `security_review_artifact` | string\|null | Path to the timestamped security review file |
 | `approvals` | object | One key per gate: `{ decision, comments, timestamp }` or `null` |
 | `artifact_shas` | object | Approval-time SHA-256 baseline per gate — drift-detection baseline |
-| `audit_sha` | string\|null | SHA-256 of `.workflow/audit.md`, updated after every append — tamper-evidence baseline |
+| `audit_sha` | string\|null | SHA-256 of the WorkItem's `audit.md`, updated after every append — tamper-evidence baseline |
 | `drift_queue` / `pending_phase` | array / string\|null | Re-approval state when artifact drift is detected |
 | `rate_limits` / `attempt_counts` | object | Configurable remediation/retry caps and per-phase counters |
 | `implementation_base_ref` | string\|null | HEAD SHA pinned when Phase 15 starts; Phase 17 diffs against it |
@@ -401,6 +441,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |
 | **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |
 | **v1.12** | 7-item guardrail hardening: untrusted-content (prompt-injection) scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha` hash chain), session lock, dirty-tree guard before implement, repo staleness warning, and two-step `confirm skip`. |
 | **v1.11** | 12-gap hardening pass across all skill files (edge cases in drift, rate limiting, and state migration). |

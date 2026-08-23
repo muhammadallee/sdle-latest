@@ -164,7 +164,7 @@ def test_audit_chain_survives_the_whole_run(git_project):
 
 def test_completion_summary_written_exactly_once(git_project):
     run_happy_path(git_project)
-    summaries = list((git_project.root / ".workflow").glob("completion-summary*.json"))
+    summaries = list(git_project.runtime.glob("completion-summary*.json"))
     assert len(summaries) == 1
 
     summary = json.loads(summaries[0].read_text(encoding="utf-8"))
@@ -186,5 +186,5 @@ def test_no_drift_is_reported_at_any_point(git_project):
 
 def test_lock_is_refreshed_on_every_save(git_project):
     run_happy_path(git_project)
-    lock = (git_project.root / ".workflow" / "lock").read_text(encoding="utf-8")
+    lock = (git_project.runtime / "lock").read_text(encoding="utf-8")
     assert lock.strip().endswith("happy")

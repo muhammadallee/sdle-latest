@@ -160,8 +160,8 @@ def test_version_drift_fires(repo):
     readme = repo.root / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
+            "# SDLE — Spec Driven Lifecycle Engine (v1.14)",
             "# SDLE — Spec Driven Lifecycle Engine (v1.13)",
-            "# SDLE — Spec Driven Lifecycle Engine (v1.12)",
         ),
         encoding="utf-8",
     )

@@ -38,14 +38,15 @@ def _project_dir():
     if explicit and Path(explicit).is_dir():
         return Path(explicit).resolve()
     cwd = Path.cwd()
-    if (cwd / ".claude").is_dir() or (cwd / ".workflow").is_dir():
+    if ((cwd / ".claude").is_dir() or (cwd / "workitems").is_dir()
+            or (cwd / ".workflow").is_dir()):
         return cwd.resolve()
     return HOOKS_DIR.parent.parent
 
 
 PROJECT_DIR = _project_dir()
 
-FENCED = (".workflow", "requirements", "guidance")
+FENCED = (".workflow", "workitems", "requirements", "guidance")
 SCANNED = ("requirements", "guidance", "clarifications")
 
 FENCE_REASONS = {
@@ -53,7 +54,18 @@ FENCE_REASONS = {
         "'.workflow/' is owned by the SDLE engine. State and audit are written "
         "only by scripts/sdle.py, which keeps the audit hash chain and drift "
         "baselines consistent. Use the matching sdle.py subcommand instead "
-        "(state set, audit append, gate, limit set)."
+        "(state set, audit append, gate, limit set). It is the transitional "
+        "legacy runtime; `migrate-workflow --workitem <id>` moves it."
+    ),
+    "workitems": (
+        "'workitems/' is owned by the SDLE engine. The registry "
+        "(workitems/index.md), each WorkItem's identity (workitem.json) and "
+        "the WorkItem runtime (workitems/<id>/.sdle/) are written only by "
+        "scripts/sdle.py — a hand-edited registry is unrecoverable. Use "
+        "`workitem create`, or the matching sdle.py subcommand. NOTE for the "
+        "phase that moves clarifications/, reviews/ and Spec Kit artifacts "
+        "under workitems/: fence the whole tree today and carve out those "
+        "artifact subpaths then; loosening later is a one-line change."
     ),
     "requirements": (
         "'requirements/' is the user's ground-truth input. SDLE reads it as "
@@ -178,6 +190,12 @@ def dirty_tree(payload):
         return
     try:
         paths = engine.resolve_paths(str(PROJECT_DIR), None)
+        # The runtime is WorkItem-scoped, so the guard has to resolve one.
+        # bind_workitem raises rather than guessing when the WorkItem is
+        # ambiguous or absent; a guard that cannot tell which workflow it is
+        # looking at stays silent, which is the pre-existing failure posture
+        # of every other path in this function.
+        paths = engine.bind_workitem(paths)
         if not paths.state_file.is_file():
             return
         state = json.loads(paths.state_file.read_text(encoding="utf-8"))
