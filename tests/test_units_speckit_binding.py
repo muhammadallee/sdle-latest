@@ -859,3 +859,74 @@ def test_n13_a_contained_feature_directory_is_not_a_finding(bare_project):
 
     assert result.exit_code == EXIT_OK
     assert result.data["findings"] == []
+
+
+# --- N-1 follow-up: the migrate-then-approve path ------------------------------
+#
+# T04's verifier recorded finding N-1: `_mig_1_14` derivation step (b) records
+# `.specify/specs/<id>` for an in-flight v1.14 workflow, and
+# `gate_precondition_hook` then refuses that workflow's next Spec Kit gate with
+# `feature_outside_workitem`. The behaviour is deliberate and fails closed, but
+# nothing drove migrate -> approve, so the interaction was unpinned. These two
+# cases pin both halves: the refusal, and the documented recovery.
+
+
+def test_migrated_in_flight_workflow_refuses_its_next_speckit_gate(bare_project):
+    """Step (b) buys resolution, not approval — and the refusal names the cure.
+
+    A v1.14 workflow whose artifacts still sit at the repository-global
+    `.specify/specs/<id>` migrates to a `featureDirectory` outside the WorkItem.
+    Approving there would let a WorkItem's gate bless an artifact that is not
+    attributable to it, so the gate refuses rather than warns.
+    """
+    view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
+    view.ok("init")
+    bare_project.write_artifact(".specify/memory/constitution.md")
+    view.ok("advance", "--to", "gate_constitution")
+    view.ok("gate", "approve", "--gate", "gate_constitution")
+    bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
+    view.write_state(as_v114(view, current_feature_id="001-alpha"))
+
+    migrated = view.ok("migrate")
+    assert migrated.data["steps"][-1] == "1.14->1.15"
+    assert view.state()["specKit"]["featureDirectory"] == ".specify/specs/001-alpha"
+
+    view.ok("advance", "--to", "gate_spec")
+    result = view.run("gate", "approve", "--gate", "gate_spec")
+
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "feature_outside_workitem"
+    assert result.data["expected_prefix"] == "workitems/wi-a/specs/"
+    assert view.state()["approvals"]["gate_spec"] is None
+    assert "feature resolve" in result.stderr
+
+
+def test_feature_resolve_recovers_a_migrated_workflow_without_drift(bare_project):
+    """The remedy the refusal names actually works, and preserves content SHAs.
+
+    Relocation must not look like tampering: the artifact's bytes are unchanged,
+    so an earlier gate's `artifact_shas` baseline still matches and no false
+    drift fires on the way through.
+    """
+    view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
+    view.ok("init")
+    bare_project.write_artifact(".specify/memory/constitution.md")
+    view.ok("advance", "--to", "gate_constitution")
+    view.ok("gate", "approve", "--gate", "gate_constitution")
+    bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
+    before = sha_map(bare_project.root / ".specify" / "specs" / "001-alpha")
+    view.write_state(as_v114(view, current_feature_id="001-alpha"))
+    view.ok("migrate")
+    view.ok("advance", "--to", "gate_spec")
+
+    view.ok("feature", "resolve")
+
+    assert view.state()["specKit"]["featureDirectory"] == (
+        "workitems/wi-a/specs/001-alpha"
+    )
+    moved = sha_map(bare_project.root / "workitems" / "wi-a" / "specs" / "001-alpha")
+    assert moved == before, "relocation changed content; drift would fire falsely"
+
+    approved = view.ok("gate", "approve", "--gate", "gate_spec")
+    assert approved.exit_code == EXIT_OK
+    assert view.state()["approvals"]["gate_spec"] is not None
