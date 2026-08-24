@@ -10,8 +10,13 @@ from __future__ import annotations
 
 import json
 
+from conftest import FIXTURE_WORKITEM_ID
+
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 FEATURE = "001-todo-api"
+# v1.15: Spec Kit's WorkItem artifacts live under the WorkItem, not under the
+# repository-global `.specify/`.
+FEATURE_DIR = f"workitems/{FIXTURE_WORKITEM_ID}/specs/{FEATURE}"
 
 
 def at_implement(project):
@@ -19,8 +24,8 @@ def at_implement(project):
     project.ok("init", session="t")
     steps = [
         (".specify/memory/constitution.md", "gate_constitution"),
-        (f".specify/specs/{FEATURE}/spec.md", "gate_spec"),
-        (f".specify/specs/{FEATURE}/plan.md", "gate_plan"),
+        (f"{FEATURE_DIR}/spec.md", "gate_spec"),
+        (f"{FEATURE_DIR}/plan.md", "gate_plan"),
     ]
     for path, gate in steps:
         project.write_artifact(path)
@@ -29,9 +34,9 @@ def at_implement(project):
         project.ok("advance", "--to", gate)
         project.ok("gate", "approve", "--gate", gate)
 
-    project.write_artifact(f".specify/specs/{FEATURE}/checklist.md")
+    project.write_artifact(f"{FEATURE_DIR}/checklist.md")
     project.ok("advance", "--to", "tasks_draft")
-    project.write_artifact(f".specify/specs/{FEATURE}/tasks.md")
+    project.write_artifact(f"{FEATURE_DIR}/tasks.md")
     project.ok("advance", "--to", "gate_tasks")
     project.ok("gate", "approve", "--gate", "gate_tasks")
     project.ok("advance", "--to", "gate_analyze")
@@ -270,11 +275,11 @@ def at_gate_plan(project):
     project.write_artifact(".specify/memory/constitution.md")
     project.ok("advance", "--to", "gate_constitution")
     project.ok("gate", "approve", "--gate", "gate_constitution")
-    project.write_artifact(f".specify/specs/{FEATURE}/spec.md")
+    project.write_artifact(f"{FEATURE_DIR}/spec.md")
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
     project.ok("gate", "approve", "--gate", "gate_spec")
-    project.write_artifact(f".specify/specs/{FEATURE}/plan.md")
+    project.write_artifact(f"{FEATURE_DIR}/plan.md")
     project.ok("advance", "--to", "gate_plan")
     return project
 
@@ -401,7 +406,7 @@ def test_08_reset_is_two_step_and_preserves_artifacts(project):
     assert not project.state_file.exists()
     assert not project.audit_file.exists()
     assert not (project.runtime / "lock").exists()
-    assert (project.root / f".specify/specs/{FEATURE}/spec.md").is_file()
+    assert (project.root / f"{FEATURE_DIR}/spec.md").is_file()
     assert (project.root / ".specify/memory/constitution.md").is_file()
 
 

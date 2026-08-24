@@ -273,12 +273,12 @@ def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project)
 # ==========================================================================
 
 
-def test_the_shipped_template_is_1_14_and_carries_the_workitem_field(bare_project):
+def test_the_shipped_template_is_1_15_and_carries_the_workitem_field(bare_project):
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json")
         .read_text(encoding="utf-8")
     )
-    assert template["workflow_version"] == "1.14"
+    assert template["workflow_version"] == "1.15"
     assert template["workitem"] is None
     assert list(template)[:2] == ["workflow_version", "workitem"]
 
@@ -292,7 +292,7 @@ def test_migrating_a_state_under_a_workitem_binds_that_workitem(project):
 
     result = project.ok("migrate", session="s")
 
-    assert result.data["steps"] == ["1.13->1.14"]
+    assert result.data["steps"] == ["1.13->1.14", "1.14->1.15"]
     assert project.state()["workitem"] == FIXTURE_WORKITEM_ID
 
 
@@ -305,7 +305,7 @@ def test_migrating_a_state_at_the_legacy_location_leaves_workitem_null(bare_proj
 
     result = bare_project.ok("migrate")
 
-    assert result.data["to"] == "1.14"
+    assert result.data["to"] == "1.15"
     migrated = json.loads(
         (bare_project.root / ".workflow" / "state.json").read_text(encoding="utf-8")
     )
@@ -369,11 +369,16 @@ def test_migrate_moves_the_whole_runtime_and_preserves_every_field(bare_project)
     for field in (
         "current_phase", "status", "progress", "approvals", "artifact_shas",
         "rate_limits", "attempt_counts", "implementation_base_ref",
-        "phase_history", "project_name", "current_feature_id",
+        "phase_history", "project_name",
     ):
         assert migrated[field] == legacy_state_before[field], field
+    # v1.15 replaced the flat `current_feature_id` with the `specKit` object,
+    # so the object is what has to survive the move now — and the old flat
+    # field must be gone rather than mirrored.
+    assert "current_feature_id" not in migrated
+    assert migrated["specKit"] == legacy_state_before["specKit"]
     assert migrated["workitem"] == wid
-    assert migrated["workflow_version"] == "1.14"
+    assert migrated["workflow_version"] == "1.15"
 
     assert (target / "audit.md").is_file()
     assert (target / "execution.json").is_file()
@@ -566,7 +571,7 @@ def test_execution_identity_is_written_at_init_and_is_not_the_workitem(project):
     doc = json.loads((project.runtime / "execution.json").read_text(encoding="utf-8"))
     assert doc["executionId"] == execution_id
     assert doc["workitem"] == FIXTURE_WORKITEM_ID
-    assert doc["sdleVersion"] == "1.14"
+    assert doc["sdleVersion"] == "1.15"
     assert doc["startedAt"].endswith("Z")
     # Contract §8: execution identity is execution metadata, never the
     # WorkItem name, and nothing resolves a WorkItem from it.

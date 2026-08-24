@@ -115,6 +115,11 @@ def test_a_malformed_payload_never_breaks_the_tool_call(project):
         "/proj/workitems/wi-a/.sdle/audit.md",
         "workitems/wi-a/.sdle/state.json",
         r"C:\proj\workitems\wi-a\.sdle\state.json",
+        # T04: the carve-out is workitems/<id>/specs/ and nothing else.
+        "/proj/workitems/wi-a/.sdle/lock",
+        "/proj/workitems/wi-a/reviews/security-review-2026-01-01-0900.md",
+        "/proj/workitems/wi-a/specs.md",
+        "/proj/workitems/specs/not-a-workitem.md",
     ],
 )
 def test_write_fence_denies_governance_files(project, path):
@@ -131,6 +136,12 @@ def test_write_fence_denies_governance_files(project, path):
         "/proj/design/app/app-design.md",
         "/proj/.specify/specs/001/spec.md",
         "/proj/reviews/security-review-2026-01-01-0900.md",
+        # T04: SpecKit's WorkItem artifacts moved under the WorkItem in v1.15.
+        # SDLE never writes them, so the fence carves them out -- in every
+        # path form Claude Code can pass.
+        "/proj/workitems/wi-a/specs/001-todo-api/spec.md",
+        "workitems/wi-a/specs/001-todo-api/plan.md",
+        r"C:\proj\workitems\wi-a\specs\001-todo-api\tasks.md",
     ],
 )
 def test_write_fence_allows_normal_artifacts(project, path):

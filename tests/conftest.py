@@ -151,6 +151,15 @@ class Project:
         return self.root / "workitems" / self.workitem / ".sdle"
 
     @property
+    def specs_root(self) -> Path:
+        """This WorkItem's Spec Kit feature directories (v1.15)."""
+        return self.root / "workitems" / self.workitem / "specs"
+
+    def feature_dir(self, feature_id: str) -> str:
+        """The repo-relative feature directory for ``feature_id``."""
+        return f"workitems/{self.workitem}/specs/{feature_id}"
+
+    @property
     def state_file(self) -> Path:
         return self.runtime / "state.json"
 
@@ -214,6 +223,7 @@ class Project:
         self.git("commit", "-q", "-m", "fixture baseline")
 
 
+FEATURE_ID = "001-todo-api"
 FIXTURE_WORKITEM_NAME = "Fixture WorkItem"
 FIXTURE_WORKITEM_ID = "fixture-workitem"
 

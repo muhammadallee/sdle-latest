@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.14",
+  "workflow_version": "1.15",
   "workitem": null,
   "project_name": null,
   "current_phase": "requirements_check",
@@ -8,7 +8,12 @@
   "last_updated": null,
   "current_artifact": null,
   "current_artifact_sha": null,
-  "current_feature_id": null,
+  "specKit": {
+    "featureId": null,
+    "featureDirectory": null,
+    "workflowId": null,
+    "runId": null
+  },
   "security_review_artifact": null,
   "implementation_base_ref": null,
   "phase_checkpoint": null,

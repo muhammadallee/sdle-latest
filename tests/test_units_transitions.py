@@ -120,13 +120,16 @@ def test_gate_show_reports_unresolved_feature_id(started):
     at(started, "gate_spec", "awaiting_approval")
     data = started.ok("gate", "show", "--gate", "gate_spec").data
     assert data["artifact_path"] is None
-    assert "current_feature_id" in data["skipped_reason"]
+    assert "speckit_feature_directory" in data["skipped_reason"]
 
 
 def test_gate_show_substitutes_feature_id(started):
-    at(started, "gate_spec", "awaiting_approval", current_feature_id="001-todo-api")
+    directory = started.feature_dir("001-todo-api")
+    at(started, "gate_spec", "awaiting_approval",
+       specKit={"featureId": "001-todo-api", "featureDirectory": directory,
+                "workflowId": None, "runId": None})
     data = started.ok("gate", "show", "--gate", "gate_spec").data
-    assert data["artifact_path"] == ".specify/specs/001-todo-api/spec.md"
+    assert data["artifact_path"] == f"{directory}/spec.md"
 
 
 def test_gate_show_refuses_unknown_gate(started):
@@ -232,4 +235,4 @@ def test_final_gate_completes_the_workflow(started):
     import json
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
     assert summary["all_gates_approved"] is True
-    assert summary["workflow_version"] == "1.14"
+    assert summary["workflow_version"] == "1.15"

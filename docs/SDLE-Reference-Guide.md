@@ -4,7 +4,7 @@
 | Field | Value |
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
-| **Covers software version** | SDLE v1.14 (18-phase workflow, 8 approval gates, deterministic core, WorkItem-scoped runtime) |
+| **Covers software version** | SDLE v1.15 (18-phase workflow, 8 approval gates, deterministic core, WorkItem-scoped runtime) |
 | **Document version** | 1.1 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
@@ -130,10 +130,10 @@ SDLE Orchestrator (Claude Code Skill)
 |---|---|---|
 | `requirements/` | User | Ground-truth input; the only thing SDLE never generates |
 | `.specify/memory/constitution.md` | Phase 2 | Project ground rules and constraints |
-| `.specify/specs/<feature-id>/spec.md` | Phase 4 | Functional specification |
-| `.specify/specs/<feature-id>/plan.md` | Phase 6 | Technical implementation plan |
-| `.specify/specs/<feature-id>/checklist.md` | Phase 8 | Independent completeness checklist |
-| `.specify/specs/<feature-id>/tasks.md` | Phase 9 (refined Phase 11) | Granular task breakdown |
+| `workitems/<id>/specs/<feature-id>/spec.md` | Phase 4 | Functional specification |
+| `workitems/<id>/specs/<feature-id>/plan.md` | Phase 6 | Technical implementation plan |
+| `workitems/<id>/specs/<feature-id>/checklist.md` | Phase 8 | Independent completeness checklist |
+| `workitems/<id>/specs/<feature-id>/tasks.md` | Phase 9 (refined Phase 11) | Granular task breakdown |
 | `design/app/app-design.md` | Phase 13 | Architecture & sequence diagrams, design decisions |
 | `design/db/db-design.md` | Phase 13 (conditional) | ERD, data dictionary, data design decisions |
 | `workitems/<id>/.sdle/implementation-manifest.md` | Phase 15 | Reviewable summary of all files changed by implementation, including a mandatory secrets-scan section |
@@ -414,7 +414,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 **What it does:** Invokes SpecKit's specification generator to produce a functional specification — user stories, scope boundaries, acceptance criteria — bound to the approved constitution.
 
-**Why it matters:** This is the phase that converts "what we said we wanted" into "what we are precisely committing to build," in a form specific enough to later verify against. It also resolves and records `current_feature_id`, the identifier under which every subsequent SpecKit artifact for this feature is filed.
+**Why it matters:** This is the phase that converts "what we said we wanted" into "what we are precisely committing to build," in a form specific enough to later verify against. It also resolves and records `specKit.featureDirectory` — `workitems/<id>/specs/<feature-id>/`, under which every subsequent SpecKit artifact for this feature is filed. Resolution searches this WorkItem's own `specs/` first, then the repository root's `specs/`, then `.specify/specs/`, and moves what it finds into the WorkItem if it is not already there, so one WorkItem can never be handed another's specification.
 
 **Rationale:** Separating *what* (spec) from *how* (plan, the next phase) prevents technical considerations from quietly narrowing or distorting scope before scope has even been agreed. Acceptance criteria written here become the yardstick used implicitly throughout the rest of the workflow.
 
@@ -763,7 +763,7 @@ SDLE's audit trail can support a compliance review; it does not, by itself, cons
 - **Not a project management tool.** It tracks phase and gate state for one feature workflow at a time, not backlogs, sprints, or cross-team planning.
 - **Not a substitute for QA or penetration testing.** Functional testing and adversarial security testing remain separate, necessary activities after (or alongside) SDLE's gates.
 - **Not a coding standards enforcement tool.** The constitution can *state* standards; SDLE does not lint or statically enforce them beyond what SpecKit's generation itself respects.
-- **Not a multi-feature/multi-team orchestrator.** Each workflow instance tracks one feature at a time via `current_feature_id`.
+- **Not a multi-feature/multi-team orchestrator.** Each workflow instance tracks one feature at a time via `specKit.featureId`; separate features belong in separate WorkItems.
 
 ---
 
@@ -949,7 +949,7 @@ SDLE: ✅ Security review approved. Workflow complete!
 ⚠️ Artifact drift detected — 1 previously-approved artifact changed since approval:
 
   • Plan Approval (gate_plan)
-    Path:          .specify/specs/order-tracking/plan.md
+    Path:          workitems/checkout-v2/specs/order-tracking/plan.md
     Approved SHA:  6a21...
     Current SHA:   d903...
 
@@ -960,7 +960,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 ## Appendix B — State Schema Reference
 
-`workitems/<id>/.sdle/state.json` (v1.14):
+`workitems/<id>/.sdle/state.json` (v1.15):
 
 | Field | Type | Description |
 |---|---|---|
@@ -973,7 +973,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `last_updated` | string | ISO-8601 timestamp, updated on every write. |
 | `current_artifact` | string \| null | Path to the most recently generated artifact. |
 | `current_artifact_sha` | string \| null | SHA-256 of `current_artifact` at last verification. |
-| `current_feature_id` | string \| null | SpecKit feature directory name; set after Phase 4. |
+| `specKit` | object | SpecKit context for this WorkItem: `featureId`, `featureDirectory` (repo-relative, under `workitems/<id>/specs/`; set after Phase 4), and `workflowId` / `runId`, extension points SDLE creates and never writes. |
 | `security_review_artifact` | string \| null | Path to the timestamped security review file. |
 | `phase_checkpoint` | string \| null | Sub-step marker for crash-recovery idempotency. |
 | `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`). |
@@ -1018,6 +1018,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 | Version | Date | Summary |
 |---|---|---|
+| 1.4 | 2026-08-24 | Updated for SDLE v1.15: SpecKit context is WorkItem-scoped. A WorkItem's feature directory moved from `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, while repository-wide SpecKit scaffolding — `.specify/`, including `memory/constitution.md` — stays at the repository root. New `specKit` state object replacing `current_feature_id`, `feature bind` and `feature capabilities`, SpecKit capability detection that refuses rather than assumes, tiered feature discovery with an audited move into the WorkItem, and a gate that refuses to approve another WorkItem's artifact. |
 | 1.3 | 2026-08-23 | Updated for SDLE v1.14: runtime state is WorkItem-scoped. `state.json`, `execution.json`, `audit.md`, `lock`, `evidence/`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`. New `workitem` state field, `--workitem` override and resolution ladder, `migrate-workflow` for a legacy runtime, and execution identity. |
 | 1.2 | 2026-08-10 | Updated for SDLE v1.13: the mechanical layer moved into `scripts/sdle.py`, a deterministic core that refuses rather than warns. Constants are parsed from SKILL.md rather than hand-synced; `lint-skill` verifies every cross-file rule; nine slash commands and four hooks; Gate 7 carries test evidence and refuses an incomplete manifest; the security diff is pinned to `implementation_base_ref`. See `docs/architecture/ADR-001-deterministic-core.md`. |
 | 1.1 | 2026-07-06 | Updated for SDLE v1.12: untrusted-content scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha`), session lock, dirty-tree guard, repo staleness warning, two-step `confirm skip`. |

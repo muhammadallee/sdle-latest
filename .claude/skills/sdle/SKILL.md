@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.14. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
+description: SDLE — Spec Driven Lifecycle Engine v1.15. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -32,7 +32,7 @@ Run `sdle.sh --help`, or any subcommand with `--help`, for the full surface.
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.14)
+# SDLE — Spec Driven Lifecycle Engine (v1.15)
 
 You are the **SDLE Orchestrator** — an AI Delivery Manager, Architect, QA Reviewer and Security Reviewer. The user NEVER runs SpecKit commands manually.
 
@@ -150,12 +150,12 @@ You do not need to consult these tables during a run. Ask the script instead: `s
 | gate_key | artifact_path_template | path type |
 |---|---|---|
 | `gate_constitution` | `.specify/memory/constitution.md` | static |
-| `gate_spec` | `.specify/specs/{current_feature_id}/spec.md` | substitute `current_feature_id` |
-| `gate_plan` | `.specify/specs/{current_feature_id}/plan.md` | substitute `current_feature_id` |
-| `gate_tasks` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` |
-| `gate_analyze` | `.specify/specs/{current_feature_id}/tasks.md` | substitute `current_feature_id` |
+| `gate_spec` | `{speckit_feature_directory}/spec.md` | substitute `speckit_feature_directory` |
+| `gate_plan` | `{speckit_feature_directory}/plan.md` | substitute `speckit_feature_directory` |
+| `gate_tasks` | `{speckit_feature_directory}/tasks.md` | substitute `speckit_feature_directory` |
+| `gate_analyze` | `{speckit_feature_directory}/tasks.md` | substitute `speckit_feature_directory` |
 | `gate_design` | `design/app/app-design.md` | static |
-| `gate_implement` | `.workflow/implementation-manifest.md` | static |
+| `gate_implement` | `{workitem_runtime}/implementation-manifest.md` | substitute `workitem_runtime` |
 | `gate_security` | `{security_review_artifact}` | substitute `security_review_artifact` |
 
 ### PHASE_LABEL_MAP
@@ -224,6 +224,7 @@ Applied in chain order by `sdle.sh migrate`, the only thing that writes them. Th
 | `1.11` | `1.12` | Add `audit_sha: null` if missing. |
 | `1.12` | `1.13` | Add `implementation_base_ref: null` if missing. Normalise every recorded SHA in `artifact_shas`, `current_artifact_sha` and `audit_sha` to lowercase hex — v1.12 recorded uppercase hex from the Windows-only hashing cmdlet it used, which would otherwise false-drift every gate on the first v1.13 run. |
 | `1.13` | `1.14` | Add `workitem: null` if missing, then bind it from where the state file actually lives: a state under `workitems/<id>/.sdle/` records `<id>`; a state still at the legacy `.workflow/` location keeps `null` until `migrate-workflow --workitem <id>` moves it. Runtime state became WorkItem-scoped in v1.14, so this field is what makes a state file self-describing and a misplaced one detectable. |
+| `1.14` | `1.15` | Replace `current_feature_id` with the `specKit` object (`featureId`, `featureDirectory`, `workflowId`, `runId`). The old value moves to `specKit.featureId` and the flat field is removed — one fact, one home. `featureDirectory` is read off the tree, first hit wins: `workitems/<workitem>/specs/<featureId>` when that directory exists, else `.specify/specs/<featureId>` when that one does — where a pre-v1.15 run's artifacts genuinely are, so an in-flight workflow keeps resolving its gates — else `null`. `workflowId` and `runId` are created `null`; SDLE has no producer for either. Nothing is moved on disk by the migration. |
 
 ---
 

@@ -1,4 +1,4 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.14)
+# SDLE — Spec Driven Lifecycle Engine (v1.15)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
@@ -426,7 +426,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `progress` | string | `"N/18"` |
 | `last_updated` | string | ISO-8601 timestamp, updated on every write |
 | `current_artifact` / `current_artifact_sha` | string\|null | Most recent artifact path and SHA-256 fingerprint |
-| `current_feature_id` | string\|null | SpecKit feature directory name, set after Phase 4 |
+| `specKit` | object | SpecKit context for this WorkItem: `featureId`, `featureDirectory` (repo-relative, under `workitems/<id>/specs/`), and the `workflowId` / `runId` extension points, which SDLE creates and leaves null |
 | `security_review_artifact` | string\|null | Path to the timestamped security review file |
 | `approvals` | object | One key per gate: `{ decision, comments, timestamp }` or `null` |
 | `artifact_shas` | object | Approval-time SHA-256 baseline per gate — drift-detection baseline |
@@ -468,6 +468,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.15** | WorkItem-scoped Spec Kit context. The active WorkItem's Spec Kit feature directory moved from the repository-global `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, so two WorkItems in one repository can never be handed each other's specification. Repository-wide Spec Kit scaffolding — `.specify/`, including `memory/constitution.md` — stays where it is. New `specKit` state object replacing `current_feature_id`, new `feature bind` and `feature capabilities` subcommands, Spec Kit capability detection that refuses rather than assumes, and a gate that will not approve another WorkItem's artifact. |
 | **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |
 | **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |
 | **v1.12** | 7-item guardrail hardening: untrusted-content (prompt-injection) scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha` hash chain), session lock, dirty-tree guard before implement, repo staleness warning, and two-step `confirm skip`. |

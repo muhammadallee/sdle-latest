@@ -10,9 +10,14 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import FIXTURE_WORKITEM_ID
+
 EXIT_OK, EXIT_REFUSED = 0, 1
 FEATURE = "001-todo-api"
-SPEC = f".specify/specs/{FEATURE}/spec.md"
+# v1.15: Spec Kit's WorkItem artifacts live under the WorkItem, not under the
+# repository-global `.specify/`.
+FEATURE_DIR = f"workitems/{FIXTURE_WORKITEM_ID}/specs/{FEATURE}"
+SPEC = f"{FEATURE_DIR}/spec.md"
 
 
 def at_gate_spec(project):
@@ -306,11 +311,11 @@ def test_04_rejection_clears_the_queue_and_does_not_resume(project):
 def test_04_multiple_drifted_gates_queue_most_upstream_first(project):
     at_gate_spec(project)
     project.ok("gate", "approve", "--gate", "gate_spec")
-    project.write_artifact(f".specify/specs/{FEATURE}/plan.md")
+    project.write_artifact(f"{FEATURE_DIR}/plan.md")
     project.ok("advance", "--to", "gate_plan")
     project.ok("gate", "approve", "--gate", "gate_plan")
 
-    project.write_artifact(f".specify/specs/{FEATURE}/plan.md", "# Plan v2\n" * 20)
+    project.write_artifact(f"{FEATURE_DIR}/plan.md", "# Plan v2\n" * 20)
     project.write_artifact(SPEC, "# Spec v2\n" * 20)
 
     queue = project.ok("drift", "check", "--queue").data["queue"]

@@ -44,6 +44,7 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 
 **Phase 2 — `constitution_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing. On refusal show the `message` and HALT.
 - Invoke `speckit-constitution` using the Skill tool. If `guidance/constitution.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/constitution.md>\n---\nAlign your output with this guidance."`
 - Expected artifact: `.specify/memory/constitution.md` in state.
 - Run Post-SpecKit Verification (below).
@@ -55,33 +56,36 @@ This is a gate phase. The artifact is `.specify/memory/constitution.md`. Do not 
 
 **Phase 4 — `spec_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing. On refusal show the `message` and HALT.
 - Invoke `speckit-specify` using the Skill tool. If `guidance/spec.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/spec.md>\n---\nAlign your output with this guidance."`
-- **Feature-ID Resolution (MANDATORY after spec runs):** `sdle.sh feature resolve`. It picks the newest directory under `.specify/specs/`, and refuses with `feature_unresolved` when none exists or `feature_ambiguous` when two share the newest timestamp — in the ambiguous case, list the candidates and ask the user.
-- Expected artifact: `.specify/specs/{state.current_feature_id}/spec.md`.
+- **Feature-Directory Resolution (MANDATORY after spec runs):** `sdle.sh feature resolve`. It looks for the directory SpecKit just created, in a fixed order of precedence — this WorkItem's own `workitems/<workitem-id>/specs/`, then the repository root's `specs/`, then `.specify/specs/` — and takes the newest directory in the first of those that has one. Another WorkItem's directory is never a candidate. If what it finds is not already inside this WorkItem it **moves** it there and records the move in the audit, so exactly one copy of the artifact ever exists. It refuses with `feature_unresolved` when every location is empty, `feature_ambiguous` when two directories share the newest timestamp — list the candidates and ask the user — and `feature_target_exists` or `feature_adopt_failed` rather than overwriting or half-moving anything. The resolved path is `state.specKit.featureDirectory`.
+- Expected artifact: `{state.specKit.featureDirectory}/spec.md`.
 - Run Post-SpecKit Verification (below).
 - Advance: `sdle.sh advance --to gate_spec`. The script records phase history, progress and the audit entry.
 - Run Post-Generation Clarify. (If clarify halts, `current_phase` is already `gate_spec`.)
 - Present the gate prompt.
 
 **Phase 5 — `gate_spec`:**
-This is a gate phase. The artifact is `.specify/specs/{current_feature_id}/spec.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_spec (Gate 2/8).
+This is a gate phase. The artifact is `{state.specKit.featureDirectory}/spec.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_spec (Gate 2/8).
 
 **Phase 6 — `plan_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
 - Invoke `speckit-plan` using the Skill tool. If `guidance/plan.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/plan.md>\n---\nAlign your output with this guidance."`
-- Expected artifact: `.specify/specs/{state.current_feature_id}/plan.md`.
+- Expected artifact: `{state.specKit.featureDirectory}/plan.md`.
 - Run Post-SpecKit Verification (below).
 - Advance: `sdle.sh advance --to gate_plan`. The script records phase history, progress and the audit entry.
 - Present the gate prompt.
 
 **Phase 7 — `gate_plan`:**
-This is a gate phase. The artifact is `.specify/specs/{current_feature_id}/plan.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_plan (Gate 3/8).
+This is a gate phase. The artifact is `{state.specKit.featureDirectory}/plan.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_plan (Gate 3/8).
 
 **Phase 8 — `checklist_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
 - Invoke `speckit-checklist` using the Skill tool. If `guidance/checklist.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/checklist.md>\n---\nAlign your output with this guidance."`
 - **Checklist artifact handling (conditional):**
-  - If `.specify/specs/{state.current_feature_id}/checklist.md` was produced and is ≥100 bytes:
+  - If `{state.specKit.featureDirectory}/checklist.md` was produced and is ≥100 bytes:
     - Record artifact path in state.
     - Run Post-SpecKit Verification (clears `phase_checkpoint` on success, records SHA).
     - Append audit: "Checklist generated."
@@ -93,11 +97,12 @@ This is a gate phase. The artifact is `.specify/specs/{current_feature_id}/plan.
 
 **Phase 9 — `tasks_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
 - Invoke `speckit-tasks` using the Skill tool. If `guidance/tasks.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/tasks.md>\n---\nAlign your output with this guidance."`
-- Expected artifact: `.specify/specs/{state.current_feature_id}/tasks.md`.
+- Expected artifact: `{state.specKit.featureDirectory}/tasks.md`.
 - Run Post-SpecKit Verification (below).
 - Advance: `sdle.sh advance --to gate_tasks`. The script records phase history, progress and the audit entry.
-- **Before presenting the gate prompt:** If `.specify/specs/{state.current_feature_id}/checklist.md` exists, Read it and display its full content to the user under the header `### Checklist (Phase 8 output — review alongside Tasks)`. This ensures the user can compare both artifacts before approving.
+- **Before presenting the gate prompt:** If `{state.specKit.featureDirectory}/checklist.md` exists, Read it and display its full content to the user under the header `### Checklist (Phase 8 output — review alongside Tasks)`. This ensures the user can compare both artifacts before approving.
 - Present the gate prompt (read `modules/gate-protocol.md` for gate_tasks/Gate 4). The gate artifact is `tasks.md`.
 
 **Phase 10 — `gate_tasks`:**
@@ -105,8 +110,9 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 
 **Phase 11 — `analyze`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
 - Invoke `speckit-analyze` using the Skill tool. If `guidance/analyze.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/analyze.md>\n---\nAlign your output with this guidance."`
-- After the skill completes: `sdle.sh artifact record --phase analyze --path .specify/specs/<current_feature_id>/tasks.md`.
+- After the skill completes: `sdle.sh artifact record --phase analyze --path {state.specKit.featureDirectory}/tasks.md`.
 - **Drift baseline update:** `sdle.sh drift rebaseline --gate gate_tasks`. Both gates own the same `tasks.md`, which the analyze step may have refined; without this the next drift check raises a false alarm on a clean run.
 - Advance: `sdle.sh advance --to gate_analyze`.
 - Append to audit: `[<ISO>] Analysis complete. Artifact fingerprinted (tasks.md). Drift baseline updated. Advanced to gate_analyze.`
@@ -127,7 +133,7 @@ This is a gate phase. The artifact for this gate is the most recently updated `t
 - **Step A — App Design (`design/app/app-design.md`):**
   - `sdle.sh checkpoint set --value design_app_started`
   - Create the `design/app/` directory if it does not exist.
-  - Read the following for context: `.specify/memory/constitution.md`, `.specify/specs/{state.current_feature_id}/spec.md`, `.specify/specs/{state.current_feature_id}/plan.md`, `.specify/specs/{state.current_feature_id}/tasks.md` (if they exist).
+  - Read the following for context: `.specify/memory/constitution.md`, `{state.specKit.featureDirectory}/spec.md`, `{state.specKit.featureDirectory}/plan.md`, `{state.specKit.featureDirectory}/tasks.md` (if they exist).
   - Generate `design/app/app-design.md` containing all of the following sections:
     1. **Context Diagram** — system boundary, external actors, and major external integrations (text-based or Mermaid `C4Context` diagram).
     2. **Component Diagram** — internal components/modules and their relationships (Mermaid `C4Component` or `graph` diagram).
@@ -156,6 +162,7 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 **Phase 15 — `implement`:**
 - **Dirty-tree guard (runs first):** `sdle.sh implement preflight`. It pins `implementation_base_ref` to HEAD so Phase 17 diffs against the right range, filters SDLE-owned paths out of the dirty check, and refuses with `dirty_tree` when the user has uncommitted work. On refusal, show the `message` and HALT; the user commits, stashes, or says `confirm implement`, which re-runs it with `--bypass`.
 - `sdle.sh checkpoint set --value speckit_invoked`
+- `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
 - Invoke `speckit-implement` using the Skill tool. If `guidance/implement.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/implement.md>\n---\nAlign your output with this guidance."` Also append: `"\n\nDesign documents are available at design/app/app-design.md and (if present) design/db/db-design.md. Align implementation with these design decisions."`
 - **Implementation Manifest (MANDATORY after the implement skill):** `sdle.sh manifest build --summary "<one paragraph derived from tasks.md>"`.
 
@@ -190,9 +197,9 @@ On approve: write `.workflow/completion-summary.json` (see gate-protocol.md for 
 
 SpecKit's `clarify` is scoped to a single artifact: it resolves the current feature directory and reads `spec.md`, then writes any answers back into that file's `## Clarifications` section. It is designed to run once, after `/specify` and before `/plan`. Invoking it at any other phase reads no artifact relevant to that phase's output and — worse — mutates `spec.md` after Gate 2 has already fingerprinted it, tripping a false drift re-approval on `gate_spec` (and `gate_plan`, once plan is also approved). SDLE therefore invokes clarify **only** after Phase 4 (`spec_draft`), before Gate 2.
 
-After Post-SpecKit Verification passes for Phase 4 (`spec_draft`), invoke the clarify skill **before** presenting Gate 2:
+After Post-SpecKit Verification passes for Phase 4 (`spec_draft`), invoke the clarify skill **before** presenting Gate 2. Run `sdle.sh feature bind --require-feature` first and export the `env` entries it returns, exactly as the generation phases do: the clarify step resolves the feature directory for itself, so it has to be pointed at this WorkItem's.
 
-1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: `"Phase: spec_draft. Artifact: .specify/specs/{current_feature_id}/spec.md"`.
+1. Invoke `{speckit_skill_prefix}clarify` using the Skill tool. Pass in args: `"Phase: spec_draft. Artifact: {state.specKit.featureDirectory}/spec.md"`.
 2. If clarify **fails or produces no output**: log to audit and continue to the gate normally. Do not block.
 3. If clarify **produces output (questions)**:
    - Display the questions to the user.

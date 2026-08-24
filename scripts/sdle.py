@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -177,6 +178,26 @@ class Paths:
     @property
     def evidence_dir(self) -> Path:
         return self.runtime / "evidence"
+
+    @property
+    def speckit_specs_root(self) -> Path | None:
+        """Where this WorkItem's Spec Kit feature directories live.
+
+        ``None`` under the transitional legacy binding, which has no WorkItem
+        to scope to and keeps using the repository-global ``.specify/specs/``.
+        Derived here so no call site ever concatenates a Spec Kit path of its
+        own — the same discipline ``runtime`` established for the runtime.
+        """
+        root = self.workitem_root
+        return None if root is None else root / "specs"
+
+    @property
+    def speckit_specs_relative(self) -> str | None:
+        """``speckit_specs_root`` as a repo-relative POSIX prefix."""
+        root = self.speckit_specs_root
+        if root is None:
+            return None
+        return str(root.relative_to(self.project_root)).replace(os.sep, "/")
 
     @property
     def skill_md(self) -> Path:
@@ -652,7 +673,7 @@ def actor(paths: Paths) -> str:
 # State IO
 # --------------------------------------------------------------------------
 
-CURRENT_VERSION = "1.14"
+CURRENT_VERSION = "1.15"
 
 STATUS_DISPLAY = {
     "pending": "PENDING",
@@ -690,6 +711,56 @@ def save_state(paths: Paths, state: dict, session: str | None = None) -> None:
     state["last_updated"] = now_iso()
     write_atomic(paths.state_file, json.dumps(state, indent=2) + "\n")
     touch_lock(paths, session)
+
+
+# --------------------------------------------------------------------------
+# Spec Kit context (contract §10)
+#
+# v1.15 replaced the flat `current_feature_id` with a `specKit` object owned
+# by the WorkItem. Every read and every write goes through the two accessors
+# below, so a pre-1.15 state — which `read_state` does not migrate — degrades
+# to all-null instead of raising KeyError at an arbitrary call site.
+# --------------------------------------------------------------------------
+
+SPECKIT_REF_KEYS = ("featureId", "featureDirectory", "workflowId", "runId")
+
+
+def speckit_ref(state: dict) -> dict:
+    """The `specKit` object, defaulted. Never raises, never KeyError.
+
+    Returns a fresh dict in canonical key order; mutating it does not touch
+    ``state``. Empty strings and non-string values normalise to ``None`` so
+    callers can test a member with a plain truth check.
+    """
+    raw = state.get("specKit")
+    ref = {key: None for key in SPECKIT_REF_KEYS}
+    if isinstance(raw, dict):
+        for key in SPECKIT_REF_KEYS:
+            value = raw.get(key)
+            if isinstance(value, str) and value:
+                ref[key] = value
+    return ref
+
+
+def speckit_set(state: dict, **values) -> dict:
+    """Write named `specKit` members, keeping the canonical key order.
+
+    `workflowId` and `runId` are contract §10 extension points with no
+    producer in SDLE. Nothing in the engine passes them, so they stay null;
+    the field names are still accepted here so the object has exactly one
+    writer rather than two.
+    """
+    unknown = sorted(k for k in values if k not in SPECKIT_REF_KEYS)
+    if unknown:
+        raise IntegrityError(
+            "speckit_field_unknown",
+            f"specKit has no field(s): {', '.join(unknown)}.",
+            {"unknown": unknown, "known": list(SPECKIT_REF_KEYS)},
+        )
+    ref = speckit_ref(state)
+    ref.update(values)
+    state["specKit"] = {key: ref[key] for key in SPECKIT_REF_KEYS}
+    return state["specKit"]
 
 
 def load_template(paths: Paths) -> dict:
@@ -1099,6 +1170,42 @@ def _mig_1_13(state, paths, consts):
             state["workitem"] = parent.parent.name
 
 
+def _mig_1_14(state, paths, consts):
+    """Replace the flat `current_feature_id` with the `specKit` object.
+
+    Contract §10 makes Spec Kit context an object owned by the WorkItem. The
+    old value is *moved*, not mirrored: two fields for one fact would break
+    invariant 7. `featureDirectory` is read off the tree in a fixed order,
+    first hit wins, so it is a fact about disk rather than an inference:
+
+      1. `workitems/<workitem>/specs/<featureId>` when that directory exists;
+      2. `.specify/specs/<featureId>` when that one does — where a pre-v1.15
+         run's artifacts genuinely are, so an in-flight workflow keeps
+         resolving its gates instead of breaking at the next one;
+      3. otherwise null.
+
+    Nothing moves on disk here. Migration reports; `feature resolve` relocates.
+    """
+    feature = state.pop("current_feature_id", None)
+    if not isinstance(feature, str) or not feature:
+        feature = None
+
+    directory = None
+    if feature:
+        candidates = []
+        workitem = state.get("workitem")
+        if isinstance(workitem, str) and workitem:
+            candidates.append(f"workitems/{workitem}/specs/{feature}")
+        candidates.append(f".specify/specs/{feature}")
+        for candidate in candidates:
+            if (paths.project_root / candidate).is_dir():
+                directory = candidate
+                break
+
+    speckit_set(state, featureId=feature, featureDirectory=directory,
+                workflowId=None, runId=None)
+
+
 MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.0", "1.1", _mig_1_0),
     ("1.1", "1.2", _mig_1_1),
@@ -1114,6 +1221,7 @@ MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.11", "1.12", _mig_1_11),
     ("1.12", "1.13", _mig_1_12),
     ("1.13", "1.14", _mig_1_13),
+    ("1.14", "1.15", _mig_1_14),
 ]
 
 
@@ -1472,7 +1580,7 @@ def cmd_state_dump(args, paths: Paths) -> int:
         "### Artifacts",
         f"- Current artifact: {state.get('current_artifact') or 'none'}",
         f"- Current SHA: {state.get('current_artifact_sha') or 'none'}",
-        f"- Feature ID: {state.get('current_feature_id') or 'none'}",
+        f"- Feature ID: {speckit_ref(state)['featureId'] or 'none'}",
         f"- Security review artifact: {state.get('security_review_artifact') or 'none'}",
         f"- Implementation base ref: {state.get('implementation_base_ref') or 'none'}",
         "",
@@ -2601,9 +2709,31 @@ def _validate_metadata(root: Path, value: str) -> dict | None:
     return None
 
 
+def _feature_directory_findings(bound: Paths, value: str, doc: dict,
+                                target: Path) -> list[dict]:
+    """v1.15: a WorkItem must not record a feature directory outside its own
+    specs root.
+
+    A null directory is **not** a finding — a workflow that has not reached its
+    spec phase simply has none yet, so a freshly initialised repository still
+    validates clean.
+    """
+    directory = speckit_ref(doc)["featureDirectory"]
+    prefix = f"{bound.speckit_specs_relative}/"
+    if not directory or directory.startswith(prefix):
+        return []
+    return [_finding(
+        "feature_directory_outside_workitem", VALIDATE_ERROR,
+        f"workitems/{value} records the feature directory '{directory}', "
+        f"which is not inside {prefix}",
+        workitem=value, path=target,
+    )]
+
+
 def _validate_runtime_state(paths: Paths, value: str,
                             registered: set[str]) -> list[dict]:
-    """§9 "runtime state outside active WorkItem", cases (a) and (b)."""
+    """§9 "runtime state outside active WorkItem", cases (a) and (b), plus the
+    v1.15 feature-directory containment check for a state that passed both."""
     bound = dataclass_replace(paths, workitem=value)
     target = bound.state_file
     if not target.is_file():
@@ -2635,7 +2765,7 @@ def _validate_runtime_state(paths: Paths, value: str,
             f"'{declared}' — it belongs to another WorkItem",
             workitem=value, path=target,
         )]
-    return []
+    return _feature_directory_findings(bound, value, doc, target)
 
 
 def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict]:
@@ -3042,37 +3172,36 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
 
 
 def resolve_artifact_path(
-    state: dict, consts: Constants, gate_key: str, paths: Paths | None = None
+    state: dict, consts: Constants, gate_key: str, paths: Paths
 ) -> tuple[str | None, str | None]:
     """Resolve ARTIFACT_OWNERSHIP's template for ``gate_key``.
 
     Returns ``(resolved_path, skip_reason)``. A skip reason means the gate has
     no comparable artifact yet — not that something failed.
 
-    ARTIFACT_OWNERSHIP is a SKILL.md constant table and T02 does not edit it
-    (T04 owns those templates). The one template that names the runtime —
-    Gate 7's ``.workflow/implementation-manifest.md`` — is re-pointed at the
-    active WorkItem runtime here, in the single place templates are resolved,
-    rather than by teaching every caller to concatenate. Transitional: it goes
-    away when the table itself moves.
+    Two placeholders name a location only the active binding knows:
+    ``{workitem_runtime}`` is the WorkItem runtime (``.workflow`` under the
+    transitional legacy binding) and ``{speckit_feature_directory}`` is
+    ``specKit.featureDirectory``. ``paths`` is therefore a required argument —
+    an omitted binding could otherwise resolve a literal placeholder onto
+    disk. T02's transitional ``.workflow/`` prefix bridge is gone: the
+    templates themselves now carry the placeholder (finding NB-1).
     """
     template = consts.artifact_ownership.get(gate_key)
     if not template or template == "(none)":
         return None, "no artifact registered for this gate"
 
-    resolved = template
-    legacy_prefix = ".workflow/"
-    if paths is not None and resolved.startswith(legacy_prefix):
-        resolved = paths.runtime_relative + "/" + resolved[len(legacy_prefix):]
+    resolved = template.replace("{workitem_runtime}", paths.runtime_relative)
 
-    for placeholder, field_name in (
-        ("{current_feature_id}", "current_feature_id"),
-        ("{security_review_artifact}", "security_review_artifact"),
+    for placeholder, label, value in (
+        ("{speckit_feature_directory}", "speckit_feature_directory",
+         speckit_ref(state)["featureDirectory"]),
+        ("{security_review_artifact}", "security_review_artifact",
+         state.get("security_review_artifact")),
     ):
         if placeholder in resolved:
-            value = state.get(field_name)
             if not value:
-                return None, f"{field_name} is not resolved yet"
+                return None, f"{label} is not resolved yet"
             resolved = resolved.replace(placeholder, str(value))
     return resolved, None
 
@@ -3616,25 +3745,285 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
     return EXIT_OK
 
 
-def cmd_feature_resolve(args, paths: Paths) -> int:
-    """Identify the SpecKit feature directory created by the specify step."""
-    state = read_state(paths)
-    specs = paths.project_root / ".specify" / "specs"
-    candidates = sorted(
-        (p for p in specs.glob("*") if p.is_dir()),
+# --------------------------------------------------------------------------
+# Spec Kit capability detection (contract §10)
+#
+# The repository pins no Spec Kit version and installs from a moving Git HEAD,
+# so what a given installation supports cannot be known at design time. §10's
+# rule is "capability-detect; do not hardcode undocumented internals": SDLE
+# probes the *target project's own* installation for the documented,
+# user-facing environment variables by name. It never executes Spec Kit and
+# never reads one of its internal data structures.
+# --------------------------------------------------------------------------
+
+SPECKIT_REQUIRED_CAPABILITIES = ("SPECIFY_INIT_DIR", "SPECIFY_FEATURE_DIRECTORY")
+SPECKIT_PROBE_SUFFIXES = (".py", ".sh", ".ps1")
+SPECKIT_SCRIPTS_RELATIVE = ".specify/scripts"
+
+
+def repo_relative(paths: Paths, target: Path) -> str:
+    """``target`` as a repo-relative POSIX path. Emitted paths use ``/``."""
+    return str(target.relative_to(paths.project_root)).replace(os.sep, "/")
+
+
+def detect_speckit_capabilities(paths: Paths) -> dict:
+    """Report which required Spec Kit capabilities this installation supports.
+
+    A capability is ``supported`` iff its literal environment-variable name
+    occurs in at least one script Spec Kit itself placed under
+    ``.specify/scripts/``. The first file that names it is recorded as
+    ``evidence`` so a human can check the finding rather than trust it.
+
+    The failure direction is deliberately **closed**: an installation that
+    honours a variable without shipping a script naming it is reported
+    unsupported and `feature bind` refuses. That false negative is accepted and
+    declared — the other direction would have SDLE proceed on an assumption.
+    """
+    speckit_root = paths.project_root / ".specify"
+    scripts_root = speckit_root / "scripts"
+    capabilities = {
+        name: {"supported": False, "evidence": None}
+        for name in SPECKIT_REQUIRED_CAPABILITIES
+    }
+
+    if scripts_root.is_dir():
+        candidates = sorted(
+            p for p in scripts_root.rglob("*")
+            if p.is_file() and p.suffix.lower() in SPECKIT_PROBE_SUFFIXES
+        )
+        for candidate in candidates:
+            outstanding = [name for name in SPECKIT_REQUIRED_CAPABILITIES
+                           if not capabilities[name]["supported"]]
+            if not outstanding:
+                break
+            try:
+                body = candidate.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                # An unreadable file proves nothing; keep the closed default.
+                continue
+            for name in outstanding:
+                if name in body:
+                    capabilities[name] = {
+                        "supported": True,
+                        "evidence": repo_relative(paths, candidate),
+                    }
+
+    return {
+        "speckit_present": speckit_root.is_dir(),
+        "scripts_present": scripts_root.is_dir(),
+        "probed_root": SPECKIT_SCRIPTS_RELATIVE,
+        "capabilities": capabilities,
+        "missing": [name for name in SPECKIT_REQUIRED_CAPABILITIES
+                    if not capabilities[name]["supported"]],
+    }
+
+
+SPECKIT_MISSING_MESSAGE = (
+    "SDLE requires SpecKit to be initialized in this project. Run: "
+    "uvx --from git+https://github.com/github/spec-kit.git specify init . "
+    "--skills --here"
+)
+
+
+def speckit_env(paths: Paths, state: dict) -> list[dict]:
+    """The environment assignments, ordered, as objects — never a shell string.
+
+    The prompt layer quotes for its own platform; emitting ``A=b B=c`` here
+    would bake one shell's quoting rules into the engine.
+    """
+    ref = speckit_ref(state)
+    env = [{"name": "SPECIFY_INIT_DIR", "value": str(paths.project_root)}]
+    if ref["featureDirectory"]:
+        env.append({"name": "SPECIFY_FEATURE_DIRECTORY",
+                    "value": ref["featureDirectory"]})
+    if ref["featureId"]:
+        env.append({"name": "SPECIFY_FEATURE", "value": ref["featureId"]})
+    return env
+
+
+def cmd_feature_bind(args, paths: Paths) -> int:
+    """Re-assert this WorkItem's Spec Kit context before every invocation.
+
+    **Pure.** It reads state and the filesystem and writes nothing: no state,
+    no audit, no file under ``.specify/``. Spec Kit keeps exactly one
+    repository-global feature slot, so a stale one could otherwise hand this
+    WorkItem another's directory; re-asserting the environment at every
+    invocation — together with the gate precondition, which a hook cannot
+    bypass — is what closes that.
+
+    `feature` is deliberately absent from RUNTIME_FREE_COMMANDS, so
+    ``bind_workitem`` has already run by the time this handler is entered:
+    WorkItem resolution structurally precedes anything Spec Kit-related.
+    """
+    detected = detect_speckit_capabilities(paths)
+    if not detected["speckit_present"]:
+        raise Refused(
+            "speckit_missing", SPECKIT_MISSING_MESSAGE,
+            {"path": str(paths.project_root / ".specify"),
+             "probed_root": detected["probed_root"]},
+        )
+    if detected["missing"]:
+        raise Refused(
+            "speckit_capability_missing",
+            "The SpecKit installed in this project does not support "
+            f"{', '.join(detected['missing'])} — SDLE needs it to scope a "
+            f"feature to this WorkItem, and will not guess. Probed "
+            f"{detected['probed_root']}/. Re-initialize SpecKit with a "
+            "version that supports it.",
+            {
+                "missing": detected["missing"],
+                "probed_root": detected["probed_root"],
+                "capabilities": detected["capabilities"],
+            },
+        )
+
+    # A project with no runtime yet still gets a usable binding: `specKit`
+    # simply reads as all-null, and --require-feature is what refuses.
+    state = read_state(paths) if paths.state_file.is_file() else {}
+    ref = speckit_ref(state)
+    if getattr(args, "require_feature", False) and not ref["featureDirectory"]:
+        raise Refused(
+            "feature_directory_unresolved",
+            "No feature directory is recorded for this WorkItem yet. Run "
+            "`feature resolve` after the specification step.",
+            {"workitem": paths.workitem,
+             "specs_root": paths.speckit_specs_relative},
+        )
+
+    emit("feature bind", {
+        "workitem": paths.workitem,
+        "feature_id": ref["featureId"],
+        "feature_directory": ref["featureDirectory"],
+        "workitem_specs_root": paths.speckit_specs_relative,
+        "env": speckit_env(paths, state),
+        "capabilities": detected["capabilities"],
+    })
+    return EXIT_OK
+
+
+def cmd_feature_capabilities(args, paths: Paths) -> int:
+    """Report what the installed SpecKit supports. A diagnostic: never refuses.
+
+    Same shape as `workitem resolve` — it reports, it never picks, and the
+    refusal lives at `feature bind`.
+    """
+    emit("feature capabilities", detect_speckit_capabilities(paths))
+    return EXIT_OK
+
+
+def _feature_candidates(directory: Path) -> list[Path]:
+    """Feature directories in one tier, newest first. Baseline's rule."""
+    if not directory.is_dir():
+        return []
+    return sorted(
+        (p for p in directory.glob("*") if p.is_dir()),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
-    ) if specs.is_dir() else []
+    )
+
+
+def _adopt_feature_directory(paths: Paths, source: Path, target: Path) -> dict:
+    """Move a natively-created feature directory into this WorkItem.
+
+    Bounded and non-destructive by construction: it refuses rather than
+    overwrites, verifies both endpoints resolve inside the project root before
+    touching anything, and leaves the source in place on any OSError. It is a
+    *move*, so exactly one copy of the artifact exists at every instant — SDLE
+    never duplicates a Spec Kit-owned file (contract §10, TP-005).
+    """
+    if target.exists():
+        raise Refused(
+            "feature_target_exists",
+            f"{repo_relative(paths, target)} already exists. SDLE will not "
+            "overwrite or merge a feature directory; move or remove it "
+            "deliberately first.",
+            {"from": repo_relative(paths, source),
+             "to": repo_relative(paths, target)},
+        )
+
+    root = paths.project_root.resolve()
+    for endpoint in (source, target):
+        try:
+            endpoint.resolve().relative_to(root)
+        except ValueError:
+            raise Refused(
+                "feature_adopt_failed",
+                f"{endpoint} does not resolve inside the project root. "
+                "Nothing was moved.",
+                {"path": str(endpoint), "project_root": str(root)},
+            ) from None
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(source), str(target))
+    except OSError as exc:
+        raise Refused(
+            "feature_adopt_failed",
+            f"Could not move {repo_relative(paths, source)} into this "
+            f"WorkItem: {exc}. The source was left untouched.",
+            {"from": repo_relative(paths, source),
+             "to": repo_relative(paths, target), "error": str(exc)},
+        ) from None
+
+    return {"from": repo_relative(paths, source),
+            "to": repo_relative(paths, target)}
+
+
+def cmd_feature_resolve(args, paths: Paths) -> int:
+    """Identify — and where necessary adopt — this WorkItem's feature directory.
+
+    Under the transitional legacy binding the behaviour is baseline's exactly:
+    scan `.specify/specs/`, newest mtime wins, refuse rather than guess. T11
+    removes that rung, not T04.
+
+    Under a WorkItem, candidates are collected in a **fixed tier order** and
+    the first tier that yields anything is used:
+
+      1. ``workitems/<id>/specs/*``  — already contained;
+      2. ``<project-root>/specs/*``  — where Spec Kit 0.15.0 actually creates
+         a feature, since it hardcodes ``repo_root/specs`` for *creation*;
+      3. ``.specify/specs/*``        — where pre-v1.15 SDLE assumed it was.
+
+    That is precedence, not a tie-break between peers, and it is why T04
+    discovers the native directory instead of hardcoding a creation path no
+    unpinned Spec Kit install can guarantee. Nothing under another WorkItem is
+    ever a candidate: no tier reaches into ``workitems/<other-id>/``.
+
+    Within the chosen tier the baseline selection rule is unchanged — newest
+    mtime, and `feature_ambiguous` when the two newest share a timestamp.
+    """
+    state = read_state(paths)
+    specs_root = paths.speckit_specs_root
+    legacy = specs_root is None
+
+    if legacy:
+        tiers = [(".specify/specs", paths.project_root / ".specify" / "specs")]
+    else:
+        tiers = [
+            (paths.speckit_specs_relative, specs_root),
+            ("specs", paths.project_root / "specs"),
+            (".specify/specs", paths.project_root / ".specify" / "specs"),
+        ]
+
+    searched: list[str] = []
+    chosen_tier: str | None = None
+    candidates: list[Path] = []
+    for label, directory in tiers:
+        searched.append(label)
+        found = _feature_candidates(directory)
+        if found:
+            chosen_tier, candidates = label, found
+            break
 
     if not candidates:
         raise Refused(
             "feature_unresolved",
-            "No feature directory found under .specify/specs/. The "
-            "specification step did not produce one.",
-            {"searched": str(specs)},
+            "No feature directory found under "
+            + ", ".join(f"{name}/" for name in searched)
+            + ". The specification step did not produce one.",
+            {"searched": searched},
         )
 
-    chosen = candidates[0].name
     ambiguous = (
         len(candidates) > 1
         and candidates[0].stat().st_mtime == candidates[1].stat().st_mtime
@@ -3642,16 +4031,44 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     if ambiguous:
         raise Refused(
             "feature_ambiguous",
-            "Multiple feature directories share the newest timestamp; "
-            "cannot choose between them.",
-            {"candidates": [p.name for p in candidates]},
+            f"Multiple feature directories under {chosen_tier}/ share the "
+            "newest timestamp; cannot choose between them.",
+            {"candidates": [p.name for p in candidates],
+             "searched": searched, "tier": chosen_tier},
         )
 
-    state["current_feature_id"] = chosen
+    source = candidates[0]
+    chosen = source.name
+    adopted = None
+    if legacy:
+        directory = f".specify/specs/{chosen}"
+    else:
+        target = specs_root / chosen
+        if source != target:
+            adopted = _adopt_feature_directory(paths, source, target)
+        directory = f"{paths.speckit_specs_relative}/{chosen}"
+
+    if adopted is not None:
+        append_audit(
+            paths, state, phase=state.get("current_phase") or "unknown",
+            event="speckit_feature_adopted",
+            message=f"Feature directory adopted into this WorkItem: "
+                    f"{adopted['from']} -> {adopted['to']}.",
+            artifact=adopted["to"],
+        )
+
+    speckit_set(state, featureId=chosen, featureDirectory=directory)
     save_state(paths, state, args.session)
     emit(
         "feature resolve",
-        {"feature_id": chosen, "candidates": [p.name for p in candidates]},
+        {
+            "feature_id": chosen,
+            "feature_directory": directory,
+            "candidates": [p.name for p in candidates],
+            "searched": searched,
+            "tier": chosen_tier,
+            "adopted": adopted,
+        },
     )
     return EXIT_OK
 
@@ -3682,6 +4099,9 @@ REQUIRED_MANIFEST_SECTIONS = (
 )
 
 
+SPECKIT_GATE_KEYS = ("gate_spec", "gate_plan", "gate_tasks", "gate_analyze")
+
+
 def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
                            gate_key: str, resolved: str | None) -> None:
     """Gate-specific refusals that must hold at the choke point.
@@ -3690,7 +4110,31 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     one gate whose completeness can be checked mechanically. A hook can be
     skipped; this refusal cannot — an implementation whose secrets scan or
     tests never ran does not reach a human decision.
+
+    The four Spec Kit gates carry a second such refusal. Spec Kit keeps a
+    single repository-global feature slot, so a stale one can point this
+    WorkItem at another's directory; a WorkItem's gate must never approve
+    another WorkItem's artifact. Skipped under the transitional legacy
+    binding, which has no WorkItem to contain anything to.
     """
+    if gate_key in SPECKIT_GATE_KEYS:
+        if not resolved or paths.workitem is None:
+            return None
+        directory = speckit_ref(state)["featureDirectory"]
+        prefix = f"{paths.speckit_specs_relative}/"
+        if not directory or not directory.startswith(prefix):
+            raise Refused(
+                "feature_outside_workitem",
+                f"Cannot approve {gate_key}: the recorded feature directory "
+                f"({directory or 'none'}) is not inside {prefix}. A "
+                f"WorkItem's gate never approves another WorkItem's "
+                f"artifact. Re-run `feature resolve` while bound to "
+                f"'{paths.workitem}'.",
+                {"gate": gate_key, "workitem": paths.workitem,
+                 "feature_directory": directory, "expected_prefix": prefix},
+            )
+        return None
+
     if gate_key != "gate_implement" or not resolved:
         return None
 
@@ -4672,16 +5116,19 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
 
     ref = base or "HEAD~1"
     _, stat = git(paths, "diff", "--stat", ref)
-    _, diff = git(
-        paths, "diff", ref, "--", ".", ":(exclude).specify",
-        f":(exclude){paths.runtime_relative}",
-    )
+    # The feature directory is governed input to the review, not part of the
+    # implementation diff. It moved under the WorkItem in v1.15, so excluding
+    # `.specify` alone is no longer enough.
+    excludes = [":(exclude).specify", f":(exclude){paths.runtime_relative}"]
+    feature_directory = speckit_ref(state)["featureDirectory"]
+    if feature_directory:
+        excludes.append(f":(exclude){feature_directory}")
+    _, diff = git(paths, "diff", ref, "--", ".", *excludes)
 
-    feature = state.get("current_feature_id")
     candidates = [".specify/memory/constitution.md"]
-    if feature:
+    if feature_directory:
         candidates += [
-            f".specify/specs/{feature}/{name}.md"
+            f"{feature_directory}/{name}.md"
             for name in ("spec", "plan", "tasks")
         ]
     present = [c for c in candidates if (paths.project_root / c).is_file()]
@@ -4705,7 +5152,10 @@ def cmd_preflight(args, paths: Paths) -> int:
     root = paths.project_root
     problems = []
 
-    speckit_present = (root / ".specify").is_dir()
+    # One source of truth for what SpecKit supports here: `feature bind`
+    # refuses on it, `feature capabilities` reports it, preflight surfaces it.
+    detected = detect_speckit_capabilities(paths)
+    speckit_present = detected["speckit_present"]
     if not speckit_present:
         problems.append("speckit_missing")
 
@@ -4753,13 +5203,16 @@ def cmd_preflight(args, paths: Paths) -> int:
         "python_version": ".".join(str(v) for v in sys.version_info[:3]),
         "script_reachable": True,
         "problems": problems,
+        # Additive: preflight's own `problems` list, refusal reasons and
+        # messages are unchanged. A missing capability is reported here and
+        # refused at `feature bind`, not turned into a preflight refusal.
+        "speckit_capabilities": detected["capabilities"],
+        "speckit_capability_problems": detected["missing"],
     }
 
     if problems:
         messages = {
-            "speckit_missing": "SDLE requires SpecKit to be initialized in this "
-            "project. Run: uvx --from git+https://github.com/github/spec-kit.git "
-            "specify init . --skills --here",
+            "speckit_missing": SPECKIT_MISSING_MESSAGE,
             "speckit_skills_missing": "SDLE cannot locate SpecKit skills. "
             "Re-initialize SpecKit with --skills.",
             "requirements_missing": "I need requirements before starting the "
@@ -5330,7 +5783,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     feature_p = subparsers.add_parser("feature", help="SpecKit feature directory.")
     feature_sub = feature_p.add_subparsers(dest="subcommand", required=True)
-    fresolve = feature_sub.add_parser("resolve", help="Identify current_feature_id.")
+    fbind = feature_sub.add_parser(
+        "bind", help="Emit this WorkItem's feature environment. Writes nothing."
+    )
+    fbind.add_argument(
+        "--require-feature", action="store_true",
+        help="Refuse when no feature directory is recorded for this WorkItem.",
+    )
+    fbind.set_defaults(handler=cmd_feature_bind)
+    fcaps = feature_sub.add_parser(
+        "capabilities", help="Report what the installed SpecKit supports."
+    )
+    fcaps.set_defaults(handler=cmd_feature_capabilities)
+    fresolve = feature_sub.add_parser(
+        "resolve", help="Identify the feature directory for this WorkItem."
+    )
     fresolve.set_defaults(handler=cmd_feature_resolve)
 
     sr_p = subparsers.add_parser("security-review", help="Phase 17 support.")

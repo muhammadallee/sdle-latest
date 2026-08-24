@@ -31,6 +31,10 @@ GATES = [
 
 def run_happy_path(project) -> list[str]:
     """Drive the whole workflow, returning every phase state passed through."""
+    # v1.15: Spec Kit's WorkItem artifacts live under the WorkItem, so the
+    # feature directory comes from the project this helper was handed —
+    # test_units_workitem_runtime drives a second WorkItem through it.
+    feature_dir = project.feature_dir(FEATURE)
     seen: list[str] = []
 
     def note():
@@ -48,7 +52,7 @@ def run_happy_path(project) -> list[str]:
     note()  # spec_draft
 
     # Phase 4 -> Gate 2 (feature id resolved from the specs directory)
-    project.write_artifact(f".specify/specs/{FEATURE}/spec.md")
+    project.write_artifact(f"{feature_dir}/spec.md")
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
     note()
@@ -57,24 +61,24 @@ def run_happy_path(project) -> list[str]:
     note()  # plan_draft
 
     # Phase 6 -> Gate 3
-    project.write_artifact(f".specify/specs/{FEATURE}/plan.md")
+    project.write_artifact(f"{feature_dir}/plan.md")
     project.ok("advance", "--to", "gate_plan")
     note()
     project.ok("gate", "approve", "--gate", "gate_plan")
     note()  # checklist_draft
 
     # Phases 8 and 9 run back to back; both are reviewed at Gate 4.
-    project.write_artifact(f".specify/specs/{FEATURE}/checklist.md")
+    project.write_artifact(f"{feature_dir}/checklist.md")
     project.ok("advance", "--to", "tasks_draft")
     note()
-    project.write_artifact(f".specify/specs/{FEATURE}/tasks.md")
+    project.write_artifact(f"{feature_dir}/tasks.md")
     project.ok("advance", "--to", "gate_tasks")
     note()
     project.ok("gate", "approve", "--gate", "gate_tasks")
     note()  # analyze
 
     # Phase 11 -> Gate 5 (same tasks.md, refined)
-    project.write_artifact(f".specify/specs/{FEATURE}/tasks.md",
+    project.write_artifact(f"{feature_dir}/tasks.md",
                            "# Tasks (refined by analysis)\n\n" + "T001. " * 40)
     project.ok("drift", "rebaseline", "--gate", "gate_tasks")
     project.ok("advance", "--to", "gate_analyze")

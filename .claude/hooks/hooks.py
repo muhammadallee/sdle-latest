@@ -49,6 +49,15 @@ PROJECT_DIR = _project_dir()
 FENCED = (".workflow", "workitems", "requirements", "guidance")
 SCANNED = ("requirements", "guidance", "clarifications")
 
+# The one carve-out in the fence. As of v1.15 a WorkItem's Spec Kit feature
+# directory lives at workitems/<id>/specs/, and those artifacts are SpecKit's
+# own -- SDLE never writes them and never governs them, so fencing them would
+# block legitimate work. Matched on a path-segment boundary, like `in_dir`,
+# so it works for both the repo-relative and the absolute form Claude Code
+# passes. Nothing else under workitems/ is exempt: the registry, workitem.json
+# and the whole <id>/.sdle/ runtime stay denied.
+SPECS_CARVE_OUT = re.compile(r"(?:^|/)workitems/[^/]+/specs/")
+
 FENCE_REASONS = {
     ".workflow": (
         "'.workflow/' is owned by the SDLE engine. State and audit are written "
@@ -62,10 +71,9 @@ FENCE_REASONS = {
         "(workitems/index.md), each WorkItem's identity (workitem.json) and "
         "the WorkItem runtime (workitems/<id>/.sdle/) are written only by "
         "scripts/sdle.py — a hand-edited registry is unrecoverable. Use "
-        "`workitem create`, or the matching sdle.py subcommand. NOTE for the "
-        "phase that moves clarifications/, reviews/ and Spec Kit artifacts "
-        "under workitems/: fence the whole tree today and carve out those "
-        "artifact subpaths then; loosening later is a one-line change."
+        "`workitem create`, or the matching sdle.py subcommand. One subtree "
+        "is carved out: workitems/<id>/specs/ holds SpecKit's own artifacts, "
+        "which SDLE neither writes nor governs, so it is not fenced."
     ),
     "requirements": (
         "'requirements/' is the user's ground-truth input. SDLE reads it as "
@@ -142,6 +150,8 @@ def write_fence(payload):
     """Governance files have exactly one writer: the engine (invariant 6)."""
     path = tool_path(payload)
     if not path:
+        return
+    if SPECS_CARVE_OUT.search(relative(path)):
         return
     for name in FENCED:
         if in_dir(path, name):
