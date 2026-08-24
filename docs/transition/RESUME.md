@@ -2,27 +2,27 @@
 
 Cold-start note for the next session. Authority order is unchanged: the repository, `transition.md`, `progress.md`, and the persisted phase artifacts. **This file is a convenience, not a source of truth** — if it disagrees with `progress.md` or the repo, they win.
 
-Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=3/12 next=T03`, exit 0.
+Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=4/12 next=T04`, exit 0.
 
 ---
 
 ## The next action
 
-**Run a fresh T03 planner** (`sdle-transition-planner`) against `transition.md` §9 — *WorkItem Resolution and Parallel Developer Isolation*.
+**Run a fresh T04 planner** (`sdle-transition-planner`) against `transition.md` §10 — *Spec Kit WorkItem Context*.
 
-T02 is `COMPLETE`: independently verified `PASS` in a fresh context, artifact `docs/transition/phases/T02-verification-a01.md`. Nothing about T02 is outstanding.
+T03 is `COMPLETE`: independently verified `PASS`, artifact `docs/transition/phases/T03-verification-a01.md`. Nothing about T03 is outstanding.
 
-T03 is where the resolution ladder grows the rungs T02 deliberately withheld. T02 shipped only the subset — explicit `--workitem` → sole registered WorkItem → legacy dual-read → refuse `workitem_required` → refuse `workitem_ambiguous`. T03 owns **CWD-based resolution, persisted active context, branch/WorkItem metadata, AI-assisted inference, and asking the user**, plus branch/worktree rules and the new `sdle validate` checks. Contract §9's mandatory ambiguity behaviour is absolute: `>1 plausible -> ASK`. Never silently pick.
+**T04 carries a specific inherited debt.** Finding NB-1 from T02: `resolve_artifact_path` contains a transitional `.workflow/` prefix bridge (`legacy_prefix = ".workflow/"`) that re-points the Gate 7 `ARTIFACT_OWNERSHIP` template at the WorkItem runtime without editing the SKILL.md table. T02 was allowed to add it; **T04 must delete it** when it moves `ARTIFACT_OWNERSHIP`, not inherit it. Verified present and unchanged at `8c4425b`.
 
 ## State
 
 | | |
 |---|---|
 | Branch | `transition/workitem-v1` |
-| Phases complete | T00, T01, T02 (all independently verified PASS) |
-| Rollback point for T03 | `ab889a1` (T02) |
+| Phases complete | T00, T01, T02, T03 (all independently verified PASS) |
+| Rollback point for T04 | `beb28f2` (T03 implementation) |
 | SDLE product baseline | `f8fdaa0` |
-| Suite | 341 passed, raw exit 0 (verified twice, 341 collected, zero skips/xfails/errors) |
+| Suite | **438 passed, raw exit 0** (438 collected, zero skips/xfails/errors; ~8 min) |
 | `lint-skill` | 22/22, v1.14, 19 phases / 8 gates / 14 migration rows |
 | Python 3.11 / CI | `NOT_RUN` / `UNKNOWN` — never observed at any point |
 
@@ -39,17 +39,26 @@ It says "21 top-level subcommands". The verified count is **65 `add_parser` regi
 
 ## Open findings carried forward, by owning phase
 
-From `T02-verification-a01.md` §Findings. **None is blocking**; all seven are documentation gaps, coverage gaps or stale figures, and none changes shipped engine behaviour.
+From `T02-verification-a01.md` and `T03-verification-a01.md`. **None is blocking.**
 
 | ID | Owner | What |
 |---|---|---|
-| NB-3 | **T03 — input** | The dirty-tree tripwire cannot fire in a multi-WorkItem repository, because the hook correctly refuses to guess. A real coverage reduction that only T03's resolution can restore. Feed this into T03 planning. |
-| NB-1 | T04 | `.workflow/` is now a magic prefix inside `resolve_artifact_path`. T04 must **delete** the transitional bridge when it moves `ARTIFACT_OWNERSHIP`, not inherit it. |
-| NB-2 | T11 | The `legacy_workflow_present` refusal names only `migrate-workflow`. Post-migration, following it for a second WorkItem *clones* the migrated legacy workflow; archiving `.workflow/` by hand is the real remedy and is never named. |
-| NB-4 | T11 / hardening | The post-commit `workitem.json` write sits outside the commit window; a crash there leaves a resolvable target with no `migration` object and `target_exists` blocking re-run. |
-| NB-5 | T11 | The migration crash test injects at writes #2–#5 only; the optional manifest and completion-summary copies are never exercised. |
-| NB-6 | process | Two T02 handoff figures are wrong: `tests/test_units_workitem.py` is 46/29, not 34/22 (stale evidence — every hunk is still declared, so no undeclared scope); and the A15 grep is not empty, it returns `--skip-tests`, an SDLE CLI flag rather than a pytest marker. Handoff figures need re-deriving, not copying. |
-| NB-7 | none | `6e8af8c`'s `write_atomic` comment contains a stray word ("ponytail:"). Cosmetic, out of transition scope. |
+| NB-1 (T02) | **T04 — must delete** | The transitional `.workflow/` prefix bridge in `resolve_artifact_path`. T04 must remove it when it moves `ARTIFACT_OWNERSHIP`, not inherit it. |
+| T03-1 | **T11 hardening** | Declared fail-open window in `branch_guard`, reproduced by the verifier: switching branch *between* the two steps of `skip`/`reset`/`restart`/`implement preflight` lets the action run with no `branch_mismatch` audited. Minimal fix is a dedicated `pending_branch_ack` key so the branch acknowledgement stops sharing a slot with the command's own confirmation — needs a schema change, hence T11. |
+| T03-4 | any phase | `ACTIVE_CONTEXT_SETTERS` is dead in production code (invariant 7 smell) — referenced only by a test while the real `setBy` values are string literals at three call sites. Wire it in or drop it. |
+| T03-5 | any phase | `cmd_workitem_use` is not error-hardened like `cmd_init`/`cmd_migrate_workflow`: neither `write_active_context` nor `clear_active_context` is wrapped, so an `OSError` escapes as a traceback instead of a contract exit code. |
+| T03-6 | any phase | `cmd_workitem_use` reuses the reason string `workitem_required` for a `UsageError` (exit 2), colliding with the resolution refusal (exit 1). Exit codes disambiguate; the name carries two meanings. |
+| T03-7 | any phase | Untested edge-case ordering change: `init` in a repo with **both** a corrupt `workitems/index.md` and a legacy `.workflow/state.json` now reports `index_malformed` (exit 3) rather than `legacy_workflow_present` (exit 1). Fails closed, but nothing pins it. |
+| T03-8 | any phase | On a mismatched branch the second invocation audits `branch_mismatch_accepted` even when the command then refuses for its own reason — the ledger records an acceptance for an action that did not occur. |
+| T03-10 | docs | `SKILL.md`'s branch-mismatch paragraph says "re-run the same command — which proceeds"; exact for the five single-step critical commands, but `skip`/`reset`/`restart`/`implement preflight` yield their own confirmation step first. The Reference Guide already words this correctly. |
+| NB-2, NB-4, NB-5 (T02) | T11 | Legacy-removal and migration-hardening items: the `legacy_workflow_present` message never names archiving `.workflow/`; the post-commit `workitem.json` write sits outside the commit window; the migration crash test never exercises the manifest/completion copies. |
+
+### Process lessons, not code findings
+
+- **T03-2/T03-3 — handoff evidence must be re-derived, not asserted.** T03's handoff over-cited the plan (claiming D5 "considered and rejected" sticky acknowledgement, which D5 never mentions) and claimed an empty skip/xfail grep that in fact matches a pre-existing `@pytest.mark.skipif` in `test_units_infra.py`. Both *conclusions* were right; the *evidence* was not. Check what a grep actually matches before quoting it.
+- **Checkpoints can be accurate about the engine and wrong about tests.** T03's checkpoints 01–04 implied test files existed that did not. A resuming agent must verify claimed state against disk — `--collect-only` is the cheap check.
+- **The `rtk` shell proxy will hand you a false green.** Plain `python -m pytest` prints `Pytest: No tests collected` and exits 0. Use `rtk proxy python -m pytest`, redirect to a file, and read `$?` with no pipe between. It also truncates `git diff` and `grep`; `rtk proxy "<command>"` returns full output and changes nothing about what executes.
+- **The full suite takes ~8 minutes.** Give it a 600000 ms timeout; the default 2 min kills it mid-run.
 
 ## Control plane
 
