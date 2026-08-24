@@ -2,28 +2,28 @@
 
 Cold-start note for the next session. Authority order is unchanged: the repository, `transition.md`, `progress.md`, and the persisted phase artifacts. **This file is a convenience, not a source of truth** — if it disagrees with `progress.md` or the repo, they win.
 
-Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=4/12 next=T04`, exit 0.
+Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=5/12 next=T05`, exit 0.
 
 ---
 
 ## The next action
 
-**Run a fresh T04 planner** (`sdle-transition-planner`) against `transition.md` §10 — *Spec Kit WorkItem Context*.
+**Run a fresh T05 planner** (`sdle-transition-planner`) against `transition.md` §11 — *Introduce Repository-Level `.sdle/` Configuration Boundary*.
 
-T03 is `COMPLETE`: independently verified `PASS`, artifact `docs/transition/phases/T03-verification-a01.md`. Nothing about T03 is outstanding.
+T04 is `COMPLETE`: independently verified `PASS`, artifact `docs/transition/phases/T04-verification-a01.md`. Its one HIGH finding (N-1) was closed as a follow-up at `7b054ee`.
 
-**T04 carries a specific inherited debt.** Finding NB-1 from T02: `resolve_artifact_path` contains a transitional `.workflow/` prefix bridge (`legacy_prefix = ".workflow/"`) that re-points the Gate 7 `ARTIFACT_OWNERSHIP` template at the WorkItem runtime without editing the SKILL.md table. T02 was allowed to add it; **T04 must delete it** when it moves `ARTIFACT_OWNERSHIP`, not inherit it. Verified present and unchanged at `8c4425b`.
+**T05 closes the contract's stability gate.** §5 says: *"Do not skip directly to T07+ before T01–T05 are stable."* After T05 the migration crosses from structural work into semantic change — T07 onward alters lifecycle semantics, where T00–T06 do not.
 
 ## State
 
 | | |
 |---|---|
 | Branch | `transition/workitem-v1` |
-| Phases complete | T00, T01, T02, T03 (all independently verified PASS) |
-| Rollback point for T04 | `beb28f2` (T03 implementation) |
+| Phases complete | T00, T01, T02, T03, T04 (all independently verified PASS) |
+| Rollback point for T05 | `7b054ee` (T04 + the N-1 follow-up) |
 | SDLE product baseline | `f8fdaa0` |
-| Suite | **438 passed, raw exit 0** (438 collected, zero skips/xfails/errors; ~8 min) |
-| `lint-skill` | 22/22, v1.14, 19 phases / 8 gates / 14 migration rows |
+| Suite | **500 passed, raw exit 0** (~17 min — it has grown; budget for it) |
+| `lint-skill` | 22/22, **v1.15**, 19 phases / 8 gates / **15 migration rows** |
 | Python 3.11 / CI | `NOT_RUN` / `UNKNOWN` — never observed at any point |
 
 ## Three things a fresh context will otherwise get wrong
@@ -39,19 +39,21 @@ It says "21 top-level subcommands". The verified count is **65 `add_parser` regi
 
 ## Open findings carried forward, by owning phase
 
-From `T02-verification-a01.md` and `T03-verification-a01.md`. **None is blocking.**
+From the T02, T03 and T04 verification artifacts. **None is blocking.** T02's NB-1 and T04's N-1 are closed and no longer listed.
 
 | ID | Owner | What |
 |---|---|---|
-| NB-1 (T02) | **T04 — must delete** | The transitional `.workflow/` prefix bridge in `resolve_artifact_path`. T04 must remove it when it moves `ARTIFACT_OWNERSHIP`, not inherit it. |
-| T03-1 | **T11 hardening** | Declared fail-open window in `branch_guard`, reproduced by the verifier: switching branch *between* the two steps of `skip`/`reset`/`restart`/`implement preflight` lets the action run with no `branch_mismatch` audited. Minimal fix is a dedicated `pending_branch_ack` key so the branch acknowledgement stops sharing a slot with the command's own confirmation — needs a schema change, hence T11. |
-| T03-4 | any phase | `ACTIVE_CONTEXT_SETTERS` is dead in production code (invariant 7 smell) — referenced only by a test while the real `setBy` values are string literals at three call sites. Wire it in or drop it. |
-| T03-5 | any phase | `cmd_workitem_use` is not error-hardened like `cmd_init`/`cmd_migrate_workflow`: neither `write_active_context` nor `clear_active_context` is wrapped, so an `OSError` escapes as a traceback instead of a contract exit code. |
-| T03-6 | any phase | `cmd_workitem_use` reuses the reason string `workitem_required` for a `UsageError` (exit 2), colliding with the resolution refusal (exit 1). Exit codes disambiguate; the name carries two meanings. |
-| T03-7 | any phase | Untested edge-case ordering change: `init` in a repo with **both** a corrupt `workitems/index.md` and a legacy `.workflow/state.json` now reports `index_malformed` (exit 3) rather than `legacy_workflow_present` (exit 1). Fails closed, but nothing pins it. |
-| T03-8 | any phase | On a mismatched branch the second invocation audits `branch_mismatch_accepted` even when the command then refuses for its own reason — the ledger records an acceptance for an action that did not occur. |
-| T03-10 | docs | `SKILL.md`'s branch-mismatch paragraph says "re-run the same command — which proceeds"; exact for the five single-step critical commands, but `skip`/`reset`/`restart`/`implement preflight` yield their own confirmation step first. The Reference Guide already words this correctly. |
-| NB-2, NB-4, NB-5 (T02) | T11 | Legacy-removal and migration-hardening items: the `legacy_workflow_present` message never names archiving `.workflow/`; the post-commit `workitem.json` write sits outside the commit window; the migration crash test never exercises the manifest/completion copies. |
+| T04 N-2 | **T11 hardening** | Spec Kit discovery tier 2 (`<project-root>/specs/*`) is a repository-global staging area picked by **newest mtime**, so two WorkItems at Phase 4 concurrently can cross-adopt each other's feature directory. Not covered by any existing test. The same heuristic is the recovery path for a migrated workflow, so a repo with a stray root-level `specs/` could adopt the wrong one. |
+| T04 N-7 | **any phase** | `cmd_security_review_evidence` got an exclude for the Spec Kit relocation; `cmd_manifest_build` did not, so the Gate 7 manifest now lists the WorkItem's Spec Kit artifacts as changed files. |
+| T04 N-3 | any phase | The write-fence carve-out matches a **non-normalised** path, so `workitems/<id>/specs/../.sdle/state.json` escapes it. |
+| T04 N-6 | **T11 documentation sweep** | The T02 `.workflow/` residual: stale runtime paths in `phase-execution.md` (39/169/173/178/192) and `gate-protocol.md` (66/86/104). T04 widened the gap at line 178. Also `docs/dry-runs/` carries ~17 further stale path lines, deliberately untouched. |
+| T04 N-4 | any phase | `SKILL.md:358` became inaccurate through T04's own fence carve-out. |
+| T03-1 | **T11 hardening** | Declared fail-open window in `branch_guard`, reproduced by the verifier: switching branch *between* the two steps of `skip`/`reset`/`restart`/`implement preflight` lets the action run with no `branch_mismatch` audited. Minimal fix is a dedicated `pending_branch_ack` key — needs a schema change, hence T11. |
+| T03-4/5/6 | any phase | `ACTIVE_CONTEXT_SETTERS` is dead in production code (invariant 7 smell); `cmd_workitem_use` is not error-hardened like its siblings, so an `OSError` escapes as a traceback; and it reuses the reason string `workitem_required` for a `UsageError` (exit 2), colliding with the resolution refusal (exit 1). **Explicitly not adopted by T04** — not incidental to its edits. |
+| T03-7/8 | any phase | Untested edge-case ordering change (`init` with both a corrupt index and legacy state reports `index_malformed`, not `legacy_workflow_present`); and on a mismatched branch the ledger records `branch_mismatch_accepted` even when the command then refuses for its own reason. |
+| T03-10 | docs | `SKILL.md`'s branch-mismatch paragraph says "re-run the same command — which proceeds"; exact for the five single-step critical commands, but `skip`/`reset`/`restart`/`implement preflight` yield their own confirmation step first. |
+| T02 NB-2/4/5 | T11 | The `legacy_workflow_present` message never names archiving `.workflow/`; the post-commit `workitem.json` write sits outside the commit window; the migration crash test never exercises the manifest/completion copies. |
+| — | unassigned | `design/`, `reviews/`, `clarifications/` stay repository-level (T04's explicit decision, recorded as a residual). `design/app/app-design.md` remains shared across WorkItems. |
 
 ### Process lessons, not code findings
 
