@@ -203,9 +203,12 @@ class Project:
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "commit.gpgsign", "false")
         # Mirrors the shipped .gitignore: the legacy runtime is ignored whole,
-        # but WorkItem records are versioned — only the lock is local.
+        # but WorkItem records are versioned — only the lock and the
+        # developer-local active context are ignored.
         (self.root / ".gitignore").write_text(
-            ".workflow/\nworkitems/*/.sdle/lock\n", encoding="utf-8"
+            ".workflow/\nworkitems/*/.sdle/lock\n"
+            "workitems/.active-context.json\n",
+            encoding="utf-8",
         )
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "fixture baseline")

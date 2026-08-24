@@ -114,6 +114,11 @@ class Paths:
     project_root: Path
     skill_root: Path
     workitem: str | None = None
+    # Where the developer actually launched from. Contract §9 allows four
+    # launch locations, and resolution rung 2 needs the real directory, not the
+    # repository root that was discovered from it. ``None`` only when a caller
+    # constructs ``Paths`` directly instead of going through ``resolve_paths``.
+    launch_cwd: Path | None = None
 
     @property
     def legacy_workflow(self) -> Path:
@@ -209,9 +214,55 @@ def _candidate_skill_roots(script_path: Path, project_root: Path) -> list[Path]:
     ]
 
 
+# Markers that identify a repository root, tested in this order at every level
+# of the upward walk. `workitems/index.md` comes first because a WorkItem
+# registry is the most specific statement a repository makes about itself; the
+# legacy runtime is next; `.git` is the weakest signal and therefore last.
+PROJECT_ROOT_MARKERS = (
+    ("workitems", "index.md"),
+    (".workflow", "state.json"),
+    (".git",),
+)
+
+
+def discover_project_root(start: Path) -> Path | None:
+    """Nearest ancestor of ``start`` (inclusive) that carries a marker.
+
+    Contract §9 lets Claude launch from ``workitems/<id>/``, ``workitems/``,
+    the repository root, or anywhere inside the repository. Treating the launch
+    directory *as* the repository root makes every path below it wrong, so the
+    root is discovered rather than assumed. Nearest ancestor wins, so a nested
+    checkout never resolves to its parent repository.
+    """
+    for candidate in (start, *start.parents):
+        for marker in PROJECT_ROOT_MARKERS:
+            if candidate.joinpath(*marker).exists():
+                return candidate
+    return None
+
+
+def _within(child: Path, parent: Path) -> bool:
+    """True when ``child`` is ``parent`` or lives beneath it."""
+    return child == parent or parent in child.parents
+
+
 def resolve_paths(project_root: str | None, skill_root: str | None) -> Paths:
-    proj = Path(project_root or os.environ.get("SDLE_PROJECT_ROOT") or Path.cwd())
-    proj = proj.resolve()
+    try:
+        launch = Path.cwd().resolve()
+    except OSError:  # the launch directory was deleted underneath us
+        launch = Path(".").absolute()
+
+    explicit_root = project_root or os.environ.get("SDLE_PROJECT_ROOT")
+    if explicit_root:
+        proj = Path(explicit_root).resolve()
+    else:
+        # Fallback to the launch directory itself keeps a brand-new project
+        # with no markers working exactly as it did before T03.
+        proj = (discover_project_root(launch) or launch).resolve()
+
+    # A launch directory outside the project is not a location inside it, so
+    # it must never feed the CWD resolution rung.
+    launch_cwd = launch if _within(launch, proj) else proj
 
     explicit = skill_root or os.environ.get("SDLE_SKILL_ROOT")
     if explicit:
@@ -222,11 +273,13 @@ def resolve_paths(project_root: str | None, skill_root: str | None) -> Paths:
                 f"No SKILL.md under the given skill root: {skill}",
                 {"skill_root": str(skill)},
             )
-        return Paths(project_root=proj, skill_root=skill)
+        return Paths(project_root=proj, skill_root=skill,
+                     launch_cwd=launch_cwd)
 
     for candidate in _candidate_skill_roots(Path(__file__), proj):
         if (candidate / "SKILL.md").is_file():
-            return Paths(project_root=proj, skill_root=candidate.resolve())
+            return Paths(project_root=proj, skill_root=candidate.resolve(),
+                         launch_cwd=launch_cwd)
 
     raise Refused(
         "skill_root_not_found",
@@ -1224,11 +1277,23 @@ def cmd_init(args, paths: Paths) -> int:
     )
     save_state(paths, state, args.session)
 
+    # Strictly after the state commit, and deliberately non-fatal: the context
+    # is a disposable convenience (`workitem use --clear` recreates the
+    # pre-T03 posture), so a filesystem problem here must not report a
+    # successfully initialised workflow as a failure.
+    context = None
+    if paths.workitem:
+        try:
+            context = write_active_context(paths, paths.workitem, "init")
+        except OSError:
+            context = None
+
     emit(
         "init",
         {
             "project_name": name,
             "workitem": paths.workitem,
+            "active_context": (context or {}).get("workitem"),
             "execution_id": execution_id,
             "requirements": requirements,
             "current_phase": state["current_phase"],
@@ -1344,6 +1409,18 @@ def cmd_header(args, paths: Paths) -> int:
     state = read_state(paths)
     rendered = render_header(state, consts)
     print(rendered, file=sys.stderr)
+
+    # Advisory surface for the branch policy. `rendered` is deliberately NOT
+    # changed: the header is a fixed contract that other tooling matches on.
+    mismatch = branch_mismatch(paths)
+    if mismatch is not None:
+        print(
+            "\u26a0\ufe0f Branch mismatch: this WorkItem's execution was started on "
+            f"'{mismatch['recorded']}', the checkout is on "
+            f"'{mismatch['current']}'.",
+            file=sys.stderr,
+        )
+
     emit(
         "header",
         {
@@ -1352,6 +1429,7 @@ def cmd_header(args, paths: Paths) -> int:
             "status": state.get("status"),
             "progress": state.get("progress"),
             "label": consts.phase_label.get(state.get("current_phase", ""), None),
+            "branch_mismatch": mismatch,
         },
     )
     return EXIT_OK
@@ -1510,6 +1588,20 @@ def normalize_workitem_name(raw: str | None) -> str:
     return value
 
 
+def workitem_id_wellformed(value: object) -> bool:
+    """True for an id `workitem create` could actually have minted.
+
+    Two shapes exist: the normalised kebab-case id and the `--auto-generate`
+    `WI-<name>-<UTC>` id, which carries an uppercase prefix and so does *not*
+    match `WORKITEM_ID_RE`. Anything else — a path fragment, a traversal, an
+    empty cell — is not an id at all. Single source for that question, so the
+    active context and `validate` cannot disagree about it.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    return bool(WORKITEM_ID_RE.match(value) or AUTO_ID_RE.match(value))
+
+
 def workitems_root(paths: Paths) -> Path:
     return paths.project_root / "workitems"
 
@@ -1616,6 +1708,18 @@ def _git_value(paths: Paths, *args: str) -> str | None:
     return out if code == 0 and out else None
 
 
+def current_branch(paths: Paths) -> str | None:
+    """The checked-out branch, or ``None``.
+
+    ``None`` covers both "git is not available here" and "HEAD is detached" —
+    neither is a branch, and neither is ever a refusal. Single source for the
+    detached-HEAD rule, which `workitem create`, the resolution ladder, the
+    active context and the branch guard all depend on.
+    """
+    branch = _git_value(paths, "rev-parse", "--abbrev-ref", "HEAD")
+    return None if branch == "HEAD" else branch
+
+
 def cmd_workitem_create(args, paths: Paths) -> int:
     raw = (args.name or "").strip()
     name = normalize_workitem_name(raw)
@@ -1654,9 +1758,7 @@ def cmd_workitem_create(args, paths: Paths) -> int:
             {"id": collision, "requested": workitem_id},
         )
 
-    branch = _git_value(paths, "rev-parse", "--abbrev-ref", "HEAD")
-    if branch == "HEAD":  # detached: there is no branch to record
-        branch = None
+    branch = current_branch(paths)  # None when detached or git is absent
     synopsis = (args.synopsis or "").strip() or None
 
     metadata = {
@@ -1742,6 +1844,10 @@ def cmd_workitem_list(args, paths: Paths) -> int:
 # mandatory --workitem.
 RUNTIME_FREE_COMMANDS = frozenset({
     "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
+    # `validate` exists to diagnose repositories that are too broken to
+    # resolve, so it must never be gated on resolution succeeding. It runs the
+    # ladder itself, speculatively, and turns a refusal into a finding.
+    "validate",
 })
 
 
@@ -1750,8 +1856,369 @@ def registered_workitem_ids(paths: Paths) -> list[str]:
     return [row["WorkItem"] for row in read_index(paths)]
 
 
+# --------------------------------------------------------------------------
+# Persisted active context (contract §9 rung 3)
+# --------------------------------------------------------------------------
+#
+# Developer-local and gitignored: it records which WorkItem *this* working
+# directory is driving, so a second clone or `git worktree` is independent by
+# construction rather than by coordination (TP-007, contract §9 "Do not
+# implement distributed locking").
+#
+# It is written by exactly three commands — `init`, `migrate-workflow` and
+# `workitem use` — and by nothing else. `bind_workitem` must never write it:
+# its purity is what lets `.claude/hooks/hooks.py::dirty_tree` call it
+# speculatively from a PreToolUse callback, and a hook that writes state is a
+# second writer (CLAUDE.md invariant 6).
+
+ACTIVE_CONTEXT_NAME = ".active-context.json"
+ACTIVE_CONTEXT_SETTERS = ("init", "use", "migrate-workflow")
+
+
+def active_context_file(paths: Paths) -> Path:
+    return workitems_root(paths) / ACTIVE_CONTEXT_NAME
+
+
+def read_active_context(paths: Paths) -> dict | None:
+    """The persisted context, or None. Never raises.
+
+    Same posture as ``workitem_metadata``: the context is a convenience, so a
+    missing, unreadable or malformed file degrades resolution to the rungs
+    below it and is never itself a refusal.
+    """
+    target = active_context_file(paths)
+    if not target.is_file():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_active_context(paths: Paths, workitem_id: str, set_by: str) -> dict:
+    payload = {
+        "workitem": workitem_id,
+        "branch": current_branch(paths),
+        "setAt": now_iso(),
+        "setBy": set_by,
+        "sdleVersion": CURRENT_VERSION,
+    }
+    write_atomic(active_context_file(paths), json.dumps(payload, indent=2) + "\n")
+    return payload
+
+
+def clear_active_context(paths: Paths) -> bool:
+    target = active_context_file(paths)
+    if not target.is_file():
+        return False
+    target.unlink()
+    return True
+
+
+def active_context_workitem(paths: Paths, known: list[str]) -> str | None:
+    """The context's WorkItem when the context is still *valid*, else None.
+
+    Validity is deliberately strict and deliberately silent: an invalid context
+    is skipped, never refused, so a stale file can never brick a repository.
+    """
+    data = read_active_context(paths)
+    if data is None:
+        return None
+    workitem_id = data.get("workitem")
+    if not workitem_id_wellformed(workitem_id):
+        return None
+    if workitem_id not in known:
+        return None
+    target = workitems_root(paths) / workitem_id
+    if target.is_symlink() or not target.is_dir():
+        return None
+    recorded = data.get("branch")
+    if isinstance(recorded, str) and recorded:
+        here = current_branch(paths)
+        if here is not None and here != recorded:
+            return None  # stale: the context was set on another branch
+    return workitem_id
+
+
+def cwd_workitem(paths: Paths) -> str | None:
+    """The WorkItem directory the launch CWD sits inside, or None.
+
+    Returns the *directory name*, registered or not: rung 2 has to be able to
+    tell "inside an unregistered WorkItem" apart from "not inside one at all",
+    because those two cases have opposite outcomes.
+    """
+    launch = paths.launch_cwd
+    if launch is None:
+        return None
+    root = workitems_root(paths)
+    try:
+        relative = launch.relative_to(root)
+    except ValueError:
+        return None
+    parts = relative.parts
+    if not parts:
+        return None  # standing in workitems/ itself is not a selection
+    return parts[0]
+
+
+def branch_candidates(paths: Paths, known: list[str]) -> list[str]:
+    """Registered WorkItems whose recorded branch is the current branch.
+
+    A *set*, never a pick: the caller applies contract §9's 0/1/>1 rule to it.
+    Two WorkItems created on the same branch therefore stay ambiguous.
+    """
+    here = current_branch(paths)
+    if here is None:
+        return []
+    matches = []
+    for workitem_id in known:
+        bound = dataclass_replace(paths, workitem=workitem_id)
+        recorded = ((workitem_metadata(bound) or {}).get("git") or {})
+        execution = read_execution(bound) or {}
+        recorded_branches = {
+            recorded.get("initialBranch"),
+            ((execution.get("git") or {}).get("branch")),
+        }
+        if here in {b for b in recorded_branches if isinstance(b, str) and b}:
+            matches.append(workitem_id)
+    return matches
+
+
+def cmd_workitem_resolve(args, paths: Paths) -> int:
+    """Report what the ladder would do. Diagnostic: it never refuses.
+
+    This is the only input the prompt layer gets for contract §9 rungs 5
+    (AI-assisted inference) and 6 (ask user). Inference may rank or annotate
+    this candidate list; it is never an independent resolver, and the user's
+    answer re-enters the engine as an explicit ``--workitem`` — that is,
+    as rung 1. A structurally corrupt registry still surfaces as
+    ``read_index``'s ``index_malformed`` integrity failure, which is a
+    diagnosis rather than a refusal.
+    """
+    decision = resolve_decision(paths, args.workitem)
+    matches = branch_candidates(paths, decision.known) if decision.known else []
+    emit("workitem resolve", {
+        "resolved": decision.workitem,
+        "rung": decision.rung,
+        "reason": decision.reason,
+        "candidates": (
+            decision.candidates
+            or candidate_evidence(paths, decision.known, matches)
+        ),
+        "workitems": decision.known,
+        "launch_cwd": (
+            None if paths.launch_cwd is None else str(paths.launch_cwd)
+        ),
+        "project_root": str(paths.project_root),
+        "branch": current_branch(paths),
+        "active_context": (read_active_context(paths) or {}).get("workitem"),
+    })
+    return EXIT_OK
+
+
+def cmd_workitem_use(args, paths: Paths) -> int:
+    """Persist (or clear) the active context for this working directory.
+
+    ``workitem`` is RUNTIME_FREE, so `use` never passes through
+    ``bind_workitem`` and nothing else would validate the id before it is
+    written. `use` therefore performs rung 1's own check and refuses an
+    unregistered id: persisting a context that can never bind is a footgun
+    with no upside. Validation precedes the write, so a refused `use` leaves
+    any existing context byte-unchanged.
+    """
+    target = active_context_file(paths)
+    if getattr(args, "clear", False):
+        cleared = clear_active_context(paths)
+        emit("workitem use", {
+            "workitem": None, "cleared": cleared, "path": str(target),
+        })
+        return EXIT_OK
+
+    requested = getattr(args, "use_workitem", None) or args.workitem
+    if not requested:
+        raise UsageError(
+            "workitem_required",
+            "`workitem use` needs a target: --workitem <id>, or --clear.",
+            {},
+        )
+
+    known = registered_workitem_ids(paths)
+    if requested not in known:
+        raise Refused(
+            "workitem_unknown",
+            f"No WorkItem '{requested}' in workitems/index.md. Create it "
+            "with `workitem create --name <name>`, or pick one of the "
+            "registered ids.",
+            {"requested": requested, "workitems": known},
+        )
+
+    payload = write_active_context(paths, requested, "use")
+    emit("workitem use", {
+        "workitem": requested,
+        "branch": payload["branch"],
+        "set_at": payload["setAt"],
+        "set_by": payload["setBy"],
+        "cleared": False,
+        "path": str(target),
+    })
+    return EXIT_OK
+
+
 def legacy_state_present(paths: Paths) -> bool:
     return (paths.legacy_workflow / "state.json").is_file()
+
+
+@dataclass
+class Resolution:
+    """One run of the ladder, as data.
+
+    Exactly one decision function exists (invariant 7): ``bind_workitem``
+    turns this into a binding or a refusal, and ``workitem resolve`` reports
+    it. Neither re-implements a rung.
+    """
+
+    known: list[str] = field(default_factory=list)
+    workitem: str | None = None
+    rung: str | None = None
+    reason: str | None = None
+    candidates: list[dict] = field(default_factory=list)
+    data: dict = field(default_factory=dict)
+
+
+def candidate_evidence(
+    paths: Paths, known: list[str], branch_matches: list[str]
+) -> list[dict]:
+    """Why each registered WorkItem is plausible — evidence, never a ranking.
+
+    The order is the registry's creation order and carries no preference. This
+    is the only input the prompt layer receives for contract §9 rungs 5 and 6;
+    the engine never infers and never picks.
+    """
+    inside = cwd_workitem(paths)
+    persisted = (read_active_context(paths) or {}).get("workitem")
+    valid_context = active_context_workitem(paths, known)
+    here = current_branch(paths)
+
+    entries = []
+    for workitem_id in known:
+        evidence = []
+        if workitem_id == inside:
+            evidence.append("cwd")
+        if workitem_id == persisted:
+            evidence.append(
+                "context" if workitem_id == valid_context else "context:stale"
+            )
+        if workitem_id in branch_matches:
+            evidence.append(f"branch:{here}")
+        bound = dataclass_replace(paths, workitem=workitem_id)
+        if bound.state_file.is_file():
+            evidence.append("runtime")
+        entries.append({"id": workitem_id, "evidence": evidence})
+    return entries
+
+
+def resolve_decision(
+    paths: Paths, explicit: str | None = None, *, for_init: bool = False
+) -> Resolution:
+    """Run contract §9's ladder and report the outcome. Pure.
+
+    Nothing is printed and nothing is written — in particular the active
+    context is *read* here and only ever *written* by `init`,
+    `migrate-workflow` and `workitem use`. That purity is what lets
+    ``.claude/hooks/hooks.py::dirty_tree`` call the ladder speculatively from a
+    PreToolUse callback without becoming a second writer (invariant 6).
+
+    Ladder:
+
+    1. explicit ``--workitem <id>``, which must be registered;
+    2. else the launch CWD is inside ``workitems/<x>/`` — registered binds,
+       unregistered *refuses* rather than falling through, because binding a
+       different WorkItem while the developer stands inside ``<x>`` is exactly
+       the silent wrong pick §9 forbids;
+    3. else the sole registered WorkItem. §9's own rule is
+       ``1 valid candidate -> use``, and with one registered WorkItem the
+       rungs below can only return that same id or nothing;
+    4. else a persisted *valid* active context;
+    5. else a *unique* Git-branch match;
+    6. else zero WorkItems *and* a legacy ``.workflow/state.json`` -> legacy
+       binding (``workitem is None``). TRANSITIONAL, removed at T11: without
+       it a repository that already holds a workflow would be bricked, because
+       every command would refuse before `migrate-workflow` could run;
+    7. else zero WorkItems -> ``none`` (refuse ``workitem_required``);
+    8. else -> ``ambiguous``. Never pick one.
+
+    Rungs 4 and 5 are only reachable with two or more registered WorkItems, so
+    the git subprocess of rung 5 never runs in a single-WorkItem repository.
+
+    ``for_init`` is the one exception. `init` never takes rung 6 and reports
+    ``legacy_present`` whenever legacy state exists, *whatever* the registered
+    count. Proceeding would create a second runtime while the legacy one
+    became simultaneously unbindable (rung 6 needs zero WorkItems) and
+    unmigratable (`migrate-workflow` would then refuse `target_exists`).
+    """
+    known = registered_workitem_ids(paths)
+    decision = Resolution(known=known)
+
+    if for_init and legacy_state_present(paths):
+        decision.reason = "legacy_present"
+        return decision
+
+    # Rung 1 — explicit.
+    if explicit:
+        if explicit not in known:
+            decision.reason = "unknown"
+            decision.data = {"requested": explicit}
+            return decision
+        decision.workitem, decision.rung = explicit, "explicit"
+        return decision
+
+    # Rung 2 — the launch CWD, which must run *before* the sole-registered
+    # rung: otherwise a lone registered WorkItem would bind while the
+    # developer stands inside an unregistered one.
+    inside = cwd_workitem(paths)
+    if inside is not None:
+        if inside in known:
+            decision.workitem, decision.rung = inside, "cwd"
+            return decision
+        if (workitems_root(paths) / inside).is_dir():
+            decision.reason = "unregistered_directory"
+            decision.data = {"directory": inside}
+            return decision
+
+    # Rung 3 — the sole registered WorkItem.
+    if len(known) == 1:
+        decision.workitem, decision.rung = known[0], "sole"
+        return decision
+
+    branch_matches: list[str] = []
+    if known:
+        # Rung 4 — a persisted, still-valid active context.
+        persisted = active_context_workitem(paths, known)
+        if persisted is not None:
+            decision.workitem, decision.rung = persisted, "context"
+            return decision
+
+        # Rung 5 — a unique branch match. A *set* is computed and §9's
+        # 0/1/>1 rule applied to it: two WorkItems on one branch stay
+        # ambiguous, and there is no tie-break, no ordering preference and no
+        # "most recent".
+        branch_matches = branch_candidates(paths, known)
+        if len(branch_matches) == 1:
+            decision.workitem, decision.rung = branch_matches[0], "branch"
+            return decision
+
+    if not known:
+        # Rung 6 — transitional legacy binding.
+        if not for_init and legacy_state_present(paths):
+            decision.rung = "legacy"
+            return decision
+        decision.reason = "none"
+        return decision
+
+    decision.reason = "ambiguous"
+    decision.candidates = candidate_evidence(paths, known, branch_matches)
+    return decision
 
 
 def bind_workitem(
@@ -1761,25 +2228,12 @@ def bind_workitem(
 
     Pure: it either returns a bound ``Paths`` or raises ``Refused``. Nothing is
     printed and nothing is written, so the hooks can call it speculatively.
-
-    Ladder (contract §8, plan D2):
-
-    1. explicit ``--workitem <id>``, which must be registered;
-    2. else the sole registered WorkItem;
-    3. else zero WorkItems *and* a legacy ``.workflow/state.json`` -> legacy
-       binding (``workitem is None``). TRANSITIONAL, removed at T11: without
-       it T02 would brick a repository that already holds a workflow, because
-       every command would refuse before `migrate-workflow` could run;
-    4. else zero WorkItems -> refuse ``workitem_required``;
-    5. else -> refuse ``workitem_ambiguous``. Never pick one.
-
-    ``for_init`` is the one exception. `init` never takes rung 3 and refuses
-    ``legacy_workflow_present`` whenever legacy state exists, *whatever* the
-    registered count. Proceeding would create a second runtime while the legacy
-    one became simultaneously unbindable (rung 3 needs zero WorkItems) and
-    unmigratable (`migrate-workflow` would then refuse `target_exists`).
+    The ladder itself lives in ``resolve_decision``; this function only turns
+    a decision into a binding or into the refusal the contract names.
     """
-    if for_init and legacy_state_present(paths):
+    decision = resolve_decision(paths, explicit, for_init=for_init)
+
+    if decision.reason == "legacy_present":
         raise Refused(
             "legacy_workflow_present",
             "A repository-global workflow still exists at "
@@ -1789,25 +2243,32 @@ def bind_workitem(
             {"legacy_state": str(paths.legacy_workflow / "state.json")},
         )
 
-    known = registered_workitem_ids(paths)
+    if decision.reason == "unknown":
+        raise Refused(
+            "workitem_unknown",
+            f"No WorkItem '{explicit}' in workitems/index.md. Create it "
+            "with `workitem create --name <name>`, or pick one of the "
+            "registered ids.",
+            {"requested": explicit, "workitems": decision.known},
+        )
 
-    if explicit:
-        if explicit not in known:
-            raise Refused(
-                "workitem_unknown",
-                f"No WorkItem '{explicit}' in workitems/index.md. Create it "
-                "with `workitem create --name <name>`, or pick one of the "
-                "registered ids.",
-                {"requested": explicit, "workitems": known},
-            )
-        return dataclass_replace(paths, workitem=explicit)
+    if decision.reason == "unregistered_directory":
+        directory = decision.data["directory"]
+        raise Refused(
+            "workitem_unregistered",
+            f"This directory is inside workitems/{directory}/, but "
+            f"'{directory}' is not registered in workitems/index.md. SDLE "
+            "will not bind a different WorkItem while you are standing in "
+            "this one. Register it with `workitem create`, or re-run from "
+            "elsewhere with `--workitem <id>`.",
+            {
+                "directory": directory,
+                "workitems": decision.known,
+                "path": str(workitems_root(paths) / directory),
+            },
+        )
 
-    if len(known) == 1:
-        return dataclass_replace(paths, workitem=known[0])
-
-    if not known:
-        if not for_init and legacy_state_present(paths):
-            return paths  # rung 3 — transitional legacy binding
+    if decision.reason == "none":
         raise Refused(
             "workitem_required",
             "No WorkItem is registered in this repository. Create one first: "
@@ -1815,12 +2276,19 @@ def bind_workitem(
             {"workitems": []},
         )
 
-    raise Refused(
-        "workitem_ambiguous",
-        f"{len(known)} WorkItems are registered and none was named. Re-run "
-        "with `--workitem <id>`. SDLE never picks one for you.",
-        {"workitems": known},
-    )
+    if decision.reason == "ambiguous":
+        raise Refused(
+            "workitem_ambiguous",
+            f"{len(decision.known)} WorkItems are registered and none was "
+            "named. Re-run with `--workitem <id>`. SDLE never picks one for "
+            "you.",
+            {"workitems": decision.known, "candidates": decision.candidates},
+        )
+
+    if decision.rung == "legacy":
+        return paths  # transitional legacy binding, `workitem` stays None
+
+    return dataclass_replace(paths, workitem=decision.workitem)
 
 
 def workitem_metadata_file(paths: Paths) -> Path | None:
@@ -1874,9 +2342,458 @@ def write_execution_file(paths: Paths, execution_id: str, stamp: str) -> dict:
         "workitem": paths.workitem,
         "startedAt": stamp,
         "sdleVersion": CURRENT_VERSION,
+        # Contract §9 "record branch and starting SHA". This lives on the
+        # execution record, not in state.json: it describes *this* run rather
+        # than the workflow, so it needs no schema version and no migration
+        # row. A missing git is never a refusal - the values are simply null.
+        "git": {
+            "branch": current_branch(paths),
+            "startSha": _git_value(paths, "rev-parse", "HEAD"),
+            "worktree": str(paths.project_root),
+        },
     }
     write_atomic(paths.execution_file, json.dumps(payload, indent=2) + "\n")
     return payload
+
+
+def read_execution(paths: Paths) -> dict | None:
+    """The bound WorkItem's ``execution.json``, or None. Never raises: like
+    ``workitem.json`` it is descriptive, so an absent or unreadable file
+    degrades to "nothing recorded" rather than to a refusal."""
+    target = paths.execution_file
+    if not target.is_file():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def recorded_branch(paths: Paths) -> str | None:
+    """The branch this WorkItem's execution was started on, or None."""
+    branch = ((read_execution(paths) or {}).get("git") or {}).get("branch")
+    return branch if isinstance(branch, str) and branch else None
+
+
+# --------------------------------------------------------------------------
+# Branch-mismatch policy (contract §9 "Branch/worktree rules")
+# --------------------------------------------------------------------------
+#
+# "Branch mismatch produces explicit warning/refusal depending on safety
+# impact." The refusal set is exactly the commands that either advance the
+# lifecycle or fingerprint working-tree content: running one against the wrong
+# checkout produces a wrong-but-plausible record, which is worse than an
+# inconvenient refusal. Everything else — `state get`, `header`, `state dump`,
+# `gate show`, `gate reject`, `drift check`, `audit verify`, `doctor`,
+# `workitem list`, `workitem resolve`, `validate` — warns. `gate reject` is
+# deliberately advisory: a rejection can neither advance the workflow nor
+# fingerprint an artifact as approved, so refusing it would be pure
+# obstruction.
+
+BRANCH_CRITICAL_ACTIONS = frozenset({
+    "advance",
+    ("gate", "approve"),
+    "skip",
+    "restart",
+    "reset",
+    ("implement", "preflight"),
+    ("manifest", "build"),
+    ("drift", "rebaseline"),
+    ("artifact", "record"),
+})
+
+
+def action_key(args) -> str | tuple[str, str]:
+    """The command, as `BRANCH_CRITICAL_ACTIONS` spells it."""
+    subcommand = getattr(args, "subcommand", None)
+    command = getattr(args, "command", None)
+    return (command, subcommand) if subcommand else command
+
+
+def action_name(args) -> str:
+    key = action_key(args)
+    return " ".join(key) if isinstance(key, tuple) else str(key)
+
+
+def _own_confirm_token(args) -> str | None:
+    """The confirmation token this command sets for *itself*, if any.
+
+    Four of the nine critical commands share ``pending_confirm_action`` with
+    the branch guard. The guard runs first — running it second livelocks,
+    because the command's own check clears the marker and the guard then sets
+    its own, so the command's check can never pass. Running it first has the
+    mirror hazard: at the confirming invocation the guard would clobber the
+    token the command had just set. Passing through on the command's *own*
+    token closes that, and it opens nothing: the only way that token can be
+    pending is that the command set it on the immediately preceding
+    invocation, which the guard had to allow.
+
+    Consequence, deliberate and tested: on a mismatched branch `skip`, `reset`
+    and `restart` need two acknowledgements — the branch first, then their
+    own.
+    """
+    key = action_key(args)
+    if key == "skip":
+        return "skip"
+    if key == "reset":
+        return "reset"
+    if key == "restart":
+        return f"restart:{getattr(args, 'to', None)}"
+    if key == ("implement", "preflight"):
+        return "implement_dirty_tree"
+    return None
+
+
+def branch_mismatch(paths: Paths) -> dict | None:
+    """The recorded-versus-current branch disagreement, or None.
+
+    None covers every case where there is nothing to compare: git absent, HEAD
+    detached, no recorded branch, or no `execution.json` at all (which is what
+    a legacy-bound runtime looks like). Never a refusal by itself.
+    """
+    recorded = recorded_branch(paths)
+    if recorded is None:
+        return None
+    here = current_branch(paths)
+    if here is None or here == recorded:
+        return None
+    return {"recorded": recorded, "current": here}
+
+
+def branch_guard(args, paths: Paths, state: dict) -> None:
+    """Refuse a lifecycle-critical command on the wrong checkout, once.
+
+    Reuses the existing two-step ``pending_confirm_action`` idiom rather than
+    inventing a bypass flag, so the acknowledgement is audited exactly like
+    every other one. Advisory commands never reach here.
+    """
+    if action_key(args) not in BRANCH_CRITICAL_ACTIONS:
+        return
+    mismatch = branch_mismatch(paths)
+    if mismatch is None:
+        return
+
+    pending = state.get("pending_confirm_action")
+    own = _own_confirm_token(args)
+    if own is not None and pending == own:
+        return
+
+    phase = state.get("current_phase", "unknown")
+    session = getattr(args, "session", None)
+
+    if pending == "branch_mismatch":
+        state["pending_confirm_action"] = None
+        append_audit(
+            paths, state, phase=phase, event="branch_mismatch_accepted",
+            message=f"User acknowledged running `{action_name(args)}` on "
+                    f"branch '{mismatch['current']}' while this WorkItem's "
+                    f"execution was started on '{mismatch['recorded']}'.",
+        )
+        save_state(paths, state, session)
+        return
+
+    state["pending_confirm_action"] = "branch_mismatch"
+    append_audit(
+        paths, state, phase=phase, event="branch_mismatch_guard",
+        message=f"Branch-mismatch guard triggered before "
+                f"`{action_name(args)}`: recorded '{mismatch['recorded']}', "
+                f"current '{mismatch['current']}'.",
+    )
+    save_state(paths, state, session)
+    raise Refused(
+        "branch_mismatch",
+        f"This WorkItem's execution was started on branch "
+        f"'{mismatch['recorded']}', but the checkout is on "
+        f"'{mismatch['current']}'. `{action_name(args)}` either advances the "
+        "lifecycle or fingerprints working-tree content, so running it here "
+        "would record the wrong checkout. Switch back, or re-run the same "
+        "command to proceed anyway (logged).",
+        {
+            "recorded": mismatch["recorded"],
+            "current": mismatch["current"],
+            "workitem": paths.workitem,
+            "action": action_name(args),
+        },
+    )
+
+
+# --------------------------------------------------------------------------
+# validate — contract §9 "Add validation"
+# --------------------------------------------------------------------------
+#
+# Seven checks, one per §9 bullet. `validate` is RUNTIME_FREE and resolves
+# *speculatively*, because the repositories it exists to diagnose are exactly
+# the ones where resolution refuses: a refusal becomes a finding, never an
+# exit. Findings are `{check, severity, workitem, detail, path}`; any `error`
+# is an integrity failure (exit 3), warnings alone leave exit 0.
+#
+# A structurally corrupt registry still surfaces as `read_index`'s
+# `index_malformed` integrity failure. That is a correct diagnosis at the same
+# exit code, so it is left to propagate rather than caught and reshaped.
+
+VALIDATE_ERROR = "error"
+VALIDATE_WARNING = "warning"
+
+
+def _finding(check: str, severity: str, detail: str, *,
+             workitem: str | None = None, path: Path | None = None) -> dict:
+    return {
+        "check": check,
+        "severity": severity,
+        "workitem": workitem,
+        "detail": detail,
+        "path": None if path is None else str(path),
+    }
+
+
+def _escape_detail(root: Path, value: str) -> str | None:
+    """Why `workitems/<value>` is unsafe, or None when it is fine.
+
+    Covers §9's "path traversal/symlink escape" bullet. An unsafe id has every
+    other check skipped for it: following a symlink out of the registry to run
+    filesystem checks would be the traversal, not the diagnosis of one.
+    """
+    if not workitem_id_wellformed(value):
+        return f"'{value}' is not a well-formed WorkItem id"
+    target = root / value
+    if target.is_symlink():
+        return f"workitems/{value} is a symlink, not a directory"
+    try:
+        if target.resolve().parent != root.resolve():
+            return f"workitems/{value} does not resolve inside workitems/"
+    except OSError as exc:
+        return f"workitems/{value} cannot be resolved: {exc}"
+    return None
+
+
+def _validate_metadata(root: Path, value: str) -> dict | None:
+    """§9 "malformed metadata": absent, unreadable, not an object, or an `id`
+    that disagrees with the directory it sits in."""
+    target = root / value / "workitem.json"
+    if not target.is_file():
+        return _finding(
+            "malformed_metadata", VALIDATE_ERROR,
+            f"workitems/{value}/workitem.json is missing",
+            workitem=value, path=target,
+        )
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return _finding(
+            "malformed_metadata", VALIDATE_ERROR,
+            f"workitems/{value}/workitem.json cannot be read: {exc}",
+            workitem=value, path=target,
+        )
+    if not isinstance(data, dict):
+        return _finding(
+            "malformed_metadata", VALIDATE_ERROR,
+            f"workitems/{value}/workitem.json is not a JSON object",
+            workitem=value, path=target,
+        )
+    if data.get("id") != value:
+        return _finding(
+            "malformed_metadata", VALIDATE_ERROR,
+            f"workitems/{value}/workitem.json declares id "
+            f"{data.get('id')!r}, which is not '{value}'",
+            workitem=value, path=target,
+        )
+    return None
+
+
+def _validate_runtime_state(paths: Paths, value: str,
+                            registered: set[str]) -> list[dict]:
+    """§9 "runtime state outside active WorkItem", cases (a) and (b)."""
+    bound = dataclass_replace(paths, workitem=value)
+    target = bound.state_file
+    if not target.is_file():
+        return []
+    if value not in registered:
+        return [_finding(
+            "runtime_state_outside_workitem", VALIDATE_ERROR,
+            f"a runtime exists at workitems/{value}/"
+            f"{bound.runtime.name}/state.json but '{value}' is not "
+            "registered in workitems/index.md",
+            workitem=value, path=target,
+        )]
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [_finding(
+            "runtime_state_outside_workitem", VALIDATE_ERROR,
+            f"workitems/{value} holds a state.json that cannot be read: {exc}",
+            workitem=value, path=target,
+        )]
+    declared = doc.get("workitem") if isinstance(doc, dict) else None
+    # Only a *disagreement* is a finding. An absent field is a pre-1.14 state
+    # awaiting `migrate`, which `migrate` itself reports; calling that a
+    # misplaced runtime would be a false positive.
+    if isinstance(declared, str) and declared and declared != value:
+        return [_finding(
+            "runtime_state_outside_workitem", VALIDATE_ERROR,
+            f"the state.json under workitems/{value} declares workitem "
+            f"'{declared}' — it belongs to another WorkItem",
+            workitem=value, path=target,
+        )]
+    return []
+
+
+def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict]:
+    """Every §9 check, in the order the contract lists them. Read-only."""
+    root = workitems_root(paths)
+    index_file = workitem_index_file(paths)
+    indexed = [row["WorkItem"] for row in read_index(paths)]
+
+    on_disk: list[str] = []
+    if root.is_dir():
+        on_disk = [
+            child.name for child in sorted(root.iterdir())
+            if child.is_dir() and not child.name.startswith(".")
+        ]
+
+    escapes: dict[str, str] = {}
+    for value in dict.fromkeys(indexed + on_disk):
+        detail = _escape_detail(root, value)
+        if detail is not None:
+            escapes[value] = detail
+    safe_indexed = [v for v in indexed if v not in escapes]
+    safe_on_disk = [v for v in on_disk if v not in escapes]
+    registered = set(indexed)
+
+    findings: list[dict] = []
+
+    # 1. duplicate WorkItem IDs.
+    seen: dict[str, str] = {}
+    for value in indexed:
+        key = value.lower()
+        if key in seen:
+            findings.append(_finding(
+                "duplicate_workitem_id", VALIDATE_ERROR,
+                f"'{value}' is registered more than once (first seen as "
+                f"'{seen[key]}'); ids are unique case-insensitively",
+                workitem=value, path=index_file,
+            ))
+        else:
+            seen[key] = value
+
+    # 2. indexed WorkItem missing directory.
+    for value in safe_indexed:
+        if not (root / value).is_dir():
+            findings.append(_finding(
+                "indexed_workitem_missing_directory", VALIDATE_ERROR,
+                f"'{value}' is registered but workitems/{value}/ does not "
+                "exist",
+                workitem=value, path=root / value,
+            ))
+
+    # 3. directory missing index entry.
+    for value in safe_on_disk:
+        if value not in registered:
+            findings.append(_finding(
+                "directory_missing_index_entry", VALIDATE_ERROR,
+                f"workitems/{value}/ exists but is not registered in "
+                "workitems/index.md",
+                workitem=value, path=root / value,
+            ))
+
+    # 4. malformed metadata.
+    for value in safe_indexed:
+        if (root / value).is_dir():
+            problem = _validate_metadata(root, value)
+            if problem is not None:
+                findings.append(problem)
+
+    # 5. branch mismatch — a warning: a developer may legitimately be standing
+    #    on another branch, and `validate` is a diagnosis, not a gate.
+    here = current_branch(paths)
+    if here is not None:
+        context = read_active_context(paths) or {}
+        recorded = context.get("branch")
+        if isinstance(recorded, str) and recorded and recorded != here:
+            findings.append(_finding(
+                "branch_mismatch", VALIDATE_WARNING,
+                f"the persisted active context was set on branch "
+                f"'{recorded}' but the checkout is on '{here}'",
+                workitem=context.get("workitem"),
+                path=active_context_file(paths),
+            ))
+        for value in safe_indexed:
+            bound = dataclass_replace(paths, workitem=value)
+            started = recorded_branch(bound)
+            if started is not None and started != here:
+                findings.append(_finding(
+                    "branch_mismatch", VALIDATE_WARNING,
+                    f"'{value}' started its execution on branch '{started}' "
+                    f"but the checkout is on '{here}'",
+                    workitem=value, path=bound.execution_file,
+                ))
+
+    # 6. runtime state outside the active WorkItem — (a) unregistered
+    #    directory holding a runtime, (b) a self-describing state.json that
+    #    disagrees with where it sits, (c) the legacy repository-global
+    #    runtime still present alongside registered WorkItems.
+    for value in dict.fromkeys(safe_indexed + safe_on_disk):
+        findings.extend(_validate_runtime_state(paths, value, registered))
+    if indexed and legacy_state_present(paths):
+        findings.append(_finding(
+            "runtime_state_outside_workitem", VALIDATE_WARNING,
+            f"a legacy repository-global runtime still exists at "
+            f"{paths.legacy_workflow.name}/state.json while "
+            f"{len(indexed)} WorkItem(s) are registered; move it with "
+            "`migrate-workflow --workitem <id>`",
+            path=paths.legacy_workflow / "state.json",
+        ))
+
+    # 7. path traversal / symlink escape.
+    for value, detail in escapes.items():
+        findings.append(_finding(
+            "path_escape", VALIDATE_ERROR, detail,
+            workitem=value,
+            path=(root / value) if workitem_id_wellformed(value) else index_file,
+        ))
+
+    # The speculative resolution outcome. A repository that cannot resolve is
+    # a *warning*, not an error: ">1 plausible -> ASK" is contract §9 working
+    # as designed, and an empty repository is simply not started yet.
+    if decision.workitem is None and decision.rung is None:
+        findings.append(_finding(
+            "active_workitem_unresolved", VALIDATE_WARNING,
+            f"no WorkItem resolves here (reason: {decision.reason}); name one "
+            "with `--workitem <id>` or persist one with `workitem use`",
+            path=paths.project_root,
+        ))
+
+    return findings
+
+
+def cmd_validate(args, paths: Paths) -> int:
+    decision = resolve_decision(paths, args.workitem)
+    findings = collect_validation_findings(paths, decision)
+    errors = [f for f in findings if f["severity"] == VALIDATE_ERROR]
+
+    data = {
+        "findings": findings,
+        "errors": len(errors),
+        "warnings": len(findings) - len(errors),
+        "project_root": str(paths.project_root),
+        "workitems": decision.known,
+        "active": decision.workitem,
+        "rung": decision.rung,
+        "reason": decision.reason,
+        "branch": current_branch(paths),
+    }
+
+    if errors:
+        raise IntegrityError(
+            "workitem_validation_failed",
+            f"{len(errors)} WorkItem registry error(s) found: "
+            + "; ".join(sorted({f["check"] for f in errors}))
+            + ". SDLE will not repair the registry — fix it by hand.",
+            data,
+        )
+
+    emit("validate", data)
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -2089,6 +3006,16 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
     }
     write_atomic(metadata_file, json.dumps(metadata, indent=2) + "\n")
 
+    # Step 11 — point this working directory at the migrated WorkItem.
+    # Strictly after the commit write and its verification, so a crash can
+    # never leave a context naming a runtime that is not authoritative. Like
+    # `init`, a failure here is not allowed to fail an already-committed
+    # migration.
+    try:
+        write_active_context(target, requested, "migrate-workflow")
+    except OSError:
+        pass
+
     def relative(path: Path) -> str:
         return str(path.relative_to(paths.project_root)).replace(os.sep, "/")
 
@@ -2258,6 +3185,7 @@ def apply_advance(
 def cmd_advance(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    branch_guard(args, paths, state)
     moved = apply_advance(
         paths, state, consts, args.to, args.status, args.outcome or "completed"
     )
@@ -2333,6 +3261,7 @@ def write_completion_summary(paths: Paths, state: dict) -> str:
 def cmd_gate_approve(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    branch_guard(args, paths, state)
     stamp = now_iso()
 
     queue = state.get("drift_queue") or []
@@ -2656,6 +3585,7 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
     """
     consts = load_constants(paths)
     state = read_state(paths)
+    branch_guard(args, paths, state)
     if args.gate not in consts.artifact_ownership:
         raise Refused(
             "unknown_gate", f"'{args.gate}' is not a registered gate key.",
@@ -2805,6 +3735,7 @@ def limit(state: dict, name: str) -> int:
 
 def cmd_artifact_record(args, paths: Paths) -> int:
     state = read_state(paths)
+    branch_guard(args, paths, state)
     phase = args.phase or state.get("current_phase")
     target = paths.project_root / args.path
     exists = target.is_file()
@@ -2949,7 +3880,7 @@ def cmd_checkpoint(args, paths: Paths) -> int:
 
 CONFIRMABLE = {
     "reset", "skip", "implement_dirty_tree", "accept_state_jump",
-    "accept_audit_mismatch",
+    "accept_audit_mismatch", "branch_mismatch",
 }
 
 
@@ -3086,6 +4017,7 @@ def cmd_remediate_finish(args, paths: Paths) -> int:
 def cmd_skip(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    branch_guard(args, paths, state)
     phase = state.get("current_phase")
 
     if not args.confirm:
@@ -3133,6 +4065,7 @@ def cmd_skip(args, paths: Paths) -> int:
 def cmd_restart(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    branch_guard(args, paths, state)
     total = len(consts.phase_sequence) - 1  # `complete` is not restartable
 
     if not 1 <= args.to <= total:
@@ -3216,6 +4149,7 @@ def cmd_restart(args, paths: Paths) -> int:
 
 def cmd_reset(args, paths: Paths) -> int:
     state = read_state(paths)
+    branch_guard(args, paths, state)
     if not args.confirm:
         state["pending_confirm_action"] = "reset"
         save_state(paths, state, args.session)
@@ -3490,6 +4424,7 @@ SDLE_OWNED_PREFIXES = (
 
 def cmd_implement_preflight(args, paths: Paths) -> int:
     state = read_state(paths)
+    branch_guard(args, paths, state)
 
     if not git_available(paths):
         state["implementation_base_ref"] = None
@@ -3623,6 +4558,7 @@ def run_tests(paths: Paths, timeout: int) -> dict:
 
 def cmd_manifest_build(args, paths: Paths) -> int:
     state = read_state(paths)
+    branch_guard(args, paths, state)
     relative = str(
         paths.manifest_file.relative_to(paths.project_root)
     ).replace(os.sep, "/")
@@ -4290,6 +5226,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Target WorkItem id (required, must be registered).")
     sub.set_defaults(handler=cmd_migrate_workflow)
 
+    sub = subparsers.add_parser(
+        "validate", help="Check the WorkItem registry and runtime placement."
+    )
+    sub.set_defaults(handler=cmd_validate)
+
     workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
     workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)
     wi_create = workitem_sub.add_parser(
@@ -4305,6 +5246,20 @@ def build_parser() -> argparse.ArgumentParser:
     wi_create.set_defaults(handler=cmd_workitem_create)
     wi_list = workitem_sub.add_parser("list", help="List registered WorkItems.")
     wi_list.set_defaults(handler=cmd_workitem_list)
+    wi_resolve = workitem_sub.add_parser(
+        "resolve", help="Report which WorkItem the ladder resolves (never refuses)."
+    )
+    wi_resolve.set_defaults(handler=cmd_workitem_resolve)
+    wi_use = workitem_sub.add_parser(
+        "use", help="Persist this working directory's active WorkItem."
+    )
+    # Distinct dest, following the `migrate-workflow` precedent: argparse
+    # would otherwise clobber the global --workitem with this one's default.
+    wi_use.add_argument("--workitem", dest="use_workitem",
+                        help="WorkItem id to make active (must be registered).")
+    wi_use.add_argument("--clear", action="store_true",
+                        help="Remove the persisted context instead.")
+    wi_use.set_defaults(handler=cmd_workitem_use)
 
     state_p = subparsers.add_parser("state", help="Read workflow state.")
     state_sub = state_p.add_subparsers(dest="subcommand", required=True)

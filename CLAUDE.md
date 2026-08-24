@@ -8,7 +8,7 @@ This is the **source repository for SDLE (Spec Driven Lifecycle Engine)** — a 
 
 As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
 
-**Validation** is `pytest` plus `scripts/sdle.sh lint-skill`. The repo carries a test fixture (`requirements/todo-api.md`) so the workflow can also be exercised in place by saying `start workflow`. Runtime artifacts from such runs (`.specify/`, `design/`, `reviews/`, `clarifications/`, and the transitional legacy `.workflow/`) are gitignored — never commit them. WorkItem records under `workitems/` are the exception: they are **versioned** by design, and only `workitems/*/.sdle/lock` is ignored.
+**Validation** is `pytest` plus `scripts/sdle.sh lint-skill`. The repo carries a test fixture (`requirements/todo-api.md`) so the workflow can also be exercised in place by saying `start workflow`. Runtime artifacts from such runs (`.specify/`, `design/`, `reviews/`, `clarifications/`, and the transitional legacy `.workflow/`) are gitignored — never commit them. WorkItem records under `workitems/` are the exception: they are **versioned** by design, and only `workitems/*/.sdle/lock` and the developer-local `workitems/.active-context.json` are ignored.
 
 ## Architecture
 
@@ -32,6 +32,8 @@ As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `s
 **`.claude/hooks/`** + **`.claude/settings.json`** — four guardrail hooks. Hooks are *tripwires*; where they overlap the script, the script's refusal at the choke point is the guarantee.
 
 Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is transitional — it is still read when a repository has a pre-v1.14 workflow and no WorkItem registered, and `migrate-workflow --workitem <id>` moves it under a WorkItem without ever mutating it.
+
+Which WorkItem is active is resolved, never guessed: explicit `--workitem`, then the launch directory, then a sole registered WorkItem, then the developer-local `workitems/.active-context.json`, then a unique Git-branch match. More than one plausible candidate is always a refusal that lists them — the question goes to the user in the parent session (invariant 8), and `workitem resolve` is the diagnostic that supplies the candidates. `sdle validate` checks the registry itself and runs even where resolution cannot.
 
 ## Non-Negotiable Design Invariants
 

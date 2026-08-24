@@ -227,6 +227,7 @@ def test_rung5_two_workitems_and_no_flag_refuses_and_never_picks(bare_project):
     ("sha", "requirements/todo-api.md"),
     ("constants",),
     ("workitem", "list"),
+    ("validate",),
 ])
 def test_runtime_free_commands_need_no_workitem(bare_project, command):
     result = bare_project.run(*command)

@@ -136,15 +136,42 @@ scripts/sdle.sh workitem list
 Every runtime command resolves a WorkItem before it runs:
 
 1. an explicit `--workitem <id>`;
-2. otherwise the sole registered WorkItem;
-3. otherwise a legacy repository-global `.workflow/state.json`, if one exists
+2. otherwise the launch directory, when it is inside `workitems/<x>/` — and if
+   `<x>` exists on disk but is not in the index, `workitem_unregistered`,
+   because binding a neighbour while you stand inside `<x>` would be a silent
+   wrong pick;
+3. otherwise the sole registered WorkItem;
+4. otherwise a still-valid persisted active context
+   (`workitem use --workitem <id>` sets it, `--clear` removes it);
+5. otherwise a unique Git-branch match;
+6. otherwise a legacy repository-global `.workflow/state.json`, if one exists
    and no WorkItem is registered (transitional — see `migrate-workflow`);
-4. otherwise `workitem_required`;
-5. and when several are registered and none is named, `workitem_ambiguous`,
+7. otherwise `workitem_required`;
+8. and when several are plausible and none is named, `workitem_ambiguous`,
    listing the candidates. SDLE never picks one for you.
 
-`lint-skill`, `sha`, `constants`, `workitem` and `migrate-workflow` touch no
-runtime state and need no resolution.
+The project root itself is discovered by walking up from the launch directory
+to the nearest ancestor holding `workitems/index.md`, `.workflow/state.json`
+or `.git`, so all four launch locations work: `workitems/<id>/`, `workitems/`,
+the repository root, and anywhere inside the repository. `--project-root` and
+`SDLE_PROJECT_ROOT` still override it.
+
+`workitem resolve` reports what the ladder would do — always exit 0, with the
+candidate set and per-candidate evidence when it cannot resolve. It is a
+diagnostic, not a resolver: the answer to an ambiguity is a human one.
+
+`validate` checks the registry itself — duplicate ids, an indexed WorkItem with
+no directory, a directory with no index row, malformed metadata, a branch
+mismatch, misplaced runtime state, and path-traversal or symlink escapes. An
+error exits 3, warnings alone exit 0, and it runs even where resolution cannot.
+
+The active WorkItem's execution records the branch and starting SHA it began
+on. Running a lifecycle-advancing or content-fingerprinting command from a
+different branch refuses `branch_mismatch` once and proceeds on a re-run, which
+is logged; everything else warns.
+
+`lint-skill`, `sha`, `constants`, `workitem`, `migrate-workflow` and `validate`
+touch no runtime state and need no resolution.
 
 A repository that already has a pre-v1.14 `.workflow/` moves it under a
 WorkItem once:

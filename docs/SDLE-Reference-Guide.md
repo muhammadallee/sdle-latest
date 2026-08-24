@@ -142,9 +142,10 @@ SDLE Orchestrator (Claude Code Skill)
 | `workitems/<id>/.sdle/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `workitems/<id>/.sdle/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `workitems/<id>/.sdle/completion-summary.json` | Gate 8 approval | Final, signed closure record |
-| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>`) and start instant |
+| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
 | `workitems/<id>/.sdle/evidence/migration-*.json` | `migrate-workflow` | Legacy state/audit SHAs and Git HEAD captured at migration |
 | `workitems/index.md`, `workitems/<id>/workitem.json` | `workitem create` | Append-only registry and immutable WorkItem identity |
+| `workitems/.active-context.json` | `init`, `migrate-workflow`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
 | `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 11 analyze prompt |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
 
@@ -191,14 +192,52 @@ audit ledger belongs to a workflow, and a WorkItem exists before one does.
 
 Every command that touches runtime state resolves a WorkItem first, in this
 order: an explicit `--workitem <id>`, which must be registered; otherwise the
-sole registered WorkItem; otherwise a repository-global `.workflow/state.json`,
-if one exists and **no** WorkItem is registered. With none registered the
-command refuses `workitem_required`; with several registered and none named it
-refuses `workitem_ambiguous` and lists the candidates. SDLE never picks one.
-`lint-skill`, `sha`, `constants`, `workitem` and `migrate-workflow` touch no
-runtime state and need no resolution.
+launch directory, when it sits inside `workitems/<x>/`; otherwise the sole
+registered WorkItem; otherwise a still-valid persisted active context;
+otherwise a unique Git-branch match; otherwise a repository-global
+`.workflow/state.json`, if one exists and **no** WorkItem is registered. With
+none registered the command refuses `workitem_required`; with several plausible
+and none named it refuses `workitem_ambiguous` and lists the candidates. SDLE
+never picks one. `lint-skill`, `sha`, `constants`, `workitem`,
+`migrate-workflow` and `validate` touch no runtime state and need no
+resolution.
 
-The third rung is transitional. It exists so a repository holding a pre-v1.14
+The launch rung refuses rather than falls through: inside `workitems/<x>/`
+where `<x>` is a real directory that the index does not know, the command
+refuses `workitem_unregistered`. Binding some *other* WorkItem while the
+developer stands inside `<x>` would be exactly the silent wrong pick the
+ambiguity rule forbids. Rungs four and five are only reachable with two or more
+WorkItems registered, so a single-WorkItem repository never pays for a Git
+subprocess.
+
+The project root is discovered rather than assumed: the engine walks up from
+the launch directory to the nearest ancestor holding `workitems/index.md`,
+`.workflow/state.json` or `.git`, testing those markers in that order at each
+level, and falls back to the launch directory itself when nothing matches.
+`--project-root` and `SDLE_PROJECT_ROOT` still win outright. That is what makes
+all four supported launch locations — `workitems/<id>/`, `workitems/`, the
+repository root, and anywhere inside it — resolve the same repository.
+
+The **persisted active context** is `workitems/.active-context.json`: a
+developer-local, gitignored file recording `workitem`, the branch it was set
+on, when, and by which command. Only `init`, `migrate-workflow` and
+`workitem use` ever write it. It is skipped, never fatal, when it is
+unreadable, names an unregistered WorkItem, points at a missing directory, or
+was set on a different branch — a stale context can never brick a repository,
+and `workitem use --clear` restores plain registry-based resolution. It is
+deliberately never written by resolution itself, which is what lets the
+`PreToolUse` dirty-tree hook run the ladder speculatively without becoming a
+second writer.
+
+`workitem resolve` runs the same ladder in a reporting posture: it always exits
+0 and returns `resolved`, `rung`, `reason`, the launch directory, the project
+root, the current branch and a `candidates` list carrying per-candidate
+evidence (`cwd`, `context`, `context:stale`, `branch:<name>`, `runtime`). It is
+the only input the orchestrator gets for the ask-the-user rung. The engine
+never infers and never returns an inferred answer; the user's choice re-enters
+as an explicit `--workitem <id>`.
+
+The sixth rung is transitional. It exists so a repository holding a pre-v1.14
 workflow stays readable long enough to be migrated, and it disappears once any
 WorkItem is registered. `init` never takes it: while a repository-global
 `.workflow/state.json` exists, `init` refuses `legacy_workflow_present`
@@ -231,6 +270,47 @@ lowercased with non-alphanumeric characters removed, truncated to three
 characters, falling back to the email local part and finally to `usr`. It is
 execution and audit metadata: nothing resolves a WorkItem from it, and it is
 never the WorkItem name.
+
+The same file carries a `git` object — the branch, the starting SHA and the
+worktree path the run began on. Missing Git and a detached HEAD are never a
+refusal; they simply record `null`. This lives on the execution record rather
+than in `state.json` because it describes *this run*, not the workflow, so it
+needs no schema version and no migration row.
+
+### Branch and worktree rules
+
+One active WorkItem per developer branch or worktree; different WorkItems may
+run concurrently; two developers are not expected to drive the same WorkItem in
+parallel. There is no distributed locking and no cross-worktree coordination —
+the session lock is per-WorkItem, and two `git worktree`s of one repository
+each keep their own runtime, their own ledger, their own lock and their own
+active context.
+
+A **branch mismatch** is a non-null recorded branch that differs from the
+current one while Git is available. A missing Git, a detached HEAD, a null
+recorded branch, or no `execution.json` at all is not a mismatch. Read-only and
+advisory commands warn: `header` adds a `branch_mismatch` object to its `data`
+and one stderr line, and its `rendered` string is unchanged. The commands that
+advance the lifecycle or fingerprint working-tree content refuse
+`branch_mismatch` (exit 1) and record `branch_mismatch_guard` in the ledger;
+re-running the same command accepts the risk, records
+`branch_mismatch_accepted`, and proceeds. Commands that already carry their own
+two-step confirmation therefore need two acknowledgements on a mismatched
+branch — the branch first, then their own.
+
+### `validate`
+
+`sdle validate` needs no resolved WorkItem, because the repositories it exists
+to diagnose are the ones where resolution refuses; it resolves speculatively
+and turns a refusal into a finding. It reports duplicate WorkItem ids, an
+indexed WorkItem with no directory, a directory with no index row, malformed
+metadata, a branch mismatch, runtime state outside the WorkItem it names
+(including a surviving legacy `.workflow/state.json`), and path-traversal or
+symlink escapes. Each finding carries `check`, `severity`, `workitem`, `detail`
+and `path`. One or more `error` findings exit **3**; warnings alone, or a clean
+registry, exit **0**. A structurally corrupt `workitems/index.md` still surfaces
+as `index_malformed`, which is the same exit code and the correct diagnosis.
+SDLE never repairs the registry.
 
 ### 4.3 Why a state file, not conversation memory
 

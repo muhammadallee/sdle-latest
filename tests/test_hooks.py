@@ -16,7 +16,7 @@ import sys
 
 import pytest
 
-from conftest import REPO_ROOT
+from conftest import FIXTURE_WORKITEM_ID, REPO_ROOT
 
 HOOKS = REPO_ROOT / ".claude" / "hooks"
 SETTINGS = json.loads(
@@ -208,22 +208,45 @@ def test_dirty_tree_asks_when_preflight_has_not_run(started):
     assert "preflight" in reason(output)
 
 
-def test_dirty_tree_is_silent_when_the_workitem_is_ambiguous(started):
-    """T02: the guard has to resolve a WorkItem to find state.json. It must
-    never guess, and a guard that cannot tell which workflow it is looking at
-    stays silent — the same posture as every other failure path here."""
-    state = started.state()
+def test_dirty_tree_resolves_a_workitem_the_same_way_the_engine_does(started_git):
+    """T03 (NB-3): the guard has to resolve a WorkItem to find state.json.
+
+    T02 left it silent in every multi-WorkItem repository, because the ladder
+    could only bind a sole registered WorkItem. T03 puts the CWD, active
+    context and branch rungs inside ``bind_workitem`` itself, so the guard
+    inherits them with **no change to `.claude/hooks/hooks.py`**.
+
+    The fail-safe posture is unchanged and is what the last two assertions
+    pin: when nothing resolves, the guard stays silent rather than guessing.
+    """
+    state = started_git.state()
     state.update(current_phase="implement", progress="15/18",
                  implementation_base_ref=None)
-    started.write_state(state)
-    assert fire("dirty-tree", {"tool_name": "Bash",
-                               "tool_input": {"command": "npm install"}},
-                started.root) != {}  # one WorkItem: still resolves
+    started_git.write_state(state)
+    started_git.ok("workitem", "create", "--name", "Second Item")
 
-    started.ok("workitem", "create", "--name", "Second Item")
-    assert fire("dirty-tree", {"tool_name": "Bash",
-                               "tool_input": {"command": "npm install"}},
-                started.root) == {}
+    payload = {"tool_name": "Bash", "tool_input": {"command": "npm install"}}
+    context = started_git.root / "workitems" / ".active-context.json"
+
+    # 1. Two WorkItems, a valid persisted context (written by `init`): fires.
+    assert context.is_file()
+    assert fire("dirty-tree", payload, started_git.root) != {}
+
+    # 2. Context cleared: two WorkItems on one branch stay ambiguous, so the
+    #    ladder refuses and the guard stays silent.
+    started_git.ok("workitem", "use", "--clear")
+    assert not context.exists()
+    assert fire("dirty-tree", payload, started_git.root) == {}
+
+    # 3. Context present but branch-invalidated: skipped, never fatal, and the
+    #    guard is silent again rather than binding the wrong WorkItem.
+    context.write_text(
+        json.dumps({"workitem": FIXTURE_WORKITEM_ID, "branch": "no-such-branch",
+                    "setAt": "2026-01-01T00:00:00Z", "setBy": "use",
+                    "sdleVersion": "1.14"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    assert fire("dirty-tree", payload, started_git.root) == {}
 
 
 def test_dirty_tree_is_silent_with_no_workitem_at_all(bare_project):
