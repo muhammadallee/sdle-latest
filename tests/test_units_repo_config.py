@@ -40,6 +40,10 @@ CONFIG_MEMBERS = (
     "shared_templates_dir",
     "baseline_file",
     "implementation_state_dir",
+    # T06: the first executable policy under `.sdle/policies/`. It is a
+    # repository-configuration member by the same derivation rule, so it
+    # inherits every containment proof in this file.
+    "governance_policy_file",
 )
 
 # The WorkItem runtime members the boundary must stay clear of.
@@ -543,6 +547,8 @@ def two_workitems_one_mid_run(project: Project) -> tuple[str, str]:
     first = create_wi(project, "Alpha")
     second = create_wi(project, "Bravo")
     driver = project.as_workitem(first)
+    # T06: `advance` refuses `governance_missing` without a record.
+    driver.record_governance()
     driver.ok("init", session="purity")
     driver.write_artifact(".specify/memory/constitution.md")
     driver.ok("advance", "--to", "gate_constitution")
@@ -671,6 +677,11 @@ def test_the_runtime_member_names_are_derived_from_paths():
     assert set(RUNTIME_MEMBER_NAMES) == {
         "state.json", "audit.md", "execution.json", "lock",
         "evidence", "implementation-manifest.md", "completion-summary.json",
+        # T06: the governance record and the review ledger are WorkItem-owned.
+        # `governance.json` must never share a basename with the repository
+        # policy file (`governance-policy.json`), or the disjointness assertion
+        # below and the two leak detectors would contradict each other.
+        "governance.json", "reviews.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "templates", "baseline.json",
@@ -869,6 +880,9 @@ CONFIG_REFERENCE_SITES = {
     "read_repo_config",
     "repo_config_findings",
     "collect_validation_findings",
+    # T06: exactly one new function legitimately reaches the boundary — the
+    # fail-closed governance policy reader. No lifecycle command may.
+    "read_governance_policy",
 }
 
 RUNTIME_WRITERS = {
@@ -913,12 +927,54 @@ def test_the_configuration_commands_never_touch_runtime_state():
 
 
 def test_no_lifecycle_command_reads_the_repository_configuration():
-    """N11(3): §11 says the 18-phase behaviour stays authoritative. A gate,
-    an advance, an approval or an init that read `.sdle/config.json` would be
-    exactly the leak this phase must not ship."""
+    """N11(3), rewritten at T06 — the phase §11 and ADR-002 named as the one
+    where policy under `.sdle/policies/` becomes executable.
+
+    The original form filtered by function-NAME PREFIX. That was adequate
+    while nothing in the engine read the boundary at all, but it is exactly
+    the wrong shape once the lifecycle genuinely consults policy: a helper
+    named outside `cmd_gate*` / `cmd_advance*` / `cmd_approve*` / `cmd_init*`
+    could read `.sdle/` and the test would still pass, so the guardrail would
+    die silently while looking alive.
+
+    The rewrite is strictly stronger. Clauses (a) and (b) are stated over
+    *every* function in the engine, so no name can slip past them; clause (c)
+    is the original assertion, kept, so the prefix guard below it stays
+    load-bearing.
+    """
     tree = sdle_ast()
+    engine = functions_outside_paths(tree)
+
+    # (a) The executable-policy member has exactly one reader, and the
+    #     lifecycle reaches policy only through it. `read_governance_policy`
+    #     is fail-closed: it refuses a malformed policy rather than
+    #     defaulting, so "one reader" is also "one refusal site".
+    policy_readers = {fn.name for fn in engine
+                      if "governance_policy_file" in names_referenced(fn)}
+    assert policy_readers == {"read_governance_policy"}, policy_readers
+
+    # (b) `.sdle/config.json` itself is still read by nothing outside the
+    #     configuration group. Closed over the whole engine, so a new reader
+    #     anywhere fails here rather than passing on a naming technicality.
+    config_readers = {fn.name for fn in engine
+                      if "config_file" in names_referenced(fn)}
+    assert config_readers == {
+        "cmd_config_init",
+        "cmd_config_show",
+        "collect_validation_findings",
+        "read_repo_config",
+        "repo_config_findings",
+    }, config_readers
+    lifecycle_readers = {name for name in config_readers
+                         if name.startswith("cmd_")
+                         and not name.startswith("cmd_config")}
+    assert lifecycle_readers == set(), lifecycle_readers
+
+    # (c) The original clause, unchanged in effect: a gate, an advance, an
+    #     approval or an init that reached ANY configuration member would be
+    #     the leak §11 forbids.
     prefixes = ("cmd_gate", "cmd_advance", "cmd_approve", "cmd_init")
-    for fn in functions_outside_paths(tree):
+    for fn in engine:
         if not fn.name.startswith(prefixes):
             continue
         assert not names_referenced(fn) & set(CONFIG_MEMBERS), fn.name

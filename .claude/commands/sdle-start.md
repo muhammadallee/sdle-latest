@@ -35,14 +35,20 @@ argument-hint: "[--verbose]"
    - On exit 1 `workitem_name_invalid`, print `message` and ask again.
    - On exit 3 `index_malformed`, print `message` and stop. The registry is
      repaired by hand; SDLE never rewrites it.
-4. Then run
+4. Then assess governance for that WorkItem: write the structured
+   proposal the skill describes and run
+   `sdle.sh --workitem <id> governance assess --input <path>`.
+   `sdle.sh governance policy` reports the check ids, signals and levels it
+   is scored against; it needs no WorkItem. This is required before the first
+   `advance`, not before `init` — on exit 1 print `message` and stop.
+5. Then run
    `sdle.sh --workitem <id> init --session <8-hex token for this conversation>`,
    naming the id step 3 returned. The WorkItem is the durable identity *and*
    the runtime scope: `init` writes `workitems/<id>/.sdle/state.json`, records
    the branch and starting SHA in `execution.json`, and refuses
    `workitem_required` if no WorkItem exists.
-5. If `$ARGUMENTS` contains `--verbose`, the skill sets verbose mode.
-6. Print the header, summarise the requirements found, and propose the next
+6. If `$ARGUMENTS` contains `--verbose`, the skill sets verbose mode.
+7. Print the header, summarise the requirements found, and propose the next
    phase.
 
 Read `.claude/skills/sdle/SKILL.md` and follow it to execute the phase.

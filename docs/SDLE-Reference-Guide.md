@@ -750,6 +750,16 @@ Since v1.12 the ledger is **tamper-evident**: after every append, the SHA-256 of
 
 Written exactly once, when Gate 8 is approved: workflow version, project name, completion timestamp, count of phases completed, the security review artifact path, and confirmation that all 8 gates were approved. This is the artifact that answers, unambiguously, "was this delivered through the governed process, and did it pass."
 
+### 12.4 `governance.json` and `reviews.json` — the entry and quality records
+
+Two further WorkItem-scoped records carry the evidence that the work was *admitted* to the lifecycle on stated grounds, and that its artifacts were *judged* rather than merely produced.
+
+`governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and the gate set that classification and level *would* require. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when `requirements/` changed after the assessment (`governance_stale`).
+
+`reviews.json` is an append-only ledger of artifact reviews: path, content fingerprint at review time, review type, result, actor type and name, evidence id and timestamp. Freshness is **derived** — a review applies to the exact content version it was performed against, and nothing stores a "reviewed" boolean. A gate refuses to approve an artifact with no review (`review_missing`), a review of superseded content (`review_stale`), or a failing review of the current content (`review_failed`); drift re-approval is held to the same rule. Each review is linked into `audit.md` as its own entry, so the ledger answers "who judged this content, and which version" as well as "who approved it."
+
+The would-be required gate set is **recorded and not acted on** at this version: all eight gates run unconditionally regardless of classification or risk. Making them conditional is a later, separate decision.
+
 ---
 
 ## 13. Roles & Responsibilities
@@ -777,6 +787,9 @@ SDLE was not built against a named compliance framework, but its mechanisms map 
 | Evidence-based security sign-off | Phase 17's diff-derived, OWASP-mapped findings with explicit scope limitations, rather than an unsupported "looks secure" assertion. |
 | Formal closure record | `workitems/<id>/.sdle/completion-summary.json`, written only on final gate approval. |
 | Bounded automated action | Rate-limited remediation/retry loops; no unbounded automated re-attempts against an unresolved root cause. |
+| Entry criteria before work begins | A WorkItem cannot advance without a governance record: a requirements-quality result over a structured check set, a classification, and a deterministically scored risk level (§12.4). A blocking quality finding stops progression. |
+| Deterministic, non-negotiable risk scoring | Weights, thresholds and hard floors come from policy; the assessing model may propose a level but may never lower the computed one, and the attempt is itself recorded. A repository override may only make governance stricter. |
+| Independent artifact review, separate from approval | Every governed artifact carries a review of its exact content — type, result and attributed actor — recorded before, and distinctly from, the human gate decision (§12.4). |
 
 SDLE's audit trail can support a compliance review; it does not, by itself, constitute certification against any specific regulatory framework (SOC 2, ISO 27001, etc.). Treat it as strong supporting evidence within a broader governance program, not as the program itself.
 
@@ -1049,6 +1062,17 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `confirm implement` | Proceed with Phase 15 despite uncommitted working-tree changes (dirty-tree guard). |
 | `skip with warning` | Advance past a *failed* (not rejected) phase without a verified artifact. Logged, discouraged. Requires `confirm skip`. |
 | `verbose on` / `verbose off` | Toggle display verbosity. |
+
+The engine commands behind the governance and review records, for operators reading `audit.md` or a CI log:
+
+| Command | Effect |
+|---|---|
+| `governance policy` | Report the effective governance policy. Needs no WorkItem; writes nothing. |
+| `governance assess --input <path>` | Score a structured proposal and write the WorkItem's governance record. Runs before `init`. |
+| `governance show` | Report the record and whether it is still current. |
+| `governance gates` | Report the would-be required gate set. Advisory; nothing consumes it. |
+| `artifact review --path <p> --type <t> --result PASS\|FAIL --actor-type <k> --actor-name <n>` | Record a review of an artifact's exact current content. |
+| `artifact reviews [--path <p>]` | List review records with a derived freshness verdict. Read-only. |
 
 ---
 

@@ -19,6 +19,7 @@ never restated here. See ``Constants``.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -180,6 +181,22 @@ class Paths:
         return self.runtime / "evidence"
 
     @property
+    def governance_file(self) -> Path:
+        """The WorkItem's recorded governance verdict (contract §12).
+
+        A WorkItem-owned *record*, never a policy. It is deliberately not a
+        field of ``state.json``: §12 places governance before planning, so the
+        record must be writable before ``state.json`` exists — the same
+        ownership argument that put branch/SHA in ``execution.json``.
+        """
+        return self.runtime / "governance.json"
+
+    @property
+    def reviews_file(self) -> Path:
+        """Append-only governed-artifact review records (TP-011)."""
+        return self.runtime / "reviews.json"
+
+    @property
     def speckit_specs_root(self) -> Path | None:
         """Where this WorkItem's Spec Kit feature directories live.
 
@@ -227,6 +244,17 @@ class Paths:
     @property
     def policies_dir(self) -> Path:
         return self.config_root / "policies"
+
+    @property
+    def governance_policy_file(self) -> Path:
+        """The optional repository governance policy override (contract §12).
+
+        The basename differs from ``governance_file`` on purpose. A policy is
+        repository-owned and a record is WorkItem-owned; sharing a basename
+        would make the two `.sdle/` leak detectors contradict each other and
+        would break the runtime/configuration name disjointness §11 relies on.
+        """
+        return self.policies_dir / "governance-policy.json"
 
     @property
     def shared_templates_dir(self) -> Path:
@@ -931,10 +959,19 @@ def append_audit(
     artifact_sha: str | None = None,
     decision: str | None = None,
     comments: str | None = None,
+    review: str | None = None,
+    evidence_id: str | None = None,
 ) -> str:
     """Append an entry, chain it, and rebaseline ``audit_sha``.
 
     Ordering is load-bearing: append -> hash file -> save state.
+
+    ``review`` and ``evidence_id`` are TP-011's audit linkage (T06/D10). When
+    both are ``None`` the rendered block is **byte-identical** to every entry
+    written before T06, which is what lets a pre-T06 ledger keep verifying.
+    When supplied they render as two extra lines placed **before** ``Prev``:
+    the chain tail must stay the last line of the entry, and the review result
+    must not be smuggled into ``decision``, which belongs to gate approval.
     """
     paths.workflow.mkdir(parents=True, exist_ok=True)
     existing = (
@@ -953,7 +990,9 @@ def append_audit(
         f"**Artifact SHA (SHA-256):** {artifact_sha or 'n/a'}\n"
         f"**Gate Decision:** {decision or 'n/a'}\n"
         f"**Comments:** {comments or 'None'}\n"
-        f"**Prev:** {prev}\n"
+        + (f"**Review:** {review}\n" if review else "")
+        + (f"**Evidence:** {evidence_id}\n" if evidence_id else "")
+        + f"**Prev:** {prev}\n"
     )
     separator = "" if not existing or existing.endswith("\n\n") else "\n"
     write_atomic(paths.audit_file, existing + separator + block)
@@ -2017,6 +2056,11 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # criterion is that it resolves *independently* of WorkItem runtime state,
     # so binding a WorkItem first would contradict the boundary it creates.
     "config",
+    # T06: `governance policy` reads a repository-scoped policy and must
+    # resolve with no WorkItem bound, exactly like `config`. The WorkItem-
+    # scoped members of the group (`assess`, `show`, `gates`) bind explicitly
+    # through `bind_workitem`, so the ladder is exercised, not bypassed.
+    "governance",
 })
 
 
@@ -2825,7 +2869,7 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
     return tuple(member.name for member in (
         bound.state_file, bound.audit_file, bound.execution_file,
         bound.lock_file, bound.evidence_dir, bound.manifest_file,
-        bound.completion_file,
+        bound.completion_file, bound.governance_file, bound.reviews_file,
     ))
 
 
@@ -3255,6 +3299,994 @@ def cmd_config_show(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
+# Governance policy — contract §12
+#
+# `GOVERNANCE_POLICY_BUILTIN` is the single source of truth for the twelve
+# requirements-quality check ids, which of them block, which may be reported
+# NOT_APPLICABLE, the closed risk-signal vocabulary and its weights, the
+# score->level thresholds, the hard floors, and the would-be required gate
+# map. No default value below may be restated anywhere outside this file.
+#
+# A repository may override it with `.sdle/policies/governance-policy.json`.
+# The override is MONOTONE: it may only make governance stricter. That is what
+# makes "absent policy file -> built-in" safe rather than fail-open — the
+# built-in is by construction the weakest admissible policy, so a missing
+# override can never produce a weaker outcome than a present one.
+#
+# Merge rule, stated once: a dict-valued key is merged key by key (so adding a
+# signal does not require restating the others); a list-valued key is replaced
+# wholesale (so a removal is expressible, and therefore refusable). Every
+# merged value must then dominate the built-in, or the read refuses.
+# --------------------------------------------------------------------------
+
+GOVERNANCE_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+# §12's WorkItem type and engineering-flow vocabularies. Fixed by the
+# contract, not policy-overridable: a repository may tighten *consequences*,
+# never rename the facts.
+WORKITEM_TYPES = ("enhancement", "defect", "hotfix", "chore")
+ENGINEERING_FLOWS = (
+    "GREENFIELD", "BROWNFIELD_DISCOVERY", "ITERATIVE", "DEFECT_FIX", "HOTFIX",
+)
+
+GOVERNANCE_POLICY_BUILTIN = {
+    "policyVersion": "1",
+    # §12's twelve structured checks, verbatim and in its order.
+    "quality_checks": [
+        "problem_statement",
+        "scope",
+        "out_of_scope",
+        "acceptance_criteria",
+        "ambiguity",
+        "contradictions",
+        "constraints",
+        "nfrs",
+        "security_data_implications",
+        "compatibility",
+        "dependencies",
+        "blocking_unknowns",
+    ],
+    # A FAIL on any of these stops progression. Severity is read from HERE,
+    # never from the model's input.
+    "blocking_checks": [
+        "problem_statement",
+        "scope",
+        "out_of_scope",
+        "acceptance_criteria",
+        "ambiguity",
+        "contradictions",
+        "constraints",
+        "nfrs",
+        "security_data_implications",
+        "compatibility",
+        "dependencies",
+        "blocking_unknowns",
+    ],
+    # §12 says "NFRs when relevant", so `nfrs` — and only `nfrs` — may be
+    # reported NOT_APPLICABLE. Every other check must be answered.
+    "optional_checks": ["nfrs"],
+    "risk_signals": {
+        "external_api_surface": 2,
+        "persistent_data_store": 2,
+        "schema_or_data_migration": 3,
+        "authentication_or_authorization": 3,
+        "personal_or_sensitive_data": 4,
+        "payment_or_financial": 4,
+        "cryptography_or_secrets": 4,
+        "public_network_exposure": 3,
+        "third_party_dependency": 1,
+        "concurrency_or_distributed_state": 2,
+        "infrastructure_or_deployment": 2,
+        "backward_incompatible_change": 3,
+    },
+    "risk_thresholds": {"LOW": 0, "MEDIUM": 2, "HIGH": 5, "CRITICAL": 9},
+    "hard_floors": [
+        {"signal": "payment_or_financial", "level": "HIGH"},
+        {"signal": "cryptography_or_secrets", "level": "HIGH"},
+        {"signal": "personal_or_sensitive_data", "level": "HIGH"},
+        {"signal": "authentication_or_authorization", "level": "MEDIUM"},
+        {"uncertainty": "HIGH", "level": "HIGH"},
+        {"uncertainty": "CRITICAL", "level": "CRITICAL"},
+    ],
+    # The would-be required gate set. RECORDED, NEVER ACTED ON at T06: §12
+    # says preserve current gates and do not make them conditional yet. All
+    # eight gates run unconditionally; this map exists for test comparison
+    # against the phase that does make them conditional.
+    "required_gates_always": [
+        "gate_constitution", "gate_spec", "gate_plan", "gate_implement",
+    ],
+    "required_gates_by_risk": {
+        "LOW": [],
+        "MEDIUM": ["gate_tasks"],
+        "HIGH": ["gate_tasks", "gate_analyze", "gate_design", "gate_security"],
+        "CRITICAL": [
+            "gate_tasks", "gate_analyze", "gate_design", "gate_security",
+        ],
+    },
+    "required_gates_by_type": {
+        "enhancement": [],
+        "defect": ["gate_tasks"],
+        "hotfix": [],
+        "chore": [],
+    },
+}
+
+# Top-level keys an override may carry. `quality_checks` is deliberately
+# absent: the twelve ids are §12's, and a repository that could rename or drop
+# one would be editing the contract rather than tightening it.
+GOVERNANCE_POLICY_OVERRIDABLE = (
+    "policyVersion",
+    "blocking_checks",
+    "optional_checks",
+    "risk_signals",
+    "risk_thresholds",
+    "hard_floors",
+    "required_gates_always",
+    "required_gates_by_risk",
+    "required_gates_by_type",
+)
+
+SUPPORTED_POLICY_VERSIONS = ("1",)
+
+
+def _policy_malformed(relative: str, detail: str, **data) -> Refused:
+    """Every malformed-policy exit goes through one constructor.
+
+    Fail-closed by construction: this returns a refusal, so no caller can
+    accidentally turn a parse problem into a default. A security-relevant
+    floor that silently defaulted would be the wrong failure direction.
+    """
+    return Refused(
+        "policy_malformed",
+        f"{relative} cannot be used as a governance policy: {detail}. SDLE "
+        "refuses rather than falling back to the built-in policy — a "
+        "governance floor must never be lowered by a typo.",
+        {"path": relative, "detail": detail, **data},
+    )
+
+
+def _policy_weakens(relative: str, key: str, detail: str, **data) -> Refused:
+    return Refused(
+        "policy_weakens_baseline",
+        f"{relative} weakens the built-in governance policy at '{key}': "
+        f"{detail}. A repository policy may only make governance stricter.",
+        {"path": relative, "key": key, "detail": detail, **data},
+    )
+
+
+def _is_int(value: object) -> bool:
+    """`True` is an `int` in Python and must not pass as a weight."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _str_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _floor_key(rule: dict) -> tuple[str, str] | None:
+    for kind in ("signal", "uncertainty"):
+        if kind in rule:
+            return kind, rule[kind]
+    return None
+
+
+def _validate_policy_shapes(document: dict, relative: str,
+                            known_gates: set[str]) -> None:
+    """Type and vocabulary validation for an override document."""
+    checks = set(GOVERNANCE_POLICY_BUILTIN["quality_checks"])
+
+    unknown = sorted(set(document) - set(GOVERNANCE_POLICY_OVERRIDABLE))
+    if unknown:
+        raise _policy_malformed(
+            relative,
+            f"unknown top-level key(s) {', '.join(unknown)}; an override may "
+            "carry only " + ", ".join(GOVERNANCE_POLICY_OVERRIDABLE),
+            unknown_keys=unknown,
+        )
+
+    if "policyVersion" in document:
+        if document["policyVersion"] not in SUPPORTED_POLICY_VERSIONS:
+            raise _policy_malformed(
+                relative,
+                f"policyVersion {document['policyVersion']!r} is not "
+                "supported; this engine supports "
+                + ", ".join(repr(v) for v in SUPPORTED_POLICY_VERSIONS),
+            )
+
+    for key in ("blocking_checks", "optional_checks"):
+        if key not in document:
+            continue
+        if not _str_list(document[key]):
+            raise _policy_malformed(relative, f"{key} must be a list of strings")
+        strange = sorted(set(document[key]) - checks)
+        if strange:
+            raise _policy_malformed(
+                relative,
+                f"{key} names check id(s) {', '.join(strange)} that are not "
+                "among the twelve requirements-quality checks",
+                unknown_checks=strange,
+            )
+
+    if "risk_signals" in document:
+        value = document["risk_signals"]
+        if not isinstance(value, dict):
+            raise _policy_malformed(relative, "risk_signals must be an object")
+        for signal, weight in value.items():
+            if not _is_int(weight) or weight < 0:
+                raise _policy_malformed(
+                    relative,
+                    f"risk_signals['{signal}'] must be a non-negative integer "
+                    f"weight, not {weight!r}",
+                )
+
+    if "risk_thresholds" in document:
+        value = document["risk_thresholds"]
+        if not isinstance(value, dict):
+            raise _policy_malformed(relative, "risk_thresholds must be an object")
+        strange = sorted(set(value) - set(GOVERNANCE_LEVELS))
+        if strange:
+            raise _policy_malformed(
+                relative,
+                f"risk_thresholds names level(s) {', '.join(strange)}; the "
+                "levels are " + ", ".join(GOVERNANCE_LEVELS),
+            )
+        for level, score in value.items():
+            if not _is_int(score) or score < 0:
+                raise _policy_malformed(
+                    relative,
+                    f"risk_thresholds['{level}'] must be a non-negative "
+                    f"integer, not {score!r}",
+                )
+
+    if "hard_floors" in document:
+        value = document["hard_floors"]
+        if not isinstance(value, list) or not all(
+                isinstance(rule, dict) for rule in value):
+            raise _policy_malformed(relative, "hard_floors must be a list of objects")
+        for rule in value:
+            if set(rule) not in ({"signal", "level"}, {"uncertainty", "level"}):
+                raise _policy_malformed(
+                    relative,
+                    "each hard_floors rule must be exactly {'signal', 'level'} "
+                    f"or {{'uncertainty', 'level'}}, not {sorted(rule)}",
+                )
+            if rule["level"] not in GOVERNANCE_LEVELS:
+                raise _policy_malformed(
+                    relative,
+                    f"hard_floors level {rule['level']!r} is not one of "
+                    + ", ".join(GOVERNANCE_LEVELS),
+                )
+            if "uncertainty" in rule and rule["uncertainty"] not in GOVERNANCE_LEVELS:
+                raise _policy_malformed(
+                    relative,
+                    f"hard_floors uncertainty {rule['uncertainty']!r} is not "
+                    "one of " + ", ".join(GOVERNANCE_LEVELS),
+                )
+
+    if "required_gates_always" in document:
+        if not _str_list(document["required_gates_always"]):
+            raise _policy_malformed(
+                relative, "required_gates_always must be a list of strings")
+
+    for key, vocabulary in (("required_gates_by_risk", GOVERNANCE_LEVELS),
+                            ("required_gates_by_type", WORKITEM_TYPES)):
+        if key not in document:
+            continue
+        value = document[key]
+        if not isinstance(value, dict):
+            raise _policy_malformed(relative, f"{key} must be an object")
+        strange = sorted(set(value) - set(vocabulary))
+        if strange:
+            raise _policy_malformed(
+                relative,
+                f"{key} names {', '.join(strange)}; the permitted keys are "
+                + ", ".join(vocabulary),
+            )
+        for name, gates in value.items():
+            if not _str_list(gates):
+                raise _policy_malformed(
+                    relative, f"{key}['{name}'] must be a list of gate keys")
+
+    # Gate ids are validated against the *registered* gates, so an override
+    # cannot name a gate that does not exist. A would-be gate set full of
+    # phantom keys would be worthless for the comparison §12 asks for.
+    named: set[str] = set(document.get("required_gates_always") or [])
+    for key in ("required_gates_by_risk", "required_gates_by_type"):
+        for gates in (document.get(key) or {}).values():
+            named |= set(gates)
+    phantom = sorted(named - known_gates)
+    if phantom:
+        raise _policy_malformed(
+            relative,
+            f"required gate key(s) {', '.join(phantom)} are not registered "
+            "gates",
+            unknown_gates=phantom, known_gates=sorted(known_gates),
+        )
+
+
+def _merge_policy(document: dict) -> dict:
+    """Built-in, overlaid by the override. Dicts merge; lists replace."""
+    merged = copy.deepcopy(GOVERNANCE_POLICY_BUILTIN)
+    for key, value in document.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _refuse_weakening(merged: dict, relative: str) -> None:
+    """D2's six weakening shapes. Each one is a refusal, never a warning."""
+    builtin = GOVERNANCE_POLICY_BUILTIN
+
+    dropped = sorted(set(builtin["blocking_checks"]) - set(merged["blocking_checks"]))
+    if dropped:
+        raise _policy_weakens(
+            relative, "blocking_checks",
+            f"it no longer blocks on {', '.join(dropped)}", removed=dropped)
+
+    widened = sorted(set(merged["optional_checks"]) - set(builtin["optional_checks"]))
+    if widened:
+        raise _policy_weakens(
+            relative, "optional_checks",
+            f"it lets {', '.join(widened)} be reported NOT_APPLICABLE",
+            added=widened)
+
+    for signal, weight in builtin["risk_signals"].items():
+        current = merged["risk_signals"].get(signal)
+        if current is None:
+            raise _policy_weakens(
+                relative, "risk_signals",
+                f"the signal '{signal}' has been removed", signal=signal)
+        if current < weight:
+            raise _policy_weakens(
+                relative, "risk_signals",
+                f"'{signal}' weighs {current}, below the built-in {weight}",
+                signal=signal, weight=current, builtin_weight=weight)
+
+    for level, score in builtin["risk_thresholds"].items():
+        current = merged["risk_thresholds"].get(level)
+        if current is None:
+            raise _policy_weakens(
+                relative, "risk_thresholds",
+                f"the threshold for {level} has been removed", level=level)
+        if current > score:
+            raise _policy_weakens(
+                relative, "risk_thresholds",
+                f"{level} now needs a score of {current}, above the built-in "
+                f"{score}, so it is harder to reach",
+                level=level, threshold=current, builtin_threshold=score)
+
+    present = {}
+    for rule in merged["hard_floors"]:
+        key = _floor_key(rule)
+        if key is not None:
+            index = GOVERNANCE_LEVELS.index(rule["level"])
+            present[key] = max(present.get(key, -1), index)
+    for rule in builtin["hard_floors"]:
+        key = _floor_key(rule)
+        expected = GOVERNANCE_LEVELS.index(rule["level"])
+        current = present.get(key)
+        if current is None:
+            raise _policy_weakens(
+                relative, "hard_floors",
+                f"the floor {key[0]}='{key[1]}' -> {rule['level']} has been "
+                "removed", floor=rule)
+        if current < expected:
+            raise _policy_weakens(
+                relative, "hard_floors",
+                f"the floor {key[0]}='{key[1]}' has been lowered from "
+                f"{rule['level']} to {GOVERNANCE_LEVELS[current]}", floor=rule)
+
+    missing = sorted(set(builtin["required_gates_always"])
+                     - set(merged["required_gates_always"]))
+    if missing:
+        raise _policy_weakens(
+            relative, "required_gates_always",
+            f"it no longer requires {', '.join(missing)}", removed=missing)
+
+    for key in ("required_gates_by_risk", "required_gates_by_type"):
+        for name, gates in builtin[key].items():
+            missing = sorted(set(gates) - set(merged[key].get(name) or []))
+            if missing:
+                raise _policy_weakens(
+                    relative, key,
+                    f"'{name}' no longer requires {', '.join(missing)}",
+                    entry=name, removed=missing)
+
+
+def read_governance_policy(paths: Paths, consts: Constants) -> dict:
+    """The effective governance policy. Reads; never writes. FAIL-CLOSED.
+
+    This is the ONLY function in the engine that may reach
+    ``Paths.governance_policy_file``. It deliberately does **not** copy
+    `read_repo_config`'s `except: return defaults` shape: that reader is safe
+    only because its sole caller refuses first, and a governance floor that
+    silently defaulted on a malformed file would be exactly the wrong failure
+    direction. Every unusable document raises; nothing here returns from an
+    exception handler.
+
+    The built-in is returned only when the file is genuinely **absent**, which
+    is safe because the override is monotone — the built-in is the weakest
+    admissible policy.
+    """
+    target = paths.governance_policy_file
+    relative = target.relative_to(paths.project_root).as_posix()
+    known_gates = set(consts.phase_to_gate_key.values())
+
+    # Presence and readability are two different questions, and conflating
+    # them is a fail-open bug: a directory (or a broken symlink) where the
+    # policy should be is not an absent policy, it is an unusable one.
+    if not target.exists() and not target.is_symlink():
+        return {
+            "policy": copy.deepcopy(GOVERNANCE_POLICY_BUILTIN),
+            "source": "builtin",
+            "path": relative,
+            "sha256": None,
+        }
+    if not target.is_file():
+        raise _policy_malformed(
+            relative, "something exists at that path but it is not a readable "
+            "regular file")
+
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _policy_malformed(relative, f"it cannot be read ({exc})") from None
+    try:
+        document = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _policy_malformed(relative, f"it is not valid JSON ({exc})") from None
+    if not isinstance(document, dict):
+        raise _policy_malformed(relative, "it is not a JSON object")
+
+    _validate_policy_shapes(document, relative, known_gates)
+    merged = _merge_policy(document)
+    _refuse_weakening(merged, relative)
+    return {
+        "policy": merged,
+        "source": relative,
+        "path": relative,
+        "sha256": sha256_file(target),
+    }
+
+
+def cmd_governance_policy(args, paths: Paths) -> int:
+    """Report the effective governance policy. Creates nothing, writes
+    nothing, and needs no WorkItem — the policy is repository-scoped."""
+    consts = load_constants(paths)
+    effective = read_governance_policy(paths, consts)
+    emit("governance policy", {
+        "source": effective["source"],
+        "path": effective["path"],
+        "sha256": effective["sha256"],
+        "policy": effective["policy"],
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Governance assessment — contract §12
+#
+# Claude reports observations; the POLICY decides consequences. Severity is
+# read from the policy and never from the input, an unknown risk signal is
+# refused rather than ignored (a silently dropped signal is a silently lowered
+# risk), and the final risk level is `max(deterministic, proposed)` over a
+# totally ordered lattice — so there is no code path here that can produce a
+# level below the deterministic one.
+#
+# The record is a WorkItem runtime FILE, not a `state.json` field, because §12
+# places governance *before* planning: it must be writable before
+# `state.json` exists, so it cannot be owned by it. Same argument that put
+# branch/SHA in `execution.json` at T03.
+# --------------------------------------------------------------------------
+
+GOVERNANCE_RECORD_VERSION = "1"
+GOVERNANCE_INPUT_VERSIONS = ("1",)
+QUALITY_RESULTS = ("PASS", "FAIL", "NOT_APPLICABLE")
+GOVERNANCE_INPUT_SECTIONS = ("governanceInputVersion", "quality",
+                             "classification", "risk")
+
+
+def _input_malformed(relative: str, detail: str, **data) -> Refused:
+    return Refused(
+        "governance_input_malformed",
+        f"{relative} is not a usable governance input: {detail}.",
+        {"path": relative, "detail": detail, **data},
+    )
+
+
+def requirements_sources(paths: Paths) -> tuple[list[dict], str]:
+    """Every file under ``requirements/`` with its SHA, plus one digest.
+
+    The digest covers the *source set*, not one file, so adding or removing a
+    requirements document invalidates a recorded assessment exactly as editing
+    one does. Sorted by repo-relative POSIX path so the value is stable across
+    platforms and filesystem ordering.
+    """
+    root = paths.project_root / "requirements"
+    sources: list[dict] = []
+    if root.is_dir():
+        for path in root.rglob("*"):
+            if path.is_file():
+                sources.append({
+                    "path": path.relative_to(paths.project_root).as_posix(),
+                    "sha256": sha256_file(path),
+                })
+    sources.sort(key=lambda entry: entry["path"])
+    payload = "\n".join(f"{e['path']} {e['sha256']}" for e in sources)
+    return sources, hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def read_governance_input(target: Path, relative: str) -> dict:
+    """Parse and envelope-validate Claude's structured proposal. Fail-closed:
+    nothing here returns a default."""
+    if not target.is_file():
+        raise _input_malformed(relative, "no such file")
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _input_malformed(relative, f"it cannot be read ({exc})") from None
+    try:
+        document = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _input_malformed(relative, f"it is not valid JSON ({exc})") from None
+    if not isinstance(document, dict):
+        raise _input_malformed(relative, "it is not a JSON object")
+
+    unknown = sorted(set(document) - set(GOVERNANCE_INPUT_SECTIONS))
+    if unknown:
+        raise _input_malformed(
+            relative, f"unknown top-level key(s) {', '.join(unknown)}",
+            unknown_keys=unknown)
+    missing = [key for key in GOVERNANCE_INPUT_SECTIONS if key not in document]
+    if missing:
+        raise _input_malformed(
+            relative, f"missing required key(s) {', '.join(missing)}",
+            missing_keys=missing)
+    if document["governanceInputVersion"] not in GOVERNANCE_INPUT_VERSIONS:
+        raise _input_malformed(
+            relative,
+            f"governanceInputVersion {document['governanceInputVersion']!r} is "
+            "not supported; this engine supports "
+            + ", ".join(repr(v) for v in GOVERNANCE_INPUT_VERSIONS))
+    for key in ("quality", "classification", "risk"):
+        if not isinstance(document[key], dict):
+            raise _input_malformed(relative, f"'{key}' must be an object")
+    return document
+
+
+def evaluate_quality(document: dict, policy: dict, relative: str) -> dict:
+    """The twelve §12 checks, evaluated deterministically.
+
+    Severity is read from ``policy``. An input that tried to mark its own
+    failure advisory could not do so — there is nowhere in this function that
+    consults the input for whether a check blocks.
+    """
+    quality = document["quality"]
+    ids = list(policy["quality_checks"])
+    blocking_ids = set(policy["blocking_checks"])
+    optional_ids = set(policy["optional_checks"])
+
+    unknown = sorted(set(quality) - set(ids))
+    if unknown:
+        raise Refused(
+            "quality_unknown_check",
+            f"{relative} reports check id(s) {', '.join(unknown)} that are not "
+            "among the twelve requirements-quality checks. SDLE refuses an "
+            "input it does not fully understand rather than ignoring part of "
+            "it.",
+            {"path": relative, "unknown": unknown, "known": ids},
+        )
+    missing = [name for name in ids if name not in quality]
+    if missing:
+        raise Refused(
+            "quality_incomplete",
+            f"{relative} does not answer {', '.join(missing)}. All twelve "
+            "checks must be answered; an unanswered check is not a pass.",
+            {"path": relative, "missing": missing},
+        )
+
+    checks: list[dict] = []
+    for name in ids:
+        entry = quality[name]
+        if not isinstance(entry, dict) or set(entry) - {"result", "finding"}:
+            raise Refused(
+                "quality_unknown_check",
+                f"{relative}: check '{name}' must be an object with only "
+                "'result' and 'finding'. Severity is decided by the "
+                "governance policy, never by the input.",
+                {"path": relative, "check": name},
+            )
+        result = entry.get("result")
+        if result not in QUALITY_RESULTS:
+            raise Refused(
+                "quality_malformed",
+                f"{relative}: check '{name}' has result {result!r}; the "
+                "permitted results are " + ", ".join(QUALITY_RESULTS) + ".",
+                {"path": relative, "check": name, "result": result},
+            )
+        finding = entry.get("finding")
+        if finding is not None and not isinstance(finding, str):
+            raise Refused(
+                "quality_malformed",
+                f"{relative}: check '{name}' has a non-string finding.",
+                {"path": relative, "check": name},
+            )
+        if result == "NOT_APPLICABLE" and name not in optional_ids:
+            raise Refused(
+                "quality_not_applicable_refused",
+                f"{relative}: check '{name}' cannot be reported "
+                "NOT_APPLICABLE. The governance policy marks only "
+                + ", ".join(sorted(optional_ids) or ["(none)"])
+                + " optional.",
+                {"path": relative, "check": name,
+                 "optional": sorted(optional_ids)},
+            )
+        if result == "FAIL" and not (finding or "").strip():
+            raise Refused(
+                "quality_malformed",
+                f"{relative}: check '{name}' FAILed without a finding. A "
+                "blocking finding that says nothing is not remediable.",
+                {"path": relative, "check": name},
+            )
+        checks.append({
+            "id": name,
+            "result": result,
+            "finding": finding,
+            "blocking": name in blocking_ids,
+            "optional": name in optional_ids,
+        })
+
+    failed_blocking = [c["id"] for c in checks
+                       if c["result"] == "FAIL" and c["blocking"]]
+    failed_advisory = [c["id"] for c in checks
+                       if c["result"] == "FAIL" and not c["blocking"]]
+    return {
+        "checks": checks,
+        "blocking": failed_blocking,
+        "advisory": failed_advisory,
+        "result": "BLOCKED" if failed_blocking else "PASS",
+    }
+
+
+def evaluate_classification(document: dict, relative: str) -> dict:
+    """§12's WorkItem type and engineering flow. Validated, recorded, and
+    ADVISORY: nothing in the engine routes on either value at T06."""
+    section = document["classification"]
+    unknown = sorted(set(section) - {"type", "flow"})
+    if unknown:
+        raise _input_malformed(
+            relative,
+            f"classification has unknown key(s) {', '.join(unknown)}")
+    for key, vocabulary in (("type", WORKITEM_TYPES), ("flow", ENGINEERING_FLOWS)):
+        value = section.get(key)
+        if value not in vocabulary:
+            raise Refused(
+                "classification_invalid",
+                f"{relative}: classification.{key} is {value!r}; the "
+                f"permitted values are " + ", ".join(vocabulary) + ".",
+                {"path": relative, "field": key, "value": value,
+                 "permitted": list(vocabulary)},
+            )
+    return {"type": section["type"], "flow": section["flow"], "advisory": True}
+
+
+def deterministic_level(score: int, thresholds: dict) -> str:
+    """The highest level whose score threshold is met.
+
+    Written as "highest index that qualifies" rather than "first that fails"
+    so a policy that lowers one threshold out of order still resolves
+    upward — stricter, never looser.
+    """
+    level = GOVERNANCE_LEVELS[0]
+    for candidate in GOVERNANCE_LEVELS:
+        threshold = thresholds.get(candidate)
+        if threshold is not None and score >= threshold:
+            level = candidate
+    return level
+
+
+def evaluate_risk(document: dict, policy: dict, relative: str) -> dict:
+    """Hybrid risk. Claude proposes; the policy decides; the core takes the
+    maximum.
+
+    The security property is stated as code, not as prose: ``final`` is the
+    lattice maximum of the deterministic level and the proposed one, so a
+    lower proposal is recorded as an attempt and has no effect. There is no
+    branch below that can return a level under ``deterministicLevel``.
+    """
+    section = document["risk"]
+    unknown = sorted(set(section) - {"signals", "proposedLevel", "uncertainty"})
+    if unknown:
+        raise _input_malformed(
+            relative, f"risk has unknown key(s) {', '.join(unknown)}")
+
+    signals = section.get("signals")
+    if not isinstance(signals, list) or not all(
+            isinstance(s, str) for s in signals):
+        raise _input_malformed(relative, "risk.signals must be a list of strings")
+    for key in ("proposedLevel", "uncertainty"):
+        if section.get(key) not in GOVERNANCE_LEVELS:
+            raise _input_malformed(
+                relative,
+                f"risk.{key} is {section.get(key)!r}; the levels are "
+                + ", ".join(GOVERNANCE_LEVELS))
+
+    weights = policy["risk_signals"]
+    strange = sorted(set(signals) - set(weights))
+    if strange:
+        raise Refused(
+            "unknown_risk_signal",
+            f"{relative} names risk signal(s) {', '.join(strange)} that the "
+            "governance policy does not define. SDLE refuses rather than "
+            "ignoring a signal it cannot weigh — a silently dropped signal is "
+            "a silently lowered risk.",
+            {"path": relative, "unknown": strange,
+             "known": sorted(weights)},
+        )
+
+    ordered = sorted(set(signals))
+    score = sum(weights[name] for name in ordered)
+    level = deterministic_level(score, policy["risk_thresholds"])
+
+    floors: list[dict] = []
+    for rule in policy["hard_floors"]:
+        fired = (("signal" in rule and rule["signal"] in ordered)
+                 or ("uncertainty" in rule
+                     and rule["uncertainty"] == section["uncertainty"]))
+        if not fired:
+            continue
+        floors.append({"rule": dict(rule), "raisedTo": rule["level"]})
+        if GOVERNANCE_LEVELS.index(rule["level"]) > GOVERNANCE_LEVELS.index(level):
+            level = rule["level"]
+
+    proposed = section["proposedLevel"]
+    final = max((level, proposed), key=GOVERNANCE_LEVELS.index)
+    return {
+        "signals": ordered,
+        "score": score,
+        "floorsApplied": floors,
+        "deterministicLevel": level,
+        "proposedLevel": proposed,
+        "uncertainty": section["uncertainty"],
+        "finalLevel": final,
+        "loweringAttempted": (GOVERNANCE_LEVELS.index(proposed)
+                              < GOVERNANCE_LEVELS.index(level)),
+    }
+
+
+def required_gate_set(classification: dict, final_level: str,
+                      policy: dict) -> list[str]:
+    """The gate set this governance record WOULD require — §12's "record what
+    the future required gate set would be for test comparison".
+
+    Pure, and deliberately inert. Nothing on the phase-movement path calls it:
+    §12 says preserve the current gates and do not make them conditional yet,
+    so all eight gates still run unconditionally regardless of what this
+    returns. `test_units_governance.py` asserts that containment by AST, and
+    the T06 differential asserts two repositories differing only in risk
+    traverse identically.
+    """
+    gates = set(policy["required_gates_always"])
+    gates |= set((policy.get("required_gates_by_risk") or {}).get(final_level) or [])
+    gates |= set((policy.get("required_gates_by_type") or {}).get(
+        classification.get("type")) or [])
+    return sorted(gates)
+
+
+def read_governance_record(paths: Paths) -> dict | None:
+    """The recorded governance verdict, or ``None`` when there is none.
+
+    A malformed record is an integrity failure, not an absence: treating it as
+    absent would let a corrupt file read as "not yet assessed" and then be
+    silently overwritten.
+    """
+    target = paths.governance_file
+    if not target.is_file():
+        return None
+    try:
+        record = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise IntegrityError(
+            "governance_record_invalid",
+            f"{paths.runtime_relative}/{target.name} cannot be read: {exc}. "
+            "Re-run `governance assess --input <path>`.",
+            {"path": str(target), "error": str(exc)},
+        ) from None
+    if not isinstance(record, dict):
+        raise IntegrityError(
+            "governance_record_invalid",
+            f"{paths.runtime_relative}/{target.name} is not a JSON object.",
+            {"path": str(target)},
+        )
+    return record
+
+
+def governance_freshness(paths: Paths, record: dict) -> dict:
+    """Is the recorded assessment still about the current requirements?
+
+    Derived from the digest every time, never stored as a flag — a stored
+    "fresh" boolean would be a second source of truth for the same fact.
+    """
+    sources, digest = requirements_sources(paths)
+    recorded = ((record.get("requirements") or {}).get("digest"))
+    return {
+        "fresh": recorded == digest,
+        "recorded_digest": recorded,
+        "current_digest": digest,
+        "current_sources": [entry["path"] for entry in sources],
+    }
+
+
+def bind_for_governance(args, paths: Paths) -> Paths:
+    """`governance` is runtime-free at the group level so `policy` can resolve
+    with no WorkItem. Its WorkItem-scoped members bind here — through the
+    ladder, never around it."""
+    bound = bind_workitem(paths, args.workitem)
+    if bound.workitem is None:
+        raise Refused(
+            "governance_workitem_required",
+            "Governance is WorkItem-scoped and this repository still resolves "
+            f"to the legacy {paths.legacy_workflow.name}/ runtime. Move it "
+            "under a WorkItem first: `migrate-workflow --workitem <id>`.",
+            {"legacy_runtime": str(paths.legacy_workflow)},
+        )
+    return bound
+
+
+def cmd_governance_assess(args, paths: Paths) -> int:
+    """Evaluate Claude's structured proposal against the policy and persist
+    the verdict.
+
+    Deliberately does NOT require `state.json`: §12 places governance before
+    planning, so this must be runnable before `init`. It therefore appends no
+    audit entry — there is no `audit_sha` to rebaseline and no state file to
+    save, and the single-writer discipline stays exactly as it is. The facts
+    enter the ledger at `init` and at the first `advance`.
+    """
+    consts = load_constants(paths)
+    paths = bind_for_governance(args, paths)
+
+    effective = read_governance_policy(paths, consts)
+    policy = effective["policy"]
+
+    target = Path(args.input)
+    if not target.is_absolute():
+        target = paths.project_root / args.input
+    relative = args.input.replace(os.sep, "/")
+
+    document = read_governance_input(target, relative)
+    quality = evaluate_quality(document, policy, relative)
+    classification = evaluate_classification(document, relative)
+    risk = evaluate_risk(document, policy, relative)
+
+    stamp = now_iso()
+    execution_id = execution_identity(paths, stamp)
+    sources, digest = requirements_sources(paths)
+
+    record = {
+        "governanceVersion": GOVERNANCE_RECORD_VERSION,
+        "workitem": paths.workitem,
+        "recordedAt": stamp,
+        "executionId": execution_id,
+        "requirements": {"sources": sources, "digest": digest},
+        "quality": quality,
+        "classification": classification,
+        "risk": risk,
+        # Recorded, never acted on. See `required_gate_set`.
+        "wouldBeRequiredGates": required_gate_set(
+            classification, risk["finalLevel"], policy),
+        "policy": {"source": effective["source"], "sha256": effective["sha256"]},
+    }
+
+    # Persisted BEFORE the blocking refusal, the same shape
+    # `cmd_artifact_record` already uses: a blocked assessment must be
+    # inspectable and remediable, not invisible.
+    write_atomic(paths.governance_file, json.dumps(record, indent=2) + "\n")
+    evidence = paths.evidence_dir / f"governance-{execution_id}.json"
+    write_atomic(evidence, json.dumps({
+        "kind": "governance",
+        "executionId": execution_id,
+        "recordedAt": stamp,
+        "workitem": paths.workitem,
+        "input": {"path": relative, "document": document},
+        "record": record,
+    }, indent=2) + "\n")
+
+    evidence_relative = evidence.relative_to(paths.project_root).as_posix()
+    if quality["result"] == "BLOCKED":
+        failing = [c for c in quality["checks"]
+                   if c["result"] == "FAIL" and c["blocking"]]
+        detail = "; ".join(f"{c['id']}: {c['finding']}" for c in failing)
+        raise Refused(
+            "requirements_quality_blocked",
+            "Requirements quality is BLOCKED and the workflow cannot "
+            f"progress: {detail}. The assessment has been recorded at "
+            f"{paths.runtime_relative}/{paths.governance_file.name}; fix the "
+            "requirements and re-run `governance assess`.",
+            {"workitem": paths.workitem,
+             "blocking": quality["blocking"],
+             "findings": {c["id"]: c["finding"] for c in failing},
+             "record": f"{paths.runtime_relative}/"
+                       f"{paths.governance_file.name}",
+             "evidence": evidence_relative},
+        )
+
+    emit("governance assess", {
+        "workitem": paths.workitem,
+        "record": f"{paths.runtime_relative}/{paths.governance_file.name}",
+        "evidence": evidence_relative,
+        "quality": quality["result"],
+        "advisory_findings": quality["advisory"],
+        "classification": classification,
+        "risk": risk,
+        "requirements_digest": digest,
+        "policy": record["policy"],
+    })
+    return EXIT_OK
+
+
+def cmd_governance_show(args, paths: Paths) -> int:
+    """The recorded governance verdict plus a freshness verdict. Read-only."""
+    paths = bind_for_governance(args, paths)
+    record = read_governance_record(paths)
+    if record is None:
+        raise Refused(
+            "governance_missing",
+            f"WorkItem '{paths.workitem}' has no governance record. Run "
+            "`governance assess --input <path>` first — contract §12 places "
+            "governance before planning.",
+            {"workitem": paths.workitem, "path": str(paths.governance_file)},
+        )
+    freshness = governance_freshness(paths, record)
+    emit("governance show", {
+        "workitem": paths.workitem,
+        "record": record,
+        "fresh": freshness["fresh"],
+        "recorded_digest": freshness["recorded_digest"],
+        "current_digest": freshness["current_digest"],
+        "requirements": freshness["current_sources"],
+    })
+    return EXIT_OK
+
+
+def cmd_governance_gates(args, paths: Paths) -> int:
+    """The would-be required gate set. ADVISORY — nothing consumes it.
+
+    At this version all eight registered gates run unconditionally. This
+    command exists so the gate set a later phase *would* derive can be
+    compared against today's traversal, which is exactly what §12 asks for.
+    """
+    consts = load_constants(paths)
+    paths = bind_for_governance(args, paths)
+    record = read_governance_record(paths)
+    if record is None:
+        raise Refused(
+            "governance_missing",
+            f"WorkItem '{paths.workitem}' has no governance record. Run "
+            "`governance assess --input <path>` first.",
+            {"workitem": paths.workitem, "path": str(paths.governance_file)},
+        )
+    policy = read_governance_policy(paths, consts)["policy"]
+    classification = record.get("classification") or {}
+    final_level = (record.get("risk") or {}).get("finalLevel")
+    emit("governance gates", {
+        "workitem": paths.workitem,
+        "classification": classification,
+        "final_risk": final_level,
+        "would_be_required_gates": required_gate_set(
+            classification, final_level, policy),
+        "registered_gates": sorted(consts.phase_to_gate_key.values()),
+        "advisory": True,
+        "note": "Recorded for comparison only. Every registered gate still "
+                "runs unconditionally at this version; nothing routes on this "
+                "set.",
+    })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # migrate-workflow — legacy .workflow/ to workitems/<id>/.sdle/
 # --------------------------------------------------------------------------
 #
@@ -3573,6 +4605,411 @@ def approval_decision(state: dict, gate_key: str) -> str | None:
     return None
 
 
+GOVERNANCE_AUDIT_EVENT = "governance_recorded"
+
+
+def governance_audit_marker(execution_id: str) -> str:
+    """The unambiguous string that says "this assessment is already in the
+    ledger". Derived from the record, so nothing has to be stored twice."""
+    return f"(governance execution {execution_id})"
+
+
+def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
+    """Carry the recorded governance facts into the ledger exactly once.
+
+    §12 wants the deterministic score, the hard floors, the proposed level and
+    the final level to be auditable, and a lowering attempt in particular must
+    leave a trace even though it is not a refusal (D6.5): the security
+    property is that the attempt has no *effect*, and an attempt nobody can
+    see afterwards is not the same thing.
+
+    `governance assess` cannot write this itself — it runs before `init`, so
+    there is no `audit_sha` to rebaseline (D4). `cmd_init` cannot write it
+    either: it is on the plan's byte-identical list (A9). So the entry lands
+    at the first phase movement that actually consumes the record, and is
+    de-duplicated by the record's own `executionId`: re-assessing produces a
+    new entry, advancing eighteen times does not produce eighteen.
+    """
+    execution_id = record.get("executionId")
+    if not execution_id:
+        return
+    marker = governance_audit_marker(execution_id)
+    if paths.audit_file.is_file():
+        if marker in paths.audit_file.read_text(encoding="utf-8"):
+            return
+
+    risk = record.get("risk") or {}
+    classification = record.get("classification") or {}
+    floors = [entry.get("raisedTo") for entry in (risk.get("floorsApplied") or [])]
+    lowering = (
+        "; Claude proposed a lower level and it had no effect"
+        if risk.get("loweringAttempted") else ""
+    )
+    append_audit(
+        paths,
+        state,
+        phase=state.get("current_phase") or "unknown",
+        event=GOVERNANCE_AUDIT_EVENT,
+        message=(
+            f"Governance recorded {marker}: quality "
+            f"{(record.get('quality') or {}).get('result')}, classification "
+            f"{classification.get('type')}/{classification.get('flow')} "
+            "(advisory), risk score "
+            f"{risk.get('score')} -> deterministic {risk.get('deterministicLevel')}"
+            + (f" (floors: {', '.join(floors)})" if floors else "")
+            + f", proposed {risk.get('proposedLevel')}, final "
+            f"{risk.get('finalLevel')}{lowering}."
+        ),
+    )
+
+
+# --------------------------------------------------------------------------
+# Governed artifact review (contract TP-011, §12; T06/D9)
+#
+# "Artifact existence alone is not evidence of artifact quality." Registration
+# (`artifact record`) and approval (`gate approve`) already existed and each
+# owns a different fact; review is a third fact with its own home, and
+# "currently reviewed" is a *derived* predicate — never a stored flag, which
+# would be a second source of truth for the same thing.
+# --------------------------------------------------------------------------
+
+REVIEWS_VERSION = "1"
+REVIEW_ACTOR_TYPES = ("human", "agent", "tool", "test", "system")
+REVIEW_RESULTS = ("PASS", "FAIL")
+
+
+def review_key(paths: Paths, raw: str) -> str:
+    """The canonical repo-relative POSIX key for an artifact.
+
+    A backslash-separated path and its POSIX spelling name the same artifact,
+    so they must not become two keys — that would let a second review "not
+    exist" and a stale one survive (the v1.12->v1.13 lesson).
+    """
+    text = str(raw).replace("\\", "/")
+    if os.path.isabs(str(raw)) or (len(text) > 1 and text[1] == ":"):
+        try:
+            text = (Path(raw).resolve()
+                    .relative_to(paths.project_root.resolve()).as_posix())
+        except ValueError:
+            raise Refused(
+                "review_path_outside_project",
+                f"{raw} is not inside the project root, so it is not a "
+                "governed artifact of this WorkItem.",
+                {"path": str(raw), "project_root": str(paths.project_root)},
+            ) from None
+    parts = [part for part in text.split("/") if part not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise Refused(
+            "review_path_outside_project",
+            f"{raw} escapes the project root.",
+            {"path": str(raw)},
+        )
+    return "/".join(parts)
+
+
+def read_reviews(paths: Paths) -> list[dict]:
+    """The append-only review ledger. Fail-closed: a ledger SDLE cannot read
+    is not the same thing as an artifact nobody reviewed."""
+    if not paths.reviews_file.is_file():
+        return []
+    try:
+        document = json.loads(paths.reviews_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Refused(
+            "reviews_malformed",
+            f"{paths.runtime_relative}/reviews.json cannot be read ({exc}). "
+            "SDLE will not treat an unreadable review ledger as an empty one.",
+            {"path": str(paths.reviews_file), "error": str(exc)},
+        ) from None
+    if not isinstance(document, dict) or not isinstance(
+            document.get("reviews"), list):
+        raise Refused(
+            "reviews_malformed",
+            f"{paths.runtime_relative}/reviews.json is not a review ledger.",
+            {"path": str(paths.reviews_file)},
+        )
+    return [record for record in document["reviews"] if isinstance(record, dict)]
+
+
+def review_status(paths: Paths, resolved: str,
+                  reviews: list[dict] | None = None) -> dict:
+    """Is this artifact, *at its current content*, currently reviewed?
+
+    Recomputed from SHAs on every call. Nothing here reads a stored freshness
+    flag, and `artifact review` writes none: TP-011 clause 1 is about the
+    exact current content version, and a boolean cannot say that.
+    """
+    key = review_key(paths, resolved)
+    full = paths.project_root / key
+    current = sha256_file(full) if full.is_file() else None
+    records = [record for record in
+               (read_reviews(paths) if reviews is None else reviews)
+               if record.get("path") == key]
+    matching = [record for record in records
+                if str(record.get("sha256") or "").lower() == (current or "")]
+    newest = matching[-1] if matching else None
+    return {
+        "path": key,
+        "current_sha": current,
+        "reviewed_shas": [record.get("sha256") for record in records],
+        "records": len(records),
+        "result": newest.get("result") if newest else None,
+        "reviewType": newest.get("reviewType") if newest else None,
+        "current": bool(newest) and newest.get("result") == "PASS",
+    }
+
+
+def review_precondition(paths: Paths, state: dict, gate_key: str,
+                        resolved: str | None) -> None:
+    """Enforcement clause E2 — TP-011 at the approval choke point.
+
+    Called from both ``cmd_gate_approve`` and ``_approve_drift``. Drift is
+    precisely the case TP-011's staleness rule is drawn for: approving drifted
+    content against a review of the pre-drift content is the exact violation,
+    so the drift path is guarded too rather than trusted.
+
+    Skipped when the gate has no resolvable artifact (there is nothing to
+    review) and under the transitional legacy binding, which has no WorkItem
+    to hold a review ledger — the same declared, bounded residual as E1, which
+    T11 removes with the rung itself.
+    """
+    if paths.workitem is None or not resolved:
+        return None
+    if not (paths.project_root / review_key(paths, resolved)).is_file():
+        return None  # `artifact_missing` is the caller's refusal to raise.
+
+    status = review_status(paths, resolved)
+    if not status["records"]:
+        raise Refused(
+            "review_missing",
+            f"{status['path']} has not been reviewed, so {gate_key} cannot be "
+            "approved. Contract TP-011: artifact existence is not evidence of "
+            "artifact quality. Record one with `artifact review --path "
+            f"{status['path']} --type <type> --result PASS --actor-type "
+            "<human|agent|tool|test|system> --actor-name <name>`.",
+            {"gate": gate_key, "path": status["path"],
+             "current_sha": status["current_sha"]},
+        )
+    if status["result"] is None:
+        raise Refused(
+            "review_stale",
+            f"{status['path']} has changed since it was reviewed, so "
+            f"{gate_key} cannot be approved: a review applies to the exact "
+            "content version it was performed against. Re-review the current "
+            "content.",
+            {"gate": gate_key, "path": status["path"],
+             "reviewed_sha": status["reviewed_shas"][-1],
+             "reviewed_shas": status["reviewed_shas"],
+             "current_sha": status["current_sha"]},
+        )
+    if status["result"] != "PASS":
+        raise Refused(
+            "review_failed",
+            f"The most recent review of {status['path']} at its current "
+            f"content is {status['result']}, so {gate_key} cannot be "
+            "approved. Fix the artifact and review it again.",
+            {"gate": gate_key, "path": status["path"],
+             "result": status["result"],
+             "current_sha": status["current_sha"]},
+        )
+    return None
+
+
+def cmd_artifact_review(args, paths: Paths) -> int:
+    """Record a review of an artifact's exact current content (TP-011)."""
+    state = read_state(paths)
+
+    if args.result not in REVIEW_RESULTS:
+        raise Refused(
+            "review_result_invalid",
+            f"--result {args.result!r} is not a governed result; use "
+            + " or ".join(REVIEW_RESULTS) + ".",
+            {"result": args.result, "permitted": list(REVIEW_RESULTS)},
+        )
+    if args.actor_type not in REVIEW_ACTOR_TYPES:
+        raise Refused(
+            "review_actor_invalid",
+            f"--actor-type {args.actor_type!r} is not one of "
+            + ", ".join(REVIEW_ACTOR_TYPES) + ". TP-011 clause 6 names the "
+            "actor kinds a review may be attributed to.",
+            {"actor_type": args.actor_type,
+             "permitted": list(REVIEW_ACTOR_TYPES)},
+        )
+    if not (args.actor_name or "").strip():
+        raise Refused(
+            "review_actor_invalid",
+            "--actor-name must name the reviewer; an anonymous review "
+            "identifies no source.",
+            {"actor_type": args.actor_type},
+        )
+    if not (args.type or "").strip():
+        raise Refused(
+            "review_type_invalid",
+            "--type must name the review or validation type (TP-011 clause "
+            "4): a result with no type says nothing about what was checked.",
+            {"path": args.path},
+        )
+
+    key = review_key(paths, args.path)
+    full = paths.project_root / key
+    if not full.is_file():
+        raise Refused(
+            "artifact_missing",
+            f"Cannot review {key}: it does not exist. A review applies to "
+            "specific content.",
+            {"path": key},
+        )
+    sha = sha256_file(full)
+
+    reviews = read_reviews(paths)
+    stamp = now_iso()
+    execution_id = execution_identity(paths, stamp)
+    evidence = paths.evidence_dir / f"review-{execution_id}-{len(reviews) + 1}.json"
+    evidence_id = evidence.relative_to(paths.project_root).as_posix()
+
+    record = {
+        "path": key,
+        "sha256": sha,
+        "reviewType": args.type,
+        "result": args.result,
+        "evidenceId": evidence_id,
+        "actor": {"type": args.actor_type, "name": args.actor_name},
+        "comments": args.comments,
+        "timestamp": stamp,
+    }
+    reviews.append(record)
+    write_atomic(paths.reviews_file, json.dumps(
+        {"reviewsVersion": REVIEWS_VERSION, "reviews": reviews}, indent=2) + "\n")
+    write_atomic(evidence, json.dumps({
+        "kind": "review",
+        "executionId": execution_id,
+        "workitem": paths.workitem,
+        "record": record,
+        "detail": args.evidence,
+    }, indent=2) + "\n")
+
+    append_audit(
+        paths,
+        state,
+        phase=state.get("current_phase") or "unknown",
+        event="artifact_reviewed",
+        message=f"{args.type} review of {key} recorded: {args.result}.",
+        artifact=key,
+        artifact_sha=sha,
+        comments=args.comments,
+        review=f"{args.type} | {args.result} | {args.actor_type}:{args.actor_name}",
+        evidence_id=evidence_id,
+    )
+    save_state(paths, state, args.session)
+
+    emit("artifact review", {
+        "path": key,
+        "sha256": sha,
+        "result": args.result,
+        "reviewType": args.type,
+        "actor": record["actor"],
+        "evidenceId": evidence_id,
+        "reviews": len(reviews),
+    })
+    return EXIT_OK
+
+
+def cmd_artifact_reviews(args, paths: Paths) -> int:
+    """List review records with a derived freshness verdict. Read-only."""
+    reviews = read_reviews(paths)
+    if args.path:
+        key = review_key(paths, args.path)
+        listed = [record for record in reviews if record.get("path") == key]
+        subjects = [key]
+    else:
+        listed = reviews
+        subjects = sorted({record.get("path") for record in reviews
+                           if record.get("path")})
+    emit("artifact reviews", {
+        "reviews": listed,
+        "status": {subject: review_status(paths, subject, reviews)
+                   for subject in subjects},
+    })
+    return EXIT_OK
+
+
+def governance_precondition(paths: Paths, state: dict | None = None) -> None:
+    """E1 — contract §12's "blocking findings stop progression".
+
+    §12 requires governance metadata to exist *before* current planning and
+    implementation begin, and states three consequences as MUSTs. The core
+    refuses; it does not warn. A warning a caller can ignore would leave the
+    model free to reason its way past a blocking requirements finding, which
+    is exactly what this phase exists to prevent.
+
+    Called from ``apply_advance`` — the one function ``cmd_advance``,
+    ``cmd_gate_approve`` and ``cmd_skip`` all funnel through — so there is
+    exactly one site to write. ``cmd_init`` does not call ``apply_advance``:
+    governance is deliberately not an ``init`` precondition, because §12 asks
+    for it before *planning*, and a WorkItem must be able to bootstrap.
+
+    Skipped under the transitional legacy binding, which has no WorkItem to
+    hold a record. That mirrors the identical, already-tested carve-out in
+    ``gate_precondition_hook``, and is a declared bounded residual: it fires
+    only when zero WorkItems are registered, and T11 removes the rung itself.
+    """
+    if paths.workitem is None:
+        return None
+
+    record = read_governance_record(paths)
+    if record is None:
+        raise Refused(
+            "governance_missing",
+            f"WorkItem '{paths.workitem}' has no governance record, so the "
+            "workflow cannot advance. Contract §12 requires deterministic "
+            "governance metadata before planning begins: run `governance "
+            "assess --input <path>`.",
+            {"workitem": paths.workitem, "path": str(paths.governance_file)},
+        )
+
+    quality = record.get("quality") or {}
+    if quality.get("result") != "PASS":
+        blocking = quality.get("blocking") or []
+        findings = {
+            check.get("id"): check.get("finding")
+            for check in (quality.get("checks") or [])
+            if check.get("id") in blocking
+        }
+        detail = ("; ".join(f"{name}: {text}" for name, text in findings.items())
+                  or "the recorded assessment does not report a quality PASS")
+        raise Refused(
+            "governance_blocked",
+            f"Requirements quality is {quality.get('result') or 'unrecorded'} "
+            f"for WorkItem '{paths.workitem}', so the workflow cannot "
+            f"advance: {detail}. Fix the requirements and re-run `governance "
+            "assess`.",
+            {"workitem": paths.workitem,
+             "result": quality.get("result"),
+             "blocking": blocking,
+             "findings": findings},
+        )
+
+    freshness = governance_freshness(paths, record)
+    if not freshness["fresh"]:
+        raise Refused(
+            "governance_stale",
+            f"The governance record for '{paths.workitem}' was assessed "
+            "against different requirements than the ones on disk now, so it "
+            "cannot authorise this advance. Re-run `governance assess "
+            "--input <path>`.",
+            {"workitem": paths.workitem,
+             "recorded_digest": freshness["recorded_digest"],
+             "current_digest": freshness["current_digest"],
+             "requirements": freshness["current_sources"]},
+        )
+
+    # Accepted. The facts enter the ledger here, after every refusal has had
+    # its chance to fire, so a refused advance never writes anything.
+    if state is not None:
+        record_governance_audit(paths, state, record)
+    return None
+
+
 def apply_advance(
     paths: Paths,
     state: dict,
@@ -3581,11 +5018,15 @@ def apply_advance(
     status: str | None,
     outcome: str,
 ) -> dict:
-    """Move to ``target``, enforcing the two refusals that matter.
+    """Move to ``target``, enforcing the refusals that matter.
 
-    Refuses a forward jump (any target that is not NEXT_PHASE[current]) and
-    refuses to leave a gate phase whose approval is not recorded. These are the
-    guardrails the model must not be able to reason its way around.
+    Refuses a forward jump (any target that is not NEXT_PHASE[current]),
+    refuses to leave a gate phase whose approval is not recorded, and (T06)
+    refuses to move at all without a passing, current governance record. These
+    are the guardrails the model must not be able to reason its way around.
+
+    Order is load-bearing: the two original refusals still fire first, so no
+    existing refusal is masked by the new one.
     """
     current = state.get("current_phase")
     if current is None:
@@ -3621,6 +5062,8 @@ def apply_advance(
                 "A gate can only be passed by an explicit approval.",
                 {"gate": gate_key, "phase": current, "decision": decision},
             )
+
+    governance_precondition(paths, state)
 
     if status is None:
         status = "awaiting_approval" if target in consts.phase_to_gate_key else "pending"
@@ -3749,6 +5192,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
+    review_precondition(paths, state, args.gate, resolved)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
@@ -3816,6 +5260,7 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
         )
 
     resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+    review_precondition(paths, state, gate_key, resolved)
     sha = None
     if resolved and (paths.project_root / resolved).is_file():
         sha = sha256_file(paths.project_root / resolved)
@@ -6025,6 +7470,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cfg_show.set_defaults(handler=cmd_config_show)
 
+    governance_p = subparsers.add_parser(
+        "governance", help="Requirements quality, classification and risk."
+    )
+    governance_sub = governance_p.add_subparsers(dest="subcommand", required=True)
+    gov_policy = governance_sub.add_parser(
+        "policy", help="The effective governance policy. Writes nothing."
+    )
+    gov_policy.set_defaults(handler=cmd_governance_policy)
+    gov_assess = governance_sub.add_parser(
+        "assess", help="Evaluate a structured governance input and record it."
+    )
+    gov_assess.add_argument("--input", required=True,
+                            help="Path to the structured governance input JSON.")
+    gov_assess.set_defaults(handler=cmd_governance_assess)
+    gov_show = governance_sub.add_parser(
+        "show", help="The recorded governance verdict and its freshness."
+    )
+    gov_show.set_defaults(handler=cmd_governance_show)
+    gov_gates = governance_sub.add_parser(
+        "gates", help="The would-be required gate set. Advisory only."
+    )
+    gov_gates.set_defaults(handler=cmd_governance_gates)
+
     workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
     workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)
     wi_create = workitem_sub.add_parser(
@@ -6163,6 +7631,26 @@ def build_parser() -> argparse.ArgumentParser:
     recorded.add_argument("--optional", action="store_true",
                           help="Absence is tolerated (Phase 8 checklist).")
     recorded.set_defaults(handler=cmd_artifact_record)
+    reviewed = artifact_sub.add_parser(
+        "review", help="Record a review of an artifact's current content."
+    )
+    reviewed.add_argument("--path", required=True)
+    reviewed.add_argument("--type", required=True,
+                          help="The review or validation type (TP-011 cl. 4).")
+    reviewed.add_argument("--result", required=True,
+                          help="PASS or FAIL (TP-011 cl. 5).")
+    reviewed.add_argument("--actor-type", required=True, dest="actor_type",
+                          help="human | agent | tool | test | system.")
+    reviewed.add_argument("--actor-name", required=True, dest="actor_name")
+    reviewed.add_argument("--evidence",
+                          help="Pointer to the detailed review artifact.")
+    reviewed.add_argument("--comments")
+    reviewed.set_defaults(handler=cmd_artifact_review)
+    review_list = artifact_sub.add_parser(
+        "reviews", help="List review records and their freshness."
+    )
+    review_list.add_argument("--path")
+    review_list.set_defaults(handler=cmd_artifact_reviews)
 
     limit_p = subparsers.add_parser("limit", help="Rate limits and counters.")
     limit_sub = limit_p.add_subparsers(dest="subcommand", required=True)

@@ -12,6 +12,11 @@ from __future__ import annotations
 
 import json
 
+# T06/D9: TP-011 requires a PASS review of a governed artifact's exact current
+# content before its gate may approve it. The helper lives with the review
+# regime's own tests, imported the same way this module's `run_happy_path` is.
+from test_units_artifact_review import review_for_gate
+
 FEATURE = "001-todo-api"
 
 # The traversal the transcript records, in order.
@@ -40,6 +45,9 @@ def run_happy_path(project) -> list[str]:
     def note():
         seen.append(project.state()["current_phase"])
 
+    # T06: contract §12 puts governance before planning, and `advance` now
+    # refuses `governance_missing` without it.
+    project.record_governance()
     project.ok("init", session="happy")
     seen.append("requirements_check")
     note()  # constitution_draft
@@ -48,6 +56,7 @@ def run_happy_path(project) -> list[str]:
     project.write_artifact(".specify/memory/constitution.md")
     project.ok("advance", "--to", "gate_constitution")
     note()
+    review_for_gate(project, "gate_constitution")
     project.ok("gate", "approve", "--gate", "gate_constitution")
     note()  # spec_draft
 
@@ -56,6 +65,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
     note()
+    review_for_gate(project, "gate_spec")
     project.ok("gate", "approve", "--gate", "gate_spec",
                "--comments", "Add rate limiting to the API constraints.")
     note()  # plan_draft
@@ -64,6 +74,7 @@ def run_happy_path(project) -> list[str]:
     project.write_artifact(f"{feature_dir}/plan.md")
     project.ok("advance", "--to", "gate_plan")
     note()
+    review_for_gate(project, "gate_plan")
     project.ok("gate", "approve", "--gate", "gate_plan")
     note()  # checklist_draft
 
@@ -74,6 +85,7 @@ def run_happy_path(project) -> list[str]:
     project.write_artifact(f"{feature_dir}/tasks.md")
     project.ok("advance", "--to", "gate_tasks")
     note()
+    review_for_gate(project, "gate_tasks")
     project.ok("gate", "approve", "--gate", "gate_tasks")
     note()  # analyze
 
@@ -83,6 +95,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("drift", "rebaseline", "--gate", "gate_tasks")
     project.ok("advance", "--to", "gate_analyze")
     note()
+    review_for_gate(project, "gate_analyze")
     project.ok("gate", "approve", "--gate", "gate_analyze")
     note()  # design_generation
 
@@ -91,6 +104,7 @@ def run_happy_path(project) -> list[str]:
     project.write_artifact("design/db/db-design.md")
     project.ok("advance", "--to", "gate_design")
     note()
+    review_for_gate(project, "gate_design")
     project.ok("gate", "approve", "--gate", "gate_design")
     note()  # implement
 
@@ -100,6 +114,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("manifest", "build", "--summary", "Implemented the Todo REST API.")
     project.ok("advance", "--to", "gate_implement")
     note()
+    review_for_gate(project, "gate_implement")
     project.ok("gate", "approve", "--gate", "gate_implement")
     note()  # security_review
 
@@ -108,6 +123,7 @@ def run_happy_path(project) -> list[str]:
     project.write_artifact(begun.data["review_filename"])
     project.ok("advance", "--to", "gate_security")
     note()
+    review_for_gate(project, "gate_security")
     project.ok("gate", "approve", "--gate", "gate_security")
     note()  # complete
 

@@ -25,6 +25,7 @@ import pytest
 
 from conftest import FIXTURE_WORKITEM_ID, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
+from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -330,7 +331,9 @@ def legacy_workflow(bare_project: Project, workitem: str = "Wi A") -> str:
     seed = bare_project.as_workitem(create_wi(bare_project, "Legacy Seed").data["id"])
     seed.ok("init", session="legacy")
     bare_project.write_artifact(".specify/memory/constitution.md")
+    seed.record_governance()  # T06: E1 guards the seed run's advances.
     seed.ok("advance", "--to", "gate_constitution", session="legacy")
+    review_for_gate(seed, "gate_constitution")  # T06: E2 guards the seed run.
     seed.ok("gate", "approve", "--gate", "gate_constitution", session="legacy")
 
     shutil.move(str(seed.runtime), str(bare_project.root / ".workflow"))

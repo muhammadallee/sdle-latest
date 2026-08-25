@@ -228,6 +228,26 @@ Never advance a phase after a refusal, and never edit state to get past one.
 
 ---
 
+### Governed Artifact Review (MANDATORY — before every gate)
+
+Artifact existence is not evidence of artifact quality. Post-SpecKit Verification proves a file exists, clears the size floor and has a fingerprint; it says nothing about whether anyone judged the content. Before a gate can be approved, the artifact must carry a `PASS` review of its **exact current content**.
+
+Run `sdle.sh artifact review --path <artifact_path> --type <review type> --result PASS|FAIL --actor-type human|agent|tool|test|system --actor-name <who> [--evidence <path>] [--comments "<notes>"]`.
+
+- The review is fingerprinted against the file as it stands now, appended to the WorkItem's append-only review ledger, written to an evidence document, and linked into the audit ledger as an `artifact_reviewed` entry. It is **not** a gate decision and never substitutes for one.
+- `--actor-name` records who performed it, verbatim. It is a recorded string only: recording a name neither creates nor invokes anything, and a gate is never delegated.
+- `sdle.sh artifact reviews [--path <p>]` lists the records with a freshness verdict. Freshness is recomputed from content each time; there is no stored flag to consult or to set.
+
+**On exit 1 the gate refuses and nothing advances.** Surface the `message` verbatim:
+
+- `review_missing` — nobody has reviewed this artifact. Review it.
+- `review_stale` — the content changed after the review, so the review applies to a version that no longer exists. Review the current content. This includes drift re-approval: re-approving drifted content against a review of the pre-drift content is exactly the case the rule exists for.
+- `review_failed` — the newest review of this exact content is `FAIL`. Fix the artifact, then review it again.
+
+Never approve around one of these, and never record a `PASS` you did not perform.
+
+---
+
 ### Post-Execution Self-Check (MANDATORY — before every gate and phase advance)
 
 Before displaying a gate prompt or advancing `current_phase`, internally verify all of:
@@ -237,6 +257,7 @@ Before displaying a gate prompt or advancing `current_phase`, internally verify 
 - ☐ `phase_checkpoint` has been cleared to `null`
 - ☐ `audit.md` has a new timestamped entry for this phase completion
 - ☐ If the next step is a gate: artifact content has been Read and is ready to display
+- ☐ If the next step is a gate: the artifact carries a current `PASS` review (Governed Artifact Review above)
 
 If **any item is not checked**: do NOT show the gate or advance. Fix the blocking issue first, or surface it as a `failed` state to the user.
 

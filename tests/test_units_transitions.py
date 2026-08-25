@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from test_units_artifact_review import review_for_gate
+
 EXIT_OK, EXIT_REFUSED = 0, 1
 
 
@@ -144,6 +146,7 @@ def test_gate_show_refuses_unknown_gate(started):
 def test_gate_approve_records_baseline_and_advances(started):
     started.write_artifact(".specify/memory/constitution.md")
     at(started, "gate_constitution", "awaiting_approval")
+    review_for_gate(started, "gate_constitution")  # T06: E2.
 
     result = started.ok("gate", "approve", "--gate", "gate_constitution")
     state = started.state()
@@ -158,6 +161,7 @@ def test_gate_approve_records_baseline_and_advances(started):
 def test_gate_approve_stores_comments(started):
     started.write_artifact(".specify/memory/constitution.md")
     at(started, "gate_constitution", "awaiting_approval")
+    review_for_gate(started, "gate_constitution")  # T06: E2.
     started.ok("gate", "approve", "--gate", "gate_constitution",
                "--comments", "Add API versioning constraints")
     entry = started.state()["approvals"]["gate_constitution"]
@@ -182,6 +186,7 @@ def test_gate_approve_refuses_when_artifact_absent(started):
 def test_gate_approve_writes_audit_entry_with_decision(started):
     started.write_artifact(".specify/memory/constitution.md")
     at(started, "gate_constitution", "awaiting_approval")
+    review_for_gate(started, "gate_constitution")  # T06: E2.
     started.ok("gate", "approve", "--gate", "gate_constitution")
     text = started.audit_file.read_text(encoding="utf-8")
     assert "**Gate Decision:** APPROVED" in text
@@ -219,6 +224,7 @@ def test_final_gate_completes_the_workflow(started):
     started.write_artifact("reviews/security-review-2026-01-01-0900.md")
     at(started, "gate_security", "awaiting_approval",
        security_review_artifact="reviews/security-review-2026-01-01-0900.md")
+    review_for_gate(started, "gate_security")  # T06: E2.
 
     result = started.ok("gate", "approve", "--gate", "gate_security")
     state = started.state()

@@ -390,6 +390,10 @@ def test_a_workitem_does_not_change_what_init_and_advance_produce(project, tmp_p
                   "workflow_version"):
         assert project.state()[field] == control.state()[field], field
 
+    # T06: `advance` refuses `governance_missing` without a record, and the
+    # comparison is only meaningful if both sides carry one.
+    project.record_governance()
+    control.record_governance()
     assert project.run("header", session="testsess").exit_code == EXIT_OK
     moved = project.run("advance", "--to", "gate_constitution", session="testsess")
     control_moved = control.run("advance", "--to", "gate_constitution",

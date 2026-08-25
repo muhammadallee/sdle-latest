@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from conftest import FIXTURE_WORKITEM_ID
+from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 FEATURE = "001-todo-api"
@@ -21,6 +22,8 @@ FEATURE_DIR = f"workitems/{FIXTURE_WORKITEM_ID}/specs/{FEATURE}"
 
 def at_implement(project):
     """Gates 1-6 approved, workflow standing at the implement phase."""
+    # T06: `advance` refuses `governance_missing` without a record.
+    project.record_governance()
     project.ok("init", session="t")
     steps = [
         (".specify/memory/constitution.md", "gate_constitution"),
@@ -32,17 +35,21 @@ def at_implement(project):
         if gate == "gate_spec":
             project.ok("feature", "resolve")
         project.ok("advance", "--to", gate)
+        review_for_gate(project, gate)  # T06: E2.
         project.ok("gate", "approve", "--gate", gate)
 
     project.write_artifact(f"{FEATURE_DIR}/checklist.md")
     project.ok("advance", "--to", "tasks_draft")
     project.write_artifact(f"{FEATURE_DIR}/tasks.md")
     project.ok("advance", "--to", "gate_tasks")
+    review_for_gate(project, "gate_tasks")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_tasks")
     project.ok("advance", "--to", "gate_analyze")
+    review_for_gate(project, "gate_analyze")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_analyze")
     project.write_artifact("design/app/app-design.md")
     project.ok("advance", "--to", "gate_design")
+    review_for_gate(project, "gate_design")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_design")
     return project
 
@@ -145,6 +152,7 @@ def test_06_gate_seven_accepts_a_built_manifest(git_project):
     git_project.ok("implement", "preflight")
     git_project.ok("manifest", "build", "--skip-tests")
     git_project.ok("advance", "--to", "gate_implement")
+    review_for_gate(git_project, "gate_implement")  # T06: E2.
 
     result = git_project.ok("gate", "approve", "--gate", "gate_implement")
     assert result.data["next_phase"] == "security_review"
@@ -239,11 +247,13 @@ def commit_at(project, when: str, message: str) -> None:
 
 def test_07_staleness_is_scoped_to_recorded_artifact_paths(git_project):
     """A commit touching unrelated files must not make an approval stale."""
+    git_project.record_governance()  # T06: E1.
     git_project.ok("init", session="t")
     git_project.write_artifact(".specify/memory/constitution.md")
     commit_at(git_project, "2026-01-01T00:00:00+00:00", "constitution")
 
     git_project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(git_project, "gate_constitution")  # T06: E2.
     git_project.ok("gate", "approve", "--gate", "gate_constitution")
     state = git_project.state()
     state["approvals"]["gate_constitution"]["timestamp"] = "2026-01-02T00:00:00Z"
@@ -271,13 +281,17 @@ def test_07_staleness_is_silent_without_approvals(git_project):
 
 
 def at_gate_plan(project):
+    # T06: `advance` refuses `governance_missing` without a record.
+    project.record_governance()
     project.ok("init", session="t")
     project.write_artifact(".specify/memory/constitution.md")
     project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_constitution")
     project.write_artifact(f"{FEATURE_DIR}/spec.md")
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
+    review_for_gate(project, "gate_spec")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_spec")
     project.write_artifact(f"{FEATURE_DIR}/plan.md")
     project.ok("advance", "--to", "gate_plan")

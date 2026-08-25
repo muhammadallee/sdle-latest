@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FEATURE_ID, FIXTURE_WORKITEM_ID, REPO_ROOT, Project, sdle
+from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -116,22 +117,27 @@ def drive_full_workflow(view: Project, feature: str) -> None:
     prompt layer makes, which is what §10's exit criterion is about.
     """
     directory = view.feature_dir(feature)
+    # T06: `advance` refuses `governance_missing` without a record.
+    view.record_governance()
     view.ok("init", session=feature)
 
     view.write_artifact(".specify/memory/constitution.md")
     view.ok("feature", "bind")
     view.ok("advance", "--to", "gate_constitution")
+    review_for_gate(view, "gate_constitution")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_constitution")
 
     view.ok("feature", "bind")
     view.write_artifact(f"{directory}/spec.md")
     view.ok("feature", "resolve")
     view.ok("advance", "--to", "gate_spec")
+    review_for_gate(view, "gate_spec")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_spec")
 
     view.ok("feature", "bind", "--require-feature")
     view.write_artifact(f"{directory}/plan.md")
     view.ok("advance", "--to", "gate_plan")
+    review_for_gate(view, "gate_plan")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_plan")
 
     view.ok("feature", "bind", "--require-feature")
@@ -140,6 +146,7 @@ def drive_full_workflow(view: Project, feature: str) -> None:
     view.ok("feature", "bind", "--require-feature")
     view.write_artifact(f"{directory}/tasks.md")
     view.ok("advance", "--to", "gate_tasks")
+    review_for_gate(view, "gate_tasks")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_tasks")
 
     view.ok("feature", "bind", "--require-feature")
@@ -147,21 +154,25 @@ def drive_full_workflow(view: Project, feature: str) -> None:
                         "# Tasks (refined by analysis)\n\n" + "T001. " * 40)
     view.ok("drift", "rebaseline", "--gate", "gate_tasks")
     view.ok("advance", "--to", "gate_analyze")
+    review_for_gate(view, "gate_analyze")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_analyze")
 
     view.write_artifact("design/app/app-design.md")
     view.ok("advance", "--to", "gate_design")
+    review_for_gate(view, "gate_design")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_design")
 
     view.ok("feature", "bind", "--require-feature")
     view.ok("implement", "preflight", "--bypass")
     view.ok("manifest", "build", "--skip-tests")
     view.ok("advance", "--to", "gate_implement")
+    review_for_gate(view, "gate_implement")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_implement")
 
     begun = view.ok("security-review", "begin")
     view.write_artifact(begun.data["review_filename"])
     view.ok("advance", "--to", "gate_security")
+    review_for_gate(view, "gate_security")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_security")
 
 
@@ -321,7 +332,9 @@ def test_n3_a_gate_refuses_another_workitems_artifact(bare_project):
     bare_project.write_artifact(".specify/memory/constitution.md")
     bare_project.write_artifact(f"{a.feature_dir('001-alpha')}/spec.md")
 
+    b.record_governance()  # T06: E1.
     b.ok("advance", "--to", "gate_constitution")
+    review_for_gate(b, "gate_constitution")  # T06: E2.
     b.ok("gate", "approve", "--gate", "gate_constitution")
     b.write_artifact(f"{b.feature_dir('002-bravo')}/spec.md")
     b.ok("feature", "resolve")
@@ -880,9 +893,11 @@ def test_migrated_in_flight_workflow_refuses_its_next_speckit_gate(bare_project)
     attributable to it, so the gate refuses rather than warns.
     """
     view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
+    view.record_governance()  # T06: E1.
     view.ok("init")
     bare_project.write_artifact(".specify/memory/constitution.md")
     view.ok("advance", "--to", "gate_constitution")
+    review_for_gate(view, "gate_constitution")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_constitution")
     bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
     view.write_state(as_v114(view, current_feature_id="001-alpha"))
@@ -909,9 +924,11 @@ def test_feature_resolve_recovers_a_migrated_workflow_without_drift(bare_project
     drift fires on the way through.
     """
     view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
+    view.record_governance()  # T06: E1.
     view.ok("init")
     bare_project.write_artifact(".specify/memory/constitution.md")
     view.ok("advance", "--to", "gate_constitution")
+    review_for_gate(view, "gate_constitution")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_constitution")
     bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
     before = sha_map(bare_project.root / ".specify" / "specs" / "001-alpha")
@@ -927,6 +944,7 @@ def test_feature_resolve_recovers_a_migrated_workflow_without_drift(bare_project
     moved = sha_map(bare_project.root / "workitems" / "wi-a" / "specs" / "001-alpha")
     assert moved == before, "relocation changed content; drift would fire falsely"
 
+    review_for_gate(view, "gate_spec")  # T06: E2.
     approved = view.ok("gate", "approve", "--gate", "gate_spec")
     assert approved.exit_code == EXIT_OK
     assert view.state()["approvals"]["gate_spec"] is not None

@@ -871,6 +871,7 @@ def test_skip_on_a_mismatched_branch_needs_both_acknowledgements(mismatched):
     Three invocations, two acknowledgements. It must never collapse into a
     single-step bypass, and it must never livelock.
     """
+    mismatched.record_governance()  # T06: the third `skip` moves a phase.
     state = mismatched.state()
     state["status"] = "failed"
     mismatched.write_state(state)
@@ -1349,6 +1350,10 @@ def test_runtime_free_commands_is_a_closed_enumerated_set():
         # T05: repository-level configuration is owned by the repository, so
         # contract §11 requires it to resolve with no WorkItem bound.
         "config",
+        # T06: `governance policy` reads a repository-scoped policy, so the
+        # group resolves with no WorkItem bound. Its WorkItem-scoped members
+        # bind explicitly through `bind_workitem`.
+        "governance",
     })
 
 

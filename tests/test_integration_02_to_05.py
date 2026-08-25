@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import FIXTURE_WORKITEM_ID
+from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED = 0, 1
 FEATURE = "001-todo-api"
@@ -22,9 +23,12 @@ SPEC = f"{FEATURE_DIR}/spec.md"
 
 def at_gate_spec(project):
     """Gates 1-2 territory: spec generated, workflow standing at Gate 2."""
+    # T06: `advance` refuses `governance_missing` without a record.
+    project.record_governance()
     project.ok("init", session="t")
     project.write_artifact(".specify/memory/constitution.md")
     project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_constitution")
     project.write_artifact(SPEC)
     project.ok("feature", "resolve")
@@ -183,6 +187,7 @@ def test_03_skip_requires_a_failed_status(project):
 
 
 def test_03_skip_is_two_step(project):
+    project.record_governance()  # T06: `skip` moves a phase, so E1 applies.
     project.ok("init", session="t")
     project.write_small(".specify/memory/constitution.md")
     project.run("artifact", "record", "--phase", "constitution_draft",
@@ -221,6 +226,7 @@ def test_03_stale_confirmation_guard_cancels_a_pending_skip(project):
 
 
 def test_03_skip_is_permanently_logged(project):
+    project.record_governance()  # T06: `skip` moves a phase, so E1 applies.
     project.ok("init", session="t")
     project.write_small(".specify/memory/constitution.md")
     project.run("artifact", "record", "--phase", "constitution_draft",
@@ -241,6 +247,7 @@ def test_03_skip_is_permanently_logged(project):
 def drifted(project):
     """Gate 2 approved, then spec.md hand-edited underneath it."""
     at_gate_spec(project)
+    review_for_gate(project, "gate_spec")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_spec")
     approved_sha = project.state()["artifact_shas"]["gate_spec"]
     project.write_artifact(SPEC, "# Spec\n\nNow with a bulk-delete endpoint.\n" * 5)
@@ -279,6 +286,7 @@ def test_04_a_missing_artifact_counts_as_drifted(project):
 def test_04_reapproval_rebaselines_and_resumes(project):
     drifted(project)
     project.ok("drift", "check", "--queue", "--pending-phase", "plan_draft")
+    review_for_gate(project, "gate_spec")  # T06: E2 covers the drift path too.
 
     result = project.ok("gate", "approve", "--gate", "gate_spec",
                         "--comments", "My edit added bulk-delete; keeping it.")
@@ -310,9 +318,11 @@ def test_04_rejection_clears_the_queue_and_does_not_resume(project):
 
 def test_04_multiple_drifted_gates_queue_most_upstream_first(project):
     at_gate_spec(project)
+    review_for_gate(project, "gate_spec")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_spec")
     project.write_artifact(f"{FEATURE_DIR}/plan.md")
     project.ok("advance", "--to", "gate_plan")
+    review_for_gate(project, "gate_plan")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_plan")
 
     project.write_artifact(f"{FEATURE_DIR}/plan.md", "# Plan v2\n" * 20)
@@ -324,6 +334,8 @@ def test_04_multiple_drifted_gates_queue_most_upstream_first(project):
 
 def test_04_drift_reapproval_walks_the_queue_one_at_a_time(project):
     test_04_multiple_drifted_gates_queue_most_upstream_first(project)
+    review_for_gate(project, "gate_spec")   # T06: E2, drifted content.
+    review_for_gate(project, "gate_plan")   # T06: E2, drifted content.
 
     first = project.ok("gate", "approve", "--gate", "gate_spec")
     assert first.data["remaining_drift"] == ["gate_plan"]
@@ -351,6 +363,7 @@ def test_04_drift_includes_a_git_diff_for_tracked_artifacts(git_project):
     at_gate_spec(git_project)
     git_project.git("add", "-A")
     git_project.git("commit", "-q", "-m", "spec")
+    review_for_gate(git_project, "gate_spec")  # T06: E2.
     git_project.ok("gate", "approve", "--gate", "gate_spec")
 
     git_project.write_artifact(SPEC, "# Spec\n\nA brand new bulk-delete line.\n" * 5)

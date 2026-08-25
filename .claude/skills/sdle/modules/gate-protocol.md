@@ -34,7 +34,8 @@ Use this table in Step 7 (Rejection & Remediation) to determine whether re-execu
      ```
      If every item is covered: show `✅ All guidance items addressed.` and no gaps.
    - If the guidance file **does not exist**: skip this step silently — do not mention guidance at all.
-4. THEN display the gate prompt below.
+4. **Review status:** run `sdle.sh artifact reviews --path <current_artifact>` and read the entry for this artifact. Show the review type, result and actor in the prompt's `Review:` line. If it is not a current `PASS`, do not display the prompt — record the review first (see **Governed Artifact Review** in `modules/phase-execution.md`); `gate approve` would refuse anyway, and asking for an approval you know will be refused wastes the user's decision.
+5. THEN display the gate prompt below.
 
 The user must never need to open an external file to know what they are approving.
 
@@ -48,6 +49,7 @@ The user must never need to open an external file to know what they are approvin
 
 Artifact path: {current_artifact}
 Fingerprint: {current_artifact_sha}
+Review: {reviewType} | {result} | {actor_type}:{actor_name}
 
 Please review the content above, then respond with:
   • `approve` — Accept and advance to the next phase

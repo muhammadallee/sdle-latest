@@ -188,6 +188,43 @@ class Project:
         assert path.stat().st_size >= 100, "test artifact must clear the size floor"
         return path
 
+    # -- governance ------------------------------------------------------
+
+    def record_governance(self, **over) -> "Result":
+        """Record the contract §12 governance inputs the lifecycle requires.
+
+        T06 makes `advance` refuse `governance_missing` without a recorded,
+        passing, current assessment, so every driver that moves a phase
+        records one first. The document is generated at runtime like every
+        other fixture artifact, and the twelve check ids are read from the
+        engine's own policy rather than restated (invariant 7).
+        """
+        document = {
+            "governanceInputVersion": "1",
+            "quality": {
+                name: {"result": "PASS", "finding": None}
+                for name in sdle.GOVERNANCE_POLICY_BUILTIN["quality_checks"]
+            },
+            "classification": {"type": "enhancement", "flow": "ITERATIVE"},
+            "risk": {"signals": [], "proposedLevel": "LOW",
+                     "uncertainty": "LOW"},
+        }
+        document.update(over)
+        name = "governance-input.json"
+        target = self.root / name
+        target.write_text(
+            json.dumps(document, indent=2), encoding="utf-8", newline="\n"
+        )
+        try:
+            return self.ok("governance", "assess", "--input", name)
+        finally:
+            # The proposal is a transient input, consumed by `assess` and
+            # preserved verbatim in the evidence document. Leaving it behind
+            # would make every git-backed fixture's working tree dirty and
+            # would trip `implement preflight` — a fixture artifact, not
+            # product behaviour. `SDLE_OWNED_PREFIXES` stays untouched.
+            target.unlink()
+
     def write_small(self, relative: str) -> Path:
         """A generation step that produced something unusable."""
         path = self.root / relative
@@ -309,6 +346,7 @@ def project(bare_project: Project) -> Project:
 @pytest.fixture
 def started(project: Project) -> Project:
     """A project with an initialised workflow, sitting at constitution_draft."""
+    project.record_governance()
     project.ok("init", session="testsess")
     return project
 

@@ -249,6 +249,69 @@ reasoning, and what was rejected, is in
 workflow state, and it has no migration chain. Nothing in the 18-phase
 lifecycle reads this file.
 
+### Governance inputs and artifact review
+
+Two facts are required of every WorkItem before the lifecycle will move it, and
+both are enforced by refusal rather than by reminder.
+
+**Governance inputs.** Before the first `advance`, a WorkItem must carry a
+governance record: a requirements-quality result over the structured check set,
+a WorkItem type and engineering flow, the observed risk signals, the
+deterministic risk score and level, any hard floors that fired, the final level,
+and the recorded uncertainty. It is produced from a structured proposal and
+scored by the engine.
+
+| Command | Effect |
+|---|---|
+| `scripts/sdle.sh governance policy` | Report the effective policy — check ids, which of them block, the risk-signal vocabulary and weights, the thresholds and the hard floors. Needs no WorkItem and writes nothing. |
+| `scripts/sdle.sh governance assess --input <path>` | Score a structured proposal, write `workitems/<id>/.sdle/governance.json` and one evidence document. Runs before `init`. |
+| `scripts/sdle.sh governance show` | Report the record and whether it is still current for the requirements on disk. |
+| `scripts/sdle.sh governance gates` | Report the gate set this classification and risk level *would* require. Advisory: nothing consumes it, and all eight gates run unconditionally. |
+
+The scoring is deterministic and the model cannot argue with it. Severity comes
+from the policy, never from the input; every weight, threshold and floor comes
+from the policy; and a proposed risk level lower than the computed one is
+recorded as an attempt, audited, and has **no effect** — the final level is
+never below the deterministic one. A repository may override the policy at
+`.sdle/policies/governance-policy.json`, but the override is **monotone**: it
+may only make governance stricter. Anything that would weaken it is refused
+`policy_weakens_baseline`, and a policy file SDLE cannot parse is refused
+`policy_malformed` rather than quietly replaced by a default. That is what
+makes "no policy file" safe: the built-in is by construction the weakest
+admissible policy. Run `governance policy` to see the values — they are defined
+in `scripts/sdle.py` and deliberately restated nowhere else.
+
+`advance` then refuses `governance_missing` when there is no record,
+`governance_blocked` when a blocking requirements-quality check failed, and
+`governance_stale` when `requirements/` changed after the assessment. A
+WorkItem started before this version has no record and will refuse at its next
+`advance`; the remedy is one `governance assess` run.
+
+**Artifact review.** Artifact existence is not evidence of artifact quality. A
+gate can only approve an artifact that carries a `PASS` review of its **exact
+current content**.
+
+| Command | Effect |
+|---|---|
+| `scripts/sdle.sh artifact review --path <p> --type <t> --result PASS\|FAIL --actor-type <human\|agent\|tool\|test\|system> --actor-name <n>` | Fingerprint the artifact as it stands now, append the record to the WorkItem's append-only `reviews.json`, write an evidence document, and link it into the audit ledger. |
+| `scripts/sdle.sh artifact reviews [--path <p>]` | List the records with a derived freshness verdict. Read-only. |
+
+"Currently reviewed" is derived on every check — a record for this path whose
+fingerprint equals the file's fingerprint now, whose result is `PASS`. There is
+no stored freshness flag, because a boolean cannot say *which* version was
+reviewed. `gate approve` refuses `review_missing`, `review_stale` (the content
+changed after the review) and `review_failed`, and the drift re-approval path is
+held to the same rule — approving drifted content against a review of the
+pre-drift content is exactly the case the rule exists for.
+
+A review is not a gate decision. It records who judged the content and what
+they concluded; the human's approval at the gate is a separate act, and it is
+never delegated. `--actor-name` is a recorded string: recording it neither
+creates nor invokes anything.
+
+The reasoning, and what was rejected, is in
+`docs/architecture/ADR-003-governance-inputs-and-artifact-review.md`.
+
 ---
 
 ## SpecKit Skill Mapping
