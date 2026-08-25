@@ -2,28 +2,30 @@
 
 Cold-start note for the next session. Authority order is unchanged: the repository, `transition.md`, `progress.md`, and the persisted phase artifacts. **This file is a convenience, not a source of truth** — if it disagrees with `progress.md` or the repo, they win.
 
-Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=5/12 next=T05`, exit 0.
+Run `python tools/transition/validate.py` first. It should print `TRANSITION_VALID: complete=6/12 next=T06`, exit 0.
 
 ---
 
 ## The next action
 
-**Run a fresh T05 planner** (`sdle-transition-planner`) against `transition.md` §11 — *Introduce Repository-Level `.sdle/` Configuration Boundary*.
+**Implement T06** (`sdle-transition-implementer`) against `docs/transition/phases/T06-plan.md`, then verify it with a fresh verifier.
 
-T04 is `COMPLETE`: independently verified `PASS`, artifact `docs/transition/phases/T04-verification-a01.md`. Its one HIGH finding (N-1) was closed as a follow-up at `7b054ee`.
+T05 is `COMPLETE`: independently verified `PASS`, artifact `docs/transition/phases/T05-verification-a01.md`. **The contract's stability gate is cleared** — §5's "do not skip directly to T07+ before T01-T05 are stable" is satisfied, and the structural half of the migration is finished.
 
-**T05 closes the contract's stability gate.** §5 says: *"Do not skip directly to T07+ before T01–T05 are stable."* After T05 the migration crosses from structural work into semantic change — T07 onward alters lifecycle semantics, where T00–T06 do not.
+T06 is the largest phase so far: eight milestones. **M3 is the declared safe resume boundary** — M1-M3 are additive and behaviour-neutral, M4 is where enforcement begins. A fresh agent resuming mid-phase should read the checkpoints and restart at a milestone boundary rather than mid-milestone.
+
+**T06 enforces; it does not merely record.** §12's "Blocking findings stop progression" and TP-011's "MUST NOT allow a stale review to authorize downstream consumption" are unambiguous MUSTs. What T06 does *not* change is traversal: classification, risk level and the would-be gate set move nothing, and the eight gates stay unconditional. That narrower absence-of-change property is pinned by plan A17/A18.
 
 ## State
 
 | | |
 |---|---|
 | Branch | `transition/workitem-v1` |
-| Phases complete | T00, T01, T02, T03, T04 (all independently verified PASS) |
-| Rollback point for T05 | `7b054ee` (T04 + the N-1 follow-up) |
+| Phases complete | T00-T05 (all independently verified PASS) |
+| Rollback point for T06 | `475795a` (T05 implementation) |
 | SDLE product baseline | `f8fdaa0` |
-| Suite | **500 passed, raw exit 0** (~17 min — it has grown; budget for it) |
-| `lint-skill` | 22/22, **v1.15**, 19 phases / 8 gates / **15 migration rows** |
+| Suite | **569 passed, raw exit 0** (569 collected; ~10-17 min, varies) |
+| `lint-skill` | 22/22, **v1.15**, 19 phases / 8 gates / 15 migration rows |
 | Python 3.11 / CI | `NOT_RUN` / `UNKNOWN` — never observed at any point |
 
 ## Three things a fresh context will otherwise get wrong
