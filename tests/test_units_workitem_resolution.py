@@ -1346,6 +1346,9 @@ def test_runtime_free_commands_is_a_closed_enumerated_set():
     assert sdle.RUNTIME_FREE_COMMANDS == frozenset({
         "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
         "validate",
+        # T05: repository-level configuration is owned by the repository, so
+        # contract §11 requires it to resolve with no WorkItem bound.
+        "config",
     })
 
 

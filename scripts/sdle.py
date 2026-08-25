@@ -199,6 +199,56 @@ class Paths:
             return None
         return str(root.relative_to(self.project_root)).replace(os.sep, "/")
 
+    # -- repository configuration boundary (contract §11) ----------------
+    #
+    # Every member below derives from ``project_root`` **alone**. None of them
+    # may reference ``workitem``, ``workitem_root`` or ``runtime``: that
+    # derivation *is* the ownership split the contract asks for. Repository
+    # `.sdle/` owns global configuration, policy definitions, shared templates,
+    # the future baseline and implementation-transition metadata; WorkItem
+    # `.sdle/` owns lifecycle state, execution, audit, evidence and manifests.
+    # Rebinding the WorkItem changes every runtime member and none of these.
+
+    @property
+    def config_root(self) -> Path:
+        """Repository-global SDLE configuration. Never WorkItem-scoped."""
+        return self.project_root / ".sdle"
+
+    @property
+    def config_root_relative(self) -> str:
+        """``config_root`` as a repo-relative POSIX prefix."""
+        return str(self.config_root.relative_to(self.project_root)).replace(
+            os.sep, "/")
+
+    @property
+    def config_file(self) -> Path:
+        return self.config_root / "config.json"
+
+    @property
+    def policies_dir(self) -> Path:
+        return self.config_root / "policies"
+
+    @property
+    def shared_templates_dir(self) -> Path:
+        """Repository-shared templates.
+
+        Deliberately not named ``templates_dir``: ``skill_root/templates/``
+        already exists and a bare name would read as that one.
+        """
+        return self.config_root / "templates"
+
+    @property
+    def baseline_file(self) -> Path:
+        """The §11 baseline slot. No engine path writes it at T05 — §14 owns
+        its schema."""
+        return self.config_root / "baseline.json"
+
+    @property
+    def implementation_state_dir(self) -> Path:
+        """Implementation-transition metadata. An empty documented slot: the
+        contract defines no schema, producer or consumer for it."""
+        return self.config_root / "implementation-state"
+
     @property
     def skill_md(self) -> Path:
         return self.skill_root / "SKILL.md"
@@ -239,10 +289,17 @@ def _candidate_skill_roots(script_path: Path, project_root: Path) -> list[Path]:
 # of the upward walk. `workitems/index.md` comes first because a WorkItem
 # registry is the most specific statement a repository makes about itself; the
 # legacy runtime is next; `.git` is the weakest signal and therefore last.
+# `.sdle/config.json` is the configuration boundary's own marker (contract
+# §11), the mirror of `workitems/index.md`: without it, `config init` launched
+# from a subdirectory would write a second boundary there. Markers are tested
+# in the inner loop, so tuple order cannot change *which* directory is
+# returned — only which level stops the walk — and no repository predating T05
+# contains a `.sdle/config.json`, so appending it is a no-op for all of them.
 PROJECT_ROOT_MARKERS = (
     ("workitems", "index.md"),
     (".workflow", "state.json"),
     (".git",),
+    (".sdle", "config.json"),
 )
 
 
@@ -1956,6 +2013,10 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # resolve, so it must never be gated on resolution succeeding. It runs the
     # ladder itself, speculatively, and turns a refusal into a finding.
     "validate",
+    # `config` is repository-global by definition. Contract §11's exit
+    # criterion is that it resolves *independently* of WorkItem runtime state,
+    # so binding a WorkItem first would contradict the boundary it creates.
+    "config",
 })
 
 
@@ -2655,6 +2716,137 @@ def _finding(check: str, severity: str, detail: str, *,
     }
 
 
+# --------------------------------------------------------------------------
+# Repository configuration boundary — contract §11
+# --------------------------------------------------------------------------
+#
+# `.sdle/` at the repository root holds global configuration, policy
+# definitions, shared templates, the future baseline and implementation-
+# transition metadata. It is a *different boundary* from `workitems/<id>/.sdle/`,
+# which holds lifecycle state, execution, audit, evidence and manifests.
+#
+# T05 establishes the boundary and moves **no lifecycle rule into it**: the
+# 18-phase behaviour stays authoritative and nothing in the lifecycle reads
+# `config.json`. `configVersion` is therefore a namespace of its own — it is
+# not `workflow_version`, it is not a state field, and it gets no
+# VERSION_MIGRATION row.
+#
+# Policy format is JSON, decided explicitly (see
+# docs/architecture/ADR-002-repository-configuration-boundary.md): it keeps the
+# deterministic core standard-library-only, so the engine runs anywhere Python
+# 3.11+ exists with no install step.
+
+REPO_CONFIG_DEFAULTS = {"configVersion": "1", "policyFormat": "json"}
+SUPPORTED_CONFIG_VERSIONS = ("1",)
+SUPPORTED_POLICY_FORMATS = ("json",)
+
+
+def read_repo_config(paths: Paths) -> dict:
+    """The effective repository configuration. Reads; never writes.
+
+    Absent `config.json` yields the defaults verbatim — which is why T05 is a
+    no-op for every repository that predates it. A present document is merged
+    over the defaults. Soundness is **not** decided here: `repo_config_findings`
+    is the single predicate for that, and both consumers go through it first.
+    """
+    config = dict(REPO_CONFIG_DEFAULTS)
+    target = paths.config_file
+    if not target.is_file():
+        return config
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return config
+    if isinstance(document, dict):
+        config.update(document)
+    return config
+
+
+def repo_config_findings(paths: Paths) -> list[dict]:
+    """The single answer to "is this repository's configuration boundary
+    sound".
+
+    Two consumers — `config show`/`config init`, which refuse on an error, and
+    `validate`, which reports one. One implementation, so they can never
+    disagree about the same repository (invariant 7).
+    """
+    root = paths.project_root
+    if root.name == "workitems" or root.parent.name == "workitems":
+        return [_finding(
+            "config_root_inside_workitem", VALIDATE_ERROR,
+            f"the resolved repository root '{root}' is the WorkItem registry "
+            "or a WorkItem directory; repository configuration is owned by "
+            "the repository, never by a WorkItem",
+            path=paths.config_root,
+        )]
+
+    target = paths.config_file
+    if not target.is_file():
+        return []
+    relative = f"{paths.config_root_relative}/{target.name}"
+
+    detail: str | None = None
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        detail = f"{relative} cannot be read: {exc}"
+    else:
+        if not isinstance(document, dict):
+            detail = f"{relative} is not a JSON object"
+        elif document.get("configVersion") not in SUPPORTED_CONFIG_VERSIONS:
+            detail = (
+                f"{relative} declares configVersion "
+                f"{document.get('configVersion')!r}; this engine supports "
+                + ", ".join(repr(v) for v in SUPPORTED_CONFIG_VERSIONS)
+            )
+        elif document.get("policyFormat") not in SUPPORTED_POLICY_FORMATS:
+            detail = (
+                f"{relative} declares policyFormat "
+                f"{document.get('policyFormat')!r}; this engine supports "
+                + ", ".join(repr(v) for v in SUPPORTED_POLICY_FORMATS)
+                + ". The deterministic core is standard-library-only, so any "
+                "other policy format requires a parser dependency that has "
+                "been explicitly accepted first — and a home-grown parser is "
+                "not an option."
+            )
+    if detail is None:
+        return []
+    return [_finding("config_malformed", VALIDATE_ERROR, detail, path=target)]
+
+
+def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
+    """The file and directory names a WorkItem runtime owns.
+
+    Derived from an **already bound** ``Paths`` rather than re-listed, so a
+    later phase that adds a runtime member inherits the leak check for free
+    (invariant 7). It takes the bound instance rather than binding one itself
+    because rebinding is a closed set of declared call sites.
+    """
+    return tuple(member.name for member in (
+        bound.state_file, bound.audit_file, bound.execution_file,
+        bound.lock_file, bound.evidence_dir, bound.manifest_file,
+        bound.completion_file,
+    ))
+
+
+def _refuse_config_findings(findings: list[dict],
+                            checks: tuple[str, ...]) -> None:
+    """Turn the first matching error finding into a refusal.
+
+    Takes findings rather than `Paths` on purpose: the repository
+    configuration members are reachable from exactly five functions, and a
+    shared helper must not become a sixth.
+    """
+    for finding in findings:
+        if finding["severity"] != VALIDATE_ERROR:
+            continue
+        if finding["check"] in checks:
+            raise Refused(
+                finding["check"], finding["detail"],
+                {"check": finding["check"], "path": finding["path"]},
+            )
+
+
 def _escape_detail(root: Path, value: str) -> str | None:
     """Why `workitems/<value>` is unsafe, or None when it is fine.
 
@@ -2882,6 +3074,54 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
             path=(root / value) if workitem_id_wellformed(value) else index_file,
         ))
 
+    # 8. the repository configuration boundary (contract §11). Silent for
+    #    every repository with no `.sdle/`, which is every repository that
+    #    predates T05.
+    findings.extend(repo_config_findings(paths))
+
+    # 9. the leak detector, both directions. §11 splits ownership between the
+    #    repository boundary and the WorkItem boundary; this is what makes the
+    #    split enforced rather than merely documented, and it is the check
+    #    that would catch a lifecycle rule migrating into `.sdle/` early.
+    #    Both name sets are *derived* from `Paths`, never re-listed, so a later
+    #    phase that adds a member on either side inherits the check.
+    probe = dataclass_replace(paths, workitem="_probe")
+    runtime_names = workitem_runtime_member_names(probe)
+    config_names = (
+        paths.config_file.name,
+        paths.policies_dir.name,
+        paths.shared_templates_dir.name,
+        paths.baseline_file.name,
+        paths.implementation_state_dir.name,
+    )
+
+    if paths.config_root.is_dir():
+        for name in sorted(runtime_names):
+            leaked = paths.config_root / name
+            if leaked.exists():
+                findings.append(_finding(
+                    "lifecycle_state_in_repository_config", VALIDATE_ERROR,
+                    f"{paths.config_root_relative}/{name} is WorkItem "
+                    "lifecycle state; the repository configuration boundary "
+                    "does not own it (contract §11)",
+                    path=leaked,
+                ))
+
+    for value in dict.fromkeys(safe_indexed + safe_on_disk):
+        bound = dataclass_replace(paths, workitem=value)
+        if not bound.runtime.is_dir():
+            continue
+        for name in sorted(config_names):
+            leaked = bound.runtime / name
+            if leaked.exists():
+                findings.append(_finding(
+                    "repository_config_in_workitem", VALIDATE_ERROR,
+                    f"workitems/{value}/{bound.runtime.name}/{name} is "
+                    "repository-level configuration; a WorkItem does not own "
+                    "it (contract §11)",
+                    workitem=value, path=leaked,
+                ))
+
     # The speculative resolution outcome. A repository that cannot resolve is
     # a *warning*, not an error: ">1 plausible -> ASK" is contract §9 working
     # as designed, and an empty repository is simply not started yet.
@@ -2923,6 +3163,94 @@ def cmd_validate(args, paths: Paths) -> int:
         )
 
     emit("validate", data)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# config — the repository configuration boundary's two commands
+# --------------------------------------------------------------------------
+#
+# Both are runtime-free: contract §11's exit criterion is that repository-global
+# configuration exists *independently* from WorkItem runtime state, so neither
+# may be gated on the resolution ladder. They write nothing outside
+# `config_root`, append no audit entry, and touch no state.
+
+
+def cmd_config_init(args, paths: Paths) -> int:
+    """Create the repository configuration boundary. Never overwrites."""
+    _refuse_config_findings(repo_config_findings(paths),
+                            ("config_root_inside_workitem",))
+
+    target = paths.config_file
+    if target.exists():
+        raise Refused(
+            "config_exists",
+            f"{paths.config_root_relative}/{target.name} already exists; "
+            "`config init` never overwrites an existing configuration. Edit "
+            "it by hand, or delete it first.",
+            {"config_file": str(target),
+             "config_root": paths.config_root_relative},
+        )
+
+    created: list[str] = []
+
+    def note(path: Path) -> None:
+        created.append(path.relative_to(paths.project_root).as_posix())
+
+    # `.gitkeep` exists because Git cannot version an empty directory, and §19
+    # places `.sdle/policies/*` under "must eventually be versioned". An
+    # existing directory keeps whatever it already holds.
+    for directory in (paths.policies_dir, paths.shared_templates_dir,
+                      paths.implementation_state_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+        keep = directory / ".gitkeep"
+        if not keep.exists():
+            write_atomic(keep, "")
+            note(keep)
+
+    # Written last, and atomically: a failed run leaves no `config.json`, so a
+    # re-run completes rather than refusing `config_exists`.
+    write_atomic(target, json.dumps(REPO_CONFIG_DEFAULTS, indent=2) + "\n")
+    note(target)
+
+    emit("config init", {
+        "root": paths.config_root_relative,
+        "config": dict(REPO_CONFIG_DEFAULTS),
+        "created": created,
+    })
+    return EXIT_OK
+
+
+def cmd_config_show(args, paths: Paths) -> int:
+    """Report the effective repository configuration. Creates nothing."""
+    _refuse_config_findings(
+        repo_config_findings(paths),
+        ("config_root_inside_workitem", "config_malformed"),
+    )
+
+    present = paths.config_file.is_file()
+    # A present document that survived the refusal above declares both keys:
+    # an absent key reads as None, which is outside both supported-value
+    # tuples and would already have refused `config_malformed`.
+    defaults_applied = [] if present else sorted(REPO_CONFIG_DEFAULTS)
+
+    def relative(path: Path) -> str:
+        return path.relative_to(paths.project_root).as_posix()
+
+    emit("config show", {
+        "root": paths.config_root_relative,
+        "present": present,
+        "config": read_repo_config(paths),
+        "defaults_applied": defaults_applied,
+        "members": {
+            "config": relative(paths.config_file),
+            "policies": relative(paths.policies_dir),
+            "templates": relative(paths.shared_templates_dir),
+            # Named, not created: §14 owns the baseline schema, not T05.
+            "baseline": relative(paths.baseline_file),
+            "implementation_state": relative(paths.implementation_state_dir),
+        },
+    })
     return EXIT_OK
 
 
@@ -5683,6 +6011,19 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="Check the WorkItem registry and runtime placement."
     )
     sub.set_defaults(handler=cmd_validate)
+
+    config_p = subparsers.add_parser(
+        "config", help="Repository-level SDLE configuration."
+    )
+    config_sub = config_p.add_subparsers(dest="subcommand", required=True)
+    cfg_init = config_sub.add_parser(
+        "init", help="Create the repository configuration boundary."
+    )
+    cfg_init.set_defaults(handler=cmd_config_init)
+    cfg_show = config_sub.add_parser(
+        "show", help="Report the effective configuration. Writes nothing."
+    )
+    cfg_show.set_defaults(handler=cmd_config_show)
 
     workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
     workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)

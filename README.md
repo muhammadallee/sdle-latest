@@ -151,10 +151,10 @@ Every runtime command resolves a WorkItem before it runs:
    listing the candidates. SDLE never picks one for you.
 
 The project root itself is discovered by walking up from the launch directory
-to the nearest ancestor holding `workitems/index.md`, `.workflow/state.json`
-or `.git`, so all four launch locations work: `workitems/<id>/`, `workitems/`,
-the repository root, and anywhere inside the repository. `--project-root` and
-`SDLE_PROJECT_ROOT` still override it.
+to the nearest ancestor holding `workitems/index.md`, `.workflow/state.json`,
+`.git` or `.sdle/config.json`, so all four launch locations work:
+`workitems/<id>/`, `workitems/`, the repository root, and anywhere inside the
+repository. `--project-root` and `SDLE_PROJECT_ROOT` still override it.
 
 `workitem resolve` reports what the ladder would do — always exit 0, with the
 candidate set and per-candidate evidence when it cannot resolve. It is a
@@ -170,8 +170,8 @@ on. Running a lifecycle-advancing or content-fingerprinting command from a
 different branch refuses `branch_mismatch` once and proceeds on a re-run, which
 is logged; everything else warns.
 
-`lint-skill`, `sha`, `constants`, `workitem`, `migrate-workflow` and `validate`
-touch no runtime state and need no resolution.
+`lint-skill`, `sha`, `constants`, `workitem`, `migrate-workflow`, `validate`
+and `config` touch no runtime state and need no resolution.
 
 A repository that already has a pre-v1.14 `.workflow/` moves it under a
 WorkItem once:
@@ -219,6 +219,35 @@ workitems/
 `index.md` is append-only and carries no mutable status column. If it is
 structurally damaged, `workitem create` and `workitem list` both fail with
 `index_malformed` (exit 3) and change nothing — repair it by hand.
+
+### Repository configuration
+
+A repository also has facts that belong to no WorkItem: how it configures SDLE,
+what policies it applies, what templates its teams share. Those live in a
+**repository-level `.sdle/`**, derived from the project root alone and versioned
+with the code.
+
+| Command | Effect |
+|---|---|
+| `scripts/sdle.sh config init` | Create the repository configuration boundary: `config.json` plus `policies/`, `templates/` and `implementation-state/`. Never overwrites; refuses `config_exists`. |
+| `scripts/sdle.sh config show` | Report the effective configuration and where each member lives. Creates nothing; a repository with no `.sdle/` reports the defaults. |
+
+```json
+{
+  "configVersion": "1",
+  "policyFormat": "json"
+}
+```
+
+`policyFormat` is `json` because the deterministic core is standard-library-only
+and must stay installable by copying files; any other value is refused with a
+message saying a parser dependency has to be accepted explicitly first. The
+reasoning, and what was rejected, is in
+`docs/architecture/ADR-002-repository-configuration-boundary.md`.
+
+`configVersion` is a separate namespace from `workflow_version` — it is not
+workflow state, and it has no migration chain. Nothing in the 18-phase
+lifecycle reads this file.
 
 ---
 
@@ -291,6 +320,12 @@ rules are checked mechanically rather than by hand.
 │   └── <phase-name>-YYYY-MM-DD-HHmm.clarify   ← persisted user clarification responses
 ├── reviews/
 │   └── security-review-YYYY-MM-DD-HHmm.md
+├── .sdle/                             ← Repository-wide SDLE configuration (versioned; nothing here is WorkItem state)
+│   ├── config.json                    ← Global configuration (`configVersion`, `policyFormat`)
+│   ├── policies/                      ← Policy definitions (empty today)
+│   ├── templates/                     ← Shared templates
+│   ├── baseline.json                  ← Reserved: the future repository baseline (not created yet)
+│   └── implementation-state/          ← Reserved: implementation-transition metadata
 └── workitems/
     ├── index.md                       ← Append-only WorkItem registry (single source of truth)
     └── <workitem-id>/
@@ -308,6 +343,12 @@ rules are checked mechanically rather than by hand.
 A pre-v1.14 repository also has a `.workflow/` directory with the same runtime
 files. It is transitional: `migrate-workflow --workitem <id>` moves it under a
 WorkItem and never mutates it.
+
+The two `.sdle/` directories are different boundaries that happen to share a
+name. The one at the repository root is derived from the project root alone and
+holds configuration; the one under a WorkItem is derived from the bound WorkItem
+and holds runtime state. `sdle validate` reports a leak in either direction. See
+`docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 ---
 

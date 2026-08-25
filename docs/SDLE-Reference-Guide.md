@@ -312,6 +312,44 @@ registry, exit **0**. A structurally corrupt `workitems/index.md` still surfaces
 as `index_malformed`, which is the same exit code and the correct diagnosis.
 SDLE never repairs the registry.
 
+### Repository configuration boundary
+
+Not every fact SDLE needs belongs to a WorkItem. How a repository configures
+SDLE, what policies it applies and what templates its teams share are
+repository-wide, and giving them no home would mean writing them into whichever
+WorkItem happened to be active. A repository-level `.sdle/` owns them.
+
+The two directories share a name and own nothing in common:
+
+| Repository `.sdle/` — derived from the project root | WorkItem `.sdle/` — derived from the bound WorkItem |
+|---|---|
+| `config.json` — global configuration (`configVersion`, `policyFormat`) | `state.json` — lifecycle state |
+| `policies/` — policy definitions | `execution.json` — execution identity |
+| `templates/` — shared templates | `audit.md` — append-only ledger |
+| `baseline.json` — reserved for the repository baseline; no code writes it yet | `lock` — session lock |
+| `implementation-state/` — reserved for implementation-transition metadata | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
+
+The split is a **derivation, not a path prefix test**: the repository members
+reference the project root and never the bound WorkItem, so rebinding moves
+every runtime path and none of the configuration paths. `sdle validate` polices
+it in both directions — `lifecycle_state_in_repository_config` when a runtime
+member appears under the repository boundary, and `repository_config_in_workitem`
+when a configuration member appears under a WorkItem, including a WorkItem that
+has never been initialised.
+
+`sdle config init` creates the boundary and never overwrites; `sdle config show`
+reports the effective configuration and creates nothing. Both are runtime-free:
+repository configuration that could only be read once a WorkItem resolved would
+not be repository configuration. `config.json` is validated by a single
+predicate shared by `config show` and `validate`, so the two can never disagree;
+a malformed file, an unsupported `configVersion`, or a `policyFormat` other than
+`json` is refused as `config_malformed`.
+
+Nothing in the 18-phase lifecycle reads this file. `configVersion` is a separate
+namespace from `workflow_version`: it is not workflow state and has no migration
+chain. The reasoning behind the boundary and the JSON policy-format decision is
+recorded in `docs/architecture/ADR-002-repository-configuration-boundary.md`.
+
 ### 4.3 Why a state file, not conversation memory
 
 Conversation context is volatile: it can be summarized, truncated, or lost entirely between sessions. SDLE treats `workitems/<id>/.sdle/state.json` as the only authoritative record of workflow position. Every turn re-reads it, re-validates it against `phase_history` (the **Recovery Consistency Check**), and re-derives the status header from it. This means a workflow can be paused for days, resumed in a brand-new conversation, or recovered after a crash mid-phase, and SDLE will behave identically to a continuous session.
