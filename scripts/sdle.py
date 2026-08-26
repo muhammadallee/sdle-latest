@@ -6280,6 +6280,15 @@ def cmd_skip(args, paths: Paths) -> int:
             {"pending": state.get("pending_confirm_action")},
         )
 
+    # Same reason as in `cmd_gate_approve`: this command appends to the
+    # append-only ledger before it calls `apply_advance`, so any refusal
+    # raised inside `apply_advance` would strand an orphan entry that
+    # `state.json` never commits — the chain then re-links on the next
+    # successful write and the orphan becomes permanent (invariants 5, 6).
+    # Evaluating the precondition here keeps the enforcement rule itself
+    # in one place; passing no `state` keeps this call a pure reader.
+    governance_precondition(paths)
+
     state["pending_confirm_action"] = None
     state["current_artifact"] = None
     state["current_artifact_sha"] = None

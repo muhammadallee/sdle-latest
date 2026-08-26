@@ -1006,16 +1006,76 @@ def test_a_refused_gate_approval_leaves_the_ledger_byte_identical(project, cause
     assert verify.data["matches"] is True
 
 
+@pytest.mark.parametrize("cause", ["stale", "missing"])
+def test_a_refused_skip_leaves_the_ledger_byte_identical(project, cause):
+    """NB-6 regression, the sibling of the B1 case above.
+
+    `cmd_skip` has the same append-then-move ordering as `cmd_gate_approve`.
+    The defect predates T06 — a verifier reproduced it at `475795a` through
+    `gate_not_approved` — but T06's E1 made it reachable by a second route,
+    so a refused `skip` stranded a `SKIPPED WITH WARNING` entry that
+    `state.json` never committed. The chain then re-links on the next
+    successful write and the orphan is permanent.
+
+    `skip` needs a genuinely failed step and two invocations, which is why
+    this bounded the severity; it never made it acceptable.
+    """
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="skipledger")
+    project.write_artifact(".specify/memory/constitution.md")
+    project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")
+    project.ok("gate", "approve", "--gate", "gate_constitution")
+
+    state = project.state()
+    state["status"] = "failed"
+    project.write_state(state)
+    # The first `skip` succeeds and arms the confirmation; the second is the
+    # one that would move the phase, so it is the one that must not append.
+    armed = project.run("skip")
+    assert armed.exit_code == EXIT_OK, armed
+    assert armed.data["pending"] is True, armed
+
+    if cause == "stale":
+        target = project.root / "requirements" / "todo-api.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n- PATCH /todos\n",
+            encoding="utf-8", newline="\n")
+        expected = "governance_stale"
+    else:
+        (project.runtime / "governance.json").unlink()
+        expected = "governance_missing"
+
+    ledger_before = project.audit_file.read_bytes()
+    skipped_before = ledger_before.count(b"SKIPPED WITH WARNING")
+    before = frozen(project)
+
+    result = project.run("skip", "--confirm")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == expected, result
+    ledger_after = project.audit_file.read_bytes()
+    assert ledger_after == ledger_before, (
+        "a refused skip appended to the append-only ledger")
+    assert ledger_after.count(b"SKIPPED WITH WARNING") == skipped_before
+    assert frozen(project) == before
+
+    verify = project.run("audit", "verify")
+    assert verify.exit_code == EXIT_OK, verify
+    assert verify.data["matches"] is True
+
+
 def test_the_clause_has_exactly_one_enforcement_site(project):
     """The structural half of the same argument: the rule is written once, in
     `governance_precondition`, and enforced at the choke point every
     phase-movement command funnels through.
 
-    The caller set is a *closed* two-member set. `apply_advance` is the
-    enforcement site. `cmd_gate_approve` calls it a second time, earlier,
-    because that command appends to `audit.md` before it moves the phase and
-    an append cannot be undone by a later raise (B1). A third caller has to
-    argue for itself here.
+    The caller set is a *closed* three-member set. `apply_advance` is the
+    enforcement site. `cmd_gate_approve` and `cmd_skip` each call it a second
+    time, earlier, because both commands append to `audit.md` before they
+    move the phase and an append cannot be undone by a later raise (B1, and
+    the same ordering in `cmd_skip` that NB-6 recorded). A fourth caller has
+    to argue for itself here.
     """
     tree = sdle_ast()
     callers = sorted(
@@ -1027,7 +1087,7 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
                 and node.func.id == "governance_precondition"
                 for node in ast.walk(fn))
     )
-    assert callers == ["apply_advance", "cmd_gate_approve"], callers
+    assert callers == ["apply_advance", "cmd_gate_approve", "cmd_skip"], callers
 
     movers = sorted(
         fn.name for fn in ast.walk(tree)
