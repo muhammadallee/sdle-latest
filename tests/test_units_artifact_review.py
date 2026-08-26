@@ -69,12 +69,22 @@ def audit_entries(project: Project) -> list[str]:
 
 
 def frozen(project: Project) -> tuple:
-    """The facts a refusal must leave untouched."""
+    """The facts a refusal must leave untouched.
+
+    The `audit.md` **bytes** are part of the tuple, not merely
+    `state["audit_sha"]`: a refusal raised after an audit append but before
+    `save_state` grows the append-only ledger while `audit_sha` stays put.
+    E2 already refuses ahead of every audit write, so this clause holds here
+    today; it is carried in the tuple so it stays held. See the twin helper
+    in `test_units_governance.py` and finding B1.
+    """
     state = project.state()
+    ledger = (project.audit_file.read_bytes()
+              if project.audit_file.is_file() else None)
     return (state["current_phase"], state["status"],
             json.dumps(state["approvals"], sort_keys=True),
             json.dumps(state["artifact_shas"], sort_keys=True),
-            state["audit_sha"])
+            state["audit_sha"], ledger)
 
 
 CONSTITUTION = ".specify/memory/constitution.md"

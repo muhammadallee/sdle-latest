@@ -858,10 +858,20 @@ def blocked_input() -> dict:
 
 
 def frozen(project: Project) -> tuple:
-    """The facts a refusal must leave untouched."""
+    """The facts a refusal must leave untouched.
+
+    The `audit.md` **bytes** are part of the tuple, not merely
+    `state["audit_sha"]`. A refusal raised *after* an audit append but
+    *before* `save_state` grows the append-only ledger while leaving
+    `audit_sha` untouched, so a tuple built from `state.json` alone provably
+    cannot see it. That blind spot is what let a false `Gate Decision:
+    APPROVED` entry survive a green suite at attempt a01 (finding B1).
+    """
     state = project.state()
+    ledger = (project.audit_file.read_bytes()
+              if project.audit_file.is_file() else None)
     return (state["current_phase"], state["status"], state["approvals"],
-            state["artifact_shas"], state["audit_sha"])
+            state["artifact_shas"], state["audit_sha"], ledger)
 
 
 def test_a_blocking_finding_stops_progression_and_the_record_survives(project):
@@ -944,10 +954,69 @@ def test_gate_approve_inherits_the_same_clause(project):
     assert frozen(project) == before
 
 
+@pytest.mark.parametrize("cause", ["stale", "missing"])
+def test_a_refused_gate_approval_leaves_the_ledger_byte_identical(project, cause):
+    """B1 regression. A refusal must leave `audit.md` byte-identical.
+
+    `cmd_gate_approve` appends its `gate_approved` entry — carrying `**Gate
+    Decision:** APPROVED` — and only then moves the phase. E1 is the first
+    refusal ever reachable on that path, so at attempt a01 an ordinary
+    refusal wrote an approval that never happened into the append-only
+    ledger and left `audit verify` reporting `audit_chain_broken`. Invariant
+    5 (on any failure, freeze) and invariant 6 (the chain's single writer)
+    both forbid it, and the exit-code contract forbids a refusal making
+    exit 3 reachable.
+
+    Both causes are driven, because `stale` needs nothing more exotic than a
+    user editing a requirement while standing at a gate.
+    """
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="ledger")
+    project.write_artifact(".specify/memory/constitution.md")
+    project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")
+
+    if cause == "stale":
+        target = project.root / "requirements" / "todo-api.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n- PATCH /todos\n",
+            encoding="utf-8", newline="\n")
+        expected = "governance_stale"
+    else:
+        (project.runtime / "governance.json").unlink()
+        expected = "governance_missing"
+
+    ledger_before = project.audit_file.read_bytes()
+    approvals_before = ledger_before.count(b"**Gate Decision:** APPROVED")
+    before = frozen(project)
+
+    approve = project.run("gate", "approve", "--gate", "gate_constitution")
+
+    assert approve.exit_code == EXIT_REFUSED, approve
+    assert approve.reason == expected, approve
+    ledger_after = project.audit_file.read_bytes()
+    assert ledger_after == ledger_before, (
+        "a refused gate approval appended to the append-only ledger")
+    assert ledger_after.count(b"**Gate Decision:** APPROVED") == approvals_before
+    assert frozen(project) == before
+
+    # The chain must still verify: a refusal may never make exit 3 reachable.
+    verify = project.run("audit", "verify")
+    assert verify.exit_code == EXIT_OK, verify
+    assert verify.data["matches"] is True
+
+
 def test_the_clause_has_exactly_one_enforcement_site(project):
-    """The structural half of the same argument: `governance_precondition` is
-    called from `apply_advance` and nowhere else, and all three phase-movement
-    commands funnel through `apply_advance`. One site to write, one to audit."""
+    """The structural half of the same argument: the rule is written once, in
+    `governance_precondition`, and enforced at the choke point every
+    phase-movement command funnels through.
+
+    The caller set is a *closed* two-member set. `apply_advance` is the
+    enforcement site. `cmd_gate_approve` calls it a second time, earlier,
+    because that command appends to `audit.md` before it moves the phase and
+    an append cannot be undone by a later raise (B1). A third caller has to
+    argue for itself here.
+    """
     tree = sdle_ast()
     callers = sorted(
         fn.name for fn in ast.walk(tree)
@@ -958,7 +1027,7 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
                 and node.func.id == "governance_precondition"
                 for node in ast.walk(fn))
     )
-    assert callers == ["apply_advance"], callers
+    assert callers == ["apply_advance", "cmd_gate_approve"], callers
 
     movers = sorted(
         fn.name for fn in ast.walk(tree)
@@ -969,6 +1038,39 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
                 for node in ast.walk(fn))
     )
     assert movers == ["cmd_advance", "cmd_gate_approve", "cmd_skip"], movers
+
+
+def test_the_gate_approval_precheck_runs_before_the_first_audit_write(project):
+    """B1's structural pin, beside its behavioural one.
+
+    In `cmd_gate_approve` the `governance_precondition` call must precede
+    every `append_audit` call, and it must be made *without* `state` so it
+    records nothing of its own. Ordering is the whole defect: the same call
+    one statement later re-opens it, and no state-shaped assertion can see
+    that, which is why this is asserted on the source.
+    """
+    tree = sdle_ast()
+    command = function_named(tree, "cmd_gate_approve")
+
+    guards = [node.lineno for node in ast.walk(command)
+              if isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Name)
+              and node.func.id == "governance_precondition"]
+    appends = [node.lineno for node in ast.walk(command)
+               if isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Name)
+               and node.func.id == "append_audit"]
+
+    assert len(guards) == 1, guards
+    assert appends, "guard against a vacuous pass: cmd_gate_approve appends"
+    assert guards[0] < min(appends), (guards, appends)
+
+    call = next(node for node in ast.walk(command)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "governance_precondition")
+    assert len(call.args) == 1, ast.dump(call)
+    assert not call.keywords, ast.dump(call)
 
 
 def test_editing_a_requirement_after_the_assessment_is_stale(project):

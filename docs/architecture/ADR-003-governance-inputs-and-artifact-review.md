@@ -45,8 +45,17 @@ refuses `governance_missing`, `governance_blocked` and `governance_stale`.
 
 It is enforced in `sdle.py`, not by an instruction in a prompt file, because a
 policy floor a model is *asked* to respect is a policy floor a model can reason
-its way past. The core refuses; it does not warn. There is exactly one
-enforcement site, so there is exactly one place to audit.
+its way past. The core refuses; it does not warn. The rule is written in exactly
+one function, so there is exactly one place to audit.
+
+`cmd_gate_approve` calls that function a second time, earlier, and deliberately
+without `state` so the early call records nothing. That command appends its
+`gate_approved` audit entry *before* it moves the phase, and an append to the
+append-only ledger cannot be undone by a later raise; refusing ahead of the
+first irreversible write is what keeps a refusal byte-identical in `audit.md`
+and the hash chain intact. Invariant 5 says freeze on any failure, and a false
+`Gate Decision: APPROVED` entry left behind by a refused approval would be a
+failure of the product's central evidence artifact, not a cosmetic one.
 
 Governance is deliberately **not** an `init` precondition. §12 asks for it
 before *planning*, and a WorkItem must be able to bootstrap; `init` stays byte-

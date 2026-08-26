@@ -4942,11 +4942,20 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
     model free to reason its way past a blocking requirements finding, which
     is exactly what this phase exists to prevent.
 
-    Called from ``apply_advance`` — the one function ``cmd_advance``,
+    Enforced from ``apply_advance`` — the one function ``cmd_advance``,
     ``cmd_gate_approve`` and ``cmd_skip`` all funnel through — so there is
-    exactly one site to write. ``cmd_init`` does not call ``apply_advance``:
-    governance is deliberately not an ``init`` precondition, because §12 asks
-    for it before *planning*, and a WorkItem must be able to bootstrap.
+    exactly one place the rule is written. ``cmd_init`` does not call
+    ``apply_advance``: governance is deliberately not an ``init``
+    precondition, because §12 asks for it before *planning*, and a WorkItem
+    must be able to bootstrap.
+
+    ``cmd_gate_approve`` calls it a second time, earlier, and deliberately
+    without ``state``. That command appends its ``gate_approved`` entry
+    before it moves the phase, and an append to the ledger cannot be undone
+    by a later raise; refusing ahead of the first irreversible write is what
+    keeps a refusal byte-identical in ``audit.md``. Passing no ``state``
+    makes the early call side-effect free, so the facts still enter the
+    ledger exactly once, from ``apply_advance``.
 
     Skipped under the transitional legacy binding, which has no WorkItem to
     hold a record. That mirrors the identical, already-tested carve-out in
@@ -5193,6 +5202,16 @@ def cmd_gate_approve(args, paths: Paths) -> int:
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
     review_precondition(paths, state, args.gate, resolved)
+    # E1's enforcement site is `apply_advance` — but this command calls it
+    # *after* it has already appended the `gate_approved` entry, and an
+    # append to `audit.md` cannot be undone by a later raise. Evaluate the
+    # same refusals here first, with no `state`, so this call records
+    # nothing and a refusal leaves the ledger byte-identical. Without it an
+    # ordinary refusal writes an approval that never happened into the
+    # append-only ledger and leaves `audit verify` reporting a broken chain
+    # (invariants 5 and 6). `apply_advance` still enforces; this only moves
+    # the failure to before the first irreversible write.
+    governance_precondition(paths)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
