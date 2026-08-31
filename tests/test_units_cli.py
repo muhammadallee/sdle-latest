@@ -95,4 +95,7 @@ def test_skill_root_can_be_pointed_elsewhere(project):
     """Tests and installed layouts both rely on this override."""
     result = project.run_cli("constants")
     assert result.exit_code == EXIT_OK
-    assert result.data["phase_count"] == 18
+    # The registry's non-terminal count, not GREENFIELD's: the registry is the
+    # catalogue of phases that exist (20, one of them terminal), and a flow is
+    # an ordered subset of it.
+    assert result.data["phase_count"] == 19

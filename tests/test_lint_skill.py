@@ -104,8 +104,8 @@ def test_phase_set_mismatch_fires(repo):
     # A label only PHASE_LABEL_MAP carries — the human-readable phase table
     # near the top of SKILL.md repeats the shorter cells.
     edit(repo, "SKILL.md",
-         "| `gate_analyze` | Gate 5: Analysis Approval |",
-         "| `gate_analyse` | Gate 5: Analysis Approval |")
+         "| `gate_analyze` | Gate {gate_number}: Analysis Approval |",
+         "| `gate_analyse` | Gate {gate_number}: Analysis Approval |")
     checks = results(repo)
     assert checks["phase_set_matches_phase_label_map"] is False
 
@@ -160,7 +160,7 @@ def test_version_drift_fires(repo):
     readme = repo.root / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
-            "# SDLE — Spec Driven Lifecycle Engine (v1.15)",
+            "# SDLE — Spec Driven Lifecycle Engine (v1.16)",
             "# SDLE — Spec Driven Lifecycle Engine (v1.13)",
         ),
         encoding="utf-8",
@@ -210,3 +210,113 @@ def test_a_doc_missing_a_phase_fires(repo):
     )
     checks = results(repo)
     assert checks["doc_lists_every_phase_README"] is False
+
+
+# -- the flow model ---------------------------------------------------------
+#
+# Each breakage below is chosen to trip exactly one flow rule. Where two rules
+# would fire on the same edit the fixture picks the edit that isolates one:
+# dropping `gate_implement` from ITERATIVE leaves the row an ordered subset, so
+# the mandatory-phase rule fires alone.
+
+
+def flow_row(repo: Project, name: str) -> str:
+    """The FLOW_PHASES row for ``name``, read rather than restated."""
+    text = (repo.skill_root / "SKILL.md").read_text(encoding="utf-8")
+    prefix = f"| `{name}` | "
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"no FLOW_PHASES row for {name}")
+
+
+def test_a_renamed_flow_fires(repo):
+    """The declared rows plus GREENFIELD must be exactly ENGINEERING_FLOWS."""
+    edit(repo, "SKILL.md", "| `ITERATIVE` | ", "| `ITERATIVE_V2` | ")
+    assert_only_failure(repo, "flow_table_covers_the_required_flows")
+
+
+def test_declaring_greenfield_as_a_flow_row_fires(repo):
+    """GREENFIELD has one home, and the editable table is not it."""
+    edit(repo, "SKILL.md", "| `BROWNFIELD_DISCOVERY` | ", "| `GREENFIELD` | ")
+    assert_only_failure(repo, "flow_table_covers_the_required_flows")
+
+
+def test_a_flow_out_of_registry_order_fires(repo):
+    row = flow_row(repo, "ITERATIVE")
+    edit(repo, "SKILL.md", row,
+         row.replace("analyze gate_analyze", "gate_analyze analyze"))
+    assert_only_failure(repo, "every_flow_is_an_ordered_subset_of_the_registry")
+
+
+def test_a_flow_naming_an_unknown_phase_fires(repo):
+    row = flow_row(repo, "ITERATIVE")
+    edit(repo, "SKILL.md", row, row.replace("analyze gate_analyze",
+                                            "analyse gate_analyze"))
+    assert_only_failure(repo, "every_flow_is_an_ordered_subset_of_the_registry")
+
+
+def test_a_flow_dropping_a_mandatory_phase_fires(repo):
+    """`gate_implement` is the governance floor, not a matter of taste."""
+    row = flow_row(repo, "ITERATIVE")
+    edit(repo, "SKILL.md", row,
+         row.replace("implement gate_implement", "implement"))
+    assert_only_failure(repo, "every_flow_retains_the_mandatory_phases")
+
+
+def test_a_progress_value_that_is_not_the_greenfield_position_fires(repo):
+    """PROGRESS_MAP is a derived view now, and its values are checked."""
+    edit(repo, "SKILL.md", "| `analyze` | 11/18 |", "| `analyze` | 10/18 |")
+    assert_only_failure(
+        repo, "progress_map_and_gate_numbers_are_the_derived_greenfield_views")
+
+
+def test_a_gate_number_column_that_is_not_the_greenfield_numbering_fires(repo):
+    edit(repo, "SKILL.md", "| `gate_analyze` | `gate_analyze` | 5 |",
+         "| `gate_analyze` | `gate_analyze` | 9 |")
+    assert_only_failure(
+        repo, "progress_map_and_gate_numbers_are_the_derived_greenfield_views")
+
+
+def test_a_registry_phase_no_flow_names_fires(repo):
+    """The replacement for the guarantee a derived GREENFIELD would have given.
+
+    A phase added to the registry that no flow names must fail loudly rather
+    than silently joining GREENFIELD. Other checks fire on the same planted row
+    — a new registry phase has no NEXT_PHASE row, no label and no execution
+    block — so this asserts its own check directly rather than in isolation.
+    """
+    edit(repo, "SKILL.md", "| 20 | `complete` |",
+         "| 20 | `complete` |\n| 21 | `orphan_phase` |")
+    checks = results(repo)
+    assert checks["every_registry_phase_is_used_by_some_flow"] is False
+
+
+def test_a_hardcoded_gate_ordinal_in_a_label_fires(repo):
+    """The ordinal is flow-relative; re-hardcoding it is the regression."""
+    edit(repo, "SKILL.md",
+         "| `gate_analyze` | Gate {gate_number}: Analysis Approval |",
+         "| `gate_analyze` | Gate 5: Analysis Approval |")
+    assert_only_failure(repo, "gate_labels_are_flow_relative")
+
+
+def test_a_block_ordinal_that_is_not_the_greenfield_position_fires(repo):
+    """The 17 restated block ordinals are pinned for the first time."""
+    edit(repo, "modules/phase-execution.md",
+         "**Phase 13 — `design_generation`:**",
+         "**Phase 12 — `design_generation`:**")
+    assert_only_failure(
+        repo, "execution_block_numbers_are_the_greenfield_positions")
+
+
+def test_a_greenfield_block_that_drops_its_ordinal_fires(repo):
+    """What pays for making the ordinal optional in the header pattern.
+
+    A GREENFIELD phase may not quietly lose its number just because a phase
+    outside GREENFIELD is allowed to have none.
+    """
+    edit(repo, "modules/phase-execution.md",
+         "**Phase 13 — `design_generation`:**",
+         "**Phase `design_generation`:**")
+    assert_only_failure(
+        repo, "execution_block_numbers_are_the_greenfield_positions")

@@ -205,7 +205,13 @@ class Project:
                 name: {"result": "PASS", "finding": None}
                 for name in sdle.GOVERNANCE_POLICY_BUILTIN["quality_checks"]
             },
-            "classification": {"type": "enhancement", "flow": "ITERATIVE"},
+            # T07: at T06 this value was recorded and inert, so any member
+            # of ENGINEERING_FLOWS was an equally valid fixture default.
+            # It now selects the traversal, and `started` sits at
+            # `constitution_draft` — a phase only GREENFIELD and
+            # BROWNFIELD_DISCOVERY have. GREENFIELD is therefore the value
+            # that keeps every existing assertion byte-identical.
+            "classification": {"type": "enhancement", "flow": "GREENFIELD"},
             "risk": {"signals": [], "proposedLevel": "LOW",
                      "uncertainty": "LOW"},
         }

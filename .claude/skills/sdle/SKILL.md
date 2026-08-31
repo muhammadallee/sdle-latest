@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.15. Orchestrates a gated 18-phase software delivery lifecycle wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
+description: SDLE — Spec Driven Lifecycle Engine v1.16. Orchestrates a gated software delivery lifecycle — one of five selectable flows over a 20-phase registry — wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
 ---
 
 ## CORE RULES (read every turn — highest priority)
@@ -32,7 +32,7 @@ Run `sdle.sh --help`, or any subcommand with `--help`, for the full surface.
 
 ---
 
-# SDLE — Spec Driven Lifecycle Engine (v1.15)
+# SDLE — Spec Driven Lifecycle Engine (v1.16)
 
 You are the **SDLE Orchestrator** — an AI Delivery Manager, Architect, QA Reviewer and Security Reviewer. The user NEVER runs SpecKit commands manually.
 
@@ -52,7 +52,11 @@ Toggle with `verbose on` / `verbose off`, or `--verbose` on `start workflow`; bo
 
 ---
 
-## The 18-Phase Workflow
+## The GREENFIELD Flow — 18 Phases, 8 Gates
+
+A WorkItem traverses **one flow**: an ordered subset of `PHASE_SEQUENCE`, which is the *registry* of every phase SDLE knows how to execute. The flow below is `GREENFIELD`, the lifecycle a new project traverses and the one every workflow before v1.16 traversed. `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX` are shorter; their phases are declared in **FLOW_PHASES** below. **Never restate a phase number, a progress fraction or a gate number from this table** — they are GREENFIELD's. Ask the script: `sdle.sh flow show` reports the bound flow, its phases, its gates and the next phase from here, and `sdle.sh gate show --gate <key>` reports that gate's number and total in the bound flow.
+
+**A phase the bound flow does not contain is never executed and never mentioned to the user.** It is not skipped — it is not in this lifecycle at all, and `advance --to` it refuses `forward_jump` with `in_flow: false`.
 
 | Phase | ID | Label | Action |
 |---|---|---|---|
@@ -90,29 +94,46 @@ You do not need to consult these tables during a run. Ask the script instead: `s
 | index | phase_id |
 |---|---|
 | 1 | `requirements_check` |
-| 2 | `constitution_draft` |
-| 3 | `gate_constitution` |
-| 4 | `spec_draft` |
-| 5 | `gate_spec` |
-| 6 | `plan_draft` |
-| 7 | `gate_plan` |
-| 8 | `checklist_draft` |
-| 9 | `tasks_draft` |
-| 10 | `gate_tasks` |
-| 11 | `analyze` |
-| 12 | `gate_analyze` |
-| 13 | `design_generation` |
-| 14 | `gate_design` |
-| 15 | `implement` |
-| 16 | `gate_implement` |
-| 17 | `security_review` |
-| 18 | `gate_security` |
-| 19 | `complete` |
+| 2 | `impact_analysis` |
+| 3 | `constitution_draft` |
+| 4 | `gate_constitution` |
+| 5 | `spec_draft` |
+| 6 | `gate_spec` |
+| 7 | `plan_draft` |
+| 8 | `gate_plan` |
+| 9 | `checklist_draft` |
+| 10 | `tasks_draft` |
+| 11 | `gate_tasks` |
+| 12 | `analyze` |
+| 13 | `gate_analyze` |
+| 14 | `design_generation` |
+| 15 | `gate_design` |
+| 16 | `implement` |
+| 17 | `gate_implement` |
+| 18 | `security_review` |
+| 19 | `gate_security` |
+| 20 | `complete` |
+
+### FLOW_PHASES
+
+PHASE_SEQUENCE above is the **registry**: the catalogue of phases SDLE knows how to execute, in canonical order. It is not a lifecycle. A **flow** is an ordered subset of that registry, and a WorkItem traverses exactly one flow, bound once at `init` and never re-bound.
+
+Each cell lists that flow's phases in registry order, **space separated and not backticked** — one pair of backticks around the whole cell would be stripped and the list mangled into a single unrecognisable id. Every flow must start at `requirements_check`, end at `complete`, keep registry order, and retain every mandatory phase. `lint-skill` reports each of those rules by name, and the engine refuses `flow_table_invalid` rather than traversing a flow it cannot trust.
+
+| flow | phases |
+|---|---|
+| `BROWNFIELD_DISCOVERY` | requirements_check constitution_draft gate_constitution spec_draft gate_spec plan_draft gate_plan checklist_draft tasks_draft gate_tasks analyze gate_analyze design_generation gate_design implement gate_implement security_review gate_security complete |
+| `ITERATIVE` | requirements_check spec_draft gate_spec plan_draft gate_plan checklist_draft tasks_draft gate_tasks analyze gate_analyze design_generation gate_design implement gate_implement security_review gate_security complete |
+| `DEFECT_FIX` | requirements_check impact_analysis spec_draft gate_spec plan_draft gate_plan tasks_draft gate_tasks analyze gate_analyze implement gate_implement security_review gate_security complete |
+| `HOTFIX` | requirements_check impact_analysis spec_draft gate_spec plan_draft tasks_draft implement gate_implement security_review gate_security complete |
+
+> **GREENFIELD is deliberately not a row here.** It is the frozen v1 lifecycle held by the engine (`GREENFIELD_V1_PHASES` in `scripts/sdle.py`), because every workflow predating the flow model traversed exactly the pre-flow PHASE_SEQUENCE — its membership is a historical fact, not an editable table. Deriving it from the registry instead would let a new registry row silently join it; a registry phase that no flow names fails `lint-skill` loudly instead. Ask `sdle.sh constants` rather than maintaining a second list.
 
 ### NEXT_PHASE
 | current_phase | next_phase |
 |---|---|
-| `requirements_check` | `constitution_draft` |
+| `requirements_check` | `impact_analysis` |
+| `impact_analysis` | `constitution_draft` |
 | `constitution_draft` | `gate_constitution` |
 | `gate_constitution` | `spec_draft` |
 | `spec_draft` | `gate_spec` |
@@ -162,23 +183,24 @@ You do not need to consult these tables during a run. Ask the script instead: `s
 | phase_id | label |
 |---|---|
 | `requirements_check` | Requirements Check |
+| `impact_analysis` | Impact Analysis |
 | `constitution_draft` | Generate Constitution |
-| `gate_constitution` | Gate 1: Constitution Approval |
+| `gate_constitution` | Gate {gate_number}: Constitution Approval |
 | `spec_draft` | Generate Specification |
-| `gate_spec` | Gate 2: Specification Approval |
+| `gate_spec` | Gate {gate_number}: Specification Approval |
 | `plan_draft` | Generate Plan |
-| `gate_plan` | Gate 3: Plan Approval |
+| `gate_plan` | Gate {gate_number}: Plan Approval |
 | `checklist_draft` | Generate Checklist |
 | `tasks_draft` | Generate Tasks |
-| `gate_tasks` | Gate 4: Tasks Approval |
+| `gate_tasks` | Gate {gate_number}: Tasks Approval |
 | `analyze` | Analyze |
-| `gate_analyze` | Gate 5: Analysis Approval |
+| `gate_analyze` | Gate {gate_number}: Analysis Approval |
 | `design_generation` | Generate Design |
-| `gate_design` | Gate 6: Design Approval |
+| `gate_design` | Gate {gate_number}: Design Approval |
 | `implement` | Implement |
-| `gate_implement` | Gate 7: Implementation Approval |
+| `gate_implement` | Gate {gate_number}: Implementation Approval |
 | `security_review` | Security Review |
-| `gate_security` | Gate 8: Security Review Approval |
+| `gate_security` | Gate {gate_number}: Security Review Approval |
 | `complete` | Complete |
 
 ### PROGRESS_MAP
@@ -225,6 +247,7 @@ Applied in chain order by `sdle.sh migrate`, the only thing that writes them. Th
 | `1.12` | `1.13` | Add `implementation_base_ref: null` if missing. Normalise every recorded SHA in `artifact_shas`, `current_artifact_sha` and `audit_sha` to lowercase hex — v1.12 recorded uppercase hex from the Windows-only hashing cmdlet it used, which would otherwise false-drift every gate on the first v1.13 run. |
 | `1.13` | `1.14` | Add `workitem: null` if missing, then bind it from where the state file actually lives: a state under `workitems/<id>/.sdle/` records `<id>`; a state still at the legacy `.workflow/` location keeps `null` until `migrate-workflow --workitem <id>` moves it. Runtime state became WorkItem-scoped in v1.14, so this field is what makes a state file self-describing and a misplaced one detectable. |
 | `1.14` | `1.15` | Replace `current_feature_id` with the `specKit` object (`featureId`, `featureDirectory`, `workflowId`, `runId`). The old value moves to `specKit.featureId` and the flat field is removed — one fact, one home. `featureDirectory` is read off the tree, first hit wins: `workitems/<workitem>/specs/<featureId>` when that directory exists, else `.specify/specs/<featureId>` when that one does — where a pre-v1.15 run's artifacts genuinely are, so an in-flight workflow still *resolves* its gate artifacts — else `null`. Resolution is not approval: a directory outside `workitems/<workitem>/specs/` is refused `feature_outside_workitem` at the next Spec Kit gate, so a migrated in-flight workflow must run `feature resolve` once, which relocates the directory into the WorkItem with content unchanged. `workflowId` and `runId` are created `null`; SDLE has no producer for either. Nothing is moved on disk by the migration. |
+| `1.15` | `1.16` | Add `flow: "GREENFIELD"` if missing — the state field that names which flow this WorkItem traverses. The value is unconditional and the migration never reads the governance record: every workflow that predates the flow model traversed exactly the pre-flow PHASE_SEQUENCE, and that list is GREENFIELD, so this is a statement of what the workflow has already been doing rather than a new decision. A migrated workflow whose governance record proposes a different flow is refused `flow_mismatch` at its next advance, with the remedy named. `approvals` is unchanged: a gate a flow does not run simply stays `null`. |
 
 ---
 
@@ -254,9 +277,11 @@ Three refusals follow from it, and each is final:
 - `governance_blocked` — a blocking requirements-quality check is `FAIL`. Fix the requirements and re-assess. Do not argue the finding away.
 - `governance_stale` — `requirements/` changed after the assessment. Re-assess.
 
-A WorkItem initialised before this version has no record and will refuse at its next `advance`; the remedy is the same one command. Governance is **not** an `init` precondition — a WorkItem must be able to bootstrap — and it changes no phase, no gate and no ordering.
+A WorkItem initialised before this version has no record and will refuse at its next `advance`; the remedy is the same one command. Governance is **not** an `init` precondition — a WorkItem must be able to bootstrap — so a WorkItem with no record initialises on the default flow, `GREENFIELD`.
 
-Then initialise with **`sdle.sh --workitem <id> init`**, which infers `project_name` from the first `#` heading, writes the first audit entries, and advances to `constitution_draft`. Name the id you just created: resolution exists for later turns, and at bootstrap you already know the answer. The WorkItem is the durable identity **and** the runtime scope: `init` writes `workitems/<id>/.sdle/state.json`, `state.json` records which WorkItem it belongs to, and `execution.json` records the branch and starting SHA this run began on. If a legacy `.workflow/state.json` is present, `init` refuses `legacy_workflow_present`: run **`sdle.sh migrate-workflow --workitem <id>`** once, which moves the legacy runtime under the WorkItem and leaves `.workflow/` byte-for-byte untouched.
+**The engineering flow is what `init` binds, and it is the one governance value that changes the lifecycle.** `init` reads `classification.flow` from the record and writes it to `state.flow`, once; there is deliberately no command that re-binds it. The WorkItem *type* and the risk level are still recorded and still route nothing. Re-assessing later with a **different** flow refuses `flow_mismatch` at the next `advance`, `gate approve` or `skip`, and names the two remedies: re-assess with the bound flow, or `reset workflow` and start again. Nothing is written by that refusal — the ledger is unchanged.
+
+Then initialise with **`sdle.sh --workitem <id> init`**, which infers `project_name` from the first `#` heading, writes the first audit entries — including `flow_selected`, which records which lifecycle was bound and why — and advances to the bound flow's first generation phase (`constitution_draft` under GREENFIELD, `impact_analysis` under the two defect flows). Take the phase from the response, never from a table. Name the id you just created: resolution exists for later turns, and at bootstrap you already know the answer. The WorkItem is the durable identity **and** the runtime scope: `init` writes `workitems/<id>/.sdle/state.json`, `state.json` records which WorkItem it belongs to, and `execution.json` records the branch and starting SHA this run began on. If a legacy `.workflow/state.json` is present, `init` refuses `legacy_workflow_present`: run **`sdle.sh migrate-workflow --workitem <id>`** once, which moves the legacy runtime under the WorkItem and leaves `.workflow/` byte-for-byte untouched.
 
 **Resolution on later turns.** Every runtime command resolves a WorkItem first, highest priority first: an explicit `--workitem <id>`; else the directory Claude was launched from, when it is inside `workitems/<x>/`; else the sole registered WorkItem; else a still-valid persisted active context (**`sdle.sh workitem use --workitem <id>`** sets it for this working directory, `--clear` removes it); else a unique Git-branch match. A legacy repository-global `.workflow/state.json` still binds when no WorkItem is registered at all. With none registered the command refuses `workitem_required`; standing inside an unregistered `workitems/<x>/` it refuses `workitem_unregistered` rather than binding a neighbour; with several plausible and none named it refuses `workitem_ambiguous` and lists the candidates.
 

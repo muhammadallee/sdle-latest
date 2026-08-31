@@ -503,6 +503,183 @@ def parse_md_table(path: Path, heading: str) -> list[dict[str, str | None]]:
 
 
 # --------------------------------------------------------------------------
+# Flows — a flow is an ordered subset of the phase registry
+# --------------------------------------------------------------------------
+#
+# PHASE_SEQUENCE is the *registry*: the closed catalogue of phases SDLE knows
+# how to execute, in canonical order. It is not a flow. A flow is an ordered
+# subset of the registry, preserving registry order, and every traversal
+# decision reads the bound flow rather than the registry.
+#
+# GREENFIELD's membership is pinned HERE and is deliberately NOT derived from
+# the registry. GATE_PHASES may be derived because it *filters* the registry
+# through an explicitly declared set (PHASE_TO_GATE_KEY), so a new registry row
+# adds no gate. Deriving GREENFIELD as *all of* the registry has the opposite
+# property: a stray row would silently join GREENFIELD and change what every
+# pre-v1.16 workflow is retroactively said to have traversed. This list is the
+# compatibility translation the contract requires, frozen: it is element-wise
+# the pre-T07 PHASE_SEQUENCE. The guarantee derivation used to give for free —
+# that no registry phase is orphaned — is restored by the
+# `every_registry_phase_is_used_by_some_flow` lint check, which fails loudly
+# instead of failing open.
+
+GREENFIELD_V1_PHASES: tuple[str, ...] = (
+    "requirements_check",
+    "constitution_draft",
+    "gate_constitution",
+    "spec_draft",
+    "gate_spec",
+    "plan_draft",
+    "gate_plan",
+    "checklist_draft",
+    "tasks_draft",
+    "gate_tasks",
+    "analyze",
+    "gate_analyze",
+    "design_generation",
+    "gate_design",
+    "implement",
+    "gate_implement",
+    "security_review",
+    "gate_security",
+    "complete",
+)
+
+DEFAULT_FLOW = "GREENFIELD"
+
+# The governance floor. "Shorter but never ungoverned" is a testable identity
+# rather than a judgement call: no flow may drop any of these, and the rule is
+# enforced at lint time *and* at load time, because a flow that lost one would
+# not merely look wrong — it would break inside Spec Kit at run time.
+#
+#   requirements_check  bootstrap; `init` writes it as the first phase
+#   spec_draft          the only phase that creates the feature directory
+#   gate_spec           the first human gate; without it nothing is governed
+#   plan_draft          `speckit-tasks` derives from plan.md
+#   tasks_draft         `speckit-implement` derives from tasks.md
+#   implement           carries the secrets scan and the test evidence
+#   gate_implement      the human decision on that evidence
+#   security_review     the terminal safety control
+#   gate_security       the terminal human gate; writes the completion summary
+#   complete            terminal
+MANDATORY_FLOW_PHASES: tuple[str, ...] = (
+    "requirements_check",
+    "spec_draft",
+    "gate_spec",
+    "plan_draft",
+    "tasks_draft",
+    "implement",
+    "gate_implement",
+    "security_review",
+    "gate_security",
+    "complete",
+)
+
+GATE_NUMBER_PLACEHOLDER = "{gate_number}"
+
+
+@dataclass(frozen=True)
+class Flow:
+    """One lifecycle: an ordered subset of the registry, plus its gates.
+
+    Every ordinal a user ever sees — the progress fraction, the gate number,
+    the gate total, the `restart` index — is derived from this object, so the
+    numbers a flow shows are the numbers that flow actually has.
+    """
+
+    name: str
+    phases: tuple[str, ...]
+    gate_phases: tuple[str, ...]
+    gate_keys: tuple[str, ...]
+
+    def contains(self, phase: str | None) -> bool:
+        return phase in self.phases
+
+    def position(self, phase: str | None) -> int | None:
+        """1-based position in the flow, or ``None`` when out of flow.
+
+        Deliberately non-raising: refusal payloads compute positions for
+        phases that may be outside the flow, and an index lookup that raised
+        there would mask the real reason for the refusal.
+        """
+        try:
+            return self.phases.index(phase) + 1  # type: ignore[arg-type]
+        except ValueError:
+            return None
+
+    def index(self, phase: str | None) -> int:
+        position = self.position(phase)
+        if position is None:
+            raise Refused(
+                "unknown_phase",
+                f"'{phase}' is not a phase in the {self.name} flow.",
+                {"phase": phase, "flow": self.name, "known": list(self.phases)},
+            )
+        return position
+
+    def phase_at(self, index: int) -> str:
+        if not 1 <= index <= len(self.phases):
+            raise Refused(
+                "unknown_phase",
+                f"Phase index {index} is out of range for the {self.name} "
+                f"flow (1-{len(self.phases)}).",
+                {"index": index, "flow": self.name},
+            )
+        return self.phases[index - 1]
+
+    def next_phase(self, phase: str | None) -> str | None:
+        position = self.position(phase)
+        if position is None or position >= len(self.phases):
+            return None
+        return self.phases[position]
+
+    @property
+    def phase_count(self) -> int:
+        """The N in 'N/18' — every phase except the terminal ``complete``."""
+        return len([p for p in self.phases if p != "complete"])
+
+    @property
+    def gate_total(self) -> int:
+        return len(self.gate_phases)
+
+    def progress_for(self, phase: str | None) -> str:
+        position = self.position(phase)
+        if position is None:
+            raise Refused(
+                "unknown_phase",
+                f"'{phase}' is not a phase in the {self.name} flow, so it "
+                "has no progress position.",
+                {"phase": phase, "flow": self.name},
+            )
+        total = self.phase_count
+        # ``complete`` sits one past the last non-terminal phase and shares
+        # its fraction, exactly as PROGRESS_MAP has always spelled it.
+        return f"{min(position, total)}/{total}"
+
+    def gate_number(self, gate_key: str | None) -> int | None:
+        try:
+            return self.gate_keys.index(gate_key) + 1  # type: ignore[arg-type]
+        except ValueError:
+            return None
+
+    def gate_number_for_phase(self, phase: str | None) -> int | None:
+        try:
+            return self.gate_phases.index(phase) + 1  # type: ignore[arg-type]
+        except ValueError:
+            return None
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "phases": list(self.phases),
+            "phase_count": self.phase_count,
+            "gate_phases": list(self.gate_phases),
+            "gate_keys": list(self.gate_keys),
+            "gate_total": self.gate_total,
+        }
+
+
+# --------------------------------------------------------------------------
 # Constants — parsed from SKILL.md, never restated
 # --------------------------------------------------------------------------
 
@@ -514,10 +691,11 @@ class Constants:
     phase_to_gate_key: dict[str, str] = field(default_factory=dict)
     gate_number: dict[str, int] = field(default_factory=dict)
     artifact_ownership: dict[str, str] = field(default_factory=dict)
-    phase_label: dict[str, str] = field(default_factory=dict)
+    phase_label_template: dict[str, str] = field(default_factory=dict)
     progress: dict[str, str] = field(default_factory=dict)
     gate_to_execution_phase: dict[str, str] = field(default_factory=dict)
     version_chain: list[tuple[str, str]] = field(default_factory=list)
+    flow_phases: dict[str, list[str]] = field(default_factory=dict)
 
     # -- derived ---------------------------------------------------------
 
@@ -552,14 +730,160 @@ class Constants:
             )
         return self.phase_sequence[index - 1]
 
-    def label(self, phase: str) -> str:
-        if phase not in self.phase_label:
+    # -- flows -----------------------------------------------------------
+
+    def _build_flow(self, name: str, phases: list[str] | tuple[str, ...]) -> Flow:
+        ordered = tuple(phases)
+        gate_phases = tuple(p for p in ordered if p in self.phase_to_gate_key)
+        return Flow(
+            name=name,
+            phases=ordered,
+            gate_phases=gate_phases,
+            gate_keys=tuple(self.phase_to_gate_key[p] for p in gate_phases),
+        )
+
+    @property
+    def greenfield(self) -> Flow:
+        """The frozen v1 lifecycle, built through the ordinary flow rules.
+
+        Every ordinal SKILL.md still restates for humans is a view of *this*
+        flow: PROGRESS_MAP's fractions, PHASE_TO_GATE_KEY's gate numbers, and
+        the ordinals inside PHASE_LABEL_MAP. `lint-skill` pins each of them to
+        it, so they are checked derived views rather than second sources of
+        truth. Its membership comes from GREENFIELD_V1_PHASES, never from the
+        registry.
+        """
+        return self._build_flow(DEFAULT_FLOW, GREENFIELD_V1_PHASES)
+
+    @property
+    def flows(self) -> dict[str, Flow]:
+        """Every declared flow, plus GREENFIELD injected from the frozen list.
+
+        GREENFIELD is deliberately not a FLOW_PHASES row: one fact, one home.
+        It is nonetheless built and validated by exactly the same rules as a
+        declared flow, so it can never become a privileged special case.
+        """
+        built: dict[str, Flow] = {
+            name: self._build_flow(name, phases)
+            for name, phases in self.flow_phases.items()
+        }
+        built[DEFAULT_FLOW] = self.greenfield
+        return built
+
+    def _flow_invalid(self, name: str, detail: str, **data) -> IntegrityError:
+        return IntegrityError(
+            "flow_table_invalid",
+            f"FLOW_PHASES is unusable for flow '{name}': {detail}. A flow "
+            "must be an ordered subset of PHASE_SEQUENCE that starts at "
+            "requirements_check, ends at complete and keeps every mandatory "
+            "phase. Fix the FLOW_PHASES table in SKILL.md and re-run "
+            "`sdle.sh lint-skill`.",
+            {"flow": name, "detail": detail, **data},
+        )
+
+    def flow_order_problems(self, flow: Flow) -> list[str]:
+        """Why ``flow`` is not an ordered subset of the registry; [] if it is.
+
+        Returned rather than raised so `lint-skill` can name the rule that
+        broke. ``validate_flow`` is the raising wrapper the engine uses when a
+        traversal actually asks for a flow: one rule, two presentations.
+        """
+        registry = list(self.phase_sequence)
+        problems: list[str] = []
+        unknown = [p for p in flow.phases if p not in registry]
+        if unknown:
+            problems.append(f"phase(s) not in PHASE_SEQUENCE: {unknown}")
+        if len(set(flow.phases)) != len(flow.phases):
+            duplicates = sorted(
+                {p for p in flow.phases if flow.phases.count(p) > 1})
+            problems.append(f"duplicated phase(s) {duplicates}")
+        positions = [registry.index(p) for p in flow.phases if p in registry]
+        if positions != sorted(positions):
+            problems.append("phases are not in PHASE_SEQUENCE order")
+        if not flow.phases or flow.phases[0] != "requirements_check":
+            problems.append("a flow must start at requirements_check")
+        if not flow.phases or flow.phases[-1] != "complete":
+            problems.append("a flow must end at the terminal phase complete")
+        return problems
+
+    def flow_floor_problems(self, flow: Flow) -> list[str]:
+        """Which mandatory phases ``flow`` dropped; [] when it kept them all.
+
+        "Shorter but never ungoverned" is enforced here and nowhere else, at
+        lint time through the named check and at load time through
+        ``validate_flow`` — a flow that lost one of these would not merely look
+        wrong, it would die inside Spec Kit on a real run.
+        """
+        missing = [p for p in MANDATORY_FLOW_PHASES if p not in flow.phases]
+        return [f"mandatory phase(s) missing: {missing}"] if missing else []
+
+    def validate_flow(self, flow: Flow) -> None:
+        """Refuse a flow that could not be traversed. Never repair one."""
+        problems = (self.flow_order_problems(flow)
+                    + self.flow_floor_problems(flow))
+        if problems:
+            raise self._flow_invalid(
+                flow.name, "; ".join(problems), problems=problems)
+
+    def flow(self, name: str | None = None) -> Flow:
+        """The named flow, validated. Refuses rather than defaulting."""
+        wanted = name or DEFAULT_FLOW
+        built = self.flows
+        chosen = built.get(wanted)
+        if chosen is None:
+            raise self._flow_invalid(
+                wanted, "no such flow is declared",
+                known=sorted(built))
+        self.validate_flow(chosen)
+        return chosen
+
+    # -- labels ----------------------------------------------------------
+
+    def render_label(self, phase: str, flow: Flow | None = None) -> str:
+        """Substitute the flow-relative gate number into a label template.
+
+        A gate that the bound flow does not run has no number *in* that flow;
+        it falls back to its GREENFIELD number, which is the canonical human
+        reference for that gate, rather than guessing a position it does not
+        occupy.
+        """
+        template = self.phase_label_template[phase]
+        if GATE_NUMBER_PLACEHOLDER not in template:
+            return template
+        number = flow.gate_number_for_phase(phase) if flow else None
+        if number is None:
+            number = self.greenfield.gate_number_for_phase(phase)
+        return template.replace(
+            GATE_NUMBER_PLACEHOLDER, str(number) if number else "?")
+
+    def label_or(self, phase: str | None, flow: Flow | None = None,
+                 default: str | None = None) -> str | None:
+        """Non-raising label lookup, for the display sites that use ``.get``."""
+        if phase is None or phase not in self.phase_label_template:
+            return default
+        return self.render_label(phase, flow)
+
+    @property
+    def phase_label(self) -> dict[str, str]:
+        """The GREENFIELD-rendered labels.
+
+        The parsed templates carry a ``{gate_number}`` placeholder so a gate's
+        ordinal can be flow-relative; this view is the one every pre-T07
+        reader already expected, byte-identical under GREENFIELD.
+        """
+        return {
+            phase: self.render_label(phase)
+            for phase in self.phase_label_template
+        }
+
+    def label(self, phase: str, flow: Flow | None = None) -> str:
+        if phase not in self.phase_label_template:
             raise Refused(
                 "unknown_phase",
                 f"No label registered for phase '{phase}'.",
                 {"phase": phase},
             )
-        return self.phase_label[phase]
+        return self.render_label(phase, flow)
 
     def progress_for(self, phase: str) -> str:
         if phase not in self.progress:
@@ -614,12 +938,25 @@ def load_constants(paths: Paths) -> Constants:
     for row in parse_md_table(skill, "PHASE_LABEL_MAP"):
         phase = _column(row, "phase_id", "phase")
         if phase:
-            consts.phase_label[phase] = _column(row, "label") or phase
+            consts.phase_label_template[phase] = _column(row, "label") or phase
 
     for row in parse_md_table(skill, "PROGRESS_MAP"):
         phase = _column(row, "phase", "phase_id")
         if phase:
             consts.progress[phase] = _column(row, "progress") or ""
+
+    # FLOW_PHASES is *parsed* here and deliberately **not validated**. A broken
+    # flow row must surface as the named lint check it breaks; if the loader
+    # raised, `tables_wellformed` would short-circuit and report one opaque
+    # failure instead. Validation lives in `run_sync_checks` (the flow checks)
+    # and in `Constants.flow()`, which refuses `flow_table_invalid` when a
+    # traversal actually asks for a flow.
+    for row in parse_md_table(skill, "FLOW_PHASES"):
+        name = _column(row, "flow", "flow_name")
+        if name:
+            cell = _column(row, "phases",
+                           "phases_registry_order_space_separated") or ""
+            consts.flow_phases[name] = cell.split()
 
     for row in parse_md_table(paths.gate_protocol_md, "GATE_TO_EXECUTION_PHASE"):
         key = _column(row, "gate_key")
@@ -633,6 +970,18 @@ def load_constants(paths: Paths) -> Constants:
             consts.version_chain.append((frm, to or frm))
 
     return consts
+
+
+def flow_for_state(state: dict | None, consts: Constants) -> Flow:
+    """The flow this workflow is traversing.
+
+    Bound once by ``init`` (or by migration, for a workflow that predates the
+    field) and never re-bound: there is deliberately no command that writes it.
+    A state with no ``flow`` is a pre-v1.16 state, and every pre-v1.16
+    workflow traversed exactly the pre-T07 registry, which is GREENFIELD.
+    """
+    name = (state or {}).get("flow")
+    return consts.flow(name if isinstance(name, str) and name else None)
 
 
 # --------------------------------------------------------------------------
@@ -758,7 +1107,7 @@ def actor(paths: Paths) -> str:
 # State IO
 # --------------------------------------------------------------------------
 
-CURRENT_VERSION = "1.15"
+CURRENT_VERSION = "1.16"
 
 STATUS_DISPLAY = {
     "pending": "PENDING",
@@ -1302,6 +1651,22 @@ def _mig_1_14(state, paths, consts):
                 workflowId=None, runId=None)
 
 
+def _mig_1_15(state, paths, consts):
+    """Name the lifecycle a pre-flow workflow has been traversing all along.
+
+    Every workflow created before the flow model traversed exactly one phase
+    list — the pre-flow PHASE_SEQUENCE — and that list is GREENFIELD. The value
+    is therefore unconditional, and this migration deliberately does **not**
+    consult the governance record: a migration records what a workflow *has
+    been doing*, and re-deriving traversal from a classification assessed later
+    would silently reshape an in-flight run. A workflow whose record now
+    proposes a different flow is refused `flow_mismatch` at its next advance,
+    with a named remedy — which is correct, and is not this function's job.
+    """
+    if not isinstance(state.get("flow"), str) or not state["flow"]:
+        state["flow"] = DEFAULT_FLOW
+
+
 MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.0", "1.1", _mig_1_0),
     ("1.1", "1.2", _mig_1_1),
@@ -1318,6 +1683,7 @@ MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.12", "1.13", _mig_1_12),
     ("1.13", "1.14", _mig_1_13),
     ("1.14", "1.15", _mig_1_14),
+    ("1.15", "1.16", _mig_1_15),
 ]
 
 
@@ -1444,7 +1810,23 @@ def cmd_init(args, paths: Paths) -> int:
     state["project_name"] = name
     state["current_phase"] = "requirements_check"
     state["status"] = "in_progress"
-    state["progress"] = consts.progress_for("requirements_check")
+    # T07/D9 — the flow binds HERE, once, and nothing ever re-binds it. There
+    # is deliberately no `flow set` / `flow select` command: a second writer of
+    # traversal identity would let the model reshape the lifecycle by issuing a
+    # command, which is a governance bypass. Governance stays deliberately not
+    # an `init` precondition (T06), so the no-record case has to exist and has
+    # to be the safe one — GREENFIELD is the flow every workflow before v1.16
+    # traversed, so defaulting to it changes nothing for anybody.
+    record = read_governance_record(paths) if paths.workitem else None
+    proposed = ((record or {}).get("classification") or {}).get("flow")
+    state["flow"] = (
+        proposed if isinstance(proposed, str) and proposed else DEFAULT_FLOW
+    )
+    # `init` is the one mover that deliberately does NOT go through
+    # `apply_advance` — governance is not an `init` precondition (T06) — so it
+    # reads the flow directly, exactly as it read the registry chain before.
+    flow = flow_for_state(state, consts)
+    state["progress"] = flow.progress_for("requirements_check")
 
     paths.workflow.mkdir(parents=True, exist_ok=True)
     stamp = now_iso()
@@ -1458,6 +1840,20 @@ def cmd_init(args, paths: Paths) -> int:
         message=f"Workflow initialized for '{name}'. "
         f"{len(requirements)} requirements document(s) found.",
     )
+    append_audit(
+        paths,
+        state,
+        phase="requirements_check",
+        event="flow_selected",
+        message=(
+            f"Flow {flow.name} bound: {flow.phase_count} phases, "
+            f"{flow.gate_total} gates. "
+            + ("Selected by the recorded governance classification."
+               if proposed else
+               "No governance record proposed one, so the default applies.")
+            + " A flow is bound once and never re-bound."
+        ),
+    )
 
     # Requirements check completes immediately; the workflow advances to the
     # first generation phase, matching dry-run 01's first turn.
@@ -1468,10 +1864,10 @@ def cmd_init(args, paths: Paths) -> int:
             "outcome": "completed",
         }
     )
-    nxt = consts.next_phase["requirements_check"]
+    nxt = flow.next_phase("requirements_check")
     state["current_phase"] = nxt
     state["status"] = "pending"
-    state["progress"] = consts.progress_for(nxt)
+    state["progress"] = flow.progress_for(nxt)
     append_audit(
         paths,
         state,
@@ -1599,8 +1995,11 @@ def cmd_retry(args, paths: Paths) -> int:
 def render_header(state: dict, consts: Constants) -> str:
     phase = state.get("current_phase", "unknown")
     status = state.get("status", "unknown")
-    progress = state.get("progress") or consts.progress.get(phase, "?")
-    label = consts.phase_label.get(phase, phase)
+    flow = flow_for_state(state, consts)
+    progress = state.get("progress") or (
+        flow.progress_for(phase) if flow.contains(phase) else "?"
+    )
+    label = consts.label_or(phase, flow, phase)
     display = STATUS_DISPLAY.get(status, status.upper())
     return (
         f"<!-- SDLE_STATE phase={phase} status={status} progress={progress} -->\n"
@@ -1632,7 +2031,9 @@ def cmd_header(args, paths: Paths) -> int:
             "phase": state.get("current_phase"),
             "status": state.get("status"),
             "progress": state.get("progress"),
-            "label": consts.phase_label.get(state.get("current_phase", ""), None),
+            "label": consts.label_or(
+                state.get("current_phase", ""), flow_for_state(state, consts)
+            ),
             "branch_mismatch": mismatch,
         },
     )
@@ -1651,7 +2052,7 @@ def cmd_state_dump(args, paths: Paths) -> int:
         "|---|---|",
         f"| Version | {state.get('workflow_version')} |",
         f"| Phase | {phase} ({state.get('progress')}) |",
-        f"| Label | {consts.phase_label.get(phase, phase)} |",
+        f"| Label | {consts.label_or(phase, flow_for_state(state, consts), phase)} |",
         f"| Status | {state.get('status')} |",
         f"| Progress | {state.get('progress')} |",
         f"| Last Updated | {state.get('last_updated')} |",
@@ -3951,8 +4352,14 @@ def evaluate_quality(document: dict, policy: dict, relative: str) -> dict:
 
 
 def evaluate_classification(document: dict, relative: str) -> dict:
-    """§12's WorkItem type and engineering flow. Validated, recorded, and
-    ADVISORY: nothing in the engine routes on either value at T06."""
+    """§12's WorkItem type and engineering flow, validated and recorded.
+
+    No longer advisory as of T07: `classification.flow` is what `init` binds
+    `state["flow"]` from, so it selects the phases the WorkItem traverses.
+    `classification.type` is still consumed by nothing — T09 owns making risk
+    and type drive gate *requirements*. One flag covers both keys, and the
+    binding one is what it now has to report.
+    """
     section = document["classification"]
     unknown = sorted(set(section) - {"type", "flow"})
     if unknown:
@@ -3969,7 +4376,8 @@ def evaluate_classification(document: dict, relative: str) -> dict:
                 {"path": relative, "field": key, "value": value,
                  "permitted": list(vocabulary)},
             )
-    return {"type": section["type"], "flow": section["flow"], "advisory": True}
+    return {"type": section["type"], "flow": section["flow"],
+            "advisory": False}
 
 
 def deterministic_level(score: int, thresholds: dict) -> str:
@@ -4278,10 +4686,13 @@ def cmd_governance_gates(args, paths: Paths) -> int:
         "would_be_required_gates": required_gate_set(
             classification, final_level, policy),
         "registered_gates": sorted(consts.phase_to_gate_key.values()),
+        # Still genuinely advisory, and deliberately so: T07 selects which
+        # phases a WorkItem executes, and every gate *inside* the selected
+        # flow runs unconditionally. Making a gate conditional on risk is T09.
         "advisory": True,
-        "note": "Recorded for comparison only. Every registered gate still "
-                "runs unconditionally at this version; nothing routes on this "
-                "set.",
+        "note": "Recorded for comparison only. Every gate within the selected "
+                "flow still runs unconditionally at this version; nothing "
+                "routes on this set.",
     })
     return EXIT_OK
 
@@ -4654,7 +5065,7 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
             f"Governance recorded {marker}: quality "
             f"{(record.get('quality') or {}).get('result')}, classification "
             f"{classification.get('type')}/{classification.get('flow')} "
-            "(advisory), risk score "
+            "(flow selects the lifecycle; type advisory), risk score "
             f"{risk.get('score')} -> deterministic {risk.get('deterministicLevel')}"
             + (f" (floors: {', '.join(floors)})" if floors else "")
             + f", proposed {risk.get('proposedLevel')}, final "
@@ -5019,6 +5430,42 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
     return None
 
 
+def flow_precondition(paths: Paths, state: dict | None = None) -> None:
+    """D10 — a flow cannot change under a workflow that has already started.
+
+    `init` binds `state["flow"]` from the governance record; re-assessing
+    afterwards with a different flow would otherwise silently re-shape a
+    lifecycle mid-run, which is precisely the reshaping-by-command that D9
+    refuses to provide as a feature. So the disagreement is a refusal with a
+    named remedy, not a warning.
+
+    Deliberately a **pure reader**: it never writes state and never appends to
+    the ledger, and every caller places it ahead of its first `append_audit`.
+    That is what keeps `audit.md` byte-identical across a refused advance,
+    approval or skip (B1, and the ordering NB-6 recorded for `cmd_skip`).
+
+    Skipped under the transitional legacy binding for the same reason
+    `governance_precondition` skips it: there is no WorkItem to hold a record.
+    """
+    if paths.workitem is None:
+        return None
+    record = read_governance_record(paths)
+    if record is None:
+        return None
+    proposed = (record.get("classification") or {}).get("flow")
+    bound = (state or {}).get("flow") or DEFAULT_FLOW
+    if not proposed or proposed == bound:
+        return None
+    raise Refused(
+        "flow_mismatch",
+        f"This WorkItem is traversing {bound}; the governance record now "
+        f"proposes {proposed}. A flow cannot change under a workflow that has "
+        f"already started. Either re-assess with flow {bound}, or `reset "
+        "workflow` and start again.",
+        {"workitem": paths.workitem, "bound": bound, "proposed": proposed},
+    )
+
+
 def apply_advance(
     paths: Paths,
     state: dict,
@@ -5043,10 +5490,16 @@ def apply_advance(
             "state_unreadable", "state.json has no current_phase.", {}
         )
 
-    expected = consts.next_phase.get(current)
+    flow = flow_for_state(state, consts)
+    expected = flow.next_phase(current)
     if target != expected:
-        current_index = consts.index(current)
-        target_index = consts.index(target)
+        # A target the registry does not know at all is still `unknown_phase`;
+        # a real phase that this flow does not run is a forward jump, flagged
+        # `in_flow: false` so a caller can tell the two apart. Positions are
+        # computed defensively: an index lookup that raised here would mask
+        # the real reason for the refusal.
+        if target not in consts.phase_sequence:
+            consts.index(target)  # raises unknown_phase; one message, one home
         raise Refused(
             "forward_jump",
             f"Cannot advance {current} -> {target}. The only permitted next "
@@ -5056,8 +5509,10 @@ def apply_advance(
                 "from": current,
                 "requested": target,
                 "expected": expected,
-                "from_index": current_index,
-                "requested_index": target_index,
+                "from_index": flow.position(current),
+                "requested_index": flow.position(target),
+                "flow": flow.name,
+                "in_flow": flow.contains(target),
             },
         )
 
@@ -5072,6 +5527,18 @@ def apply_advance(
                 {"gate": gate_key, "phase": current, "decision": decision},
             )
 
+    # T07/D10's placement is load-bearing, and it is written out in three
+    # steps rather than two because `governance_precondition(paths, state)` is
+    # not a pure reader — it records the governance facts in the ledger. So:
+    #   1. validate the record with no `state`, which writes nothing, so a
+    #      stale or blocked record is still reported as `governance_stale` /
+    #      `governance_blocked` and is never masked by a flow disagreement;
+    #   2. refuse `flow_mismatch`, still ahead of every write;
+    #   3. only then let the accepted facts enter the ledger.
+    # Steps 1 and 3 are the same rule with its one home unchanged; step 1 is
+    # the same pure-reader device `cmd_gate_approve` and `cmd_skip` use.
+    governance_precondition(paths)
+    flow_precondition(paths, state)
     governance_precondition(paths, state)
 
     if status is None:
@@ -5082,7 +5549,7 @@ def apply_advance(
     )
     state["current_phase"] = target
     state["status"] = status
-    state["progress"] = consts.progress_for(target)
+    state["progress"] = flow.progress_for(target)
     return {
         "from": current,
         "to": target,
@@ -5131,6 +5598,7 @@ def cmd_gate_show(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
     gate_phase = require_gate(consts, args.gate)
+    flow = flow_for_state(state, consts)
     resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     full = paths.project_root / resolved if resolved else None
     emit(
@@ -5138,9 +5606,11 @@ def cmd_gate_show(args, paths: Paths) -> int:
         {
             "gate": args.gate,
             "gate_phase": gate_phase,
-            "gate_number": consts.gate_number.get(args.gate),
-            "gate_total": len(consts.gate_phases),
-            "label": consts.phase_label.get(gate_phase),
+            "gate_number": flow.gate_number(args.gate),
+            "gate_total": flow.gate_total,
+            "flow": flow.name,
+            "in_flow": flow.contains(gate_phase),
+            "label": consts.label_or(gate_phase, flow),
             "execution_phase": consts.gate_to_execution_phase.get(args.gate),
             "artifact_path": resolved,
             "skipped_reason": skipped,
@@ -5156,6 +5626,9 @@ def cmd_gate_show(args, paths: Paths) -> int:
 def write_completion_summary(paths: Paths, state: dict) -> str:
     summary = {
         "workflow_version": state.get("workflow_version"),
+        # Which lifecycle was traversed. `all_gates_approved` below keeps its
+        # meaning, now scoped to the gates this flow actually has.
+        "flow": state.get("flow"),
         "project_name": state.get("project_name"),
         "completed_at": now_iso(),
         "phases_completed": len(state.get("phase_history") or []),
@@ -5212,13 +5685,15 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     # (invariants 5 and 6). `apply_advance` still enforces; this only moves
     # the failure to before the first irreversible write.
     governance_precondition(paths)
+    flow_precondition(paths, state)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
         "comments": args.comments,
         "timestamp": stamp,
     }
-    number = consts.gate_number.get(args.gate)
+    flow = flow_for_state(state, consts)
+    number = flow.gate_number(args.gate)
     append_audit(
         paths,
         state,
@@ -5231,9 +5706,9 @@ def cmd_gate_approve(args, paths: Paths) -> int:
         comments=args.comments,
     )
 
-    is_final = consts.next_phase.get(gate_phase) == "complete"
+    is_final = flow.next_phase(gate_phase) == "complete"
     moved = apply_advance(paths, state, consts, "complete" if is_final
-                          else consts.next_phase[gate_phase],
+                          else flow.next_phase(gate_phase),
                           "completed" if is_final else None, "approved")
 
     summary_path = None
@@ -5244,7 +5719,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             state,
             phase="complete",
             event="workflow_complete",
-            message=f"Gate {number}/{len(consts.gate_phases)} (security) approved. "
+            message=f"Gate {number}/{flow.gate_total} (security) approved. "
             "Workflow complete. Completion summary written.",
             artifact=summary_path,
         )
@@ -5311,7 +5786,7 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
         resumed = state.get("pending_phase")
         if resumed:
             state["current_phase"] = resumed
-            state["progress"] = consts.progress_for(resumed)
+            state["progress"] = flow_for_state(state, consts).progress_for(resumed)
         state["pending_phase"] = None
         state["status"] = "in_progress"
 
@@ -5388,7 +5863,8 @@ def cmd_gate_reject(args, paths: Paths) -> int:
         state,
         phase=gate_phase,
         event="gate_rejected",
-        message=f"Gate {consts.gate_number.get(args.gate)} rejected. "
+        message=f"Gate {flow_for_state(state, consts).gate_number(args.gate)} "
+        "rejected. "
         f"Comments: {args.reason}.",
         decision="REJECTED",
         comments=args.reason,
@@ -6165,6 +6641,7 @@ def cmd_remediate_begin(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
     gate_key = args.gate
+    flow = flow_for_state(state, consts)
     execution_phase = consts.gate_to_execution_phase.get(gate_key)
     if not execution_phase:
         raise Refused("unknown_gate", f"'{gate_key}' is not a registered gate.",
@@ -6200,7 +6677,8 @@ def cmd_remediate_begin(args, paths: Paths) -> int:
     write_atomic(
         feedback_path,
         f"# SDLE Feedback for {execution_phase} — {now_iso()}\n"
-        f"**Gate:** {consts.phase_label.get(require_gate(consts, gate_key))}\n"
+        f"**Gate:** "
+        f"{consts.label_or(require_gate(consts, gate_key), flow)}\n"
         f"**Canonical source:** {paths.runtime_relative}/state.json → "
         f"approvals[{gate_key}].comments\n"
         f"**Reviewer comments:**\n{feedback}\n",
@@ -6266,10 +6744,11 @@ def cmd_skip(args, paths: Paths) -> int:
             )
         state["pending_confirm_action"] = "skip"
         save_state(paths, state, args.session)
+        flow = flow_for_state(state, consts)
         emit("skip", {
             "pending": True, "phase": phase,
-            "label": consts.phase_label.get(phase),
-            "index": consts.index(phase),
+            "label": consts.label_or(phase, flow),
+            "index": flow.index(phase),
         })
         return EXIT_OK
 
@@ -6288,6 +6767,7 @@ def cmd_skip(args, paths: Paths) -> int:
     # Evaluating the precondition here keeps the enforcement rule itself
     # in one place; passing no `state` keeps this call a pure reader.
     governance_precondition(paths)
+    flow_precondition(paths, state)
 
     state["pending_confirm_action"] = None
     state["current_artifact"] = None
@@ -6299,11 +6779,12 @@ def cmd_skip(args, paths: Paths) -> int:
                 "incorrect output.",
         decision="SKIPPED",
     )
-    target = consts.next_phase.get(phase)
+    flow = flow_for_state(state, consts)
+    target = flow.next_phase(phase)
     moved = apply_advance(paths, state, consts, target, "pending", "skipped")
     save_state(paths, state, args.session)
     emit("skip", {"pending": False, **moved,
-                  "next_label": consts.phase_label.get(moved["to"])})
+                  "next_label": consts.label_or(moved["to"], flow)})
     return EXIT_OK
 
 
@@ -6311,13 +6792,16 @@ def cmd_restart(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
     branch_guard(args, paths, state)
-    total = len(consts.phase_sequence) - 1  # `complete` is not restartable
+    # `restart` indexes the *bound flow*, not the registry, so the number the
+    # user types is the number they were shown in `Phase N/M`.
+    flow = flow_for_state(state, consts)
+    total = flow.phase_count  # `complete` is not restartable
 
     if not 1 <= args.to <= total:
         raise Refused("invalid_phase_number",
                       f"Invalid phase number. Use 1–{total}.", {"requested": args.to})
 
-    target = consts.phase_at(args.to)
+    target = flow.phase_at(args.to)
     if target in consts.phase_to_gate_key:
         raise Refused(
             "gate_phase",
@@ -6326,7 +6810,7 @@ def cmd_restart(args, paths: Paths) -> int:
             {"target": target, "suggest": args.to - 1},
         )
 
-    current_index = consts.index(state.get("current_phase"))
+    current_index = flow.index(state.get("current_phase"))
     if args.to > current_index:
         raise Refused(
             "forward_jump",
@@ -6341,15 +6825,15 @@ def cmd_restart(args, paths: Paths) -> int:
 
     cleared = [
         consts.phase_to_gate_key[p]
-        for p in consts.gate_phases
-        if consts.index(p) >= args.to
+        for p in flow.gate_phases
+        if flow.index(p) >= args.to
     ]
 
     if not args.confirm:
         state["pending_confirm_action"] = f"restart:{args.to}"
         save_state(paths, state, args.session)
         emit("restart", {"pending": True, "target": target, "index": args.to,
-                         "label": consts.phase_label.get(target),
+                         "label": consts.label_or(target, flow),
                          "cleared_gates": cleared})
         return EXIT_OK
 
@@ -6368,8 +6852,8 @@ def cmd_restart(args, paths: Paths) -> int:
     before = len(state.get("phase_history") or [])
     state["phase_history"] = [
         entry for entry in (state.get("phase_history") or [])
-        if entry.get("phase") in consts.phase_sequence
-        and consts.index(entry["phase"]) < args.to
+        if flow.contains(entry.get("phase"))
+        and flow.index(entry["phase"]) < args.to
     ]
     trimmed = before - len(state["phase_history"])
     state["drift_queue"] = []
@@ -6377,7 +6861,7 @@ def cmd_restart(args, paths: Paths) -> int:
     state["phase_checkpoint"] = None
     state["current_phase"] = target
     state["status"] = "pending"
-    state["progress"] = consts.progress_for(target)
+    state["progress"] = flow.progress_for(target)
 
     append_audit(
         paths, state, phase=target, event="restart",
@@ -6387,7 +6871,7 @@ def cmd_restart(args, paths: Paths) -> int:
     )
     save_state(paths, state, args.session)
     emit("restart", {"pending": False, "target": target, "index": args.to,
-                     "label": consts.phase_label.get(target),
+                     "label": consts.label_or(target, flow),
                      "cleared_gates": cleared, "trimmed": trimmed})
     return EXIT_OK
 
@@ -6427,11 +6911,12 @@ def cmd_doctor(args, paths: Paths) -> int:
     state = read_state(paths)
     current = state.get("current_phase")
     history = state.get("phase_history") or []
+    flow = flow_for_state(state, consts)
 
     confirmed = [
         e["phase"] for e in history
         if e.get("outcome") in {"approved", "completed"}
-        and e.get("phase") in consts.phase_sequence
+        and flow.contains(e.get("phase"))
     ]
     if not confirmed:
         emit("doctor", {"verdict": "ok", "reason": "no phase history yet",
@@ -6439,8 +6924,8 @@ def cmd_doctor(args, paths: Paths) -> int:
         return EXIT_OK
 
     last = confirmed[-1]
-    expected = consts.next_phase.get(last) or last
-    gap = consts.index(current) - consts.index(expected)
+    expected = flow.next_phase(last) or last
+    gap = flow.index(current) - flow.index(expected)
 
     if gap < 0:
         verdict = "backwards"
@@ -7102,12 +7587,13 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     """Cross-file sync rules. Grows as the wave proceeds."""
     checks: list[Check] = []
 
-    # Phase tables must cover an identical phase set.
+    # NEXT_PHASE and PHASE_LABEL_MAP are per-*registry* tables: the registry
+    # is the catalogue of phases that exist, and every phase that exists has a
+    # canonical successor and a label. PROGRESS_MAP is not — see below.
     seq = set(consts.phase_sequence)
     for name, keys in (
         ("NEXT_PHASE", set(consts.next_phase)),
         ("PHASE_LABEL_MAP", set(consts.phase_label)),
-        ("PROGRESS_MAP", set(consts.progress)),
     ):
         missing = sorted(seq - keys)
         extra = sorted(keys - seq)
@@ -7120,6 +7606,27 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
                 else f"missing={missing} unexpected={extra}",
             )
         )
+
+    # PROGRESS_MAP's subject is GREENFIELD, not the registry: a progress
+    # fraction only means anything inside one lifecycle, and these 19 rows are
+    # the GREENFIELD view. The subject is smaller but the guarantee is larger —
+    # equality is still exact in both directions, the denominator check below
+    # is now GREENFIELD's, and the flow checks additionally pin every value,
+    # which nothing checked before.
+    greenfield = consts.greenfield
+    greenfield_phases = set(greenfield.phases)
+    progress_keys = set(consts.progress)
+    missing = sorted(greenfield_phases - progress_keys)
+    extra = sorted(progress_keys - greenfield_phases)
+    checks.append(
+        Check(
+            "phase_set_matches_progress_map",
+            not missing and not extra,
+            "identical to the GREENFIELD flow"
+            if not missing and not extra
+            else f"missing={missing} unexpected={extra}",
+        )
+    )
 
     # NEXT_PHASE must chain PHASE_SEQUENCE exactly once, ending terminal.
     chain_ok, chain_msg = True, "chains PHASE_SEQUENCE in order"
@@ -7136,11 +7643,14 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
             break
     checks.append(Check("next_phase_chains_sequence", chain_ok, chain_msg))
 
-    # PROGRESS_MAP denominators all equal the phase count.
+    # PROGRESS_MAP denominators all equal GREENFIELD's non-terminal count,
+    # which is what those strings have always meant. It is no longer the
+    # registry's phase count: after T07 the registry may hold phases that
+    # GREENFIELD does not run.
     denominators = {
         value.split("/")[-1] for value in consts.progress.values() if "/" in value
     }
-    expected_denominator = str(consts.phase_count)
+    expected_denominator = str(greenfield.phase_count)
     checks.append(
         Check(
             "progress_denominator_matches_phase_count",
@@ -7179,9 +7689,14 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
         if paths.phase_execution_md.is_file()
         else ""
     )
-    declared = set(
-        re.findall(r"^\*\*Phase \d+ — `([a-z_]+)`", exec_text, flags=re.MULTILINE)
-    )
+    # The ordinal is optional: a phase with no GREENFIELD position has no
+    # number to carry. That broadening is paid for — with interest — by
+    # `execution_block_numbers_are_the_greenfield_positions` below, which pins
+    # every ordinal that *is* present and was until now an unchecked restated
+    # constant.
+    headers = re.findall(
+        r"^\*\*Phase (?:(\d+) — )?`([a-z_]+)`", exec_text, flags=re.MULTILINE)
+    declared = {phase for _, phase in headers}
     exempt = {"requirements_check", "complete"}
     missing_blocks = [
         phase
@@ -7196,12 +7711,157 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
         )
     )
 
+    # Block ordinals are the GREENFIELD positions, and every GREENFIELD phase's
+    # block states its own. Renumbering the blocks to registry indices was
+    # rejected: `modules/security-review.md` cross-references "Phase 17" and is
+    # must-not-change, so the registry index and the block ordinal deliberately
+    # diverge — and this check is what keeps the divergence honest.
+    position = {phase: i + 1 for i, phase in enumerate(greenfield.phases)}
+    numbered = {phase: int(number) for number, phase in headers if number}
+    ordinal_problems = []
+    for phase, number in sorted(numbered.items()):
+        expected = position.get(phase)
+        if expected is None:
+            ordinal_problems.append(
+                f"{phase} carries ordinal {number} but has no GREENFIELD "
+                "position")
+        elif number != expected:
+            ordinal_problems.append(
+                f"{phase} block says Phase {number}, GREENFIELD position "
+                f"is {expected}")
+    for phase in greenfield.phases:
+        if phase in exempt or phase not in declared:
+            continue  # absence belongs to every_phase_has_execution_block
+        if phase not in numbered:
+            ordinal_problems.append(
+                f"{phase} is in GREENFIELD but its block carries no ordinal")
+    checks.append(
+        Check(
+            "execution_block_numbers_are_the_greenfield_positions",
+            not ordinal_problems,
+            "; ".join(ordinal_problems) if ordinal_problems
+            else f"all {len(numbered)} block ordinals are GREENFIELD positions",
+        )
+    )
+
+    checks.extend(_check_flow_model(consts))
     checks.append(_check_single_state_template(paths))
     checks.append(_check_version_consistency(paths))
     checks.append(_check_migration_covers_state_fields(paths, consts))
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
+    return checks
+
+
+def _check_flow_model(consts: Constants) -> list[Check]:
+    """The flow model's cross-file rules.
+
+    Deliberately *not* in ``load_constants``: that parses FLOW_PHASES without
+    judging it, so a single broken row reports as the rule it actually breaks
+    instead of short-circuiting every other check behind
+    ``tables_wellformed``. ``Constants.flow()`` enforces the same rules at load
+    time, where it refuses rather than reports.
+    """
+    checks: list[Check] = []
+    greenfield = consts.greenfield
+    flows = consts.flows
+
+    # The declared rows plus the injected GREENFIELD are exactly the contract's
+    # flow vocabulary — no missing flow, no invented one — and GREENFIELD is
+    # not a declared row, because it has exactly one home in the engine.
+    declared = set(consts.flow_phases)
+    required = set(ENGINEERING_FLOWS)
+    coverage: list[str] = []
+    if DEFAULT_FLOW in declared:
+        coverage.append(
+            f"{DEFAULT_FLOW} must not be a FLOW_PHASES row: it is the frozen "
+            "v1 lifecycle held by the engine")
+    covered = declared | {DEFAULT_FLOW}
+    if covered != required:
+        coverage.append(
+            f"missing={sorted(required - covered)} "
+            f"unexpected={sorted(covered - required)}")
+    checks.append(
+        Check("flow_table_covers_the_required_flows", not coverage,
+              "; ".join(coverage) if coverage
+              else f"{len(flows)} flows: {sorted(flows)}"))
+
+    # Every flow, GREENFIELD included, obeys the same two rules. GREENFIELD is
+    # validated here too so it can never become a privileged special case.
+    order_problems: list[str] = []
+    floor_problems: list[str] = []
+    for name in sorted(flows):
+        for detail in consts.flow_order_problems(flows[name]):
+            order_problems.append(f"{name}: {detail}")
+        for detail in consts.flow_floor_problems(flows[name]):
+            floor_problems.append(f"{name}: {detail}")
+    checks.append(
+        Check("every_flow_is_an_ordered_subset_of_the_registry",
+              not order_problems,
+              "; ".join(order_problems) if order_problems
+              else f"{len(flows)} flows are ordered subsets of PHASE_SEQUENCE"))
+    checks.append(
+        Check("every_flow_retains_the_mandatory_phases", not floor_problems,
+              "; ".join(floor_problems) if floor_problems
+              else f"every flow keeps all {len(MANDATORY_FLOW_PHASES)} "
+                   "mandatory phases"))
+
+    # PROGRESS_MAP and PHASE_TO_GATE_KEY's gate-number column stop being
+    # independent sources of truth and become checked derived views of
+    # GREENFIELD. The *denominator* half of a progress string is owned by
+    # `progress_denominator_matches_phase_count`; this check owns the position,
+    # so the two together pin the whole value while each stays independently
+    # provable by a fixture that breaks exactly one of them.
+    derived: list[str] = []
+    for phase in greenfield.phases:
+        recorded = consts.progress.get(phase)
+        if recorded is None:
+            continue  # absence belongs to phase_set_matches_progress_map
+        expected = greenfield.progress_for(phase).split("/")[0]
+        if recorded.split("/")[0] != expected:
+            derived.append(
+                f"PROGRESS_MAP[{phase}]={recorded}, GREENFIELD position "
+                f"is {expected}")
+    for phase in greenfield.gate_phases:
+        key = consts.phase_to_gate_key[phase]
+        recorded = consts.gate_number.get(key)
+        expected = greenfield.gate_number(key)
+        if recorded != expected:
+            derived.append(
+                f"gate number for {key}={recorded}, GREENFIELD gives {expected}")
+    checks.append(
+        Check("progress_map_and_gate_numbers_are_the_derived_greenfield_views",
+              not derived,
+              "; ".join(derived) if derived
+              else "PROGRESS_MAP and the gate-number column match GREENFIELD"))
+
+    # The replacement for the one guarantee derivation used to give free: no
+    # registry phase may be orphaned. A phase added to PHASE_SEQUENCE that no
+    # flow names fails loudly here, instead of silently joining GREENFIELD the
+    # way a derived GREENFIELD would have let it.
+    used = {phase for flow in flows.values() for phase in flow.phases}
+    orphans = [p for p in consts.phase_sequence if p not in used]
+    checks.append(
+        Check("every_registry_phase_is_used_by_some_flow", not orphans,
+              f"orphaned={orphans}" if orphans
+              else "every registry phase is named by at least one flow"))
+
+    # A gate's ordinal is flow-relative, so it may not be re-hardcoded into the
+    # label: HOTFIX's `gate_implement` is Gate 2, GREENFIELD's is Gate 7.
+    label_problems: list[str] = []
+    for phase in consts.gate_phases:
+        template = consts.phase_label_template.get(phase, "")
+        if GATE_NUMBER_PLACEHOLDER not in template:
+            label_problems.append(
+                f"{phase} label has no {GATE_NUMBER_PLACEHOLDER}")
+        if re.search(r"Gate\s+\d", template):
+            label_problems.append(f"{phase} label hardcodes a gate ordinal")
+    checks.append(
+        Check("gate_labels_are_flow_relative", not label_problems,
+              "; ".join(label_problems) if label_problems
+              else f"all {len(consts.gate_phases)} gate labels are "
+                   "flow-relative"))
     return checks
 
 
@@ -7334,13 +7994,16 @@ def _check_no_powershell(paths: Paths) -> Check:
 
 
 def _check_no_hardcoded_progress(paths: Paths, consts: Constants) -> Check:
-    """No literal 'N/18' in orchestrator instructions.
+    """No literal 'N/<denominator>' in orchestrator instructions, for any flow.
 
-    Scoped to instruction text: artifact body templates legitimately contain
-    a progress string, because SDLE writes it into the artifact.
+    Every flow has its own denominator, so a hardcoded fraction is not merely
+    duplicated — it is wrong for four lifecycles out of five. Scoped to
+    instruction text: artifact body templates legitimately contain a progress
+    string, because SDLE writes it into the artifact.
     """
-    denominator = consts.phase_count
-    pattern = re.compile(rf"\b\d+/{denominator}\b")
+    denominators = sorted({flow.phase_count for flow in consts.flows.values()})
+    pattern = re.compile(
+        r"\b\d+/(?:" + "|".join(str(d) for d in denominators) + r")\b")
     offenders = []
     for path in _skill_files(paths):
         in_fence = False
@@ -7409,6 +8072,43 @@ def cmd_sha(args, paths: Paths) -> int:
     return EXIT_OK
 
 
+def cmd_flow_show(args, paths: Paths) -> int:
+    """The bound flow, its phases, its gates, and where it goes from here.
+
+    Read-only, and it exists so the orchestrator asks the script instead of
+    reading a table out of SKILL.md — which is SKILL.md's own instruction.
+    When a governance record exists its proposal is reported alongside with an
+    explicit agreement verdict, so a disagreement is *visible* before it
+    becomes a `flow_mismatch` refusal at the next advance.
+
+    There is deliberately no `flow set` / `flow select`. Traversal identity has
+    exactly one writer (`init`) plus the migration that names GREENFIELD for a
+    workflow predating the field; a command that re-bound it would let the
+    model reshape the lifecycle, which is a governance bypass.
+    """
+    consts = load_constants(paths)
+    state = read_state(paths)
+    flow = flow_for_state(state, consts)
+    current = state.get("current_phase")
+    record = read_governance_record(paths) if paths.workitem else None
+    proposed = ((record or {}).get("classification") or {}).get("flow")
+    emit(
+        "flow show",
+        {
+            **flow.as_dict(),
+            "current_phase": current,
+            "position": flow.position(current),
+            "progress": state.get("progress"),
+            "next_phase": flow.next_phase(current),
+            "gate_number": flow.gate_number_for_phase(current),
+            "label": consts.label_or(current, flow),
+            "proposed_flow": proposed,
+            "agrees": None if proposed is None else proposed == flow.name,
+        },
+    )
+    return EXIT_OK
+
+
 def cmd_constants(args, paths: Paths) -> int:
     """Diagnostic: dump what was parsed out of SKILL.md."""
     consts = load_constants(paths)
@@ -7425,6 +8125,12 @@ def cmd_constants(args, paths: Paths) -> int:
             "phase_label": consts.phase_label,
             "progress": consts.progress,
             "gate_to_execution_phase": consts.gate_to_execution_phase,
+            # Every declared flow plus the injected GREENFIELD. Dumped
+            # unvalidated, exactly as every other table here is: `constants`
+            # is a diagnostic, and a broken FLOW_PHASES must still be
+            # inspectable. `Constants.flow()` is what refuses.
+            "flows": {name: built.as_dict()
+                      for name, built in sorted(consts.flows.items())},
             "version_chain": [list(pair) for pair in consts.version_chain],
             "skill_root": str(paths.skill_root),
             "project_root": str(paths.project_root),
@@ -7520,6 +8226,18 @@ def build_parser() -> argparse.ArgumentParser:
         "gates", help="The would-be required gate set. Advisory only."
     )
     gov_gates.set_defaults(handler=cmd_governance_gates)
+
+    # Read-only by construction. There is deliberately no `flow set`: see
+    # `cmd_flow_show`'s docstring for why a second writer of traversal
+    # identity would be a governance bypass.
+    flow_p = subparsers.add_parser(
+        "flow", help="The bound lifecycle flow. Read-only."
+    )
+    flow_sub = flow_p.add_subparsers(dest="subcommand", required=True)
+    flow_show = flow_sub.add_parser(
+        "show", help="The bound flow, its phases and its gates. Writes nothing."
+    )
+    flow_show.set_defaults(handler=cmd_flow_show)
 
     workitem_p = subparsers.add_parser("workitem", help="WorkItem identity.")
     workitem_sub = workitem_p.add_subparsers(dest="subcommand", required=True)

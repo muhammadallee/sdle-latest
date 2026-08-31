@@ -1,9 +1,9 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.15)
+# SDLE — Spec Driven Lifecycle Engine (v1.16)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
 
-**18 phases · 8 approval gates · full state/audit trail.**
+**Five flows over a 20-phase registry · GREENFIELD is 18 phases and 8 approval gates · full state/audit trail.**
 
 > For the full design rationale, a detailed walkthrough of every phase, glossary, flow diagrams, and an end-to-end example run, see **[docs/SDLE-Reference-Guide.md](docs/SDLE-Reference-Guide.md)** — the canonical enterprise reference for SDLE. This README is a quick-start and lookup reference only.
 >
@@ -68,7 +68,7 @@ SDLE will handle everything from there.
 
 ---
 
-## 18-Phase Workflow
+## The GREENFIELD Flow — 18 Phases, 8 Gates
 
 ```
 Phase  1  Requirements Check       requirements_check   Validates requirements/
@@ -93,6 +93,8 @@ Phase 18  ★ GATE 8: Security       gate_security        Approve -> complete
 
 **8 approval gates total.** Phases 8–9 run automatically (checklist then tasks, no gate between them) and are reviewed together at Gate 4. Design (Phase 13) deliberately precedes Implementation (Phase 15) so architecture decisions inform the generated code, not the other way around.
 
+The block above is the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every pre-flow workflow traversed. A WorkItem may instead be bound to `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`; each is an ordered subset of the same phase registry, so its `Phase N/M` and `Gate N/M` are that flow's own. The two defect flows additionally run `impact_analysis`, a gateless phase that maps the blast radius of a change before any specification is written; it is still fingerprinted and review-registered like every other governed artifact. Run `sdle.sh constants` for a flow's exact phase list.
+
 For *why* each phase and gate exists in this exact order — and what specifically breaks if it didn't — see [§7 of the Reference Guide](docs/SDLE-Reference-Guide.md#7-the-18-phase-workflow--detailed-reference).
 
 ---
@@ -111,7 +113,7 @@ routes to the same place.
 | `status` / `show state` | Show current phase, progress, approvals, drift state, rate limits. |
 | `resume` / `continue` | Resume from current phase; after a rejection, triggers remediation. |
 | `retry` | Retry a failed (technical-failure) SpecKit step (rate-limited, separately from remediation). |
-| `restart phase <N>` | Roll back to phase N (1–18); clears all downstream approvals. Requires `confirm restart phase <N>`. |
+| `restart phase <N>` | Roll back to phase N of the bound flow — the same N the `Phase N/M` header showed; clears all downstream approvals. Requires `confirm restart phase <N>`. |
 | `reset workflow` | Delete all workflow state (artifacts preserved). Requires `confirm reset`. |
 | `accept state` | Acknowledge a detected forward state jump and proceed. |
 | `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file and proceed treating it as data. |
@@ -246,8 +248,8 @@ reasoning, and what was rejected, is in
 `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 `configVersion` is a separate namespace from `workflow_version` — it is not
-workflow state, and it has no migration chain. Nothing in the 18-phase
-lifecycle reads this file.
+workflow state, and it has no migration chain. Nothing in any lifecycle flow
+reads this file.
 
 ### Governance inputs and artifact review
 
@@ -266,7 +268,8 @@ scored by the engine.
 | `scripts/sdle.sh governance policy` | Report the effective policy — check ids, which of them block, the risk-signal vocabulary and weights, the thresholds and the hard floors. Needs no WorkItem and writes nothing. |
 | `scripts/sdle.sh governance assess --input <path>` | Score a structured proposal, write `workitems/<id>/.sdle/governance.json` and one evidence document. Runs before `init`. |
 | `scripts/sdle.sh governance show` | Report the record and whether it is still current for the requirements on disk. |
-| `scripts/sdle.sh governance gates` | Report the gate set this classification and risk level *would* require. Advisory: nothing consumes it, and all eight gates run unconditionally. |
+| `scripts/sdle.sh governance gates` | Report the gate set this classification and risk level *would* require. Advisory: nothing consumes it, and every gate the bound flow contains runs unconditionally. |
+| `scripts/sdle.sh flow show` | Report the bound flow, its ordered phases, its gates, where this WorkItem stands in it, and — when a record exists — whether the record still agrees. Read-only. |
 
 The scoring is deterministic and the model cannot argue with it. Severity comes
 from the policy, never from the input; every weight, threshold and floor comes
@@ -286,6 +289,14 @@ in `scripts/sdle.py` and deliberately restated nowhere else.
 `governance_stale` when `requirements/` changed after the assessment. A
 WorkItem started before this version has no record and will refuse at its next
 `advance`; the remedy is one `governance assess` run.
+
+`classification.flow` is the one recorded value the lifecycle *consumes*: `init`
+binds it to `state.flow` once, and there is deliberately no command that re-binds
+it. Re-assessing later with a **different** flow is refused `flow_mismatch` at the
+next `advance`, `gate approve` or `skip`, naming both remedies — re-assess with the
+bound flow, or reset and start again. The refusal writes nothing: `audit.md` is
+byte-identical after it. The WorkItem *type* and the risk level are recorded and
+still route nothing.
 
 **Artifact review.** Artifact existence is not evidence of artifact quality. A
 gate can only approve an artifact that carries a `PASS` review of its **exact
@@ -572,6 +583,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.16** | Declarative flow selection. `PHASE_SEQUENCE` became a 20-entry phase *registry* and a **flow** — an ordered subset of it — became what a WorkItem traverses. Five flows: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX`, `HOTFIX`, declared in `FLOW_PHASES` except GREENFIELD, which is frozen in the engine so a new registry row can never silently join it. New gateless `impact_analysis` phase in the two defect flows. Progress fractions, gate numbers and gate labels are derived per flow. New `flow` state field, bound once at `init` and never re-bound; a governance record that later proposes a different flow is refused `flow_mismatch`. Seven new `lint-skill` checks. |
 | **v1.15** | WorkItem-scoped Spec Kit context. The active WorkItem's Spec Kit feature directory moved from the repository-global `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, so two WorkItems in one repository can never be handed each other's specification. Repository-wide Spec Kit scaffolding — `.specify/`, including `memory/constitution.md` — stays where it is. New `specKit` state object replacing `current_feature_id`, new `feature bind` and `feature capabilities` subcommands, Spec Kit capability detection that refuses rather than assumes, and a gate that will not approve another WorkItem's artifact. |
 | **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |
 | **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |

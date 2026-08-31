@@ -666,7 +666,7 @@ def test_n8_the_feature_directory_is_derived_from_disk(project, layout, expected
     result = project.ok("migrate")
 
     state = project.state()
-    assert result.data["steps"] == ["1.14->1.15"]
+    assert result.data["steps"] == ["1.14->1.15", "1.15->1.16"]
     assert "current_feature_id" not in state
     assert state["specKit"]["featureId"] == FEATURE_ID
     assert state["specKit"]["featureDirectory"] == expected
@@ -903,7 +903,7 @@ def test_migrated_in_flight_workflow_refuses_its_next_speckit_gate(bare_project)
     view.write_state(as_v114(view, current_feature_id="001-alpha"))
 
     migrated = view.ok("migrate")
-    assert migrated.data["steps"][-1] == "1.14->1.15"
+    assert migrated.data["steps"][-1] == "1.15->1.16"
     assert view.state()["specKit"]["featureDirectory"] == ".specify/specs/001-alpha"
 
     view.ok("advance", "--to", "gate_spec")

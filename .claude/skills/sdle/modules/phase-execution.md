@@ -42,6 +42,18 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 
 ### Phase Execution Map:
 
+> **Execute only the phases the bound flow contains.** The block headers below carry each phase's GREENFIELD position, which is a reading aid and nothing more: the phase to run next is whatever `sdle.sh advance` moved you to, and `sdle.sh flow show` reports the bound flow's whole ordered list. A phase this flow does not contain is never executed and never mentioned.
+
+**Phase `impact_analysis` (DEFECT_FIX and HOTFIX only — no GREENFIELD position):**
+- Do NOT invoke SpecKit. This phase runs *before* any specification exists, so no feature directory has been created yet and none may be referenced or required.
+- **Pre-compute the analysis filename** using the current local time: `analysis_filename = "reviews/impact-analysis-<YYYY-MM-DD-HHmm>.md"` (e.g., `reviews/impact-analysis-2026-05-26-1430.md`). Use the actual current date/time — do not use a placeholder.
+- Read the requirement documents under `requirements/` and run the **Untrusted Content Scan** (SKILL.md Step 2b) over each one. Then examine the repository as it stands: the code paths the defect touches, the tests that cover them, and the recent history from `git log`.
+- Write the analysis to `analysis_filename`. Cover: what is broken and where; the modules, tests, interfaces and data the change reaches; the blast radius; what could regress; and what must be verified before the fix ships.
+- `sdle.sh artifact record --phase impact_analysis --path <analysis_filename>` — enforces the size floor, fingerprints the file and appends the audit entry.
+- `sdle.sh artifact review --path <analysis_filename> --type impact-analysis --result PASS --actor-type agent --actor-name sdle-orchestrator` — binds the review to that exact SHA. Record it **last**: editing the file afterwards makes the review stale by the existing mechanism.
+- Display the analysis content in full in the conversation. This phase has no gate of its own, so the human reads it here — ahead of the specification gate, which is the first gate downstream of it.
+- Advance: `sdle.sh advance --to spec_draft`. The script records phase history, progress and the audit entry.
+
 **Phase 2 — `constitution_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
 - `sdle.sh feature bind` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing. On refusal show the `message` and HALT.
@@ -52,7 +64,7 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 - Present the gate prompt (read `modules/gate-protocol.md`).
 
 **Phase 3 — `gate_constitution`:**
-This is a gate phase. The artifact is `.specify/memory/constitution.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_constitution (Gate 1/8).
+This is a gate phase. The artifact is `.specify/memory/constitution.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_constitution. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_constitution` reports for the bound flow.
 
 **Phase 4 — `spec_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
@@ -63,10 +75,11 @@ This is a gate phase. The artifact is `.specify/memory/constitution.md`. Do not 
 - Run Post-SpecKit Verification (below).
 - Advance: `sdle.sh advance --to gate_spec`. The script records phase history, progress and the audit entry.
 - Run Post-Generation Clarify. (If clarify halts, `current_phase` is already `gate_spec`.)
+- **If an impact analysis was produced for this WorkItem** (a `reviews/impact-analysis-*.md` written by the `impact_analysis` phase — it exists under `DEFECT_FIX` and `HOTFIX` and under no other flow), display its content in the conversation immediately before the gate prompt. That phase has no gate of its own, and this is the first gate downstream of it, so this is where the human reads it.
 - Present the gate prompt.
 
 **Phase 5 — `gate_spec`:**
-This is a gate phase. The artifact is `{state.specKit.featureDirectory}/spec.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_spec (Gate 2/8).
+This is a gate phase. The artifact is `{state.specKit.featureDirectory}/spec.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_spec. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_spec` reports for the bound flow.
 
 **Phase 6 — `plan_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
@@ -78,7 +91,7 @@ This is a gate phase. The artifact is `{state.specKit.featureDirectory}/spec.md`
 - Present the gate prompt.
 
 **Phase 7 — `gate_plan`:**
-This is a gate phase. The artifact is `{state.specKit.featureDirectory}/plan.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_plan (Gate 3/8).
+This is a gate phase. The artifact is `{state.specKit.featureDirectory}/plan.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_plan. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_plan` reports for the bound flow.
 
 **Phase 8 — `checklist_draft`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
@@ -103,10 +116,10 @@ This is a gate phase. The artifact is `{state.specKit.featureDirectory}/plan.md`
 - Run Post-SpecKit Verification (below).
 - Advance: `sdle.sh advance --to gate_tasks`. The script records phase history, progress and the audit entry.
 - **Before presenting the gate prompt:** If `{state.specKit.featureDirectory}/checklist.md` exists, Read it and display its full content to the user under the header `### Checklist (Phase 8 output — review alongside Tasks)`. This ensures the user can compare both artifacts before approving.
-- Present the gate prompt (read `modules/gate-protocol.md` for gate_tasks/Gate 4). The gate artifact is `tasks.md`.
+- Present the gate prompt (read `modules/gate-protocol.md` for gate_tasks). The gate artifact is `tasks.md`.
 
 **Phase 10 — `gate_tasks`:**
-This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_tasks (Gate 4/8).
+This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_tasks. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_tasks` reports for the bound flow.
 
 **Phase 11 — `analyze`:**
 - `sdle.sh checkpoint set --value speckit_invoked`
@@ -121,7 +134,7 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 - **HALT** — `current_phase` is already `gate_analyze`. The Clarification Response Handler in Step 4 will route correctly to the gate via the GATE_PHASES case.
 
 **Phase 12 — `gate_analyze`:**
-This is a gate phase. The artifact for this gate is the most recently updated `tasks.md` (which speckit-analyze may have refined). Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_analyze (Gate 5/8).
+This is a gate phase. The artifact for this gate is the most recently updated `tasks.md` (which speckit-analyze may have refined). Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_analyze. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_analyze` reports for the bound flow.
 
 **Phase 13 — `design_generation`:**
 - Do NOT invoke SpecKit. This is an SDLE-native phase.
@@ -157,13 +170,13 @@ This is a gate phase. The artifact for this gate is the most recently updated `t
 > **Note for implementors:** The design documents generated in this phase (Phase 13) are available to SpecKit in Phase 15 (implement). SDLE will reference them in the implementation invocation args so that design decisions inform the generated code.
 
 **Phase 14 — `gate_design`:**
-This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_design (Gate 6/8).
+This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_design. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_design` reports for the bound flow.
 
 **Phase 15 — `implement`:**
 - **Dirty-tree guard (runs first):** `sdle.sh implement preflight`. It pins `implementation_base_ref` to HEAD so Phase 17 diffs against the right range, filters SDLE-owned paths out of the dirty check, and refuses with `dirty_tree` when the user has uncommitted work. On refusal, show the `message` and HALT; the user commits, stashes, or says `confirm implement`, which re-runs it with `--bypass`.
 - `sdle.sh checkpoint set --value speckit_invoked`
 - `sdle.sh feature bind --require-feature` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing and additionally refuses when no feature directory is recorded for this WorkItem. On refusal show the `message` and HALT.
-- Invoke `speckit-implement` using the Skill tool. If `guidance/implement.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/implement.md>\n---\nAlign your output with this guidance."` Also append: `"\n\nDesign documents are available at design/app/app-design.md and (if present) design/db/db-design.md. Align implementation with these design decisions."`
+- Invoke `speckit-implement` using the Skill tool. If `guidance/implement.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/implement.md>\n---\nAlign your output with this guidance."` If `design/app/app-design.md` exists, also append: `"\n\nDesign documents are available at design/app/app-design.md and (if present) design/db/db-design.md. Align implementation with these design decisions."` A flow that does not run `design_generation` produces no design document, so the sentence is conditional on the file being there — never assert a path that does not exist.
 - **Implementation Manifest (MANDATORY after the implement skill):** `sdle.sh manifest build --summary "<one paragraph derived from tasks.md>"`.
 
   The script produces `.workflow/implementation-manifest.md` with three mandatory sections: the changed/added file list (git status plus diff, deduplicated, listing untracked files individually), the secrets scan with every match masked to four characters, and test evidence — it detects a runner (npm, pytest, cargo, maven, gradle), runs it, and records pass/fail with output.
@@ -175,7 +188,7 @@ This is a gate phase. Do not invoke SpecKit. Read `modules/gate-protocol.md` and
 - Present the gate prompt (read `modules/gate-protocol.md`).
 
 **Phase 16 — `gate_implement`:**
-This is a gate phase. The artifact is `.workflow/implementation-manifest.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_implement (Gate 7/8).
+This is a gate phase. The artifact is `.workflow/implementation-manifest.md`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_implement. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_implement` reports for the bound flow.
 
 **Phase 17 — `security_review`:**
 - Do NOT invoke SpecKit.
@@ -187,7 +200,7 @@ This is a gate phase. The artifact is `.workflow/implementation-manifest.md`. Do
 - Present the gate prompt (read `modules/gate-protocol.md`).
 
 **Phase 18 — `gate_security`:**
-This is a gate phase. The artifact is the security review file at `state.json → security_review_artifact`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_security (Gate 8/8).
+This is a gate phase. The artifact is the security review file at `state.json → security_review_artifact`. Do not invoke SpecKit. Read `modules/gate-protocol.md` and follow its procedure for gate_security. Its gate number and total are flow-relative: use the `gate_number` and `gate_total` that `sdle.sh gate show --gate gate_security` reports for the bound flow.
 
 On approve: write `.workflow/completion-summary.json` (see gate-protocol.md for the content format), set `status = "completed"`, set `current_phase = "complete"`, and congratulate the user.
 

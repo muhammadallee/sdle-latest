@@ -19,7 +19,7 @@ def test_init_creates_state_and_advances_to_first_generation_phase(project):
     assert result.data["progress"] == "2/18"
 
     state = project.state()
-    assert state["workflow_version"] == "1.15"
+    assert state["workflow_version"] == "1.16"
     assert state["workitem"] == project.workitem
     assert state["last_updated"] is not None
     assert [e["phase"] for e in state["phase_history"]] == ["requirements_check"]
@@ -144,10 +144,10 @@ def test_migrate_walks_the_whole_chain_from_1_0(started):
 
     result = started.ok("migrate")
     assert result.data["from"] == "1.0"
-    assert result.data["to"] == "1.15"
+    assert result.data["to"] == "1.16"
     assert result.data["steps"][0] == "1.0->1.1"
-    assert result.data["steps"][-1] == "1.14->1.15"
-    assert started.state()["workflow_version"] == "1.15"
+    assert result.data["steps"][-1] == "1.15->1.16"
+    assert started.state()["workflow_version"] == "1.16"
 
 
 def test_migrate_is_idempotent(started):

@@ -43,7 +43,7 @@ The user must never need to open an external file to know what they are approvin
 
 ```
 ---
-✋ APPROVAL REQUIRED — Gate {gate_number}/8: {Gate Label}
+✋ APPROVAL REQUIRED — Gate {gate_number}/{gate_total}: {Gate Label}
 
 <artifact content displayed above>
 
@@ -83,7 +83,7 @@ Please review the content above, then respond with:
 3. **Record approval-time SHA:** the script fingerprints the artifact and writes `artifact_shas[gate_key]` as the drift baseline.
 4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
 5. Append to `state.json → phase_history`: `{ "phase": "<current_phase>", "completed_at": "<ISO>", "outcome": "approved" }`. Set `last_updated`. Save state.
-6. Derive `next_phase` by looking up `current_phase` in **NEXT_PHASE** (Internal Constants).
+6. Do **not** derive `next_phase` from a table. **NEXT_PHASE** is the *registry* chain, not the bound flow's — under GREENFIELD it maps `requirements_check` to `impact_analysis`, a phase GREENFIELD does not contain. `sdle.sh gate approve` moves the phase itself and returns the one it moved to; `sdle.sh flow show` reports `next_phase` for the bound flow.
 7. **gate_security special case:** If `gate_key` is `gate_security`:
    a. Write `.workflow/completion-summary.json`:
       ```json
@@ -91,23 +91,24 @@ Please review the content above, then respond with:
         "workflow_version": "<state.workflow_version>",
         "project_name": "<state.project_name>",
         "completed_at": "<ISO timestamp>",
+        "flow": "<state.flow>",
         "phases_completed": <count of phase_history entries>,
         "security_review_artifact": "<state.security_review_artifact>",
         "all_gates_approved": true
       }
       ```
-   b. Set `current_phase` to `complete`, `status` to `completed`, update `progress` from **PROGRESS_MAP**.
+   b. Set `current_phase` to `complete`, `status` to `completed`. `progress` is written by the script from the bound flow — **PROGRESS_MAP** is the GREENFIELD view and is not the value to copy.
    c. Save state.
-   d. Append to audit: `[<ISO>] Gate 8/8 (security) approved. Workflow complete. Completion summary written.`
+   d. Append to audit: `[<ISO>] Gate {gate_number}/{gate_total} (security) approved. Workflow complete. Completion summary written.`
    e. Congratulate the user:
       ```
       ✅ Security review approved. Workflow complete!
 
-      All 8 gates passed. Completion summary: .workflow/completion-summary.json
+      All {gate_total} gates passed. Completion summary: .workflow/completion-summary.json
       Security review: <security_review_artifact>
       ```
    f. HALT — do not propose a next phase.
-8. Set `current_phase` to `next_phase`, `status` to `pending`, update `progress` from **PROGRESS_MAP**. Set `last_updated`. Save state.
+8. `sdle.sh gate approve` has already set `current_phase`, `status`, `progress` and `last_updated` and saved the state — `progress` is derived from the bound flow, so **PROGRESS_MAP** (the GREENFIELD view) is never the value to copy. Read the values back from the response; do not compute them.
 9. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
 
 **On `reject with comments`:**

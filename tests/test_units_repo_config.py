@@ -861,7 +861,7 @@ def test_the_scrubbed_state_comparison_still_has_teeth(git_project):
     scrubbed = scrub(git_project.state())
 
     assert scrubbed["current_phase"] == "complete"
-    assert scrubbed["workflow_version"] == "1.15"
+    assert scrubbed["workflow_version"] == "1.16"
     assert scrubbed["workitem"] == git_project.workitem
     assert scrubbed["progress"] == "18/18"
     assert [entry["phase"] for entry in scrubbed["phase_history"]]

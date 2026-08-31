@@ -1,6 +1,7 @@
 {
-  "workflow_version": "1.15",
+  "workflow_version": "1.16",
   "workitem": null,
+  "flow": "GREENFIELD",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",

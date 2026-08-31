@@ -241,4 +241,4 @@ def test_final_gate_completes_the_workflow(started):
     import json
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
     assert summary["all_gates_approved"] is True
-    assert summary["workflow_version"] == "1.15"
+    assert summary["workflow_version"] == "1.16"

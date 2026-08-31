@@ -136,7 +136,11 @@ def governance_input(**over) -> dict:
         "governanceInputVersion": "1",
         "quality": {name: {"result": "PASS", "finding": None}
                     for name in BUILTIN["quality_checks"]},
-        "classification": {"type": "enhancement", "flow": "ITERATIVE"},
+        # T07: inert at T06, traversal-selecting now. Cases below that
+        # `init` and then advance need the flow whose second phase is
+        # `constitution_draft`; the flow vocabulary itself is still
+        # exercised across all five members by the round-trip test.
+        "classification": {"type": "enhancement", "flow": "GREENFIELD"},
         "risk": {"signals": [], "proposedLevel": "LOW", "uncertainty": "LOW"},
     }
     document.update(over)
@@ -709,7 +713,7 @@ def test_the_record_carries_every_section_12_evidence_item(project):
     # §12's seven evidence items, one assertion each.
     assert record["quality"]["result"] in ("PASS", "BLOCKED")
     assert record["classification"] == {
-        "type": "enhancement", "flow": "ITERATIVE", "advisory": True}
+        "type": "enhancement", "flow": "GREENFIELD", "advisory": False}
     assert record["risk"]["signals"] == ["external_api_surface",
                                          "persistent_data_store"]
     assert isinstance(record["risk"]["score"], int)
@@ -1220,12 +1224,22 @@ def test_every_valid_classification_round_trips(project, wi_type, flow):
     assert assess(project, document).exit_code == EXIT_OK
 
     assert record_of(project)["classification"] == {
-        "type": wi_type, "flow": flow, "advisory": True}
+        "type": wi_type, "flow": flow, "advisory": False}
 
 
-def test_classification_is_marked_advisory_in_the_record(project):
+def test_the_classification_flag_no_longer_claims_to_be_advisory(project):
+    """D13 — text T07's own change makes untrue is fixed by T07.
+
+    At T06 nothing in the engine routed on either classification value,
+    so the record said so. At T07 `classification.flow` is what `init`
+    binds `state["flow"]` from, which selects the phases that run, so the
+    flag would be a false statement about the engine's own behaviour.
+    `governance gates` keeps its separate `advisory: True`, because the
+    would-be gate set really is still inert — that is T09's.
+    """
     assert assess(project).exit_code == EXIT_OK
-    assert record_of(project)["classification"]["advisory"] is True
+    assert record_of(project)["classification"]["advisory"] is False
+    assert project.ok("governance", "gates").data["advisory"] is True
 
 
 # --------------------------------------------------------------------------
@@ -1732,22 +1746,36 @@ CRITICAL_RISK = {
     "uncertainty": "CRITICAL",
 }
 
+# T07 holds the *flow* constant across every variant below, because the flow
+# is now the one governance value that does move the lifecycle. What varies is
+# the WorkItem type and the final risk level — the two values T09 will own and
+# that T07 must leave completely inert.
 GOVERNANCE_VARIANTS = {
     "baseline": {
-        "classification": {"type": "enhancement", "flow": "ITERATIVE"},
+        "classification": {"type": "enhancement", "flow": "GREENFIELD"},
         "risk": LOW_RISK},
-    # N13: classification alone.
+    # N13: the WorkItem type alone.
     "classification_only": {
-        "classification": {"type": "defect", "flow": "DEFECT_FIX"},
+        "classification": {"type": "defect", "flow": "GREENFIELD"},
         "risk": LOW_RISK},
     # N20(d): final risk alone, LOW against CRITICAL.
     "risk_only": {
-        "classification": {"type": "enhancement", "flow": "ITERATIVE"},
+        "classification": {"type": "enhancement", "flow": "GREENFIELD"},
         "risk": CRITICAL_RISK},
     # A17: both at once.
     "both": {
-        "classification": {"type": "hotfix", "flow": "HOTFIX"},
+        "classification": {"type": "hotfix", "flow": "GREENFIELD"},
         "risk": CRITICAL_RISK},
+}
+
+# Where each flow's `init` lands. Read as a table this is the whole of T07:
+# the flow, and nothing else, decides which phases a WorkItem executes.
+FLOW_FIRST_GENERATION_PHASE = {
+    "GREENFIELD": "constitution_draft",
+    "BROWNFIELD_DISCOVERY": "constitution_draft",
+    "ITERATIVE": "spec_draft",
+    "DEFECT_FIX": "impact_analysis",
+    "HOTFIX": "impact_analysis",
 }
 
 
@@ -1757,12 +1785,25 @@ def approval_shape(project: Project) -> dict:
             for gate, entry in (project.state()["approvals"] or {}).items()}
 
 
-def test_governance_changes_no_lifecycle_behaviour(git_project, tmp_path,
-                                                   monkeypatch):
-    """A17 + N13 + N20(d): the eight gates stay unconditional.
+def test_risk_and_type_change_no_lifecycle_behaviour(git_project, tmp_path,
+                                                    monkeypatch):
+    """A17 + N13 + N20(d), rewritten at T07 as the phase's N8.
 
-    Every clone is taken *before* any run, so the four repositories genuinely
-    start identical rather than inheriting the baseline's runtime.
+    T06's form of this test asserted that all four governance variants
+    traverse identically, and three of those variants named a different
+    *flow*. At T07 a different flow is precisely what must produce a different
+    traversal, so keeping that assertion would be asserting the opposite of
+    the design.
+
+    The rewrite keeps the half that is the T07/T09 boundary and makes it
+    sharper by holding the flow constant: **risk and WorkItem type still move
+    nothing at all** — not the traversal, not the approvals, not the artifact
+    baseline key set, not the ordered lifecycle audit events. T07 selects
+    which phases execute; making gate *requirements* risk-driven is T09's.
+
+    The other half — that the flow does move the traversal — is asserted by
+    `test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle`
+    below, and end to end in `tests/test_units_flow_model.py`.
     """
     views = {"baseline": git_project}
     for name in GOVERNANCE_VARIANTS:
@@ -1784,6 +1825,13 @@ def test_governance_changes_no_lifecycle_behaviour(git_project, tmp_path,
     types = {name: record_of(view)["classification"]["type"]
              for name, view in views.items()}
     assert len(set(types.values())) == 3, types
+    # ...and the flow really was held constant, or "the traversal does not
+    # move" would be true for the uninteresting reason that nothing varied
+    # which could have moved it.
+    flows = {name: record_of(view)["classification"]["flow"]
+             for name, view in views.items()}
+    assert set(flows.values()) == {"GREENFIELD"}, flows
+    assert {view.state()["flow"] for view in views.values()} == {"GREENFIELD"}
 
     # 1. Identical traversals, each equal to the transcript's.
     for name, traversal in traversals.items():
@@ -1814,6 +1862,44 @@ def test_governance_changes_no_lifecycle_behaviour(git_project, tmp_path,
                 for name, view in views.items()}
     assert would_be["baseline"] < would_be["risk_only"], would_be
     assert would_be["baseline"] != would_be["classification_only"], would_be
+    for name, view in views.items():
+        assert view.ok("governance", "gates").data["advisory"] is True, name
+
+
+def test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle(
+        git_project, tmp_path):
+    """The other half of N8: what the flow does that risk and type do not.
+
+    One clone per flow, every clone taken before any run, every clone carrying
+    the identical LOW risk — so the only thing that varies is the declared
+    flow. `init` lands on that flow's second entry, which for three of the
+    five is not the phase GREENFIELD runs.
+
+    Nothing here is risk-conditional. `impact_analysis` is reached under
+    DEFECT_FIX and HOTFIX because those flows contain it, never because a risk
+    level said so.
+    """
+    landed = {}
+    for name, expected in FLOW_FIRST_GENERATION_PHASE.items():
+        view = clone_project(git_project, tmp_path / name.lower())
+        document = governance_input()
+        document["classification"] = {"type": "enhancement", "flow": name}
+        document["risk"] = dict(LOW_RISK)
+        assert assess(view, document).exit_code == EXIT_OK, name
+
+        view.ok("init", session=name.lower())
+
+        state = view.state()
+        assert state["flow"] == name, name
+        assert state["current_phase"] == expected, (name, state)
+        landed[name] = state["current_phase"]
+
+    # Not vacuous: the five flows land on three different phases.
+    assert len(set(landed.values())) == 3, landed
+    assert landed["DEFECT_FIX"] == landed["HOTFIX"] == "impact_analysis"
+    assert "impact_analysis" not in {landed["GREENFIELD"],
+                                     landed["BROWNFIELD_DISCOVERY"],
+                                     landed["ITERATIVE"]}
 
 
 # --------------------------------------------------------------------------

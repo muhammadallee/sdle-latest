@@ -25,6 +25,12 @@ All transcripts use the repo's test fixture (`requirements/todo-api.md` — Todo
 | [08-restart-reset-state-jump.md](08-restart-reset-state-jump.md) | Rollback, forward-jump refusal, manual state edit, full reset | `restart phase N` confirm flow, forward-jump guard, `accept state`, `confirm reset`, stale-confirmation guard |
 | [09-bootstrap-failures.md](09-bootstrap-failures.md) | Starting without requirements, without SpecKit, or without SpecKit skills | Step 1b/1c/2 preflight halts |
 
+## Disposition under the flow model (v1.16)
+
+All nine transcripts remain **valid and byte-identical**, and all nine are `GREENFIELD` runs. `GREENFIELD` is the frozen pre-flow lifecycle, so every phase, progress fraction and gate number these transcripts show is still exactly what the engine produces — which is the point. The compatibility translation is that a workflow predating the flow model traversed `GREENFIELD`, and `tests/test_integration_01..09` still assert these transitions with no edits at all. `impact_analysis` appears in none of them, correctly: it is not a GREENFIELD phase.
+
+**No transcript is authored for `ITERATIVE`, `DEFECT_FIX`, `HOTFIX` or `BROWNFIELD_DISCOVERY`, deliberately.** A dry run is a *conversational* artifact containing simulated SpecKit output; four more would multiply the documentation these files already carry without adding one executable guarantee. Non-GREENFIELD traversal is pinned instead by end-to-end tests in `tests/test_units_flow_model.py` that drive the real CLI through every flow, which is stronger evidence than prose. Removing the legacy fixed-sequence structures these transcripts still describe is separate, later work and is not done here.
+
 ## How to read a transcript
 
 Each file has three sections:

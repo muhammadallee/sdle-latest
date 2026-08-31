@@ -4,7 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Is
 
-This is the **source repository for SDLE (Spec Driven Lifecycle Engine)** — a Claude Code skill that orchestrates a gated 18-phase SDLC workflow wrapping GitHub SpecKit.
+This is the **source repository for SDLE (Spec Driven Lifecycle Engine)** — a Claude Code skill that orchestrates a gated SDLC workflow wrapping GitHub SpecKit.
+
+As of v1.16 the lifecycle is **selected, not fixed**. `PHASE_SEQUENCE` is a 20-entry phase
+*registry*; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one,
+bound once at `init` from its governance record. Five flows ship: `GREENFIELD`
+(18 phases, 8 gates — the pre-v1.16 lifecycle, frozen in `GREENFIELD_V1_PHASES` in
+`sdle.py` rather than declared in a table, so a new registry row can never silently
+join it), `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX`, the last four
+declared in SKILL.md's `FLOW_PHASES`. Every flow retains a mandatory ten-phase
+governance floor: shorter, never ungoverned. See
+`docs/architecture/ADR-004-declarative-flow-model.md`.
 
 As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
 
@@ -12,7 +22,7 @@ As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `s
 
 ## Architecture
 
-**`scripts/sdle.py`** — the deterministic core. Single file, Python 3.11+, standard library only, cross-platform. Owns state transitions, gate enforcement, SHA fingerprinting, the audit hash chain, drift detection, the session lock, rate limits, migration, the untrusted-content scan, the implementation manifest, and `lint-skill`.
+**`scripts/sdle.py`** — the deterministic core. Single file, Python 3.11+, standard library only, cross-platform. Owns flow selection and state transitions, gate enforcement, SHA fingerprinting, the audit hash chain, drift detection, the session lock, rate limits, migration, the untrusted-content scan, the implementation manifest, and `lint-skill`.
 
 - **JSON on stdout, human text on stderr.** Callers parse; they do not interpret prose.
 - **Exit codes are the contract:** `0` success · `1` refused · `2` usage · `3` integrity failure.
@@ -33,7 +43,7 @@ As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `s
 
 Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is transitional — it is still read when a repository has a pre-v1.14 workflow and no WorkItem registered, and `migrate-workflow --workitem <id>` moves it under a WorkItem without ever mutating it.
 
-Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/`, `templates/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it; no lifecycle rule lives there and nothing in the 18-phase flow reads it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
+Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/`, `templates/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it; no lifecycle rule lives there and nothing in any lifecycle flow reads it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 SpecKit's WorkItem-specific artifacts are scoped the same way — a WorkItem's feature directory is `workitems/<workitem-id>/specs/<feature-id>/`, discovered and moved there by `feature resolve` and recorded in `state.specKit.featureDirectory` — while genuinely repository-wide SpecKit scaffolding, `.specify/` including `memory/constitution.md`, stays at the repository root.
 
@@ -56,19 +66,24 @@ Any edit must preserve these — they are the product:
 
 `scripts/sdle.sh lint-skill` verifies every rule that used to be a manual checklist:
 
-- the four phase tables cover an identical phase set, and NEXT_PHASE chains PHASE_SEQUENCE exactly
-- PROGRESS_MAP denominators equal the derived phase count; no hardcoded `N/18` in instruction text
+- NEXT_PHASE and PHASE_LABEL_MAP cover the registry's phase set exactly, and NEXT_PHASE chains PHASE_SEQUENCE in order
+- PROGRESS_MAP covers the **GREENFIELD flow's** phase set exactly — it is the GREENFIELD view, not the registry's
+- every PROGRESS_MAP denominator equals GREENFIELD's phase count, and no fraction is hardcoded in instruction text for *any* flow's denominator — a literal `N/18` is wrong for four lifecycles out of five
 - every gate is registered in PHASE_TO_GATE_KEY, ARTIFACT_OWNERSHIP, GATE_TO_EXECUTION_PHASE and the state template's `approvals`
 - exactly one state template exists
 - the version string agrees across SKILL.md frontmatter and heading, README title and version table, `templates/state.json`, and the Reference Guide header
 - every state field has a migration row
-- every phase has a block in `phase-execution.md`
+- every phase has a block in `phase-execution.md`, and every block ordinal is that phase's GREENFIELD position
+- `FLOW_PHASES` declares the four non-GREENFIELD flows, each an ordered subset of the registry that starts at `requirements_check`, ends at `complete` and keeps every mandatory phase
+- every registry phase is named by at least one flow — a phase no flow runs fails loudly instead of joining GREENFIELD by default
+- PROGRESS_MAP's values and PHASE_TO_GATE_KEY's gate numbers equal the derived GREENFIELD views
+- no gate label re-hardcodes its ordinal: each carries `{gate_number}`, substituted per bound flow
 - no PowerShell-only cmdlet remains in any prompt file
 - README and the Reference Guide list every phase
 
 It runs in CI on `ubuntu-latest` and `windows-latest`. If it cannot parse a constant table it fails loudly rather than defaulting — a table that silently parsed to nothing would let `advance` compute a wrong next phase and fail open.
 
-**Adding a phase or gate:** edit the tables in SKILL.md, add the `phase-execution.md` block, update the docs, then run the linter and the suite. **Changing the state schema** additionally needs a new `VERSION_MIGRATION` row and a matching migration step in `sdle.py`.
+**Adding a phase or gate:** edit the tables in SKILL.md, add the `phase-execution.md` block, **name the phase in at least one `FLOW_PHASES` row** — or, to put it in GREENFIELD, edit `GREENFIELD_V1_PHASES` in `sdle.py`, which is deliberately a loud change — update the docs, then run the linter and the suite. **Changing the state schema** additionally needs a new `VERSION_MIGRATION` row and a matching migration step in `sdle.py`.
 
 ## Testing
 
