@@ -197,6 +197,18 @@ class Paths:
         return self.runtime / "reviews.json"
 
     @property
+    def discovery_file(self) -> Path:
+        """This WorkItem's recorded §14 brownfield discovery findings.
+
+        WorkItem-owned, for the same reason ``governance_file`` is: discovery
+        is work one WorkItem performed, at a point in time, and the repository
+        baseline that outlives it *references* this file rather than copying
+        it. Deliberately not a field of ``state.json`` — it is an evidence
+        document, not lifecycle state.
+        """
+        return self.runtime / "discovery.json"
+
+    @property
     def speckit_specs_root(self) -> Path | None:
         """Where this WorkItem's Spec Kit feature directories live.
 
@@ -1818,10 +1830,20 @@ def cmd_init(args, paths: Paths) -> int:
     # to be the safe one — GREENFIELD is the flow every workflow before v1.16
     # traversed, so defaulting to it changes nothing for anybody.
     record = read_governance_record(paths) if paths.workitem else None
-    proposed = ((record or {}).get("classification") or {}).get("flow")
+    classification = (record or {}).get("classification") or {}
+    proposed = classification.get("flow")
     state["flow"] = (
         proposed if isinstance(proposed, str) and proposed else DEFAULT_FLOW
     )
+    # T08/§14 — R1 and R2, evaluated HERE because this is the single
+    # flow-binding site, and evaluated *before* the first `mkdir` below so a
+    # refusal creates nothing at all. A pure reader: it returns the derived
+    # baseline status and writes nothing. The status is recorded in the
+    # `flow_selected` entry, so the facts the binding decision rested on stay
+    # auditable. The flow and the opt-in are passed in as plain values so this
+    # command never names a repository-configuration member itself (§11).
+    baseline_at_binding = baseline_precondition(
+        paths, state["flow"], bool(classification.get("rediscovery")))
     # `init` is the one mover that deliberately does NOT go through
     # `apply_advance` — governance is not an `init` precondition (T06) — so it
     # reads the flow directly, exactly as it read the registry chain before.
@@ -1851,6 +1873,7 @@ def cmd_init(args, paths: Paths) -> int:
             + ("Selected by the recorded governance classification."
                if proposed else
                "No governance record proposed one, so the default applies.")
+            + f" Repository baseline at binding: {baseline_at_binding}."
             + " A flow is bound once and never re-bound."
         ),
     )
@@ -2462,6 +2485,15 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # scoped members of the group (`assess`, `show`, `gates`) bind explicitly
     # through `bind_workitem`, so the ladder is exercised, not bypassed.
     "governance",
+    # T08: `discovery schema` reports the closed §14 vocabulary and must be
+    # answerable before any workflow exists — it is what the prompt layer
+    # reads instead of restating the category ids. `assess` and `show` bind
+    # explicitly through `bind_for_discovery`.
+    "discovery",
+    # T08: the baseline is repository-level by definition — §14's convergence
+    # invariant is a property of the repository, not of any WorkItem — so both
+    # its readers resolve without one, exactly like `config`.
+    "baseline",
 })
 
 
@@ -3271,6 +3303,7 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
         bound.state_file, bound.audit_file, bound.execution_file,
         bound.lock_file, bound.evidence_dir, bound.manifest_file,
         bound.completion_file, bound.governance_file, bound.reviews_file,
+        bound.discovery_file,
     ))
 
 
@@ -3524,6 +3557,12 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
     #    predates T05.
     findings.extend(repo_config_findings(paths))
 
+    # 8b. the repository baseline (contract §14). Silent for every repository
+    #     that has none, which is every repository that predates T08. Reported
+    #     through the same single predicate `baseline show` uses, so the two
+    #     can never disagree.
+    findings.extend(baseline_findings(paths))
+
     # 9. the leak detector, both directions. §11 splits ownership between the
     #    repository boundary and the WorkItem boundary; this is what makes the
     #    split enforced rather than merely documented, and it is the check
@@ -3729,6 +3768,15 @@ WORKITEM_TYPES = ("enhancement", "defect", "hotfix", "chore")
 ENGINEERING_FLOWS = (
     "GREENFIELD", "BROWNFIELD_DISCOVERY", "ITERATIVE", "DEFECT_FIX", "HOTFIX",
 )
+
+# The classification section's permitted keys. `type` and `flow` are §12's and
+# are required; `rediscovery` is §14's monotone opt-in and is optional,
+# defaulting to false. Monotone in exactly the sense ADR-003 uses: it can only
+# ask for MORE work — a full rediscovery of a repository that already has a
+# sound baseline — never less, so a model that proposes it cannot weaken
+# anything.
+CLASSIFICATION_KEYS = ("type", "flow", "rediscovery")
+CLASSIFICATION_REQUIRED_KEYS = ("type", "flow")
 
 GOVERNANCE_POLICY_BUILTIN = {
     "policyVersion": "1",
@@ -4359,9 +4407,16 @@ def evaluate_classification(document: dict, relative: str) -> dict:
     `classification.type` is still consumed by nothing — T09 owns making risk
     and type drive gate *requirements*. One flag covers both keys, and the
     binding one is what it now has to report.
+
+    T08 adds the third, optional key: `rediscovery`. §14 makes a sound
+    repository baseline refuse a second full brownfield discovery, and this is
+    the deliberate opt-in that asks for one anyway. It is monotone-safe — it
+    can only ask for more work — and it is a contradiction with any flow other
+    than the one that performs discovery, so that combination is refused
+    rather than ignored.
     """
     section = document["classification"]
-    unknown = sorted(set(section) - {"type", "flow"})
+    unknown = sorted(set(section) - set(CLASSIFICATION_KEYS))
     if unknown:
         raise _input_malformed(
             relative,
@@ -4376,8 +4431,30 @@ def evaluate_classification(document: dict, relative: str) -> dict:
                 {"path": relative, "field": key, "value": value,
                  "permitted": list(vocabulary)},
             )
+
+    rediscovery = section.get("rediscovery", False)
+    if not isinstance(rediscovery, bool):
+        raise Refused(
+            "classification_invalid",
+            f"{relative}: classification.rediscovery is {rediscovery!r}; it "
+            "must be true or false.",
+            {"path": relative, "field": "rediscovery", "value": rediscovery,
+             "permitted": [True, False]},
+        )
+    if rediscovery and section["flow"] != BASELINE_REDISCOVERY_FLOW:
+        raise Refused(
+            "classification_invalid",
+            f"{relative}: classification.rediscovery asks for a full "
+            f"repository rediscovery while binding {section['flow']}, which "
+            "does not perform one. Rediscovery is only meaningful for "
+            f"{BASELINE_REDISCOVERY_FLOW}.",
+            {"path": relative, "field": "rediscovery", "value": rediscovery,
+             "flow": section["flow"],
+             "permitted_flow": BASELINE_REDISCOVERY_FLOW},
+        )
+
     return {"type": section["type"], "flow": section["flow"],
-            "advisory": False}
+            "advisory": False, "rediscovery": rediscovery}
 
 
 def deterministic_level(score: int, thresholds: dict) -> str:
@@ -4694,6 +4771,1027 @@ def cmd_governance_gates(args, paths: Paths) -> int:
                 "flow still runs unconditionally at this version; nothing "
                 "routes on this set.",
     })
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Brownfield discovery — contract §14
+# --------------------------------------------------------------------------
+#
+# §14 asks for a discovery output covering fourteen named categories in which
+# **every finding is classified** OBSERVED / INFERRED / UNKNOWN, and states the
+# rule the classification exists to serve: *never present inference as
+# observation*.
+#
+# Discovery itself is judgement work. The deterministic core cannot read a
+# repository and decide what its architecture is, so it does not pretend to.
+# What it converts from prose into mechanism is exactly this, and no more:
+#
+#   * nothing is unclassified, and no fourth classification can be invented;
+#   * an observation must point at a path that exists inside this repository;
+#   * an inference must name the findings it rests on, and none of those may
+#     itself be unknown;
+#   * an unknown may not carry evidence;
+#   * no declared category may be silently dropped — and because "unknown" is
+#     an honest answer, that is always satisfiable without lying.
+#
+# What it deliberately does **not** guarantee, and must not be read as
+# guaranteeing: that an observed statement is *true of* the file it cites,
+# that an inference follows from its basis, or that the findings are complete.
+# Those are claims by their author. Saying so is the point; a checker that
+# implied more than it checks would be worse than no checker.
+#
+# The split is T06's verbatim (Claude proposes, deterministic policy decides)
+# and is recorded in ADR-005.
+
+DISCOVERY_PHASE = "discovery"
+DISCOVERY_RECORD_VERSION = "1"
+DISCOVERY_INPUT_VERSIONS = ("1",)
+DISCOVERY_INPUT_SECTIONS = ("discoveryInputVersion", "findings")
+DISCOVERY_FINDING_KEYS = ("id", "category", "classification", "statement",
+                          "evidence", "basis")
+DISCOVERY_REQUIRED_FINDING_KEYS = ("id", "category", "classification",
+                                   "statement")
+
+# §14's three classifications, closed. Ordered as §14 orders them; the last is
+# the honest default, which is why `DISCOVERY_CLASSIFICATIONS[-1]` is a
+# meaningful thing to say.
+DISCOVERY_CLASSIFICATIONS = ("OBSERVED", "INFERRED", "UNKNOWN")
+
+# §14's fourteen bullets, in §14's order. This tuple is the only home for the
+# vocabulary: it reaches the prompt layer through `discovery schema` and is
+# restated in no prompt or documentation file.
+DISCOVERY_CATEGORIES = (
+    "repository_inventory",
+    "modules_components",
+    "dependencies",
+    "architecture",
+    "significant_patterns",
+    "conventions",
+    "apis",
+    "persistence_data_architecture",
+    "test_practices",
+    "runtime_deployment",
+    "security_patterns",
+    "adrs",
+    "constraints_non_negotiables",
+    "risks_debt",
+)
+
+# The rules the engine enforces, named so a refusal can cite one and so the
+# prompt layer can be told what will be checked without restating how.
+DISCOVERY_RULES = {
+    "R-a": "unknown or missing top-level key; unsupported discoveryInputVersion",
+    "R-b": "findings must be a non-empty list of objects with only the "
+           "declared finding keys",
+    "R-c": "each finding needs a unique, non-empty string id",
+    "R-d": "category must be one of the declared categories",
+    "R-e": "classification is required and must be one of the declared "
+           "classifications",
+    "R-f": "statement is required and must be non-empty",
+    "R-g": "an observation must cite at least one evidence path, and every "
+           "cited path must exist inside this repository",
+    "R-h": "an inference must name a basis, every basis id must be a declared "
+           "finding, and no basis may itself be unknown",
+    "R-i": "an unknown may not carry evidence",
+    "R-j": "every declared category needs at least one finding",
+}
+
+DISCOVERY_AUDIT_EVENT = "discovery_recorded"
+
+
+def _discovery_malformed(relative: str, detail: str, rule: str,
+                         **data) -> Refused:
+    return Refused(
+        "discovery_input_malformed",
+        f"{relative} is not a usable discovery input: {detail} "
+        f"[{rule}: {DISCOVERY_RULES[rule]}].",
+        {"path": relative, "detail": detail, "rule": rule, **data},
+    )
+
+
+def read_discovery_input(target: Path, relative: str) -> dict:
+    """Parse and envelope-validate Claude's proposed findings. Fail-closed:
+    nothing here returns a default. Mirrors ``read_governance_input``."""
+    if not target.is_file():
+        raise _discovery_malformed(relative, "no such file", "R-a")
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _discovery_malformed(
+            relative, f"it cannot be read ({exc})", "R-a") from None
+    try:
+        document = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _discovery_malformed(
+            relative, f"it is not valid JSON ({exc})", "R-a") from None
+    if not isinstance(document, dict):
+        raise _discovery_malformed(relative, "it is not a JSON object", "R-a")
+
+    unknown = sorted(set(document) - set(DISCOVERY_INPUT_SECTIONS))
+    if unknown:
+        raise _discovery_malformed(
+            relative, f"unknown top-level key(s) {', '.join(unknown)}", "R-a",
+            unknown_keys=unknown)
+    missing = [k for k in DISCOVERY_INPUT_SECTIONS if k not in document]
+    if missing:
+        raise _discovery_malformed(
+            relative, f"missing required key(s) {', '.join(missing)}", "R-a",
+            missing_keys=missing)
+    if document["discoveryInputVersion"] not in DISCOVERY_INPUT_VERSIONS:
+        raise _discovery_malformed(
+            relative,
+            f"discoveryInputVersion {document['discoveryInputVersion']!r} is "
+            "not supported; this engine supports "
+            + ", ".join(repr(v) for v in DISCOVERY_INPUT_VERSIONS), "R-a")
+    return document
+
+
+def _evidence_problem(paths: Paths, value: object) -> str | None:
+    """Why ``value`` is not a usable evidence path, or None when it is.
+
+    "Points at something that exists inside this repository" is the whole of
+    what the engine can check about an observation, so it is checked
+    completely: type, absoluteness, escape and existence. Whether the
+    statement is *true of* that file is not checkable here and is not claimed.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return "an evidence entry must be a non-empty repository-relative path"
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return (f"evidence path {value!r} is absolute; evidence paths are "
+                "repository-relative")
+    root = paths.project_root.resolve()
+    try:
+        resolved = (paths.project_root / candidate).resolve()
+    except OSError:
+        return f"evidence path {value!r} cannot be resolved"
+    if not _within(resolved, root):
+        return f"evidence path {value!r} escapes the repository root"
+    if not resolved.exists():
+        return f"evidence path {value!r} does not exist in this repository"
+    return None
+
+
+def _finding_list(entry: dict, key: str) -> list | None:
+    """``entry[key]`` as a list, or None when it is present and not one."""
+    value = entry.get(key, [])
+    return value if isinstance(value, list) else None
+
+
+def evaluate_discovery(document: dict, paths: Paths, relative: str) -> dict:
+    """Rules R-b..R-j. Refuses; never repairs, never drops a finding.
+
+    Two passes on purpose: a basis may name a finding declared later in the
+    document, so classifications must all be known before R-h can be decided.
+    """
+    findings = document["findings"]
+    if not isinstance(findings, list) or not findings:
+        raise _discovery_malformed(
+            relative, "'findings' must be a non-empty list", "R-b")
+
+    classification_of: dict[str, str] = {}
+    normalised: list[dict] = []
+
+    for position, entry in enumerate(findings, start=1):
+        if not isinstance(entry, dict):
+            raise _discovery_malformed(
+                relative, f"finding #{position} is not an object", "R-b",
+                finding=position)
+        unknown = sorted(set(entry) - set(DISCOVERY_FINDING_KEYS))
+        if unknown:
+            raise _discovery_malformed(
+                relative,
+                f"finding #{position} has unknown key(s) {', '.join(unknown)}",
+                "R-b", finding=position, unknown_keys=unknown)
+
+        identifier = entry.get("id")
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise _discovery_malformed(
+                relative, f"finding #{position} has no usable 'id'", "R-c",
+                finding=position)
+        if identifier in classification_of:
+            raise _discovery_malformed(
+                relative, f"finding id {identifier!r} is declared more than "
+                "once", "R-c", finding=identifier)
+
+        category = entry.get("category")
+        if category not in DISCOVERY_CATEGORIES:
+            raise _discovery_malformed(
+                relative,
+                f"finding {identifier!r} has category {category!r}, which is "
+                "not one of the declared categories; ask `discovery schema`",
+                "R-d", finding=identifier, value=category)
+
+        classification = entry.get("classification")
+        if classification not in DISCOVERY_CLASSIFICATIONS:
+            raise _discovery_malformed(
+                relative,
+                f"finding {identifier!r} has classification "
+                f"{classification!r}; every finding must carry one of the "
+                "declared classifications, and a finding the repository does "
+                "not answer is not unclassified — it is unknown",
+                "R-e", finding=identifier, value=classification)
+
+        statement = entry.get("statement")
+        if not isinstance(statement, str) or not statement.strip():
+            raise _discovery_malformed(
+                relative, f"finding {identifier!r} has no 'statement'", "R-f",
+                finding=identifier)
+
+        evidence = _finding_list(entry, "evidence")
+        if evidence is None:
+            raise _discovery_malformed(
+                relative, f"finding {identifier!r} has a non-list 'evidence'",
+                "R-b", finding=identifier)
+        basis = _finding_list(entry, "basis")
+        if basis is None:
+            raise _discovery_malformed(
+                relative, f"finding {identifier!r} has a non-list 'basis'",
+                "R-b", finding=identifier)
+
+        observed, inferred, unknown_class = DISCOVERY_CLASSIFICATIONS
+        if classification == observed:
+            if not evidence:
+                raise _discovery_malformed(
+                    relative,
+                    f"finding {identifier!r} is an observation but cites no "
+                    "evidence; an observation asserts something read in a "
+                    "named file", "R-g", finding=identifier)
+            for item in evidence:
+                problem = _evidence_problem(paths, item)
+                if problem is not None:
+                    raise _discovery_malformed(
+                        relative, f"finding {identifier!r}: {problem}", "R-g",
+                        finding=identifier, value=item)
+        elif classification == inferred:
+            if not basis:
+                raise _discovery_malformed(
+                    relative,
+                    f"finding {identifier!r} is an inference but names no "
+                    "basis; an inference must say what it rests on", "R-h",
+                    finding=identifier)
+        elif classification == unknown_class:
+            if evidence:
+                raise _discovery_malformed(
+                    relative,
+                    f"finding {identifier!r} is unknown but carries evidence; "
+                    "a finding that cites evidence is an observation or an "
+                    "inference", "R-i", finding=identifier)
+
+        classification_of[identifier] = classification
+        normalised.append({
+            "id": identifier,
+            "category": category,
+            "classification": classification,
+            "statement": statement,
+            "evidence": list(evidence),
+            "basis": list(basis),
+        })
+
+    # Pass two: R-h's referential half, once every id is known.
+    unknown_class = DISCOVERY_CLASSIFICATIONS[-1]
+    for finding in normalised:
+        if finding["classification"] != DISCOVERY_CLASSIFICATIONS[1]:
+            continue
+        for reference in finding["basis"]:
+            if reference not in classification_of:
+                raise _discovery_malformed(
+                    relative,
+                    f"finding {finding['id']!r} rests on {reference!r}, which "
+                    "is not a declared finding", "R-h",
+                    finding=finding["id"], value=reference)
+            if classification_of[reference] == unknown_class:
+                raise _discovery_malformed(
+                    relative,
+                    f"finding {finding['id']!r} rests on {reference!r}, which "
+                    "is itself unknown; an inference may not rest on an "
+                    "unknown", "R-h", finding=finding["id"], value=reference)
+
+    by_category = {
+        category: [f["id"] for f in normalised if f["category"] == category]
+        for category in DISCOVERY_CATEGORIES
+    }
+    empty = [c for c, ids in by_category.items() if not ids]
+    if empty:
+        raise Refused(
+            "discovery_incomplete",
+            f"{relative} leaves {len(empty)} declared discovery "
+            f"categor{'y' if len(empty) == 1 else 'ies'} with no finding: "
+            + ", ".join(empty) + f". [R-j: {DISCOVERY_RULES['R-j']}] "
+            "Where the repository does not answer, say so — an unknown "
+            "finding is the honest answer and is accepted.",
+            {"path": relative, "rule": "R-j", "missing": empty},
+        )
+
+    counts = {name: 0 for name in DISCOVERY_CLASSIFICATIONS}
+    for finding in normalised:
+        counts[finding["classification"]] += 1
+
+    return {"result": "PASS", "counts": counts, "categories": by_category,
+            "findings": normalised}
+
+
+def read_discovery_record(paths: Paths) -> dict | None:
+    """The recorded findings, or ``None`` when there are none.
+
+    Fail-closed against ``read_governance_record``: a malformed record is an
+    integrity failure, not an absence. Reading a corrupt file as "not yet
+    discovered" would let it be silently overwritten.
+    """
+    target = paths.discovery_file
+    if not target.is_file():
+        return None
+    try:
+        record = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise IntegrityError(
+            "discovery_record_invalid",
+            f"{paths.runtime_relative}/{target.name} cannot be read: {exc}. "
+            "Re-run `discovery assess --input <path>`.",
+            {"path": str(target), "error": str(exc)},
+        ) from None
+    if not isinstance(record, dict):
+        raise IntegrityError(
+            "discovery_record_invalid",
+            f"{paths.runtime_relative}/{target.name} is not a JSON object.",
+            {"path": str(target)},
+        )
+    return record
+
+
+def discovery_accepted(paths: Paths) -> dict | None:
+    """This WorkItem's accepted discovery record, or None.
+
+    A record that names another WorkItem is not this WorkItem's: the file
+    could only get there by being copied, and inheriting someone else's
+    discovery is exactly the thing §14's exit criterion is about doing
+    *deliberately*, through the baseline, not by accident.
+    """
+    record = read_discovery_record(paths)
+    if record is None:
+        return None
+    if record.get("result") != "PASS":
+        return None
+    if record.get("workitem") != paths.workitem:
+        return None
+    return record
+
+
+def bind_for_discovery(args, paths: Paths) -> Paths:
+    """`discovery` is runtime-free at the group level so `schema` can be read
+    with no WorkItem. `assess` binds here — through the ladder, never around
+    it. The shape `bind_for_governance` established."""
+    bound = bind_workitem(paths, args.workitem)
+    if bound.workitem is None:
+        raise Refused(
+            "discovery_workitem_required",
+            "Discovery is WorkItem-scoped and this repository still resolves "
+            f"to the legacy {paths.legacy_workflow.name}/ runtime. Move it "
+            "under a WorkItem first: `migrate-workflow --workitem <id>`.",
+            {"legacy_runtime": str(paths.legacy_workflow)},
+        )
+    return bound
+
+
+def cmd_discovery_schema(args, paths: Paths) -> int:
+    """The closed vocabulary, emitted rather than restated.
+
+    This command is how the category ids, the classifications, the envelope
+    and the rule ids reach the prompt layer — the same device `governance
+    policy` already is for the check ids. Writes nothing and needs no
+    WorkItem, so it is answerable before a workflow exists.
+    """
+    emit("discovery schema", {
+        "input_versions": list(DISCOVERY_INPUT_VERSIONS),
+        "envelope": list(DISCOVERY_INPUT_SECTIONS),
+        "finding_keys": list(DISCOVERY_FINDING_KEYS),
+        "required_finding_keys": list(DISCOVERY_REQUIRED_FINDING_KEYS),
+        "categories": list(DISCOVERY_CATEGORIES),
+        "classifications": list(DISCOVERY_CLASSIFICATIONS),
+        "rules": dict(DISCOVERY_RULES),
+        "record_version": DISCOVERY_RECORD_VERSION,
+        "enforced": [
+            "every finding carries one of the declared classifications",
+            "an observation cites at least one path that exists in this "
+            "repository",
+            "an inference names a basis, and no basis is itself unknown",
+            "an unknown carries no evidence",
+            "every declared category carries at least one finding",
+        ],
+        "not_enforced": [
+            "whether an observed statement is true of the file it cites",
+            "whether an inference follows from its basis",
+            "whether the findings are complete",
+        ],
+    })
+    return EXIT_OK
+
+
+def cmd_discovery_assess(args, paths: Paths) -> int:
+    """Evaluate the proposed findings and record them.
+
+    Every refusal fires before the first write, so a refused assess leaves
+    `discovery.json`, `audit.md` and `state.json` exactly as they were. That
+    is the opposite of `governance assess`, which persists a blocked
+    assessment on purpose so it can be remediated — there is nothing to
+    remediate in a document the engine could not parse, and a partially
+    validated discovery record must never become the thing that authorises
+    leaving the phase.
+    """
+    paths = bind_for_discovery(args, paths)
+    state = read_state(paths)
+
+    target = Path(args.input)
+    if not target.is_absolute():
+        target = paths.project_root / args.input
+    relative = args.input.replace(os.sep, "/")
+
+    document = read_discovery_input(target, relative)
+    evaluation = evaluate_discovery(document, paths, relative)
+
+    stamp = now_iso()
+    execution_id = execution_identity(paths, stamp)
+    record = {
+        "discoveryVersion": DISCOVERY_RECORD_VERSION,
+        "workitem": paths.workitem,
+        "recordedAt": stamp,
+        "executionId": execution_id,
+        "result": evaluation["result"],
+        "counts": evaluation["counts"],
+        "categories": evaluation["categories"],
+        "findings": evaluation["findings"],
+    }
+    write_atomic(paths.discovery_file, json.dumps(record, indent=2) + "\n")
+    evidence = paths.evidence_dir / f"discovery-{execution_id}.json"
+    write_atomic(evidence, json.dumps({
+        "kind": "discovery",
+        "executionId": execution_id,
+        "recordedAt": stamp,
+        "workitem": paths.workitem,
+        "input": {"path": relative, "document": document},
+        "record": record,
+    }, indent=2) + "\n")
+
+    record_relative = paths.discovery_file.relative_to(
+        paths.project_root).as_posix()
+    evidence_relative = evidence.relative_to(paths.project_root).as_posix()
+    counts = evaluation["counts"]
+    append_audit(
+        paths, state,
+        phase=state.get("current_phase") or DISCOVERY_PHASE,
+        event=DISCOVERY_AUDIT_EVENT,
+        message=(
+            f"Discovery recorded: {len(evaluation['findings'])} finding(s) "
+            f"across {len(DISCOVERY_CATEGORIES)} categories ("
+            + ", ".join(f"{name} {counts[name]}"
+                        for name in DISCOVERY_CLASSIFICATIONS) + ")."
+        ),
+        artifact=record_relative,
+        artifact_sha=sha256_file(paths.discovery_file),
+        evidence_id=execution_id,
+    )
+    save_state(paths, state, args.session)
+
+    emit("discovery assess", {
+        "workitem": paths.workitem,
+        "record": record_relative,
+        "evidence": evidence_relative,
+        "result": evaluation["result"],
+        "findings": len(evaluation["findings"]),
+        "counts": counts,
+        "categories": evaluation["categories"],
+    })
+    return EXIT_OK
+
+
+def cmd_discovery_show(args, paths: Paths) -> int:
+    """The recorded findings. Read-only."""
+    paths = bind_for_discovery(args, paths)
+    record = read_discovery_record(paths)
+    if record is None:
+        raise Refused(
+            "discovery_missing",
+            f"WorkItem '{paths.workitem}' has no discovery record. Run "
+            "`discovery assess --input <path>` first.",
+            {"workitem": paths.workitem, "path": str(paths.discovery_file)},
+        )
+    emit("discovery show", {"workitem": paths.workitem, "record": record})
+    return EXIT_OK
+
+
+def discovery_precondition(paths: Paths, state: dict | None = None) -> None:
+    """§14 — a WorkItem may not leave `discovery` without a validated record.
+
+    Enforced from ``apply_advance``, so `advance` **and** `skip` both hit it.
+    Placing it in `cmd_advance` alone would let `skip` walk past discovery,
+    which is fail-open: `skip` exists for a *failed* generation step, and a
+    discovery record that was never produced is exactly that case.
+
+    A **pure reader**: no state write, no `append_audit`. Every caller places
+    it ahead of its first irreversible write, so a refused advance, approval
+    or skip leaves `audit.md` byte-identical (B1, NB-6).
+
+    Only the phase is tested, not the flow: `discovery` is in exactly one
+    flow's declared phases, so a WorkItem can only be standing here if that is
+    the flow it is traversing. Skipped under the transitional legacy binding
+    for the same reason ``governance_precondition`` skips it — there is no
+    WorkItem to hold a record.
+    """
+    if paths.workitem is None:
+        return None
+    if (state or {}).get("current_phase") != DISCOVERY_PHASE:
+        return None
+    if discovery_accepted(paths) is not None:
+        return None
+    raise Refused(
+        "discovery_missing",
+        f"WorkItem '{paths.workitem}' is at {DISCOVERY_PHASE} and has no "
+        "accepted discovery record, so the workflow cannot leave the phase. "
+        "Contract §14 requires the repository to be read, and the findings "
+        "classified, before anything is drafted from them: run `discovery "
+        "assess --input <path>`. `sdle.sh discovery schema` reports what the "
+        "document must contain.",
+        {"workitem": paths.workitem, "phase": DISCOVERY_PHASE,
+         "path": str(paths.discovery_file)},
+    )
+
+
+# --------------------------------------------------------------------------
+# The repository baseline — contract §14
+# --------------------------------------------------------------------------
+#
+# §11 left `.sdle/baseline.json` as a documented empty slot and §14 gives it
+# its schema. It is the artifact that makes the convergence invariant real:
+# after *either* greenfield completion *or* brownfield discovery completion a
+# repository has the same minimum baseline shape, and every later WorkItem
+# converges onto ITERATIVE instead of rediscovering the repository.
+#
+# It **references** canonical artifacts and never copies them (§14, and
+# invariant 7). Every reference is `{path, sha256}`: a pointer plus a
+# fingerprint. `nonNegotiables` holds finding *ids* into the discovery record,
+# never prose — the record is the findings' one home.
+#
+# Reading is fail-closed, deliberately against `read_repo_config`'s
+# swallow-and-default (T05 NB-4): a silently defaulted baseline would make the
+# convergence invariant unprovable, which is the failure direction ADR-003 §3
+# already rejected once for the governance policy.
+
+BASELINE_VERSION = "1"
+SUPPORTED_BASELINE_VERSIONS = ("1",)
+
+# §14's nine facts, as the keys that carry them: baseline version, producing
+# WorkItem (inside `establishedBy`), commit SHA, constitution reference,
+# architecture/design references, ADR references, non-negotiables, discovery
+# status (inside `discovery`) and timestamp.
+BASELINE_REQUIRED_KEYS = (
+    "baselineVersion", "establishedAt", "establishedBy", "commit",
+    "discovery", "references", "nonNegotiables", "supersedes",
+)
+BASELINE_REFERENCE_KINDS = ("constitution", "architecture", "adrs")
+
+# Which flows establish a baseline. §14's convergence sentence names greenfield
+# completion and brownfield discovery completion, and nothing else: letting a
+# flow that performed no discovery establish a "discovered" baseline is exactly
+# the thing that would make the invariant decorative.
+BASELINE_ESTABLISHING_FLOWS = ("GREENFIELD", "BROWNFIELD_DISCOVERY")
+
+# The two flows §14 and §13 make conditional on the baseline, and nothing else.
+# `BASELINE_REDISCOVERY_FLOW` is the one that performs discovery, so it is the
+# only flow `classification.rediscovery` can meaningfully accompany, and the
+# only one a sound baseline refuses. `BASELINE_REQUIRING_FLOW` is §13's
+# "use established repository baseline, no full repository rediscovery".
+#
+# `DEFECT_FIX` and `HOTFIX` are deliberately absent: §13 gives them no baseline
+# clause, and blocking an emergency hotfix on a repository-level artifact would
+# be a governance change §14 did not ask for.
+BASELINE_REDISCOVERY_FLOW = "BROWNFIELD_DISCOVERY"
+BASELINE_REQUIRING_FLOW = "ITERATIVE"
+
+DISCOVERY_PERFORMED, DISCOVERY_NOT_REQUIRED = "PERFORMED", "NOT_REQUIRED"
+BASELINE_AUDIT_EVENT = "baseline_established"
+
+# The four derived statuses. `ABSENT` emits no finding at all: most
+# repositories have no baseline and that is not a defect.
+BASELINE_ABSENT, BASELINE_VALID = "ABSENT", "VALID"
+BASELINE_STALE, BASELINE_INVALID = "STALE", "INVALID"
+
+
+def _reference(paths: Paths, relative: str | None) -> dict | None:
+    """A `{path, sha256}` pointer, or None when there is nothing to point at.
+
+    Never returns content. The descriptor is a set of references and this is
+    the only function that builds one, so "references, never copies" is a
+    property of one function rather than a rule four call sites must remember.
+    """
+    if not relative:
+        return None
+    target = paths.project_root / relative
+    if not target.is_file():
+        return None
+    return {"path": relative, "sha256": sha256_file(target)}
+
+
+def baseline_descriptor(paths: Paths, state: dict, consts: Constants,
+                        execution_id: str, stamp: str) -> dict:
+    """Build the descriptor. **Total by construction: never raises.**
+
+    An absent constitution yields ``null``, an absent design document yields
+    ``[]``, an absent discovery record yields ``NOT_REQUIRED``. Validity is
+    derived *later*, by ``baseline_findings``, and never asserted here —
+    because this runs inside the final gate approval, after `gate_approved` is
+    already in the append-only ledger, and an append cannot be undone by a
+    later raise. Writing the baseline must not be able to block a human's
+    final approval.
+    """
+    flow = (state.get("flow") or DEFAULT_FLOW)
+    constitution_path, _ = resolve_artifact_path(
+        state, consts, "gate_constitution", paths)
+    design_path, _ = resolve_artifact_path(state, consts, "gate_design", paths)
+
+    record = None
+    try:
+        record = discovery_accepted(paths)
+    except IntegrityError:
+        # A corrupt discovery record is reported by `validate` and by
+        # `discovery show`. Here it degrades to "no record", because the one
+        # thing this function may not do is raise.
+        record = None
+
+    findings = (record or {}).get("findings") or []
+    observed = DISCOVERY_CLASSIFICATIONS[0]
+    adr_refs: list[dict] = []
+    for finding in findings:
+        if finding.get("category") != "adrs":
+            continue
+        if finding.get("classification") != observed:
+            continue
+        for cited in finding.get("evidence") or []:
+            reference = _reference(paths, cited)
+            if reference and reference not in adr_refs:
+                adr_refs.append(reference)
+
+    architecture = _reference(paths, design_path)
+    previous = None
+    try:
+        existing = read_baseline(paths)
+    except IntegrityError:
+        existing = None
+    if isinstance(existing, dict):
+        previous = {
+            "establishedAt": existing.get("establishedAt"),
+            "sha256": sha256_file(paths.baseline_file)
+            if paths.baseline_file.is_file() else None,
+        }
+
+    return {
+        "baselineVersion": BASELINE_VERSION,
+        "establishedAt": stamp,
+        "establishedBy": {
+            "workitem": paths.workitem,
+            "flow": flow,
+            "executionId": execution_id,
+        },
+        "commit": _git_value(paths, "rev-parse", "HEAD"),
+        "discovery": {
+            "status": (DISCOVERY_PERFORMED if record is not None
+                       else DISCOVERY_NOT_REQUIRED),
+            "record": (paths.discovery_file.relative_to(paths.project_root)
+                       .as_posix()) if record is not None else None,
+            "recordSha256": (sha256_file(paths.discovery_file)
+                             if record is not None else None),
+            "counts": (record or {}).get("counts") if record else None,
+        },
+        "references": {
+            "constitution": _reference(paths, constitution_path),
+            "architecture": [architecture] if architecture else [],
+            "adrs": adr_refs,
+        },
+        "nonNegotiables": {
+            "source": (paths.discovery_file.relative_to(paths.project_root)
+                       .as_posix()) if record is not None else None,
+            "findingIds": [f["id"] for f in findings
+                           if f.get("category") == "constraints_non_negotiables"],
+        },
+        "supersedes": previous,
+    }
+
+
+def read_baseline(paths: Paths) -> dict | None:
+    """The repository baseline, or ``None`` when there is none.
+
+    Fail-closed, mirroring ``read_governance_record`` and deliberately **not**
+    ``read_repo_config``: absent is ``None``; unreadable, unparseable,
+    non-object or an unsupported ``baselineVersion`` is an ``IntegrityError``.
+    There is no ``return <default>`` in any handler here, and there must not
+    be: a baseline that silently defaulted would let a corrupt file read as
+    "not yet established" and be overwritten, and would make §14's convergence
+    invariant unprovable.
+    """
+    target = paths.baseline_file
+    if not target.is_file():
+        return None
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise IntegrityError(
+            "baseline_invalid",
+            f"{paths.config_root_relative}/{target.name} cannot be read: "
+            f"{exc}. Delete it to return the repository to a baseline-free "
+            "state, or restore it from version control.",
+            {"path": str(target), "error": str(exc)},
+        ) from None
+    if not isinstance(document, dict):
+        raise IntegrityError(
+            "baseline_invalid",
+            f"{paths.config_root_relative}/{target.name} is not a JSON object.",
+            {"path": str(target)},
+        )
+    if document.get("baselineVersion") not in SUPPORTED_BASELINE_VERSIONS:
+        raise IntegrityError(
+            "baseline_invalid",
+            f"{paths.config_root_relative}/{target.name} declares "
+            f"baselineVersion {document.get('baselineVersion')!r}; this "
+            "engine supports "
+            + ", ".join(repr(v) for v in SUPPORTED_BASELINE_VERSIONS) + ".",
+            {"path": str(target), "version": document.get("baselineVersion")},
+        )
+    return document
+
+
+def _baseline_reference_paths(document: dict) -> list[dict]:
+    """Every `{path, sha256}` the descriptor points at, flattened."""
+    references = document.get("references") or {}
+    flat: list[dict] = []
+    constitution = references.get("constitution")
+    if isinstance(constitution, dict):
+        flat.append(constitution)
+    for kind in ("architecture", "adrs"):
+        for entry in references.get(kind) or []:
+            if isinstance(entry, dict):
+                flat.append(entry)
+    discovery = document.get("discovery") or {}
+    if discovery.get("status") == DISCOVERY_PERFORMED and discovery.get("record"):
+        flat.append({"path": discovery["record"],
+                     "sha256": discovery.get("recordSha256")})
+    return flat
+
+
+def baseline_findings(paths: Paths) -> list[dict]:
+    """The single answer to "is this repository's baseline sound".
+
+    Two consumers — `baseline show`/`baseline validate`, and `validate` — so
+    they can never disagree about the same repository (invariant 7). The
+    `repo_config_findings` shape exactly.
+
+    **Material invalidation** is the error set and nothing else:
+    `baseline_invalid`, `baseline_producer_unregistered`,
+    `baseline_reference_missing`. A *changed* reference is a warning, because
+    `design_generation` runs in ITERATIVE and rewrites the design document: if
+    change invalidated the baseline, the third WorkItem in any repository
+    would be forced back into full rediscovery, which is exactly what §26
+    item 22 says must not happen. A missing reference is different in kind —
+    the baseline's claims can no longer be checked at all.
+    """
+    if not paths.baseline_file.is_file():
+        return []
+
+    relative = f"{paths.config_root_relative}/{paths.baseline_file.name}"
+    try:
+        document = read_baseline(paths)
+    except IntegrityError as exc:
+        return [_finding("baseline_invalid", VALIDATE_ERROR, exc.message,
+                         path=paths.baseline_file)]
+    if document is None:                       # pragma: no cover - raced away
+        return []
+
+    findings: list[dict] = []
+    missing_keys = [k for k in BASELINE_REQUIRED_KEYS if k not in document]
+    if missing_keys:
+        findings.append(_finding(
+            "baseline_invalid", VALIDATE_ERROR,
+            f"{relative} is missing required key(s) "
+            + ", ".join(missing_keys),
+            path=paths.baseline_file))
+        return findings
+
+    producer = (document.get("establishedBy") or {}).get("workitem")
+    try:
+        registered = registered_workitem_ids(paths)
+    except SdleError:
+        # A registry too broken to read is diagnosed by `validate`'s own
+        # `index_malformed` path at the same exit code. Not re-diagnosed here.
+        registered = None
+    if registered is not None and producer not in registered:
+        findings.append(_finding(
+            "baseline_producer_unregistered", VALIDATE_ERROR,
+            f"{relative} was established by WorkItem {producer!r}, which is "
+            "not registered in workitems/index.md; the baseline names a "
+            "producer this repository cannot account for",
+            workitem=producer if isinstance(producer, str) else None,
+            path=paths.baseline_file))
+
+    for reference in _baseline_reference_paths(document):
+        cited = reference.get("path")
+        if not isinstance(cited, str) or not cited:
+            findings.append(_finding(
+                "baseline_invalid", VALIDATE_ERROR,
+                f"{relative} carries a reference with no path",
+                path=paths.baseline_file))
+            continue
+        target = paths.project_root / cited
+        if not target.is_file():
+            findings.append(_finding(
+                "baseline_reference_missing", VALIDATE_ERROR,
+                f"{relative} references {cited}, which no longer exists; the "
+                "baseline's claims about it can no longer be checked",
+                path=target))
+            continue
+        recorded = reference.get("sha256")
+        if recorded and sha256_file(target) != recorded:
+            findings.append(_finding(
+                "baseline_reference_changed", VALIDATE_WARNING,
+                f"{relative} references {cited}, which exists but has changed "
+                "since the baseline was established; a changed reference is "
+                "reported, never a refusal — later WorkItems legitimately "
+                "rewrite design documents",
+                path=target))
+    return findings
+
+
+def baseline_status(findings: list[dict], present: bool) -> str:
+    """The status those findings add up to. Derived, never stored."""
+    if not present:
+        return BASELINE_ABSENT
+    if any(f["severity"] == VALIDATE_ERROR for f in findings):
+        return BASELINE_INVALID
+    if findings:
+        return BASELINE_STALE
+    return BASELINE_VALID
+
+
+def baseline_state(paths: Paths) -> tuple[str, list[dict]]:
+    """``(status, findings)`` for this repository. The one entry point."""
+    present = paths.baseline_file.is_file()
+    findings = baseline_findings(paths)
+    return baseline_status(findings, present), findings
+
+
+def baseline_precondition(paths: Paths, flow: str, rediscovery: bool) -> str:
+    """§14's exit criterion and §13's ITERATIVE definition, enforced at the
+    single flow-binding site. Returns the derived baseline status.
+
+    | Id | Rule | Reason code |
+    |----|------|-------------|
+    | R1 | Binding the discovery flow while the baseline is `VALID` or `STALE`, without a rediscovery request | `baseline_present` |
+    | R2 | Binding the iterative flow while the baseline is `ABSENT` or `INVALID` | `baseline_required` |
+
+    **R1 is §14's exit criterion enforced rather than asserted:** the second
+    WorkItem against the same valid baseline does not rerun full discovery,
+    because the engine will not let it. **R2 is §13's ITERATIVE definition made
+    true** — without it the convergence invariant is decorative.
+
+    A `STALE` baseline satisfies R1 and R2 on purpose. A changed reference is a
+    warning (see `baseline_findings`), and forcing rediscovery on it would
+    contradict §26 item 22.
+
+    A **pure reader**: no state write, no `append_audit`. `cmd_init` calls it
+    *before* its first `mkdir`, so a refusal creates nothing at all — no
+    runtime directory, no execution file, no audit entry. It is evaluated only
+    at `init`, because the flow binds once and re-checking at every `advance`
+    would refuse a run mid-flight over a repository-level fact the WorkItem
+    cannot fix. The status it returns is recorded in the `flow_selected` audit
+    entry, so the facts the decision was made on are auditable.
+
+    Never enforced under the transitional legacy `.workflow/` binding, for the
+    same reason `governance_precondition` and `discovery_precondition` skip it:
+    there is no WorkItem to hold the record either rule reasons about.
+    """
+    status, findings = baseline_state(paths)
+    if paths.workitem is None:
+        return status
+    relative = f"{paths.config_root_relative}/{paths.baseline_file.name}"
+    data = {"workitem": paths.workitem, "flow": flow, "baseline_status": status,
+            "path": relative, "findings": findings}
+
+    if flow == BASELINE_REDISCOVERY_FLOW and status in (BASELINE_VALID,
+                                                        BASELINE_STALE):
+        if rediscovery:
+            return status
+        raise Refused(
+            "baseline_present",
+            f"This repository already has a {status} baseline at {relative}, "
+            f"so {flow} would rediscover what has already been discovered. "
+            "Contract §14 performs full repository discovery once. Either "
+            f"re-assess this WorkItem as {BASELINE_REQUIRING_FLOW}, which is "
+            "what a repository with a baseline is for, or record "
+            "classification.rediscovery as true to ask for a deliberate "
+            "rediscovery.",
+            data,
+        )
+
+    if flow == BASELINE_REQUIRING_FLOW and status in (BASELINE_ABSENT,
+                                                      BASELINE_INVALID):
+        detail = ("no baseline has been established yet"
+                  if status == BASELINE_ABSENT
+                  else "; ".join(f["detail"] for f in findings))
+        raise Refused(
+            "baseline_required",
+            f"{flow} works from an established repository baseline and "
+            f"performs no rediscovery, but {relative} is {status}: {detail}. "
+            "Complete a "
+            + " or ".join(BASELINE_ESTABLISHING_FLOWS)
+            + " WorkItem first — either establishes one at its final gate.",
+            data,
+        )
+
+    return status
+
+
+def establish_baseline(paths: Paths, state: dict, consts: Constants,
+                       stamp: str) -> tuple[str | None, str | None]:
+    """§14's convergence invariant made literal. **The only writer.**
+
+    Called from exactly one place — the ``is_final`` branch of
+    ``cmd_gate_approve`` — and only for the two flows §14's convergence
+    sentence names (``BASELINE_ESTABLISHING_FLOWS``). There is deliberately no
+    ``baseline establish`` / ``baseline set`` command: a second writer would
+    let the model manufacture the very fact that authorises ITERATIVE, which
+    is the governance bypass ADR-004 §3 refused for ``flow set``.
+
+    Returns ``(relative_path, sha256)``, or ``(None, None)`` when the
+    completing flow establishes no baseline. Returning the pair rather than
+    the ``Paths`` member is what keeps ``cmd_gate_approve`` out of the
+    repository-configuration reference set: the lifecycle reaches the §11
+    boundary *through* this function and never names a member itself.
+
+    **It never refuses and never raises on missing inputs.**
+    ``baseline_descriptor`` is total by construction, and this runs after
+    ``gate_approved`` is already in the append-only ledger, where a raise
+    could not be undone. Validity is derived later by ``baseline_findings``,
+    never asserted here.
+    """
+    if paths.workitem is None:
+        # The transitional legacy `.workflow/` binding has no WorkItem, and
+        # §14's second required fact is the *producing WorkItem*. A descriptor
+        # naming no producer would be invalid the moment it was written, so
+        # the honest outcome is to establish nothing. Same reason
+        # `governance_precondition` and `discovery_precondition` skip it.
+        return None, None
+    if (state.get("flow") or DEFAULT_FLOW) not in BASELINE_ESTABLISHING_FLOWS:
+        return None, None
+    descriptor = baseline_descriptor(
+        paths, state, consts, execution_identity(paths, stamp), stamp)
+    target = paths.baseline_file
+    write_atomic(target, json.dumps(descriptor, indent=2) + "\n")
+    return target.relative_to(paths.project_root).as_posix(), sha256_file(target)
+
+
+def cmd_baseline_show(args, paths: Paths) -> int:
+    """The baseline, its derived status and its findings. Writes nothing."""
+    status, findings = baseline_state(paths)
+    document = None
+    if status not in (BASELINE_ABSENT, BASELINE_INVALID):
+        document = read_baseline(paths)
+    elif status == BASELINE_INVALID:
+        try:
+            document = read_baseline(paths)
+        except IntegrityError:
+            document = None
+    emit("baseline show", {
+        "status": status,
+        "path": f"{paths.config_root_relative}/{paths.baseline_file.name}",
+        "present": paths.baseline_file.is_file(),
+        "findings": findings,
+        "baseline": document,
+        "establishing_flows": list(BASELINE_ESTABLISHING_FLOWS),
+    })
+    return EXIT_OK
+
+
+def cmd_baseline_validate(args, paths: Paths) -> int:
+    """Exit 0 only on VALID. Writes nothing, and appends nothing."""
+    status, findings = baseline_state(paths)
+    data = {
+        "status": status,
+        "path": f"{paths.config_root_relative}/{paths.baseline_file.name}",
+        "findings": findings,
+        "errors": len([f for f in findings if f["severity"] == VALIDATE_ERROR]),
+        "warnings": len([f for f in findings
+                         if f["severity"] == VALIDATE_WARNING]),
+    }
+    if status != BASELINE_VALID:
+        raise Refused(
+            "baseline_not_valid",
+            f"The repository baseline is {status}. "
+            + ("No baseline has been established: complete a "
+               + " or ".join(BASELINE_ESTABLISHING_FLOWS)
+               + " WorkItem, which establishes one at its final gate."
+               if status == BASELINE_ABSENT
+               else "; ".join(f["detail"] for f in findings)),
+            data,
+        )
+    emit("baseline validate", data)
     return EXIT_OK
 
 
@@ -5539,6 +6637,7 @@ def apply_advance(
     # the same pure-reader device `cmd_gate_approve` and `cmd_skip` use.
     governance_precondition(paths)
     flow_precondition(paths, state)
+    discovery_precondition(paths, state)
     governance_precondition(paths, state)
 
     if status is None:
@@ -5686,6 +6785,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     # the failure to before the first irreversible write.
     governance_precondition(paths)
     flow_precondition(paths, state)
+    discovery_precondition(paths, state)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
@@ -5712,7 +6812,14 @@ def cmd_gate_approve(args, paths: Paths) -> int:
                           "completed" if is_final else None, "approved")
 
     summary_path = None
+    baseline_path = baseline_sha = None
     if is_final:
+        # §14 — the repository baseline is established FIRST in this branch,
+        # before the completion summary and before `workflow_complete`, so an
+        # I/O failure produces the same failure shape `write_completion_summary`
+        # already has today rather than a new one. The call cannot refuse.
+        baseline_path, baseline_sha = establish_baseline(
+            paths, state, consts, stamp)
         summary_path = write_completion_summary(paths, state)
         append_audit(
             paths,
@@ -5723,6 +6830,21 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             "Workflow complete. Completion summary written.",
             artifact=summary_path,
         )
+        if baseline_path:
+            append_audit(
+                paths,
+                state,
+                phase="complete",
+                event=BASELINE_AUDIT_EVENT,
+                message=(
+                    f"Repository baseline established from {flow.name} "
+                    f"completion: {baseline_path}. Later WorkItems converge "
+                    "onto ITERATIVE against it instead of rediscovering the "
+                    "repository."
+                ),
+                artifact=baseline_path,
+                artifact_sha=baseline_sha,
+            )
 
     save_state(paths, state, args.session)
     emit(
@@ -5736,6 +6858,11 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             "status": moved["status"],
             "progress": moved["progress"],
             "completion_summary": summary_path,
+            # `null` for every non-final approval and for a completing flow
+            # that establishes no baseline; §14's convergence artifact
+            # otherwise. Reported so the orchestrator can show it without
+            # reading the repository configuration boundary itself.
+            "baseline": baseline_path,
         },
     )
     return EXIT_OK
@@ -6768,6 +7895,7 @@ def cmd_skip(args, paths: Paths) -> int:
     # in one place; passing no `state` keeps this call a pure reader.
     governance_precondition(paths)
     flow_precondition(paths, state)
+    discovery_precondition(paths, state)
 
     state["pending_confirm_action"] = None
     state["current_artifact"] = None
@@ -7745,6 +8873,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     )
 
     checks.extend(_check_flow_model(consts))
+    checks.extend(_check_discovery(paths, consts))
     checks.append(_check_single_state_template(paths))
     checks.append(_check_version_consistency(paths))
     checks.append(_check_migration_covers_state_fields(paths, consts))
@@ -7862,6 +8991,73 @@ def _check_flow_model(consts: Constants) -> list[Check]:
               "; ".join(label_problems) if label_problems
               else f"all {len(consts.gate_phases)} gate labels are "
                    "flow-relative"))
+    return checks
+
+
+def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
+    """T08's cross-file rules for the `discovery` registry phase.
+
+    Three decisions ADR-005 pins, each turned into a named failure so a later
+    edit that reverses one has to do it visibly.
+    """
+    checks: list[Check] = []
+
+    # 1. Gateless, following `impact_analysis` (ADR-004 §2, ADR-005 D1). A
+    #    gate here would cost a PHASE_TO_GATE_KEY row, an ARTIFACT_OWNERSHIP
+    #    row, a GATE_TO_EXECUTION_PHASE row and a ninth `approvals` key —
+    #    therefore a schema migration — and would make gate numbering
+    #    conditional on flow for every flow. The key is *derived* rather than
+    #    spelled, so this check cannot itself be what introduces one.
+    gate_key = f"gate_{DISCOVERY_PHASE}"
+    gate_problems: list[str] = []
+    if DISCOVERY_PHASE in consts.phase_to_gate_key:
+        gate_problems.append(f"{DISCOVERY_PHASE} has a PHASE_TO_GATE_KEY row")
+    if gate_key in set(consts.phase_to_gate_key.values()):
+        gate_problems.append(f"{gate_key} is a registered gate key")
+    if gate_key in consts.artifact_ownership:
+        gate_problems.append(f"{gate_key} has an ARTIFACT_OWNERSHIP row")
+    if gate_key in consts.gate_to_execution_phase:
+        gate_problems.append(f"{gate_key} has a GATE_TO_EXECUTION_PHASE row")
+    if DISCOVERY_PHASE in consts.progress:
+        gate_problems.append(
+            f"{DISCOVERY_PHASE} has a PROGRESS_MAP row, and PROGRESS_MAP is "
+            "the GREENFIELD view")
+    checks.append(
+        Check("discovery_is_gateless", not gate_problems,
+              "; ".join(gate_problems) if gate_problems
+              else "no gate machinery names the discovery phase"))
+
+    # 2. It belongs to one flow. Putting it in the mandatory floor, or in a
+    #    second flow, is the opposite of §14's intent: discovery happens once
+    #    and every later WorkItem converges onto ITERATIVE.
+    expected = ["BROWNFIELD_DISCOVERY"]
+    carriers = sorted(name for name, flow in consts.flows.items()
+                      if DISCOVERY_PHASE in flow.phases)
+    checks.append(
+        Check("discovery_is_declared_by_exactly_one_flow", carriers == expected,
+              f"carried by {carriers}, expected {expected}"
+              if carriers != expected
+              else "BROWNFIELD_DISCOVERY is its only carrier"))
+
+    # 3. One home per fact (invariant 7). The §14 vocabulary reaches the
+    #    prompt layer through `discovery schema` and is restated nowhere.
+    #    Deliberately not every category id: five of the fourteen are ordinary
+    #    English words the prompt files already use as prose, so searching for
+    #    them would prove nothing. The machine-readable part is the drift
+    #    surface, and that is what is searched.
+    needles = (tuple(c for c in DISCOVERY_CATEGORIES if "_" in c)
+               + DISCOVERY_CLASSIFICATIONS
+               + (DISCOVERY_INPUT_SECTIONS[0],))
+    restated = []
+    for path in _skill_files(paths):
+        body = path.read_text(encoding="utf-8")
+        restated.extend(f"{path.name}:{n}" for n in needles if n in body)
+    checks.append(
+        Check("discovery_vocabulary_is_not_restated_in_prompt_files",
+              not restated,
+              f"restated {sorted(restated)}" if restated
+              else f"none of the {len(needles)} vocabulary identifiers "
+                   "appears in a prompt file"))
     return checks
 
 
@@ -8226,6 +9422,38 @@ def build_parser() -> argparse.ArgumentParser:
         "gates", help="The would-be required gate set. Advisory only."
     )
     gov_gates.set_defaults(handler=cmd_governance_gates)
+
+    baseline_p = subparsers.add_parser(
+        "baseline", help="The repository baseline (contract §14). Read-only."
+    )
+    baseline_sub = baseline_p.add_subparsers(dest="subcommand", required=True)
+    base_show = baseline_sub.add_parser(
+        "show", help="The baseline and its derived status. Writes nothing."
+    )
+    base_show.set_defaults(handler=cmd_baseline_show)
+    base_validate = baseline_sub.add_parser(
+        "validate", help="Exit 0 only when the baseline is VALID."
+    )
+    base_validate.set_defaults(handler=cmd_baseline_validate)
+
+    discovery_p = subparsers.add_parser(
+        "discovery", help="Brownfield repository discovery (contract §14)."
+    )
+    discovery_sub = discovery_p.add_subparsers(dest="subcommand", required=True)
+    disc_schema = discovery_sub.add_parser(
+        "schema", help="The closed discovery vocabulary. Writes nothing."
+    )
+    disc_schema.set_defaults(handler=cmd_discovery_schema)
+    disc_assess = discovery_sub.add_parser(
+        "assess", help="Evaluate proposed findings and record them."
+    )
+    disc_assess.add_argument("--input", required=True,
+                             help="Path to the structured discovery input JSON.")
+    disc_assess.set_defaults(handler=cmd_discovery_assess)
+    disc_show = discovery_sub.add_parser(
+        "show", help="The recorded discovery findings. Writes nothing."
+    )
+    disc_show.set_defaults(handler=cmd_discovery_show)
 
     # Read-only by construction. There is deliberately no `flow set`: see
     # `cmd_flow_show`'s docstring for why a second writer of traversal

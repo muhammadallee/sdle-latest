@@ -682,6 +682,12 @@ def test_the_runtime_member_names_are_derived_from_paths():
         # policy file (`governance-policy.json`), or the disjointness assertion
         # below and the two leak detectors would contradict each other.
         "governance.json", "reviews.json",
+        # T08: the §14 discovery record. WorkItem-owned by the same argument —
+        # it is work one WorkItem performed, and the repository baseline that
+        # outlives it *references* this file rather than copying it. Adding it
+        # here is what gives the leak detector its new parametrisation for
+        # free, in both directions.
+        "discovery.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "templates", "baseline.json",
@@ -851,8 +857,28 @@ def test_the_configuration_boundary_changes_no_lifecycle_behaviour(
     # 3. identical state, modulo the fields two runs legitimately differ in.
     assert scrub(configured.state()) == scrub(plain.state())
 
-    # 4. the strongest clause: the lifecycle never touched the boundary.
-    assert sha_map(configured.root / ".sdle") == boundary_before
+    # 4. The strongest clause, restated at T08 and deliberately not weakened.
+    #
+    #    T05 could say "the lifecycle never touches the boundary" because
+    #    nothing in the lifecycle wrote it. §14 changes that on purpose: a
+    #    GREENFIELD completion establishes `.sdle/baseline.json`, which is the
+    #    convergence artifact the contract asks for, so "never touched" is no
+    #    longer a true statement about the engine and asserting it would be
+    #    asserting a fiction. The clause therefore becomes exact: the run adds
+    #    **exactly one** boundary entry, that entry is the baseline, and every
+    #    pre-existing entry is byte-identical afterwards. A second new file, or
+    #    any mutation of `config.json`, still fails here.
+    boundary_after = sha_map(configured.root / ".sdle")
+    added = set(boundary_after) - set(boundary_before)
+
+    assert added == {"baseline.json"}, added
+    assert {k: v for k, v in boundary_after.items() if k in boundary_before} \
+        == boundary_before
+    assert set(boundary_before) - set(boundary_after) == set()
+    # And the plain repository — which never ran `config init` — gets the same
+    # one file, so the baseline is a lifecycle artifact rather than something
+    # the configuration boundary's existence provoked.
+    assert set(sha_map(plain.root / ".sdle")) == {"baseline.json"}
 
 
 def test_the_scrubbed_state_comparison_still_has_teeth(git_project):
@@ -883,6 +909,31 @@ CONFIG_REFERENCE_SITES = {
     # T06: exactly one new function legitimately reaches the boundary — the
     # fail-closed governance policy reader. No lifecycle command may.
     "read_governance_policy",
+    # T08: §14 gives `.sdle/baseline.json` its schema and makes it real, so the
+    # boundary gains readers and — for the first time — a writer. The set stays
+    # closed and stays asserted by exact equality; what changed is that it is
+    # no longer empty of lifecycle-adjacent work.
+    #
+    #   `read_baseline`         the fail-closed reader (never fail-open)
+    #   `baseline_findings`     the single validity predicate
+    #   `baseline_descriptor`   builds the {path, sha256} references
+    #   `establish_baseline`    the ONLY writer, called from exactly one place
+    #   `baseline_precondition` R1/R2, called from exactly one place
+    #   `cmd_baseline_show` / `cmd_baseline_validate`  the two read-only commands
+    #
+    # `cmd_gate_approve` and `cmd_init` are deliberately absent: they reach the
+    # baseline *through* `establish_baseline` and `baseline_precondition`, and
+    # name no configuration member themselves. That is what keeps
+    # `test_no_lifecycle_command_reads_the_repository_configuration` true
+    # unchanged.
+    "read_baseline",
+    "baseline_findings",
+    "baseline_state",
+    "baseline_descriptor",
+    "establish_baseline",
+    "baseline_precondition",
+    "cmd_baseline_show",
+    "cmd_baseline_validate",
 }
 
 RUNTIME_WRITERS = {
@@ -902,8 +953,15 @@ def functions_outside_paths(tree: ast.Module) -> list[ast.FunctionDef]:
 
 
 def test_the_repository_configuration_members_have_a_closed_reference_set():
-    """N11(1): only five functions in the whole engine may reach the
-    repository configuration boundary. Nothing in the lifecycle may."""
+    """N11(1): a closed, named set of functions may reach the repository
+    configuration boundary, and it is asserted by exact equality.
+
+    T05 could say "nothing in the lifecycle may" because nothing in the engine
+    read the boundary at all. T06 added one reader. T08 adds §14's baseline —
+    which the lifecycle genuinely writes, at completion. The containment proof
+    is therefore that the reaching set is *closed and named*, and the separate
+    clause below is what keeps the lifecycle commands themselves out of it.
+    """
     tree = sdle_ast()
     sites = set()
     for fn in functions_outside_paths(tree):

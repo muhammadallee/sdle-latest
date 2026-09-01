@@ -713,7 +713,11 @@ def test_the_record_carries_every_section_12_evidence_item(project):
     # §12's seven evidence items, one assertion each.
     assert record["quality"]["result"] in ("PASS", "BLOCKED")
     assert record["classification"] == {
-        "type": "enhancement", "flow": "GREENFIELD", "advisory": False}
+        "type": "enhancement", "flow": "GREENFIELD", "advisory": False,
+        # T08/§14: the third permitted key, defaulted here because this input
+        # does not name it. An absent key reads as false, so no governance
+        # document written before T08 changes meaning.
+        "rediscovery": False}
     assert record["risk"]["signals"] == ["external_api_surface",
                                          "persistent_data_store"]
     assert isinstance(record["risk"]["score"], int)
@@ -1224,7 +1228,8 @@ def test_every_valid_classification_round_trips(project, wi_type, flow):
     assert assess(project, document).exit_code == EXIT_OK
 
     assert record_of(project)["classification"] == {
-        "type": wi_type, "flow": flow, "advisory": False}
+        "type": wi_type, "flow": flow, "advisory": False,
+        "rediscovery": False}
 
 
 def test_the_classification_flag_no_longer_claims_to_be_advisory(project):
@@ -1772,7 +1777,7 @@ GOVERNANCE_VARIANTS = {
 # the flow, and nothing else, decides which phases a WorkItem executes.
 FLOW_FIRST_GENERATION_PHASE = {
     "GREENFIELD": "constitution_draft",
-    "BROWNFIELD_DISCOVERY": "constitution_draft",
+    "BROWNFIELD_DISCOVERY": "discovery",
     "ITERATIVE": "spec_draft",
     "DEFECT_FIX": "impact_analysis",
     "HOTFIX": "impact_analysis",
@@ -1887,6 +1892,14 @@ def test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle(
         document["risk"] = dict(LOW_RISK)
         assert assess(view, document).exit_code == EXIT_OK, name
 
+        # T08/R2: ITERATIVE works from an established baseline and `init`
+        # refuses `baseline_required` without one. Supplied only when the
+        # repository has none, so a test that establishes a real baseline
+        # first is never overwritten by the driver.
+        if name == sdle.BASELINE_REQUIRING_FLOW and not (
+                view.root / ".sdle" / "baseline.json").exists():
+            view.establish_baseline()
+
         view.ok("init", session=name.lower())
 
         state = view.state()
@@ -1894,8 +1907,9 @@ def test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle(
         assert state["current_phase"] == expected, (name, state)
         landed[name] = state["current_phase"]
 
-    # Not vacuous: the five flows land on three different phases.
-    assert len(set(landed.values())) == 3, landed
+    # Not vacuous: the five flows land on four different phases. It was three
+    # at T07, when BROWNFIELD_DISCOVERY still shared GREENFIELD's landing.
+    assert len(set(landed.values())) == 4, landed
     assert landed["DEFECT_FIX"] == landed["HOTFIX"] == "impact_analysis"
     assert "impact_analysis" not in {landed["GREENFIELD"],
                                      landed["BROWNFIELD_DISCOVERY"],

@@ -3,7 +3,7 @@
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
 
-**Five flows over a 20-phase registry · GREENFIELD is 18 phases and 8 approval gates · full state/audit trail.**
+**Five flows over a 21-phase registry · GREENFIELD is 18 phases and 8 approval gates · full state/audit trail.**
 
 > For the full design rationale, a detailed walkthrough of every phase, glossary, flow diagrams, and an end-to-end example run, see **[docs/SDLE-Reference-Guide.md](docs/SDLE-Reference-Guide.md)** — the canonical enterprise reference for SDLE. This README is a quick-start and lookup reference only.
 >
@@ -93,7 +93,7 @@ Phase 18  ★ GATE 8: Security       gate_security        Approve -> complete
 
 **8 approval gates total.** Phases 8–9 run automatically (checklist then tasks, no gate between them) and are reviewed together at Gate 4. Design (Phase 13) deliberately precedes Implementation (Phase 15) so architecture decisions inform the generated code, not the other way around.
 
-The block above is the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every pre-flow workflow traversed. A WorkItem may instead be bound to `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`; each is an ordered subset of the same phase registry, so its `Phase N/M` and `Gate N/M` are that flow's own. The two defect flows additionally run `impact_analysis`, a gateless phase that maps the blast radius of a change before any specification is written; it is still fingerprinted and review-registered like every other governed artifact. Run `sdle.sh constants` for a flow's exact phase list.
+The block above is the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every pre-flow workflow traversed. A WorkItem may instead be bound to `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`; each is an ordered subset of the same phase registry, so its `Phase N/M` and `Gate N/M` are that flow's own. The two defect flows additionally run `impact_analysis`, a gateless phase that maps the blast radius of a change before any specification is written; it is still fingerprinted and review-registered like every other governed artifact. `BROWNFIELD_DISCOVERY` additionally runs `discovery`, a gateless phase that reads an existing repository and records a structured set of findings in which every statement is classified as observed, inferred or unknown, so an inference can never be read as an observation. Run `sdle.sh constants` for a flow's exact phase list.
 
 For *why* each phase and gate exists in this exact order — and what specifically breaks if it didn't — see [§7 of the Reference Guide](docs/SDLE-Reference-Guide.md#7-the-18-phase-workflow--detailed-reference).
 
@@ -323,6 +323,32 @@ creates nor invokes anything.
 The reasoning, and what was rejected, is in
 `docs/architecture/ADR-003-governance-inputs-and-artifact-review.md`.
 
+**Repository discovery.** A `BROWNFIELD_DISCOVERY` WorkItem reads the repository
+before anything is drafted from it, and records what it found as a structured,
+classified set of findings. The phase has no gate of its own, but it cannot be
+left — by `advance` or by `skip` — until a record the engine accepted exists.
+
+| Command | Effect |
+|---|---|
+| `scripts/sdle.sh discovery schema` | Report what a discovery document must contain: the closed category vocabulary, the classification vocabulary, the input envelope, the rule ids — and which classification properties the engine guarantees against which remain the author's claims. Needs no WorkItem and writes nothing. |
+| `scripts/sdle.sh discovery assess --input <path>` | Validate a proposed set of findings and write `workitems/<id>/.sdle/discovery.json` plus one evidence document. Refuses the whole document rather than recording part of it. |
+| `scripts/sdle.sh discovery show` | Report the recorded findings. Read-only. |
+| `scripts/sdle.sh baseline show` | Report `.sdle/baseline.json`, its derived status and its findings. Needs no WorkItem and writes nothing. |
+| `scripts/sdle.sh baseline validate` | Exit 0 only when the baseline is sound; otherwise refuse `baseline_not_valid` and name why. Writes nothing and appends nothing. |
+
+**What the engine guarantees here is exactly half of the rule, and it says
+so.** It guarantees that no finding is unclassified or carries a value outside
+the closed three; that a finding in the observation class cites a path that
+exists in this repository; that a finding in the inference class names the
+findings it rests on and that none of those is itself unknown; that a finding in
+the unknown class carries no evidence; and that no declared category is silently
+dropped. It cannot judge whether an observation is *true of* the file it cites,
+whether an inference follows, or whether the findings are complete — those stay
+claims by their author. Discovery is judgement work, and a checker that implied
+it had verified more than it did would be worse than no checker. The reasoning,
+and what was rejected, is in
+`docs/architecture/ADR-005-brownfield-discovery-and-baseline.md`.
+
 ---
 
 ## SpecKit Skill Mapping
@@ -398,7 +424,7 @@ rules are checked mechanically rather than by hand.
 │   ├── config.json                    ← Global configuration (`configVersion`, `policyFormat`)
 │   ├── policies/                      ← Policy definitions (empty today)
 │   ├── templates/                     ← Shared templates
-│   ├── baseline.json                  ← Reserved: the future repository baseline (not created yet)
+│   ├── baseline.json                  ← The repository baseline, written once at the final gate of a GREENFIELD or BROWNFIELD_DISCOVERY WorkItem
 │   └── implementation-state/          ← Reserved: implementation-transition metadata
 └── workitems/
     ├── index.md                       ← Append-only WorkItem registry (single source of truth)
@@ -423,6 +449,28 @@ name. The one at the repository root is derived from the project root alone and
 holds configuration; the one under a WorkItem is derived from the bound WorkItem
 and holds runtime state. `sdle validate` reports a leak in either direction. See
 `docs/architecture/ADR-002-repository-configuration-boundary.md`.
+
+### The repository baseline
+
+`.sdle/baseline.json` is what makes a repository stop being new. It is written
+once, at the final gate of a WorkItem that traversed `GREENFIELD` or
+`BROWNFIELD_DISCOVERY`, and it **references** the constitution, the design
+document, any decision records discovery found and the discovery record itself
+— each as a path and a SHA-256, never as a copy. `sdle.sh baseline show`
+reports it and its derived status; `sdle.sh baseline validate` exits non-zero
+unless that status is sound; `sdle validate` reports the same findings, from
+the same predicate, so the two can never disagree.
+
+Both of those completions produce the same descriptor shape. Only the
+discovery-derived content differs, and that is the point: **discovery happens
+once.** A second WorkItem in a repository that already has a sound baseline is
+refused if it tries to rediscover it, and is told to work from the baseline
+instead; `ITERATIVE` is refused if there is no sound baseline to work from. A
+deliberate rediscovery is still possible — it has to be asked for in the
+governance assessment, which makes it a recorded decision rather than an
+accident. A reference that has *changed* is reported and never refuses: later
+WorkItems legitimately rewrite design documents. A reference that has *gone*
+is an error, because the baseline can no longer be checked against anything.
 
 ---
 
@@ -567,7 +615,7 @@ Full field-by-field reference: **[Appendix B of the Reference Guide](docs/SDLE-R
 
 ## Extending SDLE
 
-**Add a new phase:** Insert a row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP, PROGRESS_MAP) and add a block to `modules/phase-execution.md`. Then run `scripts/sdle.sh lint-skill` — it checks every cross-file rule mechanically, so you no longer hand-verify them.
+**Add a new phase:** Insert a row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP), name it in at least one FLOW_PHASES row, and add a block to `modules/phase-execution.md`. PROGRESS_MAP and the block's phase number are the **GREENFIELD view**: a phase GREENFIELD does not run takes neither, exactly as `discovery` and `impact_analysis` do not. Then run `scripts/sdle.sh lint-skill` — it checks every cross-file rule mechanically, so you no longer hand-verify them.
 
 **Add a new gate:** Add a `gate_<name>` phase between two execution phases, register it in GATE_PHASES / PHASE_TO_GATE_KEY / ARTIFACT_OWNERSHIP, and in `state.json`'s `approvals` object.
 
@@ -583,7 +631,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
-| **v1.16** | Declarative flow selection. `PHASE_SEQUENCE` became a 20-entry phase *registry* and a **flow** — an ordered subset of it — became what a WorkItem traverses. Five flows: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX`, `HOTFIX`, declared in `FLOW_PHASES` except GREENFIELD, which is frozen in the engine so a new registry row can never silently join it. New gateless `impact_analysis` phase in the two defect flows. Progress fractions, gate numbers and gate labels are derived per flow. New `flow` state field, bound once at `init` and never re-bound; a governance record that later proposes a different flow is refused `flow_mismatch`. Seven new `lint-skill` checks. |
+| **v1.16** | Declarative flow selection. `PHASE_SEQUENCE` became a 21-entry phase *registry* and a **flow** — an ordered subset of it — became what a WorkItem traverses. Five flows: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX`, `HOTFIX`, declared in `FLOW_PHASES` except GREENFIELD, which is frozen in the engine so a new registry row can never silently join it. New gateless `impact_analysis` phase in the two defect flows. Progress fractions, gate numbers and gate labels are derived per flow. New `flow` state field, bound once at `init` and never re-bound; a governance record that later proposes a different flow is refused `flow_mismatch`. Seven new `lint-skill` checks. Then the brownfield half: a gateless `discovery` phase in `BROWNFIELD_DISCOVERY` whose findings are recorded through `discovery assess` and are refused unless every one of them is classified; and `.sdle/baseline.json`, written once at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` completion, which is what makes discovery happen once — a later WorkItem converges onto `ITERATIVE` against it, and `init` refuses `baseline_present` or `baseline_required` rather than relying on convention. |
 | **v1.15** | WorkItem-scoped Spec Kit context. The active WorkItem's Spec Kit feature directory moved from the repository-global `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, so two WorkItems in one repository can never be handed each other's specification. Repository-wide Spec Kit scaffolding — `.specify/`, including `memory/constitution.md` — stays where it is. New `specKit` state object replacing `current_feature_id`, new `feature bind` and `feature capabilities` subcommands, Spec Kit capability detection that refuses rather than assumes, and a gate that will not approve another WorkItem's artifact. |
 | **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |
 | **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |

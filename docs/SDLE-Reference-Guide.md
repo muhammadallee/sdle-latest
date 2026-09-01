@@ -4,7 +4,7 @@
 | Field | Value |
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
-| **Covers software version** | SDLE v1.16 (20-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
+| **Covers software version** | SDLE v1.16 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
 | **Document version** | 1.1 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
@@ -326,7 +326,7 @@ The two directories share a name and own nothing in common:
 | `config.json` — global configuration (`configVersion`, `policyFormat`) | `state.json` — lifecycle state |
 | `policies/` — policy definitions | `execution.json` — execution identity |
 | `templates/` — shared templates | `audit.md` — append-only ledger |
-| `baseline.json` — reserved for the repository baseline; no code writes it yet | `lock` — session lock |
+| `baseline.json` — the repository baseline; written once, at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem | `lock` — session lock |
 | `implementation-state/` — reserved for implementation-transition metadata | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
 
 The split is a **derivation, not a path prefix test**: the repository members
@@ -350,6 +350,69 @@ namespace from `workflow_version`: it is not workflow state and has no migration
 chain. The reasoning behind the boundary and the JSON policy-format decision is
 recorded in `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
+### 4.2.1 The repository baseline
+
+`baseline.json` is the one member of this boundary the lifecycle writes. It is
+written at exactly one place — the final gate approval of a WorkItem whose flow
+is `GREENFIELD` or `BROWNFIELD_DISCOVERY` — and by nothing else. There is
+deliberately no `baseline establish` command: a second writer would let the
+model manufacture the fact that authorises `ITERATIVE`.
+
+It records what the contract asks a baseline to record: its own version, the
+WorkItem and execution that produced it, the commit it was taken at, references
+to the constitution, to the design documents and to any decision records
+discovery found, the non-negotiable constraints discovery identified, whether
+discovery was performed at all, when it was established, and what it superseded.
+Every reference is a **path and a SHA-256 — a pointer and a fingerprint, never a
+copy.** The findings themselves have exactly one home, in the WorkItem that
+produced them.
+
+The write **cannot refuse**. It runs after the human's approval is already in
+the append-only ledger, where a refusal could not be undone, so an absent
+constitution or design document is recorded as absent rather than raised.
+Whether the result is sound is decided *afterwards*, by one predicate shared by
+`baseline show`, `baseline validate` and `sdle validate`, so those three can
+never disagree about one repository:
+
+| Status | Meaning |
+|---|---|
+| `ABSENT` | No baseline. Not a defect — most repositories have none, and no finding is emitted. |
+| `VALID` | No findings. |
+| `STALE` | A referenced file exists but has changed since the baseline was taken. **A warning, never a refusal.** |
+| `INVALID` | Malformed or incomplete, or its producing WorkItem is not in the registry, or a referenced file is gone. This is what the contract calls material baseline invalidation. |
+
+The `STALE`/`INVALID` split is a decision, not an accident. `design_generation`
+runs under `ITERATIVE` and rewrites the design document, so if a *changed*
+reference invalidated the baseline the third WorkItem in any repository would be
+forced back into full rediscovery — which is precisely what the contract says
+must not happen by default. A *missing* reference is different in kind: the
+baseline's claims can no longer be checked against anything.
+
+Two bindings depend on it, both evaluated at `init` and nowhere else, because
+the flow binds once and re-checking mid-run would refuse a WorkItem over a
+repository-level fact it cannot fix:
+
+- Binding `BROWNFIELD_DISCOVERY` to a repository whose baseline is sound is
+  refused `baseline_present`. Discovery happens once. The message names both
+  remedies: re-assess as `ITERATIVE`, or record a rediscovery request in the
+  governance assessment, which makes a second full discovery a deliberate,
+  audited decision instead of an accident.
+- Binding `ITERATIVE` to a repository with no sound baseline is refused
+  `baseline_required`. `ITERATIVE` is defined as working from an established
+  baseline and performing no rediscovery; without one there is nothing for it
+  to work from.
+
+`DEFECT_FIX` and `HOTFIX` are deliberately **not** covered by either rule.
+Blocking an emergency hotfix on a repository-level artifact would be a
+governance change nobody asked for.
+
+Both refusals are pure readers evaluated before `init` creates anything, so a
+refused `init` leaves no runtime directory, no execution file and no audit
+entry behind. A corrupt `baseline.json` halts with exit 3 and names the file;
+deleting it returns the repository to `ABSENT`, which is a supported state, and
+damages no workflow state. The full reasoning is in
+`docs/architecture/ADR-005-brownfield-discovery-and-baseline.md`.
+
 ### 4.3 Why a state file, not conversation memory
 
 Conversation context is volatile: it can be summarized, truncated, or lost entirely between sessions. SDLE treats `workitems/<id>/.sdle/state.json` as the only authoritative record of workflow position. Every turn re-reads it, re-validates it against `phase_history` (the **Recovery Consistency Check**), and re-derives the status header from it. This means a workflow can be paused for days, resumed in a brand-new conversation, or recovered after a crash mid-phase, and SDLE will behave identically to a continuous session.
@@ -363,7 +426,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 | **SDLE** | Spec Driven Lifecycle Engine — the orchestrator described in this document. |
 | **SpecKit** | The underlying open-source generation toolkit SDLE wraps. Provides the `speckit-*` skills that actually generate constitution/spec/plan/tasks/analysis/implementation content. |
 | **Orchestrator** | SDLE itself, in its role as the entity that sequences phases, enforces gates, and maintains state. Distinct from SpecKit, which only generates content when invoked. |
-| **Phase** | One of the 20 steps in the phase *registry* (e.g., `spec_draft`, `gate_spec`). Either an *execution phase* (generates or validates something) or a *gate phase* (awaits human approval). A WorkItem executes only the phases its bound flow contains — 18 of them under GREENFIELD. |
+| **Phase** | One of the 21 steps in the phase *registry* (e.g., `spec_draft`, `gate_spec`). Either an *execution phase* (generates or validates something) or a *gate phase* (awaits human approval). A WorkItem executes only the phases its bound flow contains — 18 of them under GREENFIELD. |
 | **Gate** | An execution-blocking checkpoint requiring an explicit human `approve` or `reject with comments:` decision. Eight gates are registered; how many a WorkItem meets, and what number each carries, is a property of its bound **flow** — 8, numbered 1–8, under GREENFIELD; 3 under `HOTFIX`. A gate a flow does not run is never approved and stays `null` forever. |
 | **Flow (engineering flow)** | Which ordered subset of the phase registry a WorkItem traverses: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init` from the governance record, stored in `state.flow`, and never re-bound — a record that later proposes a different flow is refused `flow_mismatch`. |
 | **Artifact** | Any file generated by a phase that becomes the subject of a gate (constitution.md, spec.md, plan.md, tasks.md, app-design.md, implementation-manifest.md, the security review file). |
@@ -413,12 +476,12 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ## 7. The 18-Phase Workflow — Detailed Reference
 
-> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 20 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every workflow before v1.16 traversed. The heading keeps its wording so existing links still resolve.
+> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every workflow before v1.16 traversed. The heading keeps its wording so existing links still resolve.
 >
 > | Flow | Phases | Gates | What it is for |
 > |---|---:|---:|---|
 > | `GREENFIELD` | 18 | 8 | A new project, from first principles. Frozen in the engine and deliberately not declared in a table, so a new registry phase can never join it silently. |
-> | `BROWNFIELD_DISCOVERY` | 18 | 8 | Declared identical to GREENFIELD at this version. Its real shape belongs to the later discovery work that introduces a repository baseline. |
+> | `BROWNFIELD_DISCOVERY` | 19 | 8 | An existing repository with no established baseline: adds `discovery` ahead of the constitution, so the repository is read before anything is drafted. |
 > | `ITERATIVE` | 16 | 7 | An existing codebase with an established baseline: the constitution is inherited, not re-drafted. |
 > | `DEFECT_FIX` | 14 | 6 | A defect in an existing system: adds `impact_analysis`; drops the checklist, the design phase and its gate. |
 > | `HOTFIX` | 10 | 3 | Shorter but never ungoverned — exactly the governance floor plus the impact analysis. |
@@ -450,6 +513,20 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 **Rationale:** It is deliberately **gateless**. Adding a ninth gate would make every flow's gate numbering conditional and would put a human decision in front of a document whose purpose is to inform the next document, not to authorise work. Gateless is not ungoverned: the artifact clears the size floor, carries a SHA-256 fingerprint, is bound to a recorded review against that exact SHA, and is shown to the human before the first gate downstream of it.
 
 **If this phase did not exist:** A defect flow would jump straight from a reported symptom to a specification, and the specification would describe the symptom rather than the system. The blast radius would be discovered during implementation, or after it.
+
+---
+
+### Repository Discovery (`discovery`) — BROWNFIELD_DISCOVERY only
+
+> This phase has **no GREENFIELD position**, which is why it carries no phase number. It sits at registry position 2, immediately after the requirements check, and runs only in `BROWNFIELD_DISCOVERY`.
+
+**What it does:** Reads an existing repository — its layout, modules, dependencies, architecture, conventions, interfaces, data stores, test practices, deployment, security posture, recorded decisions, non-negotiable constraints and known debt — and records a structured set of findings through `sdle.sh discovery assess`. Every category the engine declares must carry at least one finding, and **every finding carries a classification**: one of the three values `sdle.sh discovery schema` reports. The engine refuses the record otherwise.
+
+**Why it matters:** Discovery is where a brownfield engagement either becomes trustworthy or becomes fiction. The failure mode is not missing information; it is *confident* information that was never checked — a guess about the persistence layer written in the same voice as a fact read out of a migration file. Classifying every finding is what makes the difference visible to the human reading it.
+
+**Rationale:** The classification is enforced, but only the mechanical half of it can be. The engine guarantees that no finding is unclassified or carries a value outside the closed three; that a finding in the observation class cites a path that actually exists in the repository; that a finding in the inference class names the findings it rests on, and that none of those is itself unknown; that a finding in the unknown class carries no evidence; and that no declared category is silently dropped. What it cannot judge is whether an observation is *true of* the file it cites or whether an inference follows — those remain claims by the author, and SDLE says so rather than implying otherwise. Discovery is deliberately **gateless**, for the same reason `impact_analysis` is: its output informs the next document rather than authorising work. Gateless is not ungoverned — the record is validated, durable, audited, and displayed in full to the human before the constitution gate.
+
+**If this phase did not exist:** A brownfield WorkItem would draft a constitution and a specification for a repository nobody had read, and the resulting artifacts would describe an imagined system. The mismatch would surface during implementation, as rework.
 
 ---
 
@@ -777,13 +854,15 @@ Since v1.12 the ledger is **tamper-evident**: after every append, the SHA-256 of
 
 Written exactly once, when the bound flow's final gate is approved — Gate 8 under GREENFIELD, Gate 3 under `HOTFIX`: workflow version, the **bound flow**, project name, completion timestamp, count of phases completed, the security review artifact path, and confirmation that all of that flow's gates were approved. This is the artifact that answers, unambiguously, "was this delivered through the governed process, and did it pass."
 
-### 12.4 `governance.json` and `reviews.json` — the entry and quality records
+### 12.4 `governance.json`, `reviews.json` and `discovery.json` — the entry, quality and discovery records
 
-Two further WorkItem-scoped records carry the evidence that the work was *admitted* to the lifecycle on stated grounds, and that its artifacts were *judged* rather than merely produced.
+Three further WorkItem-scoped records carry the evidence that the work was *admitted* to the lifecycle on stated grounds, that its artifacts were *judged* rather than merely produced, and — for a brownfield WorkItem — that the repository was *read* before anything was drafted from it.
 
 `governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and the gate set that classification and level *would* require. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when `requirements/` changed after the assessment (`governance_stale`). `classification.flow` is the one value in the record that the lifecycle consumes: `init` binds it to `state.flow` once, and re-assessing later with a different flow is refused `flow_mismatch` at the next `advance`, `gate approve` or `skip` — ahead of the first ledger append, so a refused command leaves `audit.md` byte-identical.
 
 `reviews.json` is an append-only ledger of artifact reviews: path, content fingerprint at review time, review type, result, actor type and name, evidence id and timestamp. Freshness is **derived** — a review applies to the exact content version it was performed against, and nothing stores a "reviewed" boolean. A gate refuses to approve an artifact with no review (`review_missing`), a review of superseded content (`review_stale`), or a failing review of the current content (`review_failed`); drift re-approval is held to the same rule. Each review is linked into `audit.md` as its own entry, so the ledger answers "who judged this content, and which version" as well as "who approved it."
+
+`discovery.json` is written by `discovery assess` during the `discovery` phase and holds the findings that phase produced: one entry per finding, each with its category, its classification, its statement, the paths it cites and the findings it rests on, plus the per-classification counts and the accepted result. It exists only for a WorkItem whose flow runs `discovery`. The phase has no gate of its own, and the record is what replaces one: `advance` and `skip` both refuse `discovery_missing` until this WorkItem has a record the engine accepted, the record is written before that refusal can be lifted and never partially, and the baseline the completing WorkItem establishes points at it by path and SHA-256 rather than copying it. What the engine guarantees about the classifications, and what remains the author's claim, is set out under the `discovery` phase in §7 — the split is deliberate and `discovery schema` reports both halves.
 
 The would-be required gate set is **recorded and not acted on** at this version: all eight gates run unconditionally regardless of classification or risk. Making them conditional is a later, separate decision.
 
@@ -1101,6 +1180,11 @@ The engine commands behind the governance and review records, for operators read
 | `flow show` | Report the bound flow, its ordered phases, its gates, the position in it, and whether the governance record still agrees. Read-only. |
 | `artifact review --path <p> --type <t> --result PASS\|FAIL --actor-type <k> --actor-name <n>` | Record a review of an artifact's exact current content. |
 | `artifact reviews [--path <p>]` | List review records with a derived freshness verdict. Read-only. |
+| `discovery schema` | Report what a discovery document must contain: the closed category vocabulary, the classification vocabulary, the envelope, and which classification properties the engine guarantees versus which are the author's claims. Needs no WorkItem; writes nothing. |
+| `discovery assess --input <path>` | Validate a proposed set of repository findings and write the WorkItem's discovery record. Refuses the whole document rather than recording part of it. |
+| `discovery show` | Report the recorded findings. Read-only. |
+| `baseline show` | Report the repository baseline, its derived status and its findings. Needs no WorkItem; writes nothing. |
+| `baseline validate` | Exit 0 only when the baseline is sound; otherwise refuse `baseline_not_valid` and name why. Writes nothing and appends nothing. |
 
 ---
 

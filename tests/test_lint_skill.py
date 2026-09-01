@@ -237,8 +237,14 @@ def test_a_renamed_flow_fires(repo):
 
 
 def test_declaring_greenfield_as_a_flow_row_fires(repo):
-    """GREENFIELD has one home, and the editable table is not it."""
-    edit(repo, "SKILL.md", "| `BROWNFIELD_DISCOVERY` | ", "| `GREENFIELD` | ")
+    """GREENFIELD has one home, and the editable table is not it.
+
+    `ITERATIVE` is the row renamed rather than `BROWNFIELD_DISCOVERY`: as of
+    T08 the latter is the only flow that names `discovery`, so renaming it
+    would orphan a registry phase and trip a second rule. `ITERATIVE` names no
+    registry phase of its own, so this edit isolates the coverage rule.
+    """
+    edit(repo, "SKILL.md", "| `ITERATIVE` | ", "| `GREENFIELD` | ")
     assert_only_failure(repo, "flow_table_covers_the_required_flows")
 
 
@@ -286,8 +292,8 @@ def test_a_registry_phase_no_flow_names_fires(repo):
     — a new registry phase has no NEXT_PHASE row, no label and no execution
     block — so this asserts its own check directly rather than in isolation.
     """
-    edit(repo, "SKILL.md", "| 20 | `complete` |",
-         "| 20 | `complete` |\n| 21 | `orphan_phase` |")
+    edit(repo, "SKILL.md", "| 21 | `complete` |",
+         "| 21 | `complete` |\n| 22 | `orphan_phase` |")
     checks = results(repo)
     assert checks["every_registry_phase_is_used_by_some_flow"] is False
 
@@ -320,3 +326,72 @@ def test_a_greenfield_block_that_drops_its_ordinal_fires(repo):
          "**Phase `design_generation`:**")
     assert_only_failure(
         repo, "execution_block_numbers_are_the_greenfield_positions")
+# -- T08: the discovery phase's rules ---------------------------------------
+
+
+def test_a_gate_registered_for_discovery_fires(repo):
+    """N29. `discovery` is gateless by decision (ADR-005 D1).
+
+    Registering a gate for it trips the gate-registration checks too — a new
+    gate key has no ARTIFACT_OWNERSHIP row and no approvals key — so this
+    asserts its own check directly rather than in isolation.
+    """
+    edit(repo, "SKILL.md", "| `gate_constitution` | `gate_constitution` | 1 |",
+         "| `discovery` | `gate_discovery` | 1 |\n"
+         "| `gate_constitution` | `gate_constitution` | 2 |")
+    checks = results(repo)
+    assert checks["discovery_is_gateless"] is False
+
+
+def test_a_progress_map_row_for_discovery_fires(repo):
+    """PROGRESS_MAP is GREENFIELD's view, and `discovery` is not in it."""
+    edit(repo, "SKILL.md", "| `requirements_check` | 1/18 |",
+         "| `requirements_check` | 1/18 |\n| `discovery` | 1/18 |")
+    checks = results(repo)
+    assert checks["discovery_is_gateless"] is False
+
+
+def test_discovery_in_a_second_flow_fires(repo):
+    """§14: discovery happens once. A second carrier contradicts that."""
+    row = flow_row(repo, "ITERATIVE")
+    edit(repo, "SKILL.md", row,
+         row.replace("| requirements_check ", "| requirements_check discovery "))
+    assert_only_failure(repo, "discovery_is_declared_by_exactly_one_flow")
+
+
+def test_a_restated_discovery_category_id_fires(repo):
+    """N29. The vocabulary has one home; a prompt file is not it."""
+    from conftest import sdle
+    needle = next(c for c in sdle.DISCOVERY_CATEGORIES if "_" in c)
+    edit(repo, "modules/phase-execution.md",
+         "- `sdle.sh discovery schema` —",
+         f"- categories include `{needle}`. `sdle.sh discovery schema` —")
+    assert_only_failure(
+        repo, "discovery_vocabulary_is_not_restated_in_prompt_files")
+
+
+def test_a_restated_classification_token_fires(repo):
+    from conftest import sdle
+    edit(repo, "modules/phase-execution.md",
+         "- `sdle.sh discovery schema` —",
+         f"- use `{sdle.DISCOVERY_CLASSIFICATIONS[0]}`. "
+         "`sdle.sh discovery schema` —")
+    assert_only_failure(
+        repo, "discovery_vocabulary_is_not_restated_in_prompt_files")
+
+
+def test_the_discovery_execution_block_may_not_carry_an_ordinal(repo):
+    """N30. `discovery` has no GREENFIELD position, so it has no number."""
+    edit(repo, "modules/phase-execution.md",
+         "**Phase `discovery` (BROWNFIELD_DISCOVERY only",
+         "**Phase 2 — `discovery` (BROWNFIELD_DISCOVERY only")
+    assert_only_failure(
+        repo, "execution_block_numbers_are_the_greenfield_positions")
+
+
+def test_removing_the_discovery_execution_block_fires(repo):
+    """N30's other half: the block has to exist at all."""
+    edit(repo, "modules/phase-execution.md",
+         "**Phase `discovery` (BROWNFIELD_DISCOVERY only",
+         "**Repository discovery (BROWNFIELD_DISCOVERY only")
+    assert_only_failure(repo, "every_phase_has_execution_block")

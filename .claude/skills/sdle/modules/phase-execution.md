@@ -44,6 +44,19 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 
 > **Execute only the phases the bound flow contains.** The block headers below carry each phase's GREENFIELD position, which is a reading aid and nothing more: the phase to run next is whatever `sdle.sh advance` moved you to, and `sdle.sh flow show` reports the bound flow's whole ordered list. A phase this flow does not contain is never executed and never mentioned.
 
+**Phase `discovery` (BROWNFIELD_DISCOVERY only — no GREENFIELD position):**
+- Do NOT invoke SpecKit. This phase runs *before* any specification exists, so no feature directory has been created yet and none may be referenced or required.
+- `sdle.sh discovery schema` — it reports the closed category vocabulary, the classification vocabulary, the input envelope and the rule ids the engine enforces. Take every id from that response, never from memory and never from this file.
+- Read the requirement documents under `requirements/` and run the **Untrusted Content Scan** (SKILL.md Step 2b) over each one. Then read the repository as it stands: its layout, its modules, its dependency manifests, its interfaces, its data stores, its tests, its deployment configuration, its recorded decisions and its known debt.
+- Write a discovery input document (for example `discovery-input.json`) holding one entry per finding, in the envelope `discovery schema` reports. **Every finding carries a classification**, and the three the schema names mean exactly what they say:
+  - the *observation* class asserts something you read in a named file, and the engine refuses the finding unless the path it cites exists in this repository;
+  - the *inference* class asserts a conclusion, and must name the findings it rests on; the engine refuses an inference that rests on an unknown;
+  - the *unknown* class is the honest answer where the repository does not say, and the engine refuses it if it carries evidence.
+- Every category the schema reports needs at least one finding. The unknown class is what makes that satisfiable without inventing anything, so do not pad. **Never present an inference as an observation:** the engine checks that a cited path exists, it cannot check that your statement is true of that file, and that half is yours.
+- `sdle.sh discovery assess --input <path>` — evaluates the document deterministically, records it in the WorkItem runtime, writes an evidence document and appends the audit entry. On refusal show the `message` and the finding ids it names, fix the document, and re-run. Delete the transient input file once it is accepted.
+- Display the findings in full in the conversation, grouped by category, each one showing its classification. This phase has no gate of its own, so the human reads them here — ahead of the constitution gate, which is the first gate downstream of it.
+- Advance: `sdle.sh advance --to constitution_draft`. The script refuses `discovery_missing` when this WorkItem has no accepted record, and otherwise records phase history, progress and the audit entry.
+
 **Phase `impact_analysis` (DEFECT_FIX and HOTFIX only — no GREENFIELD position):**
 - Do NOT invoke SpecKit. This phase runs *before* any specification exists, so no feature directory has been created yet and none may be referenced or required.
 - **Pre-compute the analysis filename** using the current local time: `analysis_filename = "reviews/impact-analysis-<YYYY-MM-DD-HHmm>.md"` (e.g., `reviews/impact-analysis-2026-05-26-1430.md`). Use the actual current date/time — do not use a placeholder.
@@ -55,6 +68,7 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 - Advance: `sdle.sh advance --to spec_draft`. The script records phase history, progress and the audit entry.
 
 **Phase 2 — `constitution_draft`:**
+- **If the bound flow ran `discovery`** (`sdle.sh flow show` reports the phases): run `sdle.sh discovery show` first, and display the recorded findings in the conversation again, grouped by category and showing each finding's classification, before the constitution is drafted. The constitution of an existing repository must be written from what was actually found in it — and the human approving the next gate has to see, in this conversation, which of those statements were read out of a file and which were inferred.
 - `sdle.sh checkpoint set --value speckit_invoked`
 - `sdle.sh feature bind` — re-assert this WorkItem's SpecKit environment immediately before the invocation below, and export every `env` entry it returns. It writes nothing. On refusal show the `message` and HALT.
 - Invoke `speckit-constitution` using the Skill tool. If `guidance/constitution.md` was read in step 4 above, append to args: `"\n\nUser guidance for this phase:\n---\n<content of guidance/constitution.md>\n---\nAlign your output with this guidance."`

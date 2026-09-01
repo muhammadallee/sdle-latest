@@ -1354,6 +1354,16 @@ def test_runtime_free_commands_is_a_closed_enumerated_set():
         # group resolves with no WorkItem bound. Its WorkItem-scoped members
         # bind explicitly through `bind_workitem`.
         "governance",
+        # T08: `discovery schema` publishes the closed contract §14 vocabulary
+        # and is what the prompt layer reads instead of restating it, so it
+        # must be answerable before any workflow exists. `assess` and `show`
+        # bind explicitly through `bind_for_discovery`.
+        "discovery",
+        # T08: the repository baseline is a property of the *repository* —
+        # that is what §14's convergence invariant is about — so binding a
+        # WorkItem to read it would be wrong in kind, and would refuse
+        # `workitem_ambiguous` in any repository with two of them.
+        "baseline",
     })
 
 

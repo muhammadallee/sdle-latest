@@ -19,6 +19,8 @@ exactly one. This file pins the three things that makes safe:
 
 from __future__ import annotations
 
+import ast
+import inspect
 import shutil
 from pathlib import Path
 
@@ -247,7 +249,7 @@ def test_the_gateless_flow_denominators_are_the_declared_ones(skill_copy):
     """
     flows = constants_of(skill_copy).flows
     assert flows["GREENFIELD"].phase_count == 18
-    assert flows["BROWNFIELD_DISCOVERY"].phase_count == 18
+    assert flows["BROWNFIELD_DISCOVERY"].phase_count == 19
     assert flows["ITERATIVE"].phase_count == 16
 
 
@@ -351,17 +353,32 @@ def test_a_flow_is_never_repaired_only_refused(skill_copy):
 
 
 def test_the_registry_is_larger_than_every_flow(skill_copy):
-    """The fact the whole design rests on: the registry is not a lifecycle."""
+    """The fact the whole design rests on: the registry is not a lifecycle.
+
+    T08 adds `discovery`, so the registry is 21 and the longest flow —
+    BROWNFIELD_DISCOVERY, at 20 entries including `complete` — is still short
+    of it by `impact_analysis`.
+    """
     consts = constants_of(skill_copy)
-    assert len(consts.phase_sequence) == 20
+    assert len(consts.phase_sequence) == 21
     for name, flow in consts.flows.items():
-        assert len(flow.phases) < 20, f"{name} is the whole registry"
+        assert len(flow.phases) < 21, f"{name} is the whole registry"
 
 
-def test_impact_analysis_sits_at_registry_position_two(skill_copy):
+def test_discovery_and_impact_analysis_sit_at_registry_positions_two_and_three(
+        skill_copy):
+    """T08 inserts `discovery` ahead of `impact_analysis`.
+
+    Both are gateless registry phases that run before any specification
+    exists, so both sit immediately after the requirements check. Their order
+    relative to each other is arbitrary and no flow contains both; it is
+    pinned here so a later edit that reorders them has to say so.
+    """
     consts = constants_of(skill_copy)
-    assert consts.phase_sequence[1] == "impact_analysis"
-    assert consts.index("impact_analysis") == 2
+    assert consts.phase_sequence[1] == "discovery"
+    assert consts.index("discovery") == 2
+    assert consts.phase_sequence[2] == "impact_analysis"
+    assert consts.index("impact_analysis") == 3
 
 
 def test_impact_analysis_is_in_exactly_the_two_defect_flows(skill_copy):
@@ -486,8 +503,8 @@ def test_a_new_registry_row_does_not_join_greenfield(skill_copy):
     silently becoming part of the lifecycle every pre-flow workflow is said to
     have traversed.
     """
-    edit_skill(skill_copy, "| 20 | `complete` |",
-               "| 20 | `complete` |\n| 21 | `late_addition` |")
+    edit_skill(skill_copy, "| 21 | `complete` |",
+               "| 21 | `complete` |\n| 22 | `late_addition` |")
     consts = constants_of(skill_copy)
     assert "late_addition" in consts.phase_sequence
     assert list(consts.flows["GREENFIELD"].phases) == GREENFIELD_GOLDEN
@@ -569,10 +586,11 @@ def test_every_constants_instance_in_the_engine_is_named_consts():
     assert names == {"consts"}
 
 
-def test_next_phase_still_chains_the_twenty_entry_registry(skill_copy):
+def test_next_phase_still_chains_the_whole_registry(skill_copy):
     """The table stays, and stays linted: it is the registry's order proof."""
     consts = constants_of(skill_copy)
-    assert consts.next_phase["requirements_check"] == "impact_analysis"
+    assert consts.next_phase["requirements_check"] == "discovery"
+    assert consts.next_phase["discovery"] == "impact_analysis"
     assert consts.next_phase["impact_analysis"] == "constitution_draft"
     assert set(consts.next_phase) == set(consts.phase_sequence)
 
@@ -589,7 +607,7 @@ def test_the_registry_chain_and_the_greenfield_chain_now_differ(skill_copy):
     """
     consts = constants_of(skill_copy)
     greenfield = consts.greenfield
-    assert consts.next_phase["requirements_check"] == "impact_analysis"
+    assert consts.next_phase["requirements_check"] == "discovery"
     assert greenfield.next_phase("requirements_check") == "constitution_draft"
 
 
@@ -1016,7 +1034,9 @@ def prepare(project: Project, phase: str, feature_dir: str) -> None:
     Gate phases appear here as no-ops on purpose: a gate approves the artifact
     the phase before it produced, so it has nothing of its own to write.
     """
-    if phase == "impact_analysis":
+    if phase == "discovery":
+        project.record_discovery()
+    elif phase == "impact_analysis":
         project.write_artifact(IMPACT_ARTIFACT)
         project.ok("artifact", "record",
                    "--phase", "impact_analysis", "--path", IMPACT_ARTIFACT)
@@ -1058,6 +1078,14 @@ def bind(project: Project, flow: str) -> None:
     """
     project.record_governance(
         classification={"type": "enhancement", "flow": flow})
+    # T08/R2: ITERATIVE is defined by §13 as working from an established
+    # repository baseline, and `init` refuses `baseline_required` without one.
+    # Supplied here only when the repository has none, so a caller that has
+    # already established a real baseline — the §14 exit-criterion test does
+    # exactly that — drives against *that* baseline rather than a fixture one.
+    if flow == sdle.BASELINE_REQUIRING_FLOW and not (
+            project.root / ".sdle" / "baseline.json").exists():
+        project.establish_baseline()
     project.ok("init", session="drive")
 
 
@@ -1173,29 +1201,37 @@ def test_hotfix_is_short_and_still_governed(git_project):
     assert summary["all_gates_approved"] is True
 
 
-def test_brownfield_discovery_is_greenfield_until_t08_changes_it(git_project):
-    """N5. **T08 (contract §14) owns changing this.**
+def test_brownfield_discovery_differs_from_greenfield_by_exactly_discovery(
+        git_project):
+    """N5, superseded at T08 — the change T07 declared it owned.
 
-    BROWNFIELD_DISCOVERY cannot meaningfully differ from GREENFIELD before the
-    discovery phase §14 introduces exists, so it is declared equal at T07 and
-    pinned here. When T08 edits its FLOW_PHASES row this test fails, which is
-    the point: the change must be visible, not silent.
+    T07 declared the two flows equal because no phase existed that could
+    distinguish them. T08 adds `discovery`, so the difference is now exactly
+    one inserted element and nothing else: the traversal is GREENFIELD's with
+    `discovery` in second place, and the driven run proves the engine executes
+    what the table declares.
     """
     seen = drive(git_project, "BROWNFIELD_DISCOVERY")
 
-    assert seen == EXPECTED_TRAVERSAL
+    assert seen[1] == "discovery"
+    assert [phase for phase in seen if phase != "discovery"] == EXPECTED_TRAVERSAL
+
     flows = constants_of(git_project).flows
-    assert (list(flows["BROWNFIELD_DISCOVERY"].phases)
-            == list(flows["GREENFIELD"].phases))
+    brownfield = list(flows["BROWNFIELD_DISCOVERY"].phases)
+    greenfield = list(flows["GREENFIELD"].phases)
+    assert brownfield != greenfield
+    assert [p for p in brownfield if p != "discovery"] == greenfield
+    assert brownfield.index("discovery") == 1
 
 
-def test_the_five_traversals_are_pairwise_distinct_except_the_declared_pair(
-        skill_copy):
+def test_the_five_traversals_are_now_pairwise_distinct(skill_copy):
     """N6 — the exit criterion, asserted directly.
 
     Driven traversals equal the declared phase lists (the parametrised test
     above), so distinctness is asserted on the declarations, where all ten
-    pairs can be compared without ten more full runs.
+    pairs can be compared without ten more full runs. T07 had to carve out one
+    equal pair because BROWNFIELD_DISCOVERY had no phase of its own; T08 gives
+    it one, so the carve-out is gone and the set is empty.
     """
     flows = constants_of(skill_copy).flows
     equal_pairs = set()
@@ -1203,7 +1239,7 @@ def test_the_five_traversals_are_pairwise_distinct_except_the_declared_pair(
         for right in ALL_FLOWS:
             if left < right and flows[left].phases == flows[right].phases:
                 equal_pairs.add((left, right))
-    assert equal_pairs == {("BROWNFIELD_DISCOVERY", "GREENFIELD")}, equal_pairs
+    assert equal_pairs == set(), equal_pairs
 
 
 # -- N7: impact_analysis is governed, and gateless ------------------------
@@ -1589,3 +1625,124 @@ def test_constants_reports_every_flow(skill_copy):
                 "gate_to_execution_phase", "version_chain", "skill_root",
                 "project_root"):
         assert key in shown, key
+# --------------------------------------------------------------------------
+# T08 N31-N33 — the "nothing else moves" proof
+# --------------------------------------------------------------------------
+#
+# T08 adds one registry row and puts it in one flow. These three tests are the
+# independent evidence that it did nothing else: the other four traversals,
+# the state schema and the two guard surfaces are pinned as literals here, so
+# a later edit that widens the change has to edit this file and say so.
+
+
+# The four unchanged flows, spelled out as literals rather than derived, for
+# the same reason GREENFIELD_GOLDEN is: a derived expectation would move with
+# the table it is supposed to be checking.
+PRE_T08_FLOW_PHASES = {
+    "GREENFIELD": GREENFIELD_GOLDEN,
+    "ITERATIVE": [
+        "requirements_check",
+        "spec_draft", "gate_spec", "plan_draft", "gate_plan",
+        "checklist_draft", "tasks_draft", "gate_tasks",
+        "analyze", "gate_analyze", "design_generation", "gate_design",
+        "implement", "gate_implement", "security_review", "gate_security",
+        "complete",
+    ],
+    "DEFECT_FIX": [
+        "requirements_check", "impact_analysis",
+        "spec_draft", "gate_spec", "plan_draft", "gate_plan",
+        "tasks_draft", "gate_tasks", "analyze", "gate_analyze",
+        "implement", "gate_implement", "security_review", "gate_security",
+        "complete",
+    ],
+    "HOTFIX": [
+        "requirements_check", "impact_analysis",
+        "spec_draft", "gate_spec", "plan_draft", "tasks_draft",
+        "implement", "gate_implement", "security_review", "gate_security",
+        "complete",
+    ],
+}
+
+
+@pytest.mark.parametrize("flow", sorted(PRE_T08_FLOW_PHASES))
+def test_the_four_other_flows_are_element_wise_unchanged(skill_copy, flow):
+    """N31. Only BROWNFIELD_DISCOVERY's row moved."""
+    assert list(constants_of(skill_copy).flows[flow].phases) == \
+        PRE_T08_FLOW_PHASES[flow]
+
+
+def test_brownfield_discovery_changed_by_exactly_one_inserted_element(
+        skill_copy):
+    """N31's other half, stated as the diff rather than as the result."""
+    flows = constants_of(skill_copy).flows
+    brownfield = list(flows["BROWNFIELD_DISCOVERY"].phases)
+    assert len(brownfield) == len(GREENFIELD_GOLDEN) + 1
+    assert [p for p in brownfield if p != "discovery"] == GREENFIELD_GOLDEN
+    assert brownfield.count("discovery") == 1
+
+
+def test_the_state_schema_did_not_move(skill_copy):
+    """N32. T08 adds registry rows, files and commands — no state field.
+
+    A ninth approval key or a new field would force a `workflow_version` bump
+    and a VERSION_MIGRATION row, and T08 deliberately adds neither.
+    """
+    import json
+    template = json.loads(
+        (skill_copy.skill_root / "templates" / "state.json")
+        .read_text(encoding="utf-8"))
+
+    assert template["workflow_version"] == "1.16"
+    assert set(template["approvals"]) == PRE_T07_APPROVAL_KEYS
+    assert len(template["approvals"]) == 8
+    assert "discovery" not in template
+    assert "baseline" not in template
+    assert not any("discovery" in key or "baseline" in key for key in template)
+
+    checks = {c["name"]: c for c in skill_copy.run("lint-skill").data["checks"]}
+    assert checks["version_string_consistent"]["passed"] is True
+    assert "v1.16" in checks["version_string_consistent"]["message"]
+    assert checks["migration_covers_every_state_field"]["passed"] is True
+    assert len(constants_of(skill_copy).version_chain) == 16
+
+
+def test_the_two_guard_surfaces_are_unchanged():
+    """N33. Asserted on content and values, never on Git.
+
+    `.sdle/` is in neither `SDLE_OWNED_PREFIXES` nor the hook fence. That is a
+    real, recorded exposure (T04 N-7) and T08 deliberately does **not** widen
+    either set to accommodate `.sdle/baseline.json`: widening a guard's
+    exclusion set is a safety-reducing edit, and it is T11 that owns the
+    finding. Pinned here so adopting it later cannot be silent.
+    """
+    assert sdle.SDLE_OWNED_PREFIXES == (
+        ".workflow/", "workitems/", ".specify/", "design/", "reviews/",
+        "clarifications/", "guidance/", "requirements/")
+    assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
+
+    # The other half of the same residual: Gate 7's manifest excludes the
+    # WorkItem runtime and nothing else, so `.sdle/baseline.json` reaches it
+    # as an ordinary working-tree entry. Pinned on the parsed source of the one
+    # function that builds the exclusion, so a comment mentioning either name
+    # is not what makes this pass or fail.
+    builder = next(
+        node for node in ast.walk(ast.parse(inspect.getsource(sdle)))
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "cmd_manifest_build")
+    assert {node.id for node in ast.walk(builder)
+            if isinstance(node, ast.Name)} & {"SDLE_OWNED_PREFIXES"} == set()
+    assert not [node for node in ast.walk(builder)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str) and ".sdle" in node.value]
+    assert "runtime_relative" in {node.attr for node in ast.walk(builder)
+                                  if isinstance(node, ast.Attribute)}
+
+    ignored = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").split()
+    assert ".sdle/" not in ignored
+    assert "workitems/*/.sdle/lock" in ignored
+
+    hooks = (REPO_ROOT / ".claude" / "hooks" / "hooks.py").read_text(
+        encoding="utf-8")
+    assert 'FENCED = (".workflow", "workitems", "requirements", "guidance")' \
+        in hooks
+    assert list(sdle.GREENFIELD_V1_PHASES) == GREENFIELD_GOLDEN

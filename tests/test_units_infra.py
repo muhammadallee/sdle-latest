@@ -115,8 +115,8 @@ class TestLauncherResolution:
             capture_output=True, text=True, encoding="utf-8", cwd=str(REPO_ROOT),
         )
         assert result.returncode == EXIT_OK, result.stderr
-        # The registry's non-terminal count; GREENFIELD's is 18.
-        assert json.loads(result.stdout)["data"]["phase_count"] == 19
+        # The registry's non-terminal count; GREENFIELD's is still 18.
+        assert json.loads(result.stdout)["data"]["phase_count"] == 20
 
 
 # -- atomic writes ----------------------------------------------------------

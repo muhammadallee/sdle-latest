@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the **source repository for SDLE (Spec Driven Lifecycle Engine)** — a Claude Code skill that orchestrates a gated SDLC workflow wrapping GitHub SpecKit.
 
-As of v1.16 the lifecycle is **selected, not fixed**. `PHASE_SEQUENCE` is a 20-entry phase
+As of v1.16 the lifecycle is **selected, not fixed**. `PHASE_SEQUENCE` is a 21-entry phase
 *registry*; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one,
 bound once at `init` from its governance record. Five flows ship: `GREENFIELD`
 (18 phases, 8 gates — the pre-v1.16 lifecycle, frozen in `GREENFIELD_V1_PHASES` in
@@ -15,6 +15,14 @@ join it), `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX`, the la
 declared in SKILL.md's `FLOW_PHASES`. Every flow retains a mandatory ten-phase
 governance floor: shorter, never ungoverned. See
 `docs/architecture/ADR-004-declarative-flow-model.md`.
+
+`BROWNFIELD_DISCOVERY` carries the gateless `discovery` phase, which reads an existing
+repository into a validated, classified record, and a `GREENFIELD` or
+`BROWNFIELD_DISCOVERY` completion establishes the repository baseline at
+`.sdle/baseline.json`. That baseline is what makes discovery happen **once**: later
+WorkItems converge onto `ITERATIVE` against it, enforced at `init` by refusal rather
+than by convention. See
+`docs/architecture/ADR-005-brownfield-discovery-and-baseline.md`.
 
 As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
 

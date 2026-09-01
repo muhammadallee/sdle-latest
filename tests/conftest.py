@@ -231,6 +231,72 @@ class Project:
             # product behaviour. `SDLE_OWNED_PREFIXES` stays untouched.
             target.unlink()
 
+    def establish_baseline(self, **over) -> dict:
+        """Write `.sdle/baseline.json` through the engine's own builder.
+
+        Deliberately not a second implementation of §14's schema: it calls
+        `sdle.baseline_descriptor(...)` and overrides only what a test names,
+        so no key, default or vocabulary is restated here. That is the
+        discipline `record_governance` already follows by reading
+        `sdle.GOVERNANCE_POLICY_BUILTIN` for the check ids.
+        """
+        paths = sdle.resolve_paths(str(self.root), str(self.skill_root))
+        if self.workitem:
+            paths = sdle.dataclass_replace(paths, workitem=self.workitem)
+        consts = sdle.load_constants(paths)
+        state = (self.state() if self.state_file.is_file()
+                 else sdle.load_template(paths))
+        state = dict(state)
+        state.setdefault("flow", sdle.DEFAULT_FLOW)
+        descriptor = sdle.baseline_descriptor(
+            paths, state, consts, "fixture-execution", sdle.now_iso())
+        descriptor.update(over)
+        target = paths.baseline_file
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(descriptor, indent=2) + "\n",
+                          encoding="utf-8", newline="\n")
+        return descriptor
+
+    def record_discovery(self, **over) -> "Result":
+        """Record the contract §14 discovery findings BROWNFIELD_DISCOVERY
+        requires before it can leave the `discovery` phase.
+
+        One finding per category the engine declares, each in the *unknown*
+        class — which is the honest answer here, because a scratch fixture has
+        no repository to discover and §14 says to record that rather than
+        invent something. Both the category list and the classification are
+        read from the engine, never typed out, the same discipline
+        `record_governance` follows for the twelve check ids (invariant 7).
+        """
+        unknown = sdle.DISCOVERY_CLASSIFICATIONS[-1]
+        document = {
+            "discoveryInputVersion": "1",
+            "findings": [
+                {
+                    "id": f"F-{index:03d}",
+                    "category": category,
+                    "classification": unknown,
+                    "statement": "This fixture repository records nothing "
+                                 f"about {category}.",
+                }
+                for index, category in enumerate(sdle.DISCOVERY_CATEGORIES,
+                                                 start=1)
+            ],
+        }
+        document.update(over)
+        name = "discovery-input.json"
+        target = self.root / name
+        target.write_text(
+            json.dumps(document, indent=2), encoding="utf-8", newline="\n"
+        )
+        try:
+            return self.ok("discovery", "assess", "--input", name)
+        finally:
+            # Transient, exactly like the governance proposal: consumed by
+            # `assess`, preserved verbatim in the evidence document, and
+            # removed so no git-backed fixture's working tree goes dirty.
+            target.unlink()
+
     def write_small(self, relative: str) -> Path:
         """A generation step that produced something unusable."""
         path = self.root / relative
