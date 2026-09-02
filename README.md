@@ -93,7 +93,7 @@ Phase 18  ★ GATE 8: Security       gate_security        Approve -> complete
 
 **8 approval gates total.** Phases 8–9 run automatically (checklist then tasks, no gate between them) and are reviewed together at Gate 4. Design (Phase 13) deliberately precedes Implementation (Phase 15) so architecture decisions inform the generated code, not the other way around.
 
-The block above is the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every pre-flow workflow traversed. A WorkItem may instead be bound to `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`; each is an ordered subset of the same phase registry, so its `Phase N/M` and `Gate N/M` are that flow's own. The two defect flows additionally run `impact_analysis`, a gateless phase that maps the blast radius of a change before any specification is written; it is still fingerprinted and review-registered like every other governed artifact. `BROWNFIELD_DISCOVERY` additionally runs `discovery`, a gateless phase that reads an existing repository and records a structured set of findings in which every statement is classified as observed, inferred or unknown, so an inference can never be read as an observation. Run `sdle.sh constants` for a flow's exact phase list.
+The block above is the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every pre-flow workflow traversed. A WorkItem may instead be bound to `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`; each is an ordered subset of the same phase registry, so its `Phase N/M` and `Gate N/M` are that flow's own. The two defect flows additionally run `impact_analysis`, a gateless phase that maps the blast radius of a change before any specification is written; it is still fingerprinted and review-registered like every other governed artifact. `BROWNFIELD_DISCOVERY` additionally runs `discovery`, a gateless phase that reads an existing repository and records a structured set of findings in which every statement carries one of three classifications — observed, inferred or unknown. What the engine checks is that the label is present and is one of those three, that an observation cites a path inside the repository, and that an inference names a basis none of which is itself unknown. What it cannot check is whether the author applied the right label to a given statement; that remains a claim by its author, and saying so is the point. Run `sdle.sh constants` for a flow's exact phase list.
 
 For *why* each phase and gate exists in this exact order — and what specifically breaks if it didn't — see [§7 of the Reference Guide](docs/SDLE-Reference-Guide.md#7-the-18-phase-workflow--detailed-reference).
 
@@ -268,8 +268,21 @@ scored by the engine.
 | `scripts/sdle.sh governance policy` | Report the effective policy — check ids, which of them block, the risk-signal vocabulary and weights, the thresholds and the hard floors. Needs no WorkItem and writes nothing. |
 | `scripts/sdle.sh governance assess --input <path>` | Score a structured proposal, write `workitems/<id>/.sdle/governance.json` and one evidence document. Runs before `init`. |
 | `scripts/sdle.sh governance show` | Report the record and whether it is still current for the requirements on disk. |
-| `scripts/sdle.sh governance gates` | Report the gate set this classification and risk level *would* require. Advisory: nothing consumes it, and every gate the bound flow contains runs unconditionally. |
+| `scripts/sdle.sh governance gates` | Report, for each gate of the bound flow, whether the policy requires a human approval and why. Read-only, and answerable before `init`. |
+| `scripts/sdle.sh gate omit --gate <key>` | Pass a gate the policy does not require approved. Refuses `gate_required` otherwise. Records an audited decision; never skips the artifact, its review, its baseline SHA or drift detection. |
 | `scripts/sdle.sh flow show` | Report the bound flow, its ordered phases, its gates, where this WorkItem stands in it, and — when a record exists — whether the record still agrees. Read-only. |
+
+**Risk decides which gates need a human, and nothing else.** Every gate of the
+bound flow is `required` or `omittable`. A required gate can only be approved
+or rejected — `gate omit` refuses it, at any risk level, under any policy, and
+there is no override flag. An omittable one may still be approved, which is
+always permitted and always stricter, or omitted by an explicit `gate omit`
+that records the policy, the risk level and the fact that no human approved it.
+**The last gate before completion is required at every risk level in every
+flow**, so no workflow completes without a final human decision. Everything
+else about a gate stays universal: the artifact is generated, registered,
+reviewed, fingerprinted and drift-checked whether or not an approval was
+required. A repository override can only make more gates required, never fewer.
 
 The scoring is deterministic and the model cannot argue with it. Severity comes
 from the policy, never from the input; every weight, threshold and floor comes

@@ -301,8 +301,14 @@ def test_an_unreadable_policy_file_refuses(bare_project):
 
 def test_the_policy_reader_has_no_handler_that_returns():
     """N4: `read_governance_policy` must not contain
-    `except ...: return <defaults>` anywhere. That shape is precisely what
-    makes `read_repo_config` fail-open."""
+    `except ...: return <defaults>` anywhere.
+
+    At T06 that shape was named by pointing at `read_repo_config`, which had
+    it. T09 adopted T05 NB-4 and removed it there too, so the shape is now
+    forbidden across the engine rather than merely avoided here; the same
+    assertion over `read_repo_config` lives in
+    `test_units_baseline.py::test_n15_the_baseline_reader_never_swallows_and_defaults`.
+    """
     fn = function_named(sdle_ast(), "read_governance_policy")
     handlers = [node for node in ast.walk(fn) if isinstance(node, ast.ExceptHandler)]
     assert handlers, "the reader is expected to handle OSError and JSON errors"
@@ -1078,12 +1084,17 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
     `governance_precondition`, and enforced at the choke point every
     phase-movement command funnels through.
 
-    The caller set is a *closed* three-member set. `apply_advance` is the
-    enforcement site. `cmd_gate_approve` and `cmd_skip` each call it a second
-    time, earlier, because both commands append to `audit.md` before they
-    move the phase and an append cannot be undone by a later raise (B1, and
-    the same ordering in `cmd_skip` that NB-6 recorded). A fourth caller has
-    to argue for itself here.
+    The caller set is *closed*. `apply_advance` is the enforcement site.
+    `cmd_gate_approve`, `cmd_gate_omit` and `cmd_skip` each call it a second
+    time, earlier, because all three append to `audit.md` before they move the
+    phase and an append cannot be undone by a later raise (B1, and the same
+    ordering in `cmd_skip` that NB-6 recorded). A further caller has to argue
+    for itself here.
+
+    T09 added `cmd_gate_omit`, and it argues for itself on exactly the ground
+    the other two do: it is a decision that appends `gate_omitted` to the
+    ledger and then advances, so the same refusal has to fire ahead of the
+    first irreversible write. The rule itself is still written once.
     """
     tree = sdle_ast()
     callers = sorted(
@@ -1095,7 +1106,8 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
                 and node.func.id == "governance_precondition"
                 for node in ast.walk(fn))
     )
-    assert callers == ["apply_advance", "cmd_gate_approve", "cmd_skip"], callers
+    assert callers == ["apply_advance", "cmd_gate_approve", "cmd_gate_omit",
+                       "cmd_skip"], callers
 
     movers = sorted(
         fn.name for fn in ast.walk(tree)
@@ -1105,7 +1117,12 @@ def test_the_clause_has_exactly_one_enforcement_site(project):
                 and node.func.id == "apply_advance"
                 for node in ast.walk(fn))
     )
-    assert movers == ["cmd_advance", "cmd_gate_approve", "cmd_skip"], movers
+    # The phase-movement callers of `apply_advance`, also closed. T09's
+    # `gate omit` is a fourth way to leave a gate phase and therefore has to
+    # funnel through the same choke point as the other three; it is named here
+    # rather than allowed to appear silently.
+    assert movers == ["cmd_advance", "cmd_gate_approve", "cmd_gate_omit",
+                      "cmd_skip"], movers
 
 
 def test_the_gate_approval_precheck_runs_before_the_first_audit_write(project):
@@ -1239,12 +1256,14 @@ def test_the_classification_flag_no_longer_claims_to_be_advisory(project):
     so the record said so. At T07 `classification.flow` is what `init`
     binds `state["flow"]` from, which selects the phases that run, so the
     flag would be a false statement about the engine's own behaviour.
-    `governance gates` keeps its separate `advisory: True`, because the
-    would-be gate set really is still inert — that is T09's.
+    T09 removed the separate `advisory: True` from `governance gates` for the
+    same reason, one field over: the gate set it reports is what `gate omit`
+    is refused against, so calling it advisory would be a false statement
+    about the engine's own behaviour.
     """
     assert assess(project).exit_code == EXIT_OK
     assert record_of(project)["classification"]["advisory"] is False
-    assert project.ok("governance", "gates").data["advisory"] is True
+    assert "advisory" not in project.ok("governance", "gates").data
 
 
 # --------------------------------------------------------------------------
@@ -1330,8 +1349,12 @@ def test_each_uncertainty_hard_floor_fires_and_is_recorded(rule):
 
 
 def test_a_floor_raises_the_level_the_score_alone_would_not_reach():
-    """N15: `authentication_or_authorization` weighs 3, which the thresholds
-    put at MEDIUM anyway, so use the one that genuinely outruns its weight."""
+    """N15: pick a signal whose floor genuinely outruns its own weight.
+
+    T09 raised `authentication_or_authorization` from MEDIUM to HIGH (§15),
+    so it now outruns its weight too; this case keeps naming the signal it
+    always named, which is unaffected by that change.
+    """
     alone = risk_of(["personal_or_sensitive_data"])
     assert alone["score"] == BUILTIN["risk_signals"]["personal_or_sensitive_data"]
     by_score = sdle.deterministic_level(alone["score"], BUILTIN["risk_thresholds"])
@@ -1448,9 +1471,14 @@ def test_only_evaluate_risk_produces_a_final_level():
     assert producers == {"evaluate_risk"}
     # The reader set is closed and grows only for a reader that genuinely
     # needs the decided level: `record_governance_audit` names it in the
-    # ledger entry (N17). None of these can decide one.
+    # ledger entry (N17), and T09's `gate_requirements_for_state` needs it to
+    # derive which gates require an approval. None of these can decide one —
+    # the producer assertion above is what carries that guarantee, and it is
+    # unchanged. The set staying CLOSED is the point; growing it by one named
+    # reader is not the same as opening it.
     assert readers - producers == {"cmd_governance_assess",
                                    "cmd_governance_gates",
+                                   "gate_requirements_for_state",
                                    "record_governance_audit"}
 
 
@@ -1477,11 +1505,10 @@ def test_the_would_be_gate_set_is_always_a_subset_of_the_registered_gates(
 
     shown = project.ok("governance", "gates")
 
-    gates = set(shown.data["would_be_required_gates"])
+    gates = set(shown.data["required_gates"])
     assert gates <= registered_gate_keys(project)
-    assert gates, "an empty would-be set would make the comparison vacuous"
-    assert shown.data["advisory"] is True
-    assert set(record_of(project)["wouldBeRequiredGates"]) == gates
+    assert gates, "an empty required set would make the comparison vacuous"
+    assert set(record_of(project)["requiredGates"]) == gates
 
 
 def test_the_would_be_gate_set_actually_differs_across_risk_levels(project):
@@ -1494,7 +1521,7 @@ def test_the_would_be_gate_set_actually_differs_across_risk_levels(project):
                             "uncertainty": "LOW"}
         assert assess(project, document).exit_code == EXIT_OK
         seen[level] = set(project.ok("governance", "gates")
-                          .data["would_be_required_gates"])
+                          .data["required_gates"])
     assert seen["LOW"] < seen["CRITICAL"]
 
 
@@ -1508,15 +1535,38 @@ def lifecycle_functions(tree: ast.Module) -> list[ast.FunctionDef]:
             and node.name.startswith(LIFECYCLE_PREFIXES)]
 
 
-def test_no_phase_movement_function_consults_the_would_be_gate_set():
-    """N20(b): §12 says record the would-be gate set, do not act on it."""
+def test_the_phase_movement_path_consults_the_requirement_model():
+    """N20(b), INVERTED at T09 — this is the row the phase is about.
+
+    §12 recorded the would-be gate set and said do not act on it. §15 is the
+    phase that acts on it, so the assertion is turned round rather than
+    deleted: `apply_advance` is the choke point, it must consult the
+    requirement model, and the only two decisions it may accept at a gate are
+    an explicit approval and a policy omission it re-derives for itself. The
+    stale key it must no longer name is gone from the engine entirely.
+    """
     tree = sdle_ast()
-    for fn in lifecycle_functions(tree):
-        referenced = names_referenced(fn)
-        assert "required_gate_set" not in referenced, fn.name
-        for node in ast.walk(fn):
-            assert not (isinstance(node, ast.Constant)
-                        and node.value == "wouldBeRequiredGates"), fn.name
+    functions = {fn.name: fn for fn in lifecycle_functions(tree)}
+
+    advance = functions["apply_advance"]
+    referenced = names_referenced(advance)
+    assert "gate_requirements_for_state" in referenced, referenced
+    assert "GATE_OMITTED_DECISION" in referenced, referenced
+
+    reasons = {node.args[0].value for node in ast.walk(advance)
+               if isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Name) and node.func.id == "Refused"
+               and node.args and isinstance(node.args[0], ast.Constant)}
+    assert "gate_not_approved" in reasons, reasons
+    assert "gate_omission_invalidated" in reasons, reasons
+
+    assert "gate_requirements_for_state" in names_referenced(
+        functions["cmd_gate_omit"])
+
+    # The T06 key is not merely unread on this path; it no longer exists.
+    for node in ast.walk(tree):
+        assert not (isinstance(node, ast.Constant)
+                    and node.value == "wouldBeRequiredGates")
 
 
 def test_the_phase_movement_prefixes_actually_match_something():
@@ -1802,9 +1852,16 @@ def test_risk_and_type_change_no_lifecycle_behaviour(git_project, tmp_path,
 
     The rewrite keeps the half that is the T07/T09 boundary and makes it
     sharper by holding the flow constant: **risk and WorkItem type still move
-    nothing at all** — not the traversal, not the approvals, not the artifact
-    baseline key set, not the ordered lifecycle audit events. T07 selects
-    which phases execute; making gate *requirements* risk-driven is T09's.
+    nothing at all when every gate is approved** — not the traversal, not the
+    approvals, not the artifact baseline key set, not the ordered lifecycle
+    audit events.
+
+    T09 added that qualifier and weakened nothing. Risk now decides which
+    gates *require* an approval, but approving a gate the policy does not
+    require is always permitted and always stricter than the policy demands,
+    so a run that approves everything is identical at every risk level. That
+    is the property this test pins, and it is what keeps the frozen happy path
+    and the nine transcripts valid runs.
 
     The other half — that the flow does move the traversal — is asserted by
     `test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle`
@@ -1860,15 +1917,16 @@ def test_risk_and_type_change_no_lifecycle_behaviour(git_project, tmp_path,
         assert view.state()["current_phase"] == "complete", name
         assert view.state()["progress"] == base.state()["progress"], name
 
-    # 3. A18: the would-be required gate set *does* differ, so clause 2 is not
-    #    vacuous. Recorded, never acted on.
-    would_be = {name: set(view.ok("governance", "gates")
-                          .data["would_be_required_gates"])
+    # 3. A18: the required gate set *does* differ across these variants, so
+    #    clause 2 is not vacuous. At T09 that set is no longer inert — it is
+    #    what `gate omit` is refused against — and clause 2 still holds,
+    #    because every driver here APPROVES every gate, which is always
+    #    permitted and always stricter than the policy demands.
+    required = {name: set(view.ok("governance", "gates")
+                          .data["required_gates"])
                 for name, view in views.items()}
-    assert would_be["baseline"] < would_be["risk_only"], would_be
-    assert would_be["baseline"] != would_be["classification_only"], would_be
-    for name, view in views.items():
-        assert view.ok("governance", "gates").data["advisory"] is True, name
+    assert required["baseline"] < required["risk_only"], required
+    assert required["baseline"] != required["classification_only"], required
 
 
 def test_the_flow_is_the_one_governance_value_that_moves_the_lifecycle(

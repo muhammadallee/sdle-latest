@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, Result, sdle
+from conftest import REPO_ROOT, SDLE_PY, Project, Result, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 
 EXIT_OK = 0
@@ -1067,3 +1067,51 @@ def test_an_uncommitted_boundary_is_not_treated_as_sdle_owned(git_project):
     assert result.reason == "dirty_tree"
     entries = result.data.get("entries") or []
     assert any(".sdle/" in entry.replace("\\", "/") for entry in entries), entries
+
+
+# --------------------------------------------------------------------------
+# T09/D14 + D15 — the configuration boundary reader and its documentation
+# --------------------------------------------------------------------------
+
+
+def test_n26_a_malformed_config_still_refuses_with_the_same_reason(project):
+    """N26/A18: `read_repo_config` became fail-closed, and the OBSERVABLE
+    behaviour did not change. `config show` refuses `config_malformed` at exit
+    1 exactly as it did before, because `repo_config_findings` is still the
+    single predicate and still runs first."""
+    target = project.root / ".sdle" / "config.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("{not json", encoding="utf-8", newline="\n")
+
+    result = project.run("config", "show")
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "config_malformed", result
+
+
+def test_n26_the_reader_itself_refuses_rather_than_defaulting(project):
+    """The half a caller-level test cannot see. Called directly, past
+    `repo_config_findings`, the reader must refuse rather than hand back the
+    documented defaults — that is the whole of what D14 changed, and a safety
+    property held only by a caller stops being true the day a second caller
+    appears."""
+    target = project.root / ".sdle" / "config.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('["not an object"]', encoding="utf-8", newline="\n")
+
+    paths = sdle.resolve_paths(str(project.root), str(project.skill_root))
+    with pytest.raises(sdle.Refused) as excinfo:
+        sdle.read_repo_config(paths)
+    assert excinfo.value.reason == "config_malformed"
+
+
+def test_the_documented_defaults_are_the_shipped_defaults(project):
+    """D15/N26: the README block is the engine's dict, not a copy of it that
+    happens to agree today. Asserted here as well as by the lint check, so a
+    drift shows up in the suite too."""
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    blocks = [json.loads(raw) for raw in
+              re.findall(r"```json\n(.*?)```", text, re.S)
+              if "configVersion" in raw]
+    assert blocks, "the README example this rule binds has gone missing"
+    for block in blocks:
+        assert block == sdle.REPO_CONFIG_DEFAULTS, block

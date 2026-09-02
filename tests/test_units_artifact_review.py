@@ -330,7 +330,16 @@ def test_the_approval_baseline_and_the_review_ledger_never_mix(project):
 
 def test_the_artifact_shas_writer_set_is_unchanged(project):
     """Invariant 7: T06 adds a *second fact*, not a second writer of the
-    existing one. A new name here means the approval baseline grew a writer."""
+    existing one. A new name here means the approval baseline grew a writer,
+    and each one has to argue for itself.
+
+    T09 added `cmd_gate_omit`, and it argues for itself on the ground that
+    made the set worth pinning: an omission is a decision about specific
+    content, so it fingerprints that content exactly as an approval does.
+    Leaving it out would have been the silent regression §15's preserve list
+    names first — an omitted gate whose artifact could then change with no
+    drift raised, because nothing had ever baselined it.
+    """
     tree = sdle_ast()
     writers = set()
     for fn in ast.walk(tree):
@@ -346,7 +355,7 @@ def test_the_artifact_shas_writer_set_is_unchanged(project):
                     and node.func.attr == "pop" \
                     and "artifact_shas" in ast.unparse(node):
                 writers.add(fn.name)
-    assert writers == {"cmd_gate_approve", "_approve_drift",
+    assert writers == {"cmd_gate_approve", "cmd_gate_omit", "_approve_drift",
                        "cmd_drift_rebaseline", "cmd_restart"}
 
 

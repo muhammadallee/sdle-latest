@@ -113,14 +113,21 @@ def test_n15_the_cli_surfaces_that_as_exit_three(project, case):
 
 
 def test_n15_the_baseline_reader_never_swallows_and_defaults():
-    """The contrast with `read_repo_config` (T05 NB-4), asserted on source.
+    """No runtime reader returns a default from an exception handler.
 
-    `read_repo_config` is fail-open on purpose: an absent or unreadable
-    `config.json` yields the documented defaults. `read_baseline` must not
-    inherit that. A baseline that silently defaulted would let a corrupt file
-    read as "not yet established" — and would make §14's convergence
-    invariant unprovable, which is the failure direction ADR-003 §3 already
-    rejected once for the governance policy.
+    At T08 this test read as a *contrast*: `read_baseline` must not swallow,
+    unlike `read_repo_config`, which did. T09 adopted T05 NB-4 and made that
+    reader fail-closed too — it was named T09's for exactly this reason, that
+    a fail-open reader anywhere in a file whose subject is "do not weaken
+    governance silently" is not defensible — so the contrast has become a
+    shared property, and the second half below asserts the inverse of what it
+    used to.
+
+    The rule is the same for both and is worth stating once: a corrupt file
+    must never read as an absent one. A baseline that silently defaulted would
+    let a damaged file read as "not yet established" and make §14's
+    convergence invariant unprovable, which is the failure direction ADR-003
+    §3 already rejected for the governance policy.
     """
     import ast
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
@@ -136,15 +143,23 @@ def test_n15_the_baseline_reader_never_swallows_and_defaults():
                     "read_baseline returns a value from an exception handler; "
                     "it must raise IntegrityError instead")
 
-    # The positive half: `read_repo_config` really does do the opposite, so
-    # this is a contrast rather than an assertion about nothing.
-    swallower = next(node for node in ast.walk(tree)
-                     if isinstance(node, ast.FunctionDef)
-                     and node.name == "read_repo_config")
-    swallowed = [s for h in ast.walk(swallower)
-                 if isinstance(h, ast.ExceptHandler)
+    # T09/D14, inverting what this block asserted at T08: the repository
+    # configuration reader must not swallow and default either. The check is
+    # the same AST shape, so the two readers are held to one rule.
+    config_reader = next(node for node in ast.walk(tree)
+                         if isinstance(node, ast.FunctionDef)
+                         and node.name == "read_repo_config")
+    handlers = [h for h in ast.walk(config_reader)
+                if isinstance(h, ast.ExceptHandler)]
+    assert handlers, ("read_repo_config is expected to handle OSError and "
+                      "JSON errors; a reader with no handler would satisfy "
+                      "the assertion below vacuously")
+    swallowed = [s for h in handlers
                  for s in ast.walk(h) if isinstance(s, ast.Return)]
-    assert swallowed, "read_repo_config was expected to be fail-open (T05 NB-4)"
+    assert not swallowed, (
+        "read_repo_config returns a value from an exception handler; an "
+        "unreadable config.json must refuse, not default (T05 NB-4, adopted "
+        "by T09/D14)")
 
 
 # --------------------------------------------------------------------------
@@ -883,17 +898,27 @@ def test_the_refusal_precedes_every_write_in_cmd_init():
 
 
 # --------------------------------------------------------------------------
-# N34 — no T09 leakage
+# N34 — T08 added nothing risk-conditional; T09 is where gate requirements
+# became policy-driven, and it did so from one home
 # --------------------------------------------------------------------------
 
 
-def test_n34_no_gate_is_conditional_on_risk_or_classification(project):
-    """T09 owns risk-adaptive gates. T08 selects *when discovery happens*; it
-    must not make a gate requirement policy-driven, and `governance gates`
-    must still report itself advisory."""
+def test_gate_requirements_are_policy_driven_from_exactly_one_home(project):
+    """Inverted at T09 (X6). This was T08's leakage guard: it asserted that
+    `governance gates` still reported itself advisory and that the would-be
+    gate set had no consumer. §15 is the phase whose subject that is, so the
+    guard now pins the property that replaced it — the requirement model has a
+    single home, and the report no longer claims to be inert.
+
+    What did NOT move is the second half below: nothing T08 added consults
+    risk, the gate set or a governance level to decide anything. Discovery is
+    still selected structurally."""
     project.record_governance()
 
-    assert project.ok("governance", "gates").data["advisory"] is True
+    data = project.ok("governance", "gates").data
+    assert "advisory" not in data
+    assert set(data["required_gates"]) | set(data["omittable_gates"])
+    assert not set(data["required_gates"]) & set(data["omittable_gates"])
 
     import ast
     tree = ast.parse((REPO_ROOT / "scripts" / "sdle.py")
@@ -904,7 +929,18 @@ def test_n34_no_gate_is_conditional_on_risk_or_classification(project):
                if isinstance(node, ast.Call)
                and isinstance(node.func, ast.Name)
                and node.func.id == "required_gate_set"}
-    assert callers == {"cmd_governance_assess", "cmd_governance_gates"}, callers
+    # T06 wrote `required_gate_set`; T09 consumes it rather than building a
+    # parallel mechanism, so its one caller is the model that decides.
+    assert callers == {"gate_requirements"}, callers
+
+    reasons_callers = {fn.name for fn in ast.walk(tree)
+                       if isinstance(fn, ast.FunctionDef)
+                       for node in ast.walk(fn)
+                       if isinstance(node, ast.Call)
+                       and isinstance(node.func, ast.Name)
+                       and node.func.id == "_policy_gate_reasons"}
+    assert reasons_callers == {"required_gate_set", "gate_requirements"}, \
+        reasons_callers
 
     # And nothing T08 added consults risk, the would-be gate set or a
     # governance level to decide anything.
@@ -921,8 +957,14 @@ def test_n34_no_gate_is_conditional_on_risk_or_classification(project):
 
 
 def test_n34_every_flow_gate_set_is_structural_not_policy_driven(project):
-    """No gate became conditional. Each flow's gates are exactly the gate
-    phases of its declared phase list — a structural fact, not a policy one."""
+    """Flow MEMBERSHIP stayed structural. Each flow's gates are exactly the
+    gate phases of its declared phase list, and no policy value participates.
+
+    Sharpened at T09 (X7) rather than inverted, because it pins the
+    distinction the phase turns on: which gates a WorkItem *has* is T07's and
+    is structural; whether a gate it has *requires an approval* is T09's and
+    is policy-driven. Blurring the two is how "the policy removed a gate"
+    would become sayable."""
     consts = sdle.load_constants(paths_of(project))
     for name in sdle.ENGINEERING_FLOWS:
         flow = consts.flow(name)

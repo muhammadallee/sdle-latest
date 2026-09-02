@@ -3040,6 +3040,7 @@ def recorded_branch(paths: Paths) -> str | None:
 BRANCH_CRITICAL_ACTIONS = frozenset({
     "advance",
     ("gate", "approve"),
+    ("gate", "omit"),
     "skip",
     "restart",
     "reset",
@@ -3065,7 +3066,7 @@ def action_name(args) -> str:
 def _own_confirm_token(args) -> str | None:
     """The confirmation token this command sets for *itself*, if any.
 
-    Four of the nine critical commands share ``pending_confirm_action`` with
+    Four of the ten critical commands share ``pending_confirm_action`` with
     the branch guard. The guard runs first — running it second livelocks,
     because the command's own check clears the marker and the guard then sets
     its own, so the command's check can never pass. Running it first has the
@@ -3219,23 +3220,58 @@ SUPPORTED_POLICY_FORMATS = ("json",)
 
 
 def read_repo_config(paths: Paths) -> dict:
-    """The effective repository configuration. Reads; never writes.
+    """The effective repository configuration. Reads; never writes. FAIL-CLOSED.
 
     Absent `config.json` yields the defaults verbatim — which is why T05 is a
-    no-op for every repository that predates it. A present document is merged
-    over the defaults. Soundness is **not** decided here: `repo_config_findings`
-    is the single predicate for that, and both consumers go through it first.
+    no-op for every repository that predates it, and which is safe because an
+    absent document is a real answer. An **unreadable** one is not, and until
+    T09 this reader returned the defaults from inside its exception handler.
+    That shape was defensible only because its one caller runs
+    `repo_config_findings` first and already refuses on every condition the
+    handler swallowed — a safety property held somewhere else, which is the
+    kind of arrangement that stops being true the first time a second caller
+    appears. §15's whole subject is not weakening governance silently, so the
+    shape goes: presence and readability are different questions, and only the
+    first of them has a default.
+
+    Observable behaviour is unchanged. `repo_config_findings` remains the
+    single predicate for soundness, it still fires first for both consumers,
+    and its `config_malformed` finding still carries the same reason and exit
+    code. What changes is that this reader can no longer be the place a
+    corrupt boundary turns into a plausible default.
     """
     config = dict(REPO_CONFIG_DEFAULTS)
     target = paths.config_file
     if not target.is_file():
         return config
+
+    # Written as "decide the problem, then raise once" rather than as three
+    # raise sites, and deliberately not extracted into a helper: the set of
+    # functions permitted to reach the repository configuration boundary is
+    # closed and asserted by exact equality, and widening that containment
+    # proof to buy one message constructor is the wrong trade. Nothing is
+    # returned from a handler, which is the property this change exists for.
+    detail: str | None = None
+    document: object = None
     try:
         document = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return config
-    if isinstance(document, dict):
-        config.update(document)
+    except OSError as exc:
+        detail = f"it cannot be read: {exc}"
+    except (json.JSONDecodeError, ValueError) as exc:
+        detail = f"it is not valid JSON: {exc}"
+    else:
+        if not isinstance(document, dict):
+            detail = "it is not a JSON object"
+    if detail is not None:
+        raise Refused(
+            "config_malformed",
+            f"{paths.config_root_relative}/{target.name} cannot be used: "
+            f"{detail}. Repository configuration is a boundary, not a hint — "
+            "fix the file or delete it to fall back to the documented "
+            "defaults.",
+            {"path": str(target), "detail": detail},
+        )
+    config.update(document)
     return config
 
 
@@ -3827,26 +3863,51 @@ GOVERNANCE_POLICY_BUILTIN = {
         "concurrency_or_distributed_state": 2,
         "infrastructure_or_deployment": 2,
         "backward_incompatible_change": 3,
+        # T09/§15: four of §15's nine hard floors name a condition no existing
+        # signal's definition entails, plus blast radius which is orthogonal
+        # to all of them. Each is appended rather than folded into a
+        # neighbour, because widening an existing signal to cover a narrower
+        # §15 condition would over-enforce every ordinary use of it.
+        "destructive_or_irreversible_migration": 4,
+        "regulatory_or_compliance": 4,
+        "production_security_boundary": 4,
+        "credential_or_key_exposure": 5,
+        "catastrophic_blast_radius": 5,
     },
     "risk_thresholds": {"LOW": 0, "MEDIUM": 2, "HIGH": 5, "CRITICAL": 9},
+    # §15's minimum floor list, complete. The first six rules keep the order
+    # and the positions they shipped with — a test indexes rule 0 — and the
+    # only in-place edit is `authentication_or_authorization`, which shipped
+    # at MEDIUM where §15 states HIGH. Everything §15 adds is APPENDED, so no
+    # existing index moves and every edit is a tightening.
     "hard_floors": [
         {"signal": "payment_or_financial", "level": "HIGH"},
         {"signal": "cryptography_or_secrets", "level": "HIGH"},
         {"signal": "personal_or_sensitive_data", "level": "HIGH"},
-        {"signal": "authentication_or_authorization", "level": "MEDIUM"},
+        {"signal": "authentication_or_authorization", "level": "HIGH"},
         {"uncertainty": "HIGH", "level": "HIGH"},
         {"uncertainty": "CRITICAL", "level": "CRITICAL"},
+        {"signal": "destructive_or_irreversible_migration", "level": "HIGH"},
+        {"signal": "backward_incompatible_change", "level": "HIGH"},
+        {"signal": "regulatory_or_compliance", "level": "HIGH"},
+        {"signal": "production_security_boundary", "level": "HIGH"},
+        {"signal": "credential_or_key_exposure", "level": "CRITICAL"},
+        {"signal": "catastrophic_blast_radius", "level": "CRITICAL"},
     ],
-    # The would-be required gate set. RECORDED, NEVER ACTED ON at T06: §12
-    # says preserve current gates and do not make them conditional yet. All
-    # eight gates run unconditionally; this map exists for test comparison
-    # against the phase that does make them conditional.
+    # Which gates require a HUMAN APPROVAL. Consumed by `gate_requirements`.
+    # §15's per-level lists are minima, so a repository override may add and
+    # never remove (`_refuse_weakening`). Membership of a flow is a separate,
+    # structural fact owned by FLOW_PHASES: a gate the bound flow does not
+    # contain is reported `not_in_flow`, never quietly satisfied.
     "required_gates_always": [
         "gate_constitution", "gate_spec", "gate_plan", "gate_implement",
     ],
     "required_gates_by_risk": {
         "LOW": [],
-        "MEDIUM": ["gate_tasks"],
+        # §15's MEDIUM adds design review. Analysis stays HIGH-and-above
+        # because §15 hedges it at MEDIUM with "as applicable", and a
+        # conditional a deterministic engine cannot evaluate is not a floor.
+        "MEDIUM": ["gate_tasks", "gate_design"],
         "HIGH": ["gate_tasks", "gate_analyze", "gate_design", "gate_security"],
         "CRITICAL": [
             "gate_tasks", "gate_analyze", "gate_design", "gate_security",
@@ -4230,7 +4291,13 @@ def cmd_governance_policy(args, paths: Paths) -> int:
 # branch/SHA in `execution.json` at T03.
 # --------------------------------------------------------------------------
 
-GOVERNANCE_RECORD_VERSION = "1"
+GOVERNANCE_RECORD_VERSION = "2"
+# Every version this engine can READ. `"1"` records stay valid: their one
+# stale key is never consulted for a decision, because every decision
+# re-derives the requirement set from the policy on disk. An unrecognised
+# version is an integrity failure rather than a silent "assume the current
+# shape" — a version field nothing refuses on proves nothing.
+GOVERNANCE_RECORD_VERSIONS = ("1", "2")
 GOVERNANCE_INPUT_VERSIONS = ("1",)
 QUALITY_RESULTS = ("PASS", "FAIL", "NOT_APPLICABLE")
 GOVERNANCE_INPUT_SECTIONS = ("governanceInputVersion", "quality",
@@ -4541,23 +4608,149 @@ def evaluate_risk(document: dict, policy: dict, relative: str) -> dict:
     }
 
 
+def _policy_gate_reasons(classification: dict, final_level: str | None,
+                         policy: dict) -> dict[str, list[str]]:
+    """Which gates the policy DICTIONARIES name, and under which rule each.
+
+    The one place the three ``required_gates_*`` tables are read. It knows
+    nothing about a bound flow, so it can name a gate no flow contains; that
+    is reported rather than dropped (see ``gate_requirements``).
+    """
+    reasons: dict[str, list[str]] = {}
+    for gate in policy.get("required_gates_always") or []:
+        reasons.setdefault(gate, []).append("always")
+    for gate in (policy.get("required_gates_by_risk") or {}).get(
+            final_level) or []:
+        reasons.setdefault(gate, []).append(f"risk:{final_level}")
+    wi_type = classification.get("type")
+    for gate in (policy.get("required_gates_by_type") or {}).get(wi_type) or []:
+        reasons.setdefault(gate, []).append(f"type:{wi_type}")
+    return reasons
+
+
 def required_gate_set(classification: dict, final_level: str,
                       policy: dict) -> list[str]:
-    """The gate set this governance record WOULD require — §12's "record what
-    the future required gate set would be for test comparison".
+    """The gates the effective policy NAMES for this classification and level.
 
-    Pure, and deliberately inert. Nothing on the phase-movement path calls it:
-    §12 says preserve the current gates and do not make them conditional yet,
-    so all eight gates still run unconditionally regardless of what this
-    returns. `test_units_governance.py` asserts that containment by AST, and
-    the T06 differential asserts two repositories differing only in risk
-    traverse identically.
+    T06 wrote this to record "what the required gate set would be"; §15 is the
+    phase that consumes it, and it is consumed rather than duplicated. It is
+    still only half an answer on its own: a dictionary lookup cannot know
+    which gates the bound flow actually contains, and it cannot see the
+    derived terminal-gate rule. ``gate_requirements`` is the function that
+    decides anything.
     """
-    gates = set(policy["required_gates_always"])
-    gates |= set((policy.get("required_gates_by_risk") or {}).get(final_level) or [])
-    gates |= set((policy.get("required_gates_by_type") or {}).get(
-        classification.get("type")) or [])
-    return sorted(gates)
+    return sorted(_policy_gate_reasons(classification, final_level, policy))
+
+
+# --------------------------------------------------------------------------
+# Gate requirements — contract §15
+# --------------------------------------------------------------------------
+#
+# §15 asks for "policy-driven gates without weakening governance", and §12's
+# closing line is what makes that a coherent instruction rather than two
+# contradictory ones:
+#
+#     Human approval remains policy-driven; review/validation is universal
+#     for governed artifacts.
+#
+# So exactly ONE thing below is policy-driven: whether a gate the bound flow
+# contains requires a HUMAN APPROVAL. Artifact generation, `artifact record`,
+# the artifact SHA baseline, TP-011 review, the drift queue, the secrets scan,
+# the test evidence, the implementation diff baseline, the audit chain, the
+# retry/remediation caps and the fail-safe transitions are untouched and stay
+# universal for every gate, required or not.
+#
+# The requirement set is DERIVED at every decision point and never stored. A
+# stored table would be a second source of truth able to authorise an omission
+# the current policy forbids (invariant 7), and it would need a state field, a
+# migration row and a template change. Deriving costs nothing and makes the
+# re-derivations at `advance` and at the terminal gate free.
+
+# The closed disposition vocabulary. Three values, each a different fact:
+# T07 introduced "the flow does not contain this phase" and T09 introduces
+# "the policy does not require this gate"; conflating them is how a report
+# comes to claim a guarantee nobody is enforcing.
+GATE_DISPOSITIONS = ("required", "omittable", "not_in_flow")
+
+# The decision value a policy-permitted omission records. Deliberately NOT
+# "approved": an omission is a different fact from an approval, and the two
+# must stay distinguishable in `state.json`, in the ledger, in `state dump`
+# and in the completion summary. §15 requires every omitted gate to be
+# explainable, and a value indistinguishable from an approval explains
+# nothing.
+GATE_OMITTED_DECISION = "omitted_by_policy"
+
+# The decisions that mean "this gate has been passed and its artifact is
+# baselined". Drift detection and repository staleness both key off this, so
+# an omitted gate keeps every guarantee §15's "preserve Wave A guardrails"
+# list names. Filtering on "approved" alone would let an omitted gate's
+# artifact change afterwards with no drift raised.
+BASELINED_GATE_DECISIONS = ("approved", GATE_OMITTED_DECISION)
+
+
+def terminal_gate_key(flow: Flow) -> str | None:
+    """The last gate of ``flow`` — the one immediately before ``complete``.
+
+    Positional, and deliberately not a row in ``required_gates_always``. That
+    matters twice. It names the real reason: this gate is required because it
+    is the terminal human decision on the whole run, not because security
+    review is universally mandatory — which is exactly what §15's exit
+    criterion denies. And it cannot be removed by a repository override:
+    overrides edit dictionaries, and a derived positional rule is in no
+    dictionary, so monotonicity is not merely enforced for it, it is
+    structurally unavailable.
+    """
+    return flow.gate_keys[-1] if flow.gate_keys else None
+
+
+def gate_requirements(consts: Constants, flow: Flow, classification: dict,
+                      final_level: str | None, policy: dict) -> dict:
+    """Which of ``flow``'s gates require a human approval, and why.
+
+    Pure: reads nothing from disk, writes nothing. The three dispositions are
+    ``GATE_DISPOSITIONS``:
+
+      ``required``     the bound flow contains this gate and the policy
+                       requires a human approval for it;
+      ``omittable``    the bound flow contains it and the policy does not
+                       require approval; it may still be approved exactly as
+                       today, or omitted through `gate omit`;
+      ``not_in_flow``  the policy names it but the bound flow has no such
+                       phase, so the requirement is inert — and is REPORTED
+                       as inert rather than silently dropped.
+
+    Every ``required`` entry carries at least one reason, so "why did this
+    gate stop me" always has a machine-readable answer.
+    """
+    policy_reasons = _policy_gate_reasons(classification, final_level, policy)
+    named = set(required_gate_set(classification, final_level, policy))
+    terminal = terminal_gate_key(flow)
+    phase_for = {key: phase for phase, key in consts.phase_to_gate_key.items()}
+
+    dispositions: list[dict] = []
+    for gate_key in flow.gate_keys:
+        reasons = list(policy_reasons.get(gate_key) or [])
+        if gate_key == terminal:
+            reasons.append("terminal_gate")
+        dispositions.append({
+            "gate": gate_key,
+            "gate_phase": phase_for.get(gate_key),
+            "disposition": "required" if reasons else "omittable",
+            "reasons": reasons,
+        })
+
+    return {
+        "flow": flow.name,
+        "final_risk": final_level,
+        "classification": dict(classification),
+        "terminal_gate": terminal,
+        "dispositions": dispositions,
+        "required_gates": sorted(d["gate"] for d in dispositions
+                                 if d["disposition"] == "required"),
+        "omittable_gates": sorted(d["gate"] for d in dispositions
+                                  if d["disposition"] == "omittable"),
+        "required_not_in_flow": sorted(named - set(flow.gate_keys)),
+    }
 
 
 def read_governance_record(paths: Paths) -> dict | None:
@@ -4585,6 +4778,17 @@ def read_governance_record(paths: Paths) -> dict | None:
             f"{paths.runtime_relative}/{target.name} is not a JSON object.",
             {"path": str(target)},
         )
+    version = record.get("governanceVersion")
+    if version not in GOVERNANCE_RECORD_VERSIONS:
+        raise IntegrityError(
+            "governance_record_invalid",
+            f"{paths.runtime_relative}/{target.name} declares "
+            f"governanceVersion {version!r}; this engine reads "
+            + ", ".join(repr(v) for v in GOVERNANCE_RECORD_VERSIONS)
+            + ". Re-run `governance assess --input <path>`.",
+            {"path": str(target), "version": version,
+             "supported": list(GOVERNANCE_RECORD_VERSIONS)},
+        )
     return record
 
 
@@ -4602,6 +4806,38 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
         "current_digest": digest,
         "current_sources": [entry["path"] for entry in sources],
     }
+
+
+def gate_requirements_for_state(paths: Paths, consts: Constants,
+                                state: dict) -> dict | None:
+    """The requirement model for the WorkItem this ``state`` belongs to.
+
+    ``None`` when it cannot be derived at all — the transitional legacy
+    `.workflow/` binding has no WorkItem and therefore no governance record.
+    Every caller treats ``None`` as "nothing may be omitted here", which is
+    the fail-closed direction: an omission nobody can justify is not one the
+    engine will accept.
+
+    Reads the policy from disk on every call, deliberately. A cached model
+    would be the stored second source of truth this design refuses, and the
+    whole point is that a recorded omission is re-derived rather than trusted.
+    """
+    if paths.workitem is None:
+        return None
+    record = read_governance_record(paths)
+    if record is None:
+        return None
+    effective = read_governance_policy(paths, consts)
+    model = gate_requirements(
+        consts,
+        flow_for_state(state, consts),
+        record.get("classification") or {},
+        (record.get("risk") or {}).get("finalLevel"),
+        effective["policy"],
+    )
+    model["policy"] = {"source": effective["source"],
+                       "sha256": effective["sha256"]}
+    return model
 
 
 def bind_for_governance(args, paths: Paths) -> Paths:
@@ -4649,6 +4885,9 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     stamp = now_iso()
     execution_id = execution_identity(paths, stamp)
     sources, digest = requirements_sources(paths)
+    proposed_requirements = gate_requirements(
+        consts, consts.flow(classification.get("flow")), classification,
+        risk["finalLevel"], policy)
 
     record = {
         "governanceVersion": GOVERNANCE_RECORD_VERSION,
@@ -4659,9 +4898,12 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         "quality": quality,
         "classification": classification,
         "risk": risk,
-        # Recorded, never acted on. See `required_gate_set`.
-        "wouldBeRequiredGates": required_gate_set(
-            classification, risk["finalLevel"], policy),
+        # §15's dispositions for the flow this record PROPOSES. Recorded as
+        # evidence of what the assessment implied, never read back for a
+        # decision: `init` binds the flow, and every later decision re-derives
+        # the model against the bound one.
+        "requiredGates": proposed_requirements["required_gates"],
+        "omittableGates": proposed_requirements["omittable_gates"],
         "policy": {"source": effective["source"], "sha256": effective["sha256"]},
     }
 
@@ -4737,11 +4979,17 @@ def cmd_governance_show(args, paths: Paths) -> int:
 
 
 def cmd_governance_gates(args, paths: Paths) -> int:
-    """The would-be required gate set. ADVISORY — nothing consumes it.
+    """Which gates of the bound flow require a human approval, and why.
 
-    At this version all eight registered gates run unconditionally. This
-    command exists so the gate set a later phase *would* derive can be
-    compared against today's traversal, which is exactly what §12 asks for.
+    Read-only, and answerable before `init` — which is why the flow is
+    resolved from `state.json` when there is one and from the record's
+    proposed classification otherwise, with `flow_source` saying which. A
+    report that could only be produced after `init` would be useless at the
+    moment the question is actually asked.
+
+    This command REPORTS the model; it never makes a decision. `gate omit` is
+    the only producer of an omission, and it re-derives the same model itself
+    rather than trusting anything this printed.
     """
     consts = load_constants(paths)
     paths = bind_for_governance(args, paths)
@@ -4753,23 +5001,36 @@ def cmd_governance_gates(args, paths: Paths) -> int:
             "`governance assess --input <path>` first.",
             {"workitem": paths.workitem, "path": str(paths.governance_file)},
         )
-    policy = read_governance_policy(paths, consts)["policy"]
+    effective = read_governance_policy(paths, consts)
     classification = record.get("classification") or {}
     final_level = (record.get("risk") or {}).get("finalLevel")
+
+    if paths.state_file.is_file():
+        flow = flow_for_state(read_state(paths), consts)
+        flow_source = "state"
+    else:
+        flow = consts.flow(classification.get("flow"))
+        flow_source = "record"
+
+    model = gate_requirements(consts, flow, classification, final_level,
+                              effective["policy"])
     emit("governance gates", {
         "workitem": paths.workitem,
         "classification": classification,
         "final_risk": final_level,
-        "would_be_required_gates": required_gate_set(
-            classification, final_level, policy),
+        "flow": flow.name,
+        "flow_source": flow_source,
+        "dispositions": model["dispositions"],
+        "required_gates": model["required_gates"],
+        "omittable_gates": model["omittable_gates"],
+        # A policy may name a gate the bound flow does not contain. That
+        # requirement is inert, and saying so is the point: an unreported
+        # inert rule is how a policy comes to claim a guarantee nobody is
+        # enforcing. Non-empty today for HOTFIX under the built-in policy.
+        "required_not_in_flow": model["required_not_in_flow"],
         "registered_gates": sorted(consts.phase_to_gate_key.values()),
-        # Still genuinely advisory, and deliberately so: T07 selects which
-        # phases a WorkItem executes, and every gate *inside* the selected
-        # flow runs unconditionally. Making a gate conditional on risk is T09.
-        "advisory": True,
-        "note": "Recorded for comparison only. Every gate within the selected "
-                "flow still runs unconditionally at this version; nothing "
-                "routes on this set.",
+        "policy": {"source": effective["source"],
+                   "sha256": effective["sha256"]},
     })
     return EXIT_OK
 
@@ -6154,6 +6415,15 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
         "; Claude proposed a lower level and it had no effect"
         if risk.get("loweringAttempted") else ""
     )
+    # §15's gate evidence, APPENDED so every existing prefix reads the same.
+    # Read off the record rather than re-derived: this sentence describes what
+    # the assessment implied, and a pre-T09 record simply has nothing to say.
+    required = record.get("requiredGates")
+    dispositions = "" if required is None else (
+        " Gate approvals this assessment requires: "
+        f"{', '.join(required) or 'none'}; omittable: "
+        f"{', '.join(record.get('omittableGates') or []) or 'none'}."
+    )
     append_audit(
         paths,
         state,
@@ -6167,7 +6437,7 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
             f"{risk.get('score')} -> deterministic {risk.get('deterministicLevel')}"
             + (f" (floors: {', '.join(floors)})" if floors else "")
             + f", proposed {risk.get('proposedLevel')}, final "
-            f"{risk.get('finalLevel')}{lowering}."
+            f"{risk.get('finalLevel')}{lowering}." + dispositions
         ),
     )
 
@@ -6617,7 +6887,31 @@ def apply_advance(
     gate_key = gate_key_for(consts, current)
     if gate_key is not None:
         decision = approval_decision(state, gate_key)
-        if decision != "approved":
+        if decision == GATE_OMITTED_DECISION:
+            # §15/D9 — a recorded omission is RE-DERIVED here, never trusted.
+            # The stored value only says a policy once permitted this; the
+            # question at the choke point is whether the policy permits it
+            # now. Re-deriving closes the hand-edited-state path and any
+            # window between `gate omit` and this advance, and it costs one
+            # file read. CLAUDE.md's design is that the choke-point refusal is
+            # the guarantee, so the guarantee is computed here rather than
+            # read back from the state the command is being asked to trust.
+            model = gate_requirements_for_state(paths, consts, state)
+            if model is None or gate_key not in model["omittable_gates"]:
+                raise Refused(
+                    "gate_omission_invalidated",
+                    f"{current} records a policy omission for {gate_key}, but "
+                    "the governance record and policy in effect right now "
+                    "require a human approval for that gate. An omission is "
+                    "re-derived at every advance and never trusted. Either "
+                    f"`gate approve --gate {gate_key}`, or `restart --to "
+                    "<phase index>` and take the decision again.",
+                    {"gate": gate_key, "phase": current, "decision": decision,
+                     "final_risk": (model or {}).get("final_risk"),
+                     "required_gates": (model or {}).get("required_gates"),
+                     "derivable": model is not None},
+                )
+        elif decision != "approved":
             raise Refused(
                 "gate_not_approved",
                 f"{current} has not been approved (decision: {decision or 'none'}). "
@@ -6682,6 +6976,50 @@ def cmd_advance(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 
 
+def revalidate_recorded_omissions(paths: Paths, state: dict,
+                                  consts: Constants, gate_key: str) -> None:
+    """D10 — the terminal gate re-checks every omission taken before it.
+
+    A gate already passed is never revisited, so an omission recorded at LOW
+    would otherwise survive a later re-assessment that raised the level. The
+    workflow is declared finished at the terminal gate — that is where the
+    whole run still has to be admissible, and the last moment at which
+    refusing costs less than unpicking a completed workflow.
+
+    A PURE READER. Its caller places it among `cmd_gate_approve`'s other pure
+    readers, ahead of the first `append_audit`, so a refusal leaves `audit.md`
+    byte-identical (the B1/NB-6 property). It reads the policy only when there
+    is an omission to revalidate, so a run that approved everything pays
+    nothing and behaves exactly as it did before T09.
+    """
+    omitted = sorted(
+        key for key, entry in (state.get("approvals") or {}).items()
+        if isinstance(entry, dict)
+        and entry.get("decision") == GATE_OMITTED_DECISION)
+    if not omitted:
+        return None
+    if gate_key != terminal_gate_key(flow_for_state(state, consts)):
+        return None
+
+    model = gate_requirements_for_state(paths, consts, state)
+    omittable = set(model["omittable_gates"]) if model else set()
+    invalid = [key for key in omitted if key not in omittable]
+    if not invalid:
+        return None
+    raise Refused(
+        "gate_omission_invalidated",
+        f"This workflow omitted {', '.join(invalid)} under a policy that no "
+        "longer permits it, so it cannot be declared complete. Either "
+        "`restart --to <phase index>` back to that gate and approve it, or "
+        "re-assess so the recorded governance matches the decisions already "
+        "taken.",
+        {"gate": gate_key, "invalidated": invalid,
+         "final_risk": (model or {}).get("final_risk"),
+         "required_gates": (model or {}).get("required_gates"),
+         "derivable": model is not None},
+    )
+
+
 def require_gate(consts: Constants, gate_key: str) -> str:
     for phase, key in consts.phase_to_gate_key.items():
         if key == gate_key:
@@ -6700,6 +7038,15 @@ def cmd_gate_show(args, paths: Paths) -> int:
     flow = flow_for_state(state, consts)
     resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     full = paths.project_root / resolved if resolved else None
+    # §15 — whether this gate needs a human approval, and why. `null` when the
+    # question has no answer for this runtime: the legacy `.workflow/` binding
+    # has no WorkItem and therefore no governance record, and a gate outside
+    # the bound flow has no disposition. Reporting `false` in either case
+    # would be an answer the engine has not got.
+    model = gate_requirements_for_state(paths, consts, state)
+    disposition = next(
+        (entry for entry in (model or {}).get("dispositions") or []
+         if entry["gate"] == args.gate), None)
     emit(
         "gate show",
         {
@@ -6717,12 +7064,17 @@ def cmd_gate_show(args, paths: Paths) -> int:
             "artifact_sha": sha256_file(full) if full and full.is_file() else None,
             "baseline_sha": (state.get("artifact_shas") or {}).get(args.gate),
             "decision": approval_decision(state, args.gate),
+            "required": (None if disposition is None
+                         else disposition["disposition"] == "required"),
+            "requirement_reasons": (None if disposition is None
+                                    else disposition["reasons"]),
         },
     )
     return EXIT_OK
 
 
 def write_completion_summary(paths: Paths, state: dict) -> str:
+    approvals = state.get("approvals") or {}
     summary = {
         "workflow_version": state.get("workflow_version"),
         # Which lifecycle was traversed. `all_gates_approved` below keeps its
@@ -6732,7 +7084,17 @@ def write_completion_summary(paths: Paths, state: dict) -> str:
         "completed_at": now_iso(),
         "phases_completed": len(state.get("phase_history") or []),
         "security_review_artifact": state.get("security_review_artifact"),
-        "all_gates_approved": True,
+        # DERIVED at T09, where it used to be the literal `True`. Every gate
+        # is still passed by an explicit, recorded decision — but from T09
+        # that decision may be a policy-permitted omission, and a summary that
+        # went on claiming every gate was APPROVED would state a guarantee the
+        # run does not carry. Narrow on purpose: it reports `false` for the
+        # one fact this phase introduces and for nothing else, so a run that
+        # approved everything still reads `true` exactly as it always did.
+        "all_gates_approved": not any(
+            isinstance(entry, dict)
+            and entry.get("decision") == GATE_OMITTED_DECISION
+            for entry in approvals.values()),
     }
     target = paths.completion_file
     write_atomic(target, json.dumps(summary, indent=2) + "\n")
@@ -6786,6 +7148,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     governance_precondition(paths)
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
+    revalidate_recorded_omissions(paths, state, consts, args.gate)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
@@ -6932,6 +7295,177 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
     return EXIT_OK
 
 
+def cmd_gate_omit(args, paths: Paths) -> int:
+    """Pass a gate the effective policy does not require a human to approve.
+
+    §15's exit criterion is that design and security are *"neither
+    universally mandatory nor casually skippable"*. This command is the whole
+    of the first half, and its refusal stack is the whole of the second.
+
+    "Not required" means **omittable, not omitted**. An omittable gate can
+    still be approved by a human exactly as before — always permitted,
+    because approving is always stricter than the policy demands. What it can
+    never be is passed silently: an omission is an explicit, audited event,
+    because §15 requires every omitted gate to be explainable and auditable
+    and an automatic omission produces no event to explain.
+
+    The refusal stack mirrors `cmd_gate_approve`'s, in the same order, with
+    `gate_required` inserted. That refusal is what makes the phase safe:
+    Claude may *ask* to omit and be told no, and there is no flag, override or
+    reason string that changes the answer. Nothing here relaxes TP-011 — a
+    governed artifact must still hold a current PASS review — and nothing
+    here skips the artifact SHA baseline, because a gate is a decision about
+    specific content whether the decision is "approve" or "omit".
+    """
+    consts = load_constants(paths)
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    stamp = now_iso()
+
+    if state.get("drift_queue"):
+        raise Refused(
+            "drift_pending",
+            "Artifact drift is pending re-approval, and an omission cannot "
+            "jump that queue. Re-approve "
+            f"{(state.get('drift_queue') or ['?'])[0]} first.",
+            {"drift_queue": state.get("drift_queue") or [],
+             "gate": args.gate},
+        )
+
+    gate_phase = require_gate(consts, args.gate)
+    if state.get("current_phase") != gate_phase:
+        raise Refused(
+            "not_at_gate",
+            f"Cannot omit {args.gate}: the workflow is at "
+            f"{state.get('current_phase')}, not {gate_phase}.",
+            {"gate": args.gate, "current_phase": state.get("current_phase")},
+        )
+
+    # The requirement model, derived now rather than read from anywhere. Both
+    # of the ways it can be underivable are refusals, because an omission
+    # nobody can justify is not one the engine will take.
+    if paths.workitem is None:
+        raise Refused(
+            "governance_workitem_required",
+            "Gate policy is WorkItem-scoped and this repository still "
+            f"resolves to the legacy {paths.legacy_workflow.name}/ runtime, "
+            "which holds no governance record. Every gate requires an "
+            "approval here. Move it under a WorkItem first: "
+            "`migrate-workflow --workitem <id>`.",
+            {"legacy_runtime": str(paths.legacy_workflow), "gate": args.gate},
+        )
+    if read_governance_record(paths) is None:
+        raise Refused(
+            "governance_missing",
+            f"WorkItem '{paths.workitem}' has no governance record, so no "
+            "gate can be shown to be unnecessary. Run `governance assess "
+            "--input <path>` first.",
+            {"workitem": paths.workitem, "path": str(paths.governance_file)},
+        )
+    model = gate_requirements_for_state(paths, consts, state)
+    disposition = next(
+        (entry for entry in (model or {}).get("dispositions") or []
+         if entry["gate"] == args.gate), None)
+    # No disposition means the bound flow does not contain this gate, which is
+    # not a licence to omit it — it is a state nothing should be able to
+    # reach while standing at that gate's phase. Refused, like every other
+    # case the engine cannot justify.
+    if disposition is None or disposition["disposition"] != "omittable":
+        reasons = [] if disposition is None else disposition["reasons"]
+        raise Refused(
+            "gate_required",
+            f"{args.gate} requires a human approval and cannot be omitted "
+            f"(reasons: {', '.join(reasons) or 'not a gate of this flow'}; "
+            f"final risk {(model or {}).get('final_risk')}; policy "
+            f"{((model or {}).get('policy') or {}).get('source')}). Approve "
+            "it, or reject it — a required gate has no third option.",
+            {"gate": args.gate, "phase": gate_phase,
+             "final_risk": (model or {}).get("final_risk"),
+             "reasons": reasons,
+             "required_gates": (model or {}).get("required_gates"),
+             "omittable_gates": (model or {}).get("omittable_gates"),
+             "policy": (model or {}).get("policy")},
+        )
+
+    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
+    sha = None
+    if resolved:
+        full = paths.project_root / resolved
+        if not full.is_file():
+            raise Refused(
+                "artifact_missing",
+                f"Cannot omit {args.gate}: {resolved} does not exist. An "
+                "omission is still a decision about specific content — the "
+                "artifact is generated, registered and reviewed whether or "
+                "not a human has to approve it.",
+                {"gate": args.gate, "path": resolved},
+            )
+        sha = sha256_file(full)
+        state.setdefault("artifact_shas", {})[args.gate] = sha
+
+    gate_precondition_hook(paths, state, consts, args.gate, resolved)
+    review_precondition(paths, state, args.gate, resolved)
+    # The same pure-reader block `cmd_gate_approve` uses, and for the same
+    # reason: every refusal above and here happens before the first
+    # `append_audit`, so a refused omission leaves the ledger byte-identical.
+    governance_precondition(paths)
+    flow_precondition(paths, state)
+    discovery_precondition(paths, state)
+
+    state.setdefault("approvals", {})[args.gate] = {
+        "decision": GATE_OMITTED_DECISION,
+        "comments": None,
+        "timestamp": stamp,
+        # The context that made the omission admissible, recorded so it can be
+        # audited later without re-running anything. `reasons` is the gate's
+        # REQUIREMENT reason list, which is empty precisely because nothing
+        # required it — that emptiness is the justification.
+        "risk_level": model["final_risk"],
+        "reasons": disposition["reasons"],
+        "policy_sha256": model["policy"]["sha256"],
+    }
+
+    flow = flow_for_state(state, consts)
+    number = flow.gate_number(args.gate)
+    append_audit(
+        paths,
+        state,
+        phase=gate_phase,
+        event="gate_omitted",
+        message=f"Gate {number} omitted: the governance policy in effect "
+        f"({model['policy']['source']}) requires no human approval for "
+        f"{args.gate} at final risk {model['final_risk']} on the "
+        f"{flow.name} flow. No human approved this gate. The artifact was "
+        "still generated, registered and reviewed, and its baseline SHA is "
+        f"recorded: {sha or 'n/a'}.",
+        artifact=resolved,
+        artifact_sha=sha,
+        decision="OMITTED",
+    )
+
+    # The terminal gate of the bound flow is always required, so this can
+    # never be the final advance and can never reach the completion or
+    # baseline branch. Asserted, not assumed.
+    moved = apply_advance(paths, state, consts, flow.next_phase(gate_phase),
+                          None, GATE_OMITTED_DECISION)
+    save_state(paths, state, args.session)
+    emit(
+        "gate omit",
+        {
+            "gate": args.gate,
+            "sha": sha,
+            "decision": GATE_OMITTED_DECISION,
+            "final_risk": model["final_risk"],
+            "reasons": disposition["reasons"],
+            "policy": model["policy"],
+            "next_phase": moved["to"],
+            "status": moved["status"],
+            "progress": moved["progress"],
+        },
+    )
+    return EXIT_OK
+
+
 def cmd_gate_reject(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
@@ -7035,7 +7569,14 @@ def compute_drift(paths: Paths, state: dict, consts: Constants,
     for gate_phase in consts.gate_phases:
         gate_key = consts.phase_to_gate_key[gate_phase]
         entry = approvals.get(gate_key)
-        if not isinstance(entry, dict) or entry.get("decision") != "approved":
+        # §15 preserve item 1. An omitted gate is a BASELINED gate: its
+        # artifact was fingerprinted at the moment of the decision exactly as
+        # an approved one is, so it keeps drift protection. Filtering on
+        # "approved" alone would let an omitted gate's artifact change
+        # afterwards with nothing raised — a real regression wearing the
+        # disguise of no change.
+        if (not isinstance(entry, dict)
+                or entry.get("decision") not in BASELINED_GATE_DECISIONS):
             continue
         baseline = baselines.get(gate_key)
         if not baseline:
@@ -8115,7 +8656,11 @@ def cmd_repo_staleness(args, paths: Paths) -> int:
     approvals = state.get("approvals") or {}
     stamps = [
         entry["timestamp"] for entry in approvals.values()
-        if isinstance(entry, dict) and entry.get("decision") == "approved"
+        if isinstance(entry, dict)
+        # Same re-pointing as `compute_drift`, for the same reason: an
+        # omission carries a timestamp and a baselined artifact, so it is a
+        # real reference point for "has the repository moved since?".
+        and entry.get("decision") in BASELINED_GATE_DECISIONS
         and entry.get("timestamp")
     ]
     if not stamps or not git_available(paths):
@@ -8880,6 +9425,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
+    checks.append(_check_repo_config_defaults_documented(paths))
     return checks
 
 
@@ -9223,6 +9769,78 @@ def _check_no_hardcoded_progress(paths: Paths, consts: Constants) -> Check:
     )
 
 
+def _check_repo_config_defaults_documented(paths: Paths) -> Check:
+    """The documented configuration defaults must BE the shipped ones.
+
+    T05 left `REPO_CONFIG_DEFAULTS` restated as a fenced JSON literal in
+    `README.md` with nothing binding the two together — a documented default
+    that can drift from the engine's, which for a boundary is a documented
+    lie waiting to happen. Deleting the example was rejected: it is genuinely
+    useful, and the linter exists precisely so a useful restatement can be
+    *bound* rather than forbidden (CLAUDE.md: run the linter, do not check by
+    hand).
+
+    Every fenced ```json block in the two repository documents is parsed, and
+    any block that is an object carrying `configVersion` must equal
+    `REPO_CONFIG_DEFAULTS` exactly. Keyed on the field rather than on the
+    block's position, so moving or re-ordering the section cannot silently
+    disable the rule, and an unparseable block fails loudly rather than being
+    skipped. A document that is *present* and carries no such block fails too
+    — that is the drift. A document that is *absent* is skipped, because there
+    is then no restatement to bind and `lint-skill` must still answer in a
+    project that has no repository documentation at all.
+    """
+    root = _repo_root(paths)
+    problems: list[str] = []
+    examined = 0
+    present: list[str] = []
+    for relative in REPO_DOCS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        present.append(relative)
+        text = path.read_text(encoding="utf-8")
+        for raw in re.findall(r"```json\n(.*?)```", text, re.S):
+            try:
+                document = json.loads(raw)
+            except (json.JSONDecodeError, ValueError) as exc:
+                problems.append(f"{relative}: a ```json block does not parse "
+                                f"({exc})")
+                continue
+            if not isinstance(document, dict):
+                continue
+            if "configVersion" not in document:
+                continue
+            examined += 1
+            if document != REPO_CONFIG_DEFAULTS:
+                problems.append(
+                    f"{relative}: a documented configuration block is "
+                    f"{document}, but REPO_CONFIG_DEFAULTS is "
+                    f"{REPO_CONFIG_DEFAULTS}")
+    if not problems and present and not examined:
+        problems.append(
+            "no documented configuration block was found in "
+            + " or ".join(present)
+            + "; the check would pass vacuously")
+    if not present:
+        # No repository documentation in this project, so there is no
+        # restatement to bind. Skipping an absent document is what every
+        # other documentation rule here already does; firing instead would
+        # make `lint-skill` — a runtime-free command — unable to answer in a
+        # project that simply has no README.
+        return Check(
+            "repo_config_defaults_match_documentation", True,
+            "no repository documentation in this project; nothing restates "
+            "the configuration defaults")
+    return Check(
+        "repo_config_defaults_match_documentation",
+        not problems,
+        "; ".join(problems) if problems
+        else f"{examined} documented configuration block(s) equal "
+             "REPO_CONFIG_DEFAULTS",
+    )
+
+
 def _check_doc_phase_tables(paths: Paths, consts: Constants) -> list[Check]:
     """README and the Reference Guide restate the phase list for humans.
 
@@ -9546,6 +10164,13 @@ def build_parser() -> argparse.ArgumentParser:
     approved.add_argument("--gate", required=True)
     approved.add_argument("--comments")
     approved.set_defaults(handler=cmd_gate_approve)
+    # Deliberately flagless beyond `--gate`. A `--force`, `--reason` or
+    # override flag would be an operator-supplied way past `gate_required`,
+    # which is the exception mechanism §15's "casually skippable" forbids.
+    omitted_p = gate_sub.add_parser(
+        "omit", help="Pass a gate the policy does not require approved.")
+    omitted_p.add_argument("--gate", required=True)
+    omitted_p.set_defaults(handler=cmd_gate_omit)
     rejected_p = gate_sub.add_parser("reject", help="Record a rejection.")
     rejected_p.add_argument("--gate", required=True)
     rejected_p.add_argument("--reason", required=True)

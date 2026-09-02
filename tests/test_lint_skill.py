@@ -395,3 +395,65 @@ def test_removing_the_discovery_execution_block_fires(repo):
          "**Phase `discovery` (BROWNFIELD_DISCOVERY only",
          "**Repository discovery (BROWNFIELD_DISCOVERY only")
     assert_only_failure(repo, "every_phase_has_execution_block")
+
+
+# -- the repository configuration boundary (T09/D15) ------------------------
+
+
+def test_a_documented_config_default_that_drifts_fires(repo):
+    """X12: the check T09 added has to be provable failable, like every other
+    rule in this file. A README example that no longer matches
+    `REPO_CONFIG_DEFAULTS` must fire, and fire alone."""
+    readme = repo.root / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            '"policyFormat": "json"', '"policyFormat": "yaml"'),
+        encoding="utf-8",
+    )
+    assert_only_failure(repo, "repo_config_defaults_match_documentation")
+
+
+def test_an_unparseable_documented_json_block_fires(repo):
+    """A block that does not parse is a failure, not something to skip: a
+    silently skipped block is how the rule would come to check nothing."""
+    readme = repo.root / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8").replace(
+            '"configVersion": "1",', '"configVersion" "1",'),
+        encoding="utf-8",
+    )
+    assert_only_failure(repo, "repo_config_defaults_match_documentation")
+
+
+def test_deleting_the_documented_block_fires_rather_than_passing_vacuously(
+        repo):
+    """The rule's own non-vacuity guard: with nothing left to compare, the
+    check must fail rather than report success over an empty set."""
+    readme = repo.root / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    # The configuration block specifically: README carries three ```json
+    # blocks and the other two are unrelated examples.
+    marker = text.index('"configVersion"')
+    start = text.rindex("```json", 0, marker)
+    end = text.index("```", marker) + 3
+    readme.write_text(text[:start] + text[end:], encoding="utf-8")
+    assert '"configVersion"' not in readme.read_text(encoding="utf-8")
+    assert_only_failure(repo, "repo_config_defaults_match_documentation")
+
+
+def test_a_project_with_no_repository_documentation_still_lints(repo):
+    """The other half of the non-vacuity guard, and the reason it is not a
+    relaxation. With neither document present there is no restatement that
+    could drift, so the rule passes and says why — and `lint-skill` keeps
+    answering in a project that carries no README, which
+    `test_runtime_free_commands_need_no_workitem` requires of it."""
+    (repo.root / "README.md").unlink()
+    (repo.root / "docs" / "SDLE-Reference-Guide.md").unlink()
+
+    result = repo.run("lint-skill")
+    assert result.exit_code == EXIT_OK, result
+    assert result.data["failed"] == []
+    check = next(c for c in result.data["checks"]
+                 if c["name"] == "repo_config_defaults_match_documentation")
+    assert check["passed"] is True
+    assert "no repository documentation" in check["message"]

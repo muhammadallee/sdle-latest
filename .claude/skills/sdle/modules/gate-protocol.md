@@ -35,7 +35,8 @@ Use this table in Step 7 (Rejection & Remediation) to determine whether re-execu
      If every item is covered: show `✅ All guidance items addressed.` and no gaps.
    - If the guidance file **does not exist**: skip this step silently — do not mention guidance at all.
 4. **Review status:** run `sdle.sh artifact reviews --path <current_artifact>` and read the entry for this artifact. Show the review type, result and actor in the prompt's `Review:` line. If it is not a current `PASS`, do not display the prompt — record the review first (see **Governed Artifact Review** in `modules/phase-execution.md`); `gate approve` would refuse anyway, and asking for an approval you know will be refused wastes the user's decision.
-5. THEN display the gate prompt below.
+5. **Requirement status:** read `required` and `requirement_reasons` from `sdle.sh gate show --gate <gate_key>`. **Ask the engine; never decide this from a risk level yourself.** If `required` is `true`, the protocol below is unchanged. If it is `false`, this gate is *omittable* — see **Step 6b** — and you still display the artifact content first. If it is `null` the engine has no answer for this runtime (no WorkItem, so no governance record); treat the gate as required.
+6. THEN display the gate prompt below.
 
 The user must never need to open an external file to know what they are approving.
 
@@ -94,7 +95,7 @@ Please review the content above, then respond with:
         "flow": "<state.flow>",
         "phases_completed": <count of phase_history entries>,
         "security_review_artifact": "<state.security_review_artifact>",
-        "all_gates_approved": true
+        "all_gates_approved": <derived: false if any gate was omitted by policy>
       }
       ```
    b. Set `current_phase` to `complete`, `status` to `completed`. `progress` is written by the script from the bound flow — **PROGRESS_MAP** is the GREENFIELD view and is not the value to copy.
@@ -115,6 +116,35 @@ Please review the content above, then respond with:
 - Go to Step 7: Rejection & Remediation (below).
 
 ---
+
+## Step 6b: A Gate the Policy Does Not Require
+
+`gate show` reporting `required: false` means the governance policy does not require a **human approval** for this gate on this WorkItem. It means nothing else. The artifact was still generated, still registered, still reviewed and still fingerprinted, and it is still watched for drift.
+
+Display the artifact content exactly as Step 6 requires — the user is still entitled to see what is being passed — then say, in the conversation, that the policy does not require an approval here and give the reason the engine returned. Offer both options and let the user choose:
+
+```
+---
+ℹ️  APPROVAL NOT REQUIRED — Gate {gate_number}/{gate_total}: {Gate Label}
+
+<artifact content displayed above>
+
+Artifact path: {current_artifact}
+Fingerprint: {current_artifact_sha}
+Review: {reviewType} | {result} | {actor_type}:{actor_name}
+
+The governance policy in effect does not require a human approval for this
+gate on this WorkItem. You may still approve it — that is always permitted
+and always the stricter choice. Respond with:
+  • `approve` — Approve it anyway, and record the approval
+  • `omit` — Pass it on the policy's authority, recorded and audited
+  • `reject with comments: <your feedback>` — Reject and trigger remediation
+---
+```
+
+On `omit`, run `sdle.sh gate omit --gate <gate_key>`. The engine re-derives the requirement itself, refuses `gate_required` if it turns out the gate *is* required, records the decision as an omission distinct from an approval, writes a `gate_omitted` entry naming the policy and the risk level, and advances. Report what it returns; do not compute the next phase.
+
+**You may never omit a required gate, and there is no flag that lets you.** If `gate omit` refuses `gate_required`, print the message and the reasons and ask the user to approve or reject. That refusal is the guardrail working.
 
 ## Step 7: Rejection & Remediation
 

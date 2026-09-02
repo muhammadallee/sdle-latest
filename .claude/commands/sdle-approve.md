@@ -21,5 +21,12 @@ user has just been shown the artifact content and asked for it.
    failed. Do not work around it.
 5. On success, print the header and propose the next phase.
 
+If `sdle.sh gate show --gate <gate_key>` reports `required: false`, this gate
+is *omittable*: the policy does not require a human approval for it. Approving
+it is still permitted and still stricter, so this command needs no change —
+but offer the user the alternative (`sdle.sh gate omit --gate <gate_key>`)
+rather than approving on their behalf. See **Step 6b** in
+`.claude/skills/sdle/modules/gate-protocol.md`.
+
 If `drift_mode` is true in the response, this was a drift re-approval: if
 `remaining_drift` is non-empty, present the next drifted artifact.

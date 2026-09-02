@@ -767,6 +767,7 @@ def test_workitem_json_git_object_still_has_exactly_initial_branch(bare_project)
 CRITICAL_INVOCATIONS = [
     (("advance", "--to", "constitution_draft"), "advance"),
     (("gate", "approve", "--gate", "1"), "gate approve"),
+    (("gate", "omit", "--gate", "1"), "gate omit"),
     (("skip",), "skip"),
     (("restart", "--to", "1"), "restart"),
     (("reset",), "reset"),
@@ -795,7 +796,11 @@ def test_the_invocation_list_covers_every_branch_critical_action():
         for _, action in CRITICAL_INVOCATIONS
     }
     assert covered == set(sdle.BRANCH_CRITICAL_ACTIONS)
-    assert len(sdle.BRANCH_CRITICAL_ACTIONS) == 9
+    # Ten at T09: `gate omit` both advances the lifecycle and fingerprints
+    # working-tree content, which is exactly the criterion the set states, so
+    # an omission recorded against the wrong checkout is refused like every
+    # other decision would be.
+    assert len(sdle.BRANCH_CRITICAL_ACTIONS) == 10
 
 
 @pytest.mark.parametrize("invocation,action", CRITICAL_INVOCATIONS,
