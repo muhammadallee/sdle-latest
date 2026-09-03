@@ -1363,12 +1363,43 @@ T09_GUARDS = ("write-fence", "untrusted-read", "dirty-tree", "secrets-scan")
 T10_GUARD_ADDITIONS = ("product-agent-fence",)
 T10_HOOK_ADDITIONS = ("PRODUCT_AGENT_FENCE_REASON", "product_agent_fence")
 
+# T11 X9. The hooks pin is re-baselined from T09's rollback point to T11's,
+# because D7 edits `hooks.py`. The baseline commit is written out, and the
+# additions and edits T11 declares are written out, so anything else still
+# fails.
+T11_HOOKS_BASELINE = "4b1aa71"
+T11_HOOK_ADDITIONS = ("normalized", "import:import posixpath")
+# Definitions T11 legitimately edits. Each is pinned below by an explicit
+# property assertion instead of by bytes, so dropping it from the byte
+# comparison does not drop it from coverage.
+T11_HOOK_EDITS = ("FENCE_REASONS", "write_fence")
+
+
+def at_t11_hooks_baseline(relative: str) -> str | None:
+    """The file's content at T11's byte-identity baseline, or None."""
+    result = subprocess.run(
+        ["git", "show", f"{T11_HOOKS_BASELINE}:{relative}"],
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        return None
+    return result.stdout.replace("\r\n", "\n")
+
 
 def _hooks_top_level(source: str) -> dict[str, str]:
     """Every top-level definition in the hooks module, by name, with the exact
-    source that defines it. Functions by `def`, constants by assigned name."""
+    source that defines it. Functions by `def`, constants by assigned name.
+
+    **T11 remediation of T10 NB-1.** T10's verifier found that this extraction
+    silently ignored `import` statements and the module docstring, so a
+    guardrail file could gain an import — or have its stated purpose rewritten
+    — without the byte-identity pin noticing. Both are captured now. This is a
+    strict strengthening: nothing that was covered before is covered less.
+    """
     tree = ast.parse(source)
     found = {}
+    docstring = ast.get_docstring(tree, clean=False)
+    if docstring is not None:
+        found["__doc__"] = docstring
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             found[node.name] = ast.get_source_segment(source, node)
@@ -1376,6 +1407,9 @@ def _hooks_top_level(source: str) -> dict[str, str]:
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     found[target.id] = ast.get_source_segment(source, node)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            found["import:" + ast.get_source_segment(source, node)] = (
+                ast.get_source_segment(source, node))
     return found
 
 
@@ -1425,19 +1459,66 @@ def test_n28_the_hooks_are_byte_identical():
         if relative != HOOKS_FILE:
             assert here(relative) == original, relative
 
-    before = _hooks_top_level(at_rollback(HOOKS_FILE))
+    baseline_source = at_t11_hooks_baseline(HOOKS_FILE)
+    assert baseline_source is not None, (
+        f"{T11_HOOKS_BASELINE} must be reachable, or this test is vacuous")
+    before = _hooks_top_level(baseline_source)
     after = _hooks_top_level(here(HOOKS_FILE))
-    assert sorted(after) == sorted(set(before) | set(T10_HOOK_ADDITIONS)), (
+    assert "__doc__" in before and "__doc__" in after, (
+        "T10 NB-1: the module docstring must be part of the pin")
+    assert any(k.startswith("import:") for k in before), (
+        "T10 NB-1: imports must be part of the pin")
+    assert sorted(after) == sorted(set(before) | set(T11_HOOK_ADDITIONS)), (
         sorted(set(after) ^ set(before)))
     for name, source in before.items():
-        # `GUARDS` is the one definition T10 legitimately edits, by exactly one
-        # line. It is pinned below by name and order instead of by bytes.
-        if name == "GUARDS":
+        # The definitions T11 declares as edited are pinned by property just
+        # below, not by bytes. Everything else — including the module
+        # docstring and every import, which T10's verifier found were being
+        # skipped entirely — is still byte-identical.
+        if name in T11_HOOK_EDITS:
             continue
         assert after[name] == source, name
 
     assert _registered_guards(here(HOOKS_FILE)) == list(
         T09_GUARDS + T10_GUARD_ADDITIONS)
+
+    # -- what byte-identity was buying for the two edited definitions --------
+    #
+    # Each property below is one the byte pin used to catch. They are asserted
+    # explicitly rather than assumed, because a replacement that only *looks*
+    # stronger is how coverage narrows silently.
+    hooks_now = here(HOOKS_FILE)
+    fence = _hooks_top_level(hooks_now)["write_fence"]
+
+    # (1) FENCE_REASONS still explains exactly the fenced names, no more and
+    #     no fewer — a fenced directory with no reason would emit `None`.
+    import ast as _ast
+    reasons = _ast.literal_eval(
+        _hooks_top_level(hooks_now)["FENCE_REASONS"].split("=", 1)[1].strip())
+    fenced = _ast.literal_eval(
+        _hooks_top_level(hooks_now)["FENCED"].split("=", 1)[1].strip())
+    assert sorted(reasons) == sorted(fenced)
+    assert fenced == (".workflow", "workitems", "requirements", "guidance"), (
+        "T11 preserves the fence: `.workflow/` is still a migration source "
+        "and must stay unwriteable by hand (P6)")
+    for name, text in reasons.items():
+        # Each reason names its own fenced directory and says who owns
+        # it — the two things that make a denial actionable rather than
+        # opaque. Written as a conjunction: the previous form was a
+        # disjunction that could be satisfied for the wrong reason.
+        assert isinstance(text, str) and len(text) > 60, name
+        assert f"'{name}/'" in text, name
+        assert "SDLE" in text or "sdle.py" in text, name
+
+    # (2) `write_fence` still denies rather than asks, still reads its reason
+    #     from FENCE_REASONS, still has exactly the one carve-out, and still
+    #     iterates FENCED.
+    assert '"deny"' in fence
+    assert "FENCE_REASONS" in fence
+    assert fence.count("SPECS_CARVE_OUT") == 1
+    assert "for name in FENCED" in fence
+    # (3) and T11's declared addition: it normalises first (D7 / T04 N-3).
+    assert "normalized(" in fence
 
 
 def test_n28_the_state_schema_did_not_move(project):

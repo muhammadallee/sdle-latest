@@ -2675,6 +2675,23 @@ def read_active_context(paths: Paths) -> dict | None:
 
 
 def write_active_context(paths: Paths, workitem_id: str, set_by: str) -> dict:
+    """Persist the active context. **The only writer of that file.**
+
+    T11 D9 makes ``ACTIVE_CONTEXT_SETTERS`` load-bearing rather than
+    documentary (T03-4). The fact it encodes — that exactly three commands may
+    set the context — was true but unenforced, so a fourth writer could have
+    been added without anything objecting. This is a *programming* error, not
+    a user input error: no CLI argument can reach it, so it raises
+    ``ValueError`` rather than becoming a refusal with a reason string that
+    could never be triggered from outside.
+    """
+    if set_by not in ACTIVE_CONTEXT_SETTERS:
+        raise ValueError(
+            f"write_active_context: set_by={set_by!r} is not one of "
+            f"{ACTIVE_CONTEXT_SETTERS}. The active context has exactly three "
+            "writers; adding a fourth means changing that constant "
+            "deliberately, not by accident."
+        )
     payload = {
         "workitem": workitem_id,
         "branch": current_branch(paths),
@@ -2804,10 +2821,30 @@ def cmd_workitem_use(args, paths: Paths) -> int:
     unregistered id: persisting a context that can never bind is a footgun
     with no upside. Validation precedes the write, so a refused `use` leaves
     any existing context byte-unchanged.
+
+    **T11 D8** (T03-5, T03-6). Two corrections, both about the CLI contract:
+
+    * an unwritable or undeletable context file is a **refusal**, not a
+      traceback — every sibling command already turns `OSError` into a named
+      refusal, and a traceback carries no reason string and no exit-code
+      meaning;
+    * the missing-flag `UsageError` is `workitem_flag_required`, not
+      `workitem_required`. One reason string must not mean two things across
+      two exit codes (invariant 7): `workitem_required` is the *resolution*
+      refusal at exit 1, and a missing flag is a usage error at exit 2.
     """
     target = active_context_file(paths)
     if getattr(args, "clear", False):
-        cleared = clear_active_context(paths)
+        try:
+            cleared = clear_active_context(paths)
+        except OSError as exc:
+            raise Refused(
+                "active_context_unwritable",
+                f"The active context at {target.name} could not be removed: "
+                f"{exc}. Fix the permissions and re-run, or delete the file "
+                "by hand — it is developer-local and gitignored.",
+                {"path": str(target), "error": str(exc)},
+            ) from exc
         emit("workitem use", {
             "workitem": None, "cleared": cleared, "path": str(target),
         })
@@ -2816,7 +2853,7 @@ def cmd_workitem_use(args, paths: Paths) -> int:
     requested = getattr(args, "use_workitem", None) or args.workitem
     if not requested:
         raise UsageError(
-            "workitem_required",
+            "workitem_flag_required",
             "`workitem use` needs a target: --workitem <id>, or --clear.",
             {},
         )
@@ -2831,7 +2868,16 @@ def cmd_workitem_use(args, paths: Paths) -> int:
             {"requested": requested, "workitems": known},
         )
 
-    payload = write_active_context(paths, requested, "use")
+    try:
+        payload = write_active_context(paths, requested, "use")
+    except OSError as exc:
+        raise Refused(
+            "active_context_unwritable",
+            f"The active context at {target.name} could not be written: "
+            f"{exc}. Re-run with `--workitem {requested}` in the meantime — "
+            "the context is a convenience, never a requirement.",
+            {"path": str(target), "workitem": requested, "error": str(exc)},
+        ) from exc
     emit("workitem use", {
         "workitem": requested,
         "branch": payload["branch"],
@@ -6215,8 +6261,10 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
     # exactly one entry point, `workitem create`.
     requested = getattr(args, "migrate_workitem", None) or args.workitem
     if not requested:
+        # T11 D8: a missing flag is a *usage* error (exit 2) and must not
+        # share `workitem_required`, which is the resolution refusal (exit 1).
         raise UsageError(
-            "workitem_required",
+            "workitem_flag_required",
             "migrate-workflow needs a target: --workitem <id>.",
             {},
         )
@@ -8947,8 +8995,16 @@ def cmd_guidance_path(args, paths: Paths) -> int:
 # Implement phase
 # --------------------------------------------------------------------------
 
+# Paths the dirty-tree guard treats as SDLE's own bookkeeping rather than the
+# user's implementation. T11 D5 adds `.sdle/`, closing T08's finding: the
+# repository-global configuration root is written by `config` and by
+# `baseline`, both of which already produce their own audited records, so
+# excluding it loses no evidence — while *not* excluding it let one WorkItem's
+# `baseline.json` write trip another WorkItem's guard, which is the
+# cross-WorkItem isolation §8/§9 do guarantee. `workitems/<id>/.sdle/` was
+# already covered by the `workitems/` entry.
 SDLE_OWNED_PREFIXES = (
-    ".workflow/", "workitems/", ".specify/", "design/", "reviews/",
+    ".workflow/", ".sdle/", "workitems/", ".specify/", "design/", "reviews/",
     "clarifications/", "guidance/", "requirements/",
 )
 
@@ -9111,13 +9167,25 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         }
         note = "git not initialized — file list is approximate."
 
-    # The runtime directory is engine-owned bookkeeping, never implementation.
-    # Only the runtime is excluded here — widening this to SDLE_OWNED_PREFIXES
-    # would silently drop requirements/ and design/ edits from the manifest.
-    runtime_prefix = paths.runtime_relative + "/"
+    # Engine-owned bookkeeping is never implementation. The exclusion stays an
+    # explicit, narrow list and is deliberately **not** SDLE_OWNED_PREFIXES:
+    # that would silently drop requirements/ and design/ edits from the
+    # manifest. T11 D6 (T04 N-7) gives this the same relocation/ownership
+    # exclusion its sibling `cmd_security_review_evidence` already had, so the
+    # Gate 7 manifest stops reporting this WorkItem's governed Spec Kit input
+    # and SDLE's own configuration root as implementation changes.
+    excluded = [
+        paths.runtime_relative + "/",       # this WorkItem's runtime
+        paths.config_root_relative + "/",   # repository-global `.sdle/`
+        ".specify/",                        # Spec Kit's own tree
+    ]
+    feature_directory = speckit_ref(state)["featureDirectory"]
+    if feature_directory:
+        excluded.append(feature_directory.rstrip("/") + "/")
     changed = sorted(
         f for f in files
-        if not f.replace("\\", "/").startswith(runtime_prefix)
+        if not any(f.replace("\\", "/").startswith(prefix)
+                   for prefix in excluded)
     )
 
     findings = []

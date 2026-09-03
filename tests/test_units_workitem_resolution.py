@@ -17,6 +17,7 @@ Two rules govern this file:
 
 from __future__ import annotations
 
+import argparse
 import ast
 import contextlib
 import io
@@ -31,6 +32,7 @@ from conftest import SDLE_PY, Project, Result, sdle
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
+EXIT_USAGE = 2
 EXIT_INTEGRITY = 3
 
 
@@ -487,10 +489,17 @@ def test_workitem_use_refuses_an_unregistered_id_and_writes_nothing(bare_project
 
 
 def test_workitem_use_without_a_target_is_a_usage_error(bare_project):
+    """T11 D8 re-valued the reason string here (X-GEN, exact equality kept).
+
+    It read `workitem_required`, which was also the *resolution* refusal at
+    exit 1. One reason string across two exit codes is an invariant-7
+    violation on the CLI contract, so the usage error now has its own name.
+    The exit code is unchanged.
+    """
     create_wi(bare_project, "Alpha")
     result = bare_project.run("workitem", "use")
     assert result.exit_code == 2, result
-    assert result.reason == "workitem_required"
+    assert result.reason == "workitem_flag_required"
 
 
 @pytest.mark.parametrize("payload", [
@@ -1450,7 +1459,9 @@ def test_workitem_rebinding_happens_only_at_the_declared_sites():
     }
 
 
-def test_the_active_context_is_written_only_by_the_declared_setters():
+def test_the_active_context_is_written_only_by_the_declared_setters(
+    bare_project,
+):
     """F2/P4: a hook must never become a writer."""
     source = ast.parse(Path(SDLE_PY).read_text(encoding="utf-8"))
     writers = set()
@@ -1464,6 +1475,80 @@ def test_the_active_context_is_written_only_by_the_declared_setters():
                 writers.add(fn.name)
     assert writers == {"cmd_init", "cmd_migrate_workflow", "cmd_workitem_use"}
     assert sdle.ACTIVE_CONTEXT_SETTERS == ("init", "use", "migrate-workflow")
+
+    # T11 D9 / X5: the value is unchanged, but the constant is no longer
+    # documentary. `write_active_context` now enforces it, so a fourth writer
+    # cannot be added without changing the constant deliberately. Asserted
+    # against the real function, on a path that never touches the disk.
+    paths = sdle.resolve_paths(str(bare_project.root),
+                               str(bare_project.skill_root))
+    for setter in sdle.ACTIVE_CONTEXT_SETTERS:
+        assert sdle.write_active_context(paths, "alpha", setter)["setBy"] == \
+            setter
+    with pytest.raises(ValueError) as caught:
+        sdle.write_active_context(paths, "alpha", "some-new-command")
+    assert "ACTIVE_CONTEXT_SETTERS" in str(caught.value) or \
+        "not one of" in str(caught.value)
+
+
+# ==========================================================================
+# T11 N20 — D8: one reason string never means two things
+# ==========================================================================
+
+
+def test_n20_the_usage_error_and_the_resolution_refusal_have_distinct_reasons(
+    bare_project,
+):
+    """T11 D8 (T03-6). `workitem_required` used to be raised both as a
+    `UsageError` (exit 2, missing flag) and as a `Refused` (exit 1, nothing
+    resolved). One reason string meaning two things across two exit codes is
+    an invariant-7 violation on the CLI contract itself.
+
+    Both halves are asserted here, so the split cannot silently re-merge.
+    """
+    create_wi(bare_project, "Alpha")
+
+    missing_flag = bare_project.run("workitem", "use")
+    assert missing_flag.exit_code == EXIT_USAGE, missing_flag
+    assert missing_flag.reason == "workitem_flag_required", missing_flag
+
+    migrate_flag = bare_project.run("migrate-workflow")
+    assert migrate_flag.exit_code == EXIT_USAGE, migrate_flag
+    assert migrate_flag.reason == "workitem_flag_required", migrate_flag
+
+    # And the resolution refusal keeps `workitem_required` at exit 1.
+    create_wi(bare_project, "Bravo")
+    unresolved = bare_project.run("state", "get")
+    assert unresolved.exit_code == EXIT_REFUSED, unresolved
+    assert unresolved.reason == "workitem_ambiguous", unresolved
+
+    empty = Project(bare_project.root / "empty", bare_project.skill_root)
+    (empty.root / ".git").mkdir(parents=True)
+    nothing = empty.run("state", "get")
+    assert nothing.exit_code == EXIT_REFUSED, nothing
+    assert nothing.reason == "workitem_required", nothing
+
+
+def test_n20_workitem_use_turns_an_oserror_into_a_refusal(bare_project,
+                                                          monkeypatch):
+    """T11 D8 (T03-5). Every sibling command already turns `OSError` into a
+    named refusal; `workitem use` raised a traceback, which carries no reason
+    string and no exit-code meaning."""
+    workitem = create_wi(bare_project, "Alpha")
+    paths = sdle.resolve_paths(str(bare_project.root),
+                               str(bare_project.skill_root))
+
+    def boom(*args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(sdle, "write_active_context", boom)
+    args = argparse.Namespace(clear=False, use_workitem=workitem,
+                              workitem=None, session=None)
+    with pytest.raises(sdle.Refused) as caught:
+        sdle.cmd_workitem_use(args, paths)
+    assert caught.value.reason == "active_context_unwritable"
+    assert caught.value.exit_code == EXIT_REFUSED
+    assert caught.value.data["workitem"] == workitem
 
 
 def test_init_still_refuses_a_legacy_workflow_unconditionally(bare_project):

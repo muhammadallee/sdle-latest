@@ -1706,36 +1706,58 @@ def test_the_state_schema_did_not_move(skill_copy):
     assert len(constants_of(skill_copy).version_chain) == 16
 
 
-def test_the_two_guard_surfaces_are_unchanged():
-    """N33. Asserted on content and values, never on Git.
+def test_the_two_guard_surfaces_were_adopted_by_t11():
+    """N33, re-valued by T11 D5/D6 (TP-003 category 2, X-GEN).
 
-    `.sdle/` is in neither `SDLE_OWNED_PREFIXES` nor the hook fence. That is a
-    real, recorded exposure (T04 N-7) and T08 deliberately does **not** widen
-    either set to accommodate `.sdle/baseline.json`: widening a guard's
-    exclusion set is a safety-reducing edit, and it is T11 that owns the
-    finding. Pinned here so adopting it later cannot be silent.
+    It read: *"`.sdle/` is in neither `SDLE_OWNED_PREFIXES` nor the hook
+    fence. That is a real, recorded exposure (T04 N-7) and T08 deliberately
+    does not widen either set ... it is T11 that owns the finding. Pinned here
+    so adopting it later cannot be silent."*
+
+    **T11 adopted it.** The pin is re-valued to the new closed set, not
+    deleted and not relaxed: both halves stay *exact equality* against a
+    written-out set, so a further widening is still not silent.
+
+    Replacement safety property (§28) for widening `SDLE_OWNED_PREFIXES`:
+    `.sdle/` is written only by `config` and by `baseline`, both of which
+    already produce their own audited records, so excluding it from the
+    dirty-tree guard loses no evidence — while *not* excluding it broke
+    cross-WorkItem isolation, which §8/§9 do guarantee.
+
+    Note what did **not** move: `.sdle/` is still **not** in the hook fence
+    and still **not** in `.gitignore`. D5/D6 are the two surfaces the finding
+    named; nothing else was widened to match.
     """
     assert sdle.SDLE_OWNED_PREFIXES == (
-        ".workflow/", "workitems/", ".specify/", "design/", "reviews/",
-        "clarifications/", "guidance/", "requirements/")
-    assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
+        ".workflow/", ".sdle/", "workitems/", ".specify/", "design/",
+        "reviews/", "clarifications/", "guidance/", "requirements/")
+    assert ".sdle/" in sdle.SDLE_OWNED_PREFIXES
 
-    # The other half of the same residual: Gate 7's manifest excludes the
-    # WorkItem runtime and nothing else, so `.sdle/baseline.json` reaches it
-    # as an ordinary working-tree entry. Pinned on the parsed source of the one
-    # function that builds the exclusion, so a comment mentioning either name
-    # is not what makes this pass or fail.
+    # The other half of the same residual, inverted: Gate 7's manifest now
+    # carries its sibling's relocation/ownership exclusion, so the repository
+    # `.sdle/`, `.specify/` and this WorkItem's resolved feature directory no
+    # longer reach it as implementation changes. Still asserted on the parsed
+    # source of the one function that builds the exclusion, so a comment
+    # mentioning a name is not what makes this pass or fail.
     builder = next(
         node for node in ast.walk(ast.parse(inspect.getsource(sdle)))
         if isinstance(node, ast.FunctionDef)
         and node.name == "cmd_manifest_build")
-    assert {node.id for node in ast.walk(builder)
-            if isinstance(node, ast.Name)} & {"SDLE_OWNED_PREFIXES"} == set()
-    assert not [node for node in ast.walk(builder)
+    names = {node.id for node in ast.walk(builder) if isinstance(node, ast.Name)}
+    attrs = {node.attr for node in ast.walk(builder)
+             if isinstance(node, ast.Attribute)}
+    literals = {node.value for node in ast.walk(builder)
                 if isinstance(node, ast.Constant)
-                and isinstance(node.value, str) and ".sdle" in node.value]
-    assert "runtime_relative" in {node.attr for node in ast.walk(builder)
-                                  if isinstance(node, ast.Attribute)}
+                and isinstance(node.value, str)}
+
+    # Still refuses the blanket set: widening to SDLE_OWNED_PREFIXES would
+    # silently drop requirements/ and design/ edits from the manifest.
+    assert names & {"SDLE_OWNED_PREFIXES"} == set()
+    # The exclusion is exactly the four things engine bookkeeping consists of.
+    assert "runtime_relative" in attrs
+    assert "config_root_relative" in attrs, "T11 D6: repository `.sdle/`"
+    assert ".specify/" in literals, "T11 D6: Spec Kit's own tree"
+    assert "featureDirectory" in literals, "T11 D6: the resolved feature dir"
 
     ignored = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").split()
     assert ".sdle/" not in ignored
@@ -1746,3 +1768,46 @@ def test_the_two_guard_surfaces_are_unchanged():
     assert 'FENCED = (".workflow", "workitems", "requirements", "guidance")' \
         in hooks
     assert list(sdle.GREENFIELD_V1_PHASES) == GREENFIELD_GOLDEN
+
+
+# ==========================================================================
+# T11 N18 — D5/D6: `.sdle/` is engine bookkeeping on both guard surfaces
+# ==========================================================================
+
+
+def test_n18_a_repository_sdle_write_never_trips_another_workitems_guard(
+    git_project,
+):
+    """T11 D5 (T08's finding). `.sdle/baseline.json` and `.sdle/config.json`
+    are repository-global and are written by `config` and `baseline`, which
+    keep their own audited records. Before D5 they reached the dirty-tree
+    guard as ordinary uncommitted work, so establishing a baseline in one
+    WorkItem could block `implement preflight` in another — a cross-WorkItem
+    coupling §8/§9 forbid."""
+    git_project.record_governance()
+    git_project.ok("init", session="n18")
+    state = git_project.state()
+    state["current_phase"] = "implement"
+    git_project.write_state(state)
+
+    sdle_dir = git_project.root / ".sdle"
+    sdle_dir.mkdir(exist_ok=True)
+    (sdle_dir / "baseline.json").write_text('{"kind": "baseline"}\n',
+                                            encoding="utf-8")
+
+    result = git_project.ok("implement", "preflight")
+
+    assert result.data["dirty"] is False, result
+    assert result.data["entries"] == [], result
+
+
+def test_n18_no_prefix_other_than_sdle_was_added_to_the_guard():
+    """The other direction. Widening a guard's exclusion set is a
+    safety-reducing edit, so the set is pinned by exact equality and the delta
+    against the pre-T11 value is written out."""
+    before = (".workflow/", "workitems/", ".specify/", "design/", "reviews/",
+              "clarifications/", "guidance/", "requirements/")
+    after = sdle.SDLE_OWNED_PREFIXES
+    assert set(after) - set(before) == {".sdle/"}
+    assert set(before) - set(after) == set()
+    assert len(after) == len(before) + 1

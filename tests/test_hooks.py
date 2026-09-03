@@ -123,6 +123,16 @@ def test_a_malformed_payload_never_breaks_the_tool_call(project):
         "/proj/workitems/wi-a/reviews/security-review-2026-01-01-0900.md",
         "/proj/workitems/wi-a/specs.md",
         "/proj/workitems/specs/not-a-workitem.md",
+        # T11 N19 / D7 (T04 N-3): the carve-out matched a *non-normalised*
+        # path, so `..` walked straight back out of specs/ and into the
+        # runtime while still matching `workitems/<id>/specs/`. Every path
+        # form Claude Code can pass.
+        "/proj/workitems/wi-a/specs/../.sdle/state.json",
+        "workitems/wi-a/specs/../.sdle/state.json",
+        r"C:\proj\workitems\wi-a\specs\..\.sdle\state.json",
+        "/proj/workitems/wi-a/specs/../workitem.json",
+        "/proj/workitems/wi-a/specs/../../index.md",
+        "/proj/src/../requirements/todo-api.md",
     ],
 )
 def test_write_fence_denies_governance_files(project, path):
@@ -145,6 +155,10 @@ def test_write_fence_denies_governance_files(project, path):
         "/proj/workitems/wi-a/specs/001-todo-api/spec.md",
         "workitems/wi-a/specs/001-todo-api/plan.md",
         r"C:\proj\workitems\wi-a\specs\001-todo-api\tasks.md",
+        # T11 D7: normalising must not narrow the carve-out. A `.` segment and
+        # a `..` that stays inside specs/ are still SpecKit's own artifacts.
+        "/proj/workitems/wi-a/specs/./001-todo-api/spec.md",
+        "/proj/workitems/wi-a/specs/002-other/../001-todo-api/spec.md",
     ],
 )
 def test_write_fence_allows_normal_artifacts(project, path):

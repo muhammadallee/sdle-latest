@@ -26,6 +26,7 @@ runs it.
 import importlib.util
 import json
 import os
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -66,8 +67,11 @@ FENCE_REASONS = {
         "'.workflow/' is owned by the SDLE engine. State and audit are written "
         "only by scripts/sdle.py, which keeps the audit hash chain and drift "
         "baselines consistent. Use the matching sdle.py subcommand instead "
-        "(state set, audit append, gate, limit set). It is the transitional "
-        "legacy runtime; `migrate-workflow --workitem <id>` moves it."
+        "(state set, audit append, gate, limit set). T11 retired it as a "
+        "runtime: it is now an *archival* legacy runtime and a migration "
+        "source, which is exactly why it stays fenced — `migrate-workflow "
+        "--workitem <id>` validates it before moving it, so a hand-edit here "
+        "corrupts the one input that migration trusts."
     ),
     "workitems": (
         "'workitems/' is owned by the SDLE engine. The registry "
@@ -146,6 +150,22 @@ def relative(path):
     return path[len(root) + 1:] if path.startswith(root + "/") else path
 
 
+def normalized(path):
+    """Collapse `.` and `..` segments before any pattern is matched.
+
+    Lexical, not filesystem: the target of a write need not exist yet, so
+    `Path.resolve()` is not available here.
+
+    T11 D7 (T04 N-3). Without this,
+    `workitems/<id>/specs/../.sdle/state.json` matched SPECS_CARVE_OUT --
+    which only looks for the `workitems/<id>/specs/` segment -- and escaped
+    the write fence while actually addressing the WorkItem runtime. The
+    engine's own refusal at the choke point was still the guarantee, but a
+    tripwire with a known bypass is not a tripwire.
+    """
+    return posixpath.normpath(path)
+
+
 # -- the guardrails ---------------------------------------------------------
 
 
@@ -154,6 +174,9 @@ def write_fence(payload):
     path = tool_path(payload)
     if not path:
         return
+    # T11 D7: normalise first, so neither the carve-out nor the fence itself
+    # can be stepped around with `..`.
+    path = normalized(path)
     if SPECS_CARVE_OUT.search(relative(path)):
         return
     for name in FENCED:

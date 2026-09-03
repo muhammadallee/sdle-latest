@@ -835,10 +835,12 @@ def test_the_configuration_boundary_changes_no_lifecycle_behaviour(
     configured = clone_project(plain, tmp_path / "configured")
     configured.ok("config", "init")
     # `.sdle/` is versioned engineering evidence (§19), so the realistic state
-    # for a run is "committed". Leaving it uncommitted is a *deliberately*
-    # different situation — `SDLE_OWNED_PREFIXES` is not extended to `.sdle/`,
-    # so the implement-preflight dirty-tree guard sees it exactly as it would
-    # see any other uncommitted file. That is pinned separately below.
+    # for a run is "committed", and this test commits it. T11 D5 additionally
+    # made an *uncommitted* `.sdle/` engine bookkeeping rather than user work,
+    # so the dirty-tree guard no longer sees it; that direction is pinned
+    # separately below. Committing here keeps this test's subject — that
+    # configuration changes no lifecycle behaviour — independent of either
+    # rule.
     configured.git("add", "-A")
     configured.git("commit", "-q", "-m", "repository configuration boundary")
     boundary_before = sha_map(configured.root / ".sdle")
@@ -934,6 +936,16 @@ CONFIG_REFERENCE_SITES = {
     "baseline_precondition",
     "cmd_baseline_show",
     "cmd_baseline_validate",
+    # T11 D6 (T04 N-7). `cmd_manifest_build` names ONE boundary member,
+    # `config_root_relative`, and uses it as a path prefix to **exclude** the
+    # repository `.sdle/` from the Gate 7 implementation diff. It reads no
+    # configuration value and calls no boundary reader — pinned immediately
+    # below, so this entry cannot later grow into a genuine lifecycle read.
+    # Deriving the prefix beats writing `".sdle/"` by hand: the literal would
+    # be a second source of truth for a path `Paths` already owns
+    # (invariant 7), and it would silently stop matching if the boundary
+    # directory were ever renamed.
+    "cmd_manifest_build",
 }
 
 RUNTIME_WRITERS = {
@@ -968,6 +980,18 @@ def test_the_repository_configuration_members_have_a_closed_reference_set():
         if names_referenced(fn) & set(CONFIG_MEMBERS):
             sites.add(fn.name)
     assert sites == CONFIG_REFERENCE_SITES
+
+    # T11 D6: the one lifecycle command in the set names the boundary's PATH
+    # and never its CONTENT. Asserted, not asserted-in-a-comment: it must call
+    # no boundary reader and reference no member other than the path prefix.
+    builder = next(fn for fn in functions_outside_paths(tree)
+                   if fn.name == "cmd_manifest_build")
+    assert names_referenced(builder) & set(CONFIG_MEMBERS) == {
+        "config_root_relative"}, names_referenced(builder) & set(CONFIG_MEMBERS)
+    called = {node.func.id for node in ast.walk(builder)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert not called & {"read_repo_config", "read_baseline",
+                         "read_governance_policy", "baseline_state"}, called
 
 
 def test_the_configuration_commands_never_touch_runtime_state():
@@ -1047,26 +1071,55 @@ def test_the_lifecycle_command_prefixes_actually_match_something():
     assert {"cmd_init", "cmd_advance"} <= matched, matched
 
 
-def test_an_uncommitted_boundary_is_not_treated_as_sdle_owned(git_project):
-    """The deliberate contrast with `workitems/` (T02 added that one to
-    `SDLE_OWNED_PREFIXES`; T05 does **not** add `.sdle/`).
+def test_an_uncommitted_boundary_is_treated_as_sdle_owned_from_t11(git_project):
+    """T11 D5 (TP-003 category 2) inverted this. It read:
 
-    `SDLE_OWNED_PREFIXES` exists to hide paths SDLE itself writes *during a
-    run*. Nothing writes `.sdle/` mid-run, and it is versioned, so an
-    uncommitted change to it should trip the implement-preflight dirty-tree
-    guard exactly as an uncommitted source change does. That direction fails
-    closed, and it keeps a §18 Wave A guardrail byte-for-byte.
+        *"The deliberate contrast with `workitems/` (T02 added that one to
+        `SDLE_OWNED_PREFIXES`; T05 does not add `.sdle/`).
+        `SDLE_OWNED_PREFIXES` exists to hide paths SDLE itself writes during a
+        run. Nothing writes `.sdle/` mid-run, and it is versioned, so an
+        uncommitted change to it should trip the implement-preflight
+        dirty-tree guard exactly as an uncommitted source change does."*
+
+    **T08 falsified the load-bearing premise.** Something does write `.sdle/`
+    mid-run: `establish_baseline` writes `.sdle/baseline.json` at the final
+    gate of a GREENFIELD or BROWNFIELD_DISCOVERY completion. So one WorkItem
+    finishing could trip a *different* WorkItem's `implement preflight` — a
+    cross-WorkItem coupling §8/§9 forbid, and one no user could act on,
+    because the "uncommitted change" was made by the engine.
+
+    Replacement safety property (§28) for widening the guard: the dirty-tree
+    guard exists to make the Gate 7 implementation diff meaningful, and
+    `.sdle/` is never implementation. Its evidence trail is not this guard —
+    it is Git (`.sdle/` is versioned, §19) plus, for the baseline, the
+    `baseline_established` audit event. Nothing that was evidence stops being
+    evidence.
+
+    The contrast half is kept and asserted below, because that is the half
+    that could actually regress: an uncommitted *source* change must still
+    fail closed.
     """
-    assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
+    assert ".sdle/" in sdle.SDLE_OWNED_PREFIXES
     git_project.ok("init", session="dirty")
     git_project.ok("config", "init")
+
+    clean = git_project.run("implement", "preflight")
+
+    assert clean.exit_code == EXIT_OK, clean
+    assert clean.data["dirty"] is False, clean
+    entries = clean.data.get("entries") or []
+    assert not [e for e in entries if ".sdle/" in e.replace("\\", "/")], entries
+
+    # The contrast, unchanged: ordinary uncommitted work still fails closed.
+    (git_project.root / "src.py").write_text("print('work')\n", encoding="utf-8")
 
     result = git_project.run("implement", "preflight")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "dirty_tree"
-    entries = result.data.get("entries") or []
-    assert any(".sdle/" in entry.replace("\\", "/") for entry in entries), entries
+    dirty = result.data.get("entries") or []
+    assert any("src.py" in entry for entry in dirty), dirty
+    assert not [e for e in dirty if ".sdle/" in e.replace("\\", "/")], dirty
 
 
 # --------------------------------------------------------------------------

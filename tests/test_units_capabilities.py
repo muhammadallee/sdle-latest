@@ -900,6 +900,15 @@ def _top_level(source: str) -> dict[str, str]:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
+# T11 D7 edits exactly one pre-existing hook definition: `write_fence`
+# normalises `..` before matching, which is the fence bypass T04 recorded as
+# N-3. Declared here by name, and pinned below by a property that is *not*
+# weaker than the byte comparison it replaces: every line the baseline
+# definition had must still be present. An edit that removed or altered any
+# existing line fails, and only a pure insertion passes.
+T11_HOOK_EDITS = ("write_fence",)
+
+
 def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
     """N27/A24. The hooks are tripwires and T10 added one; it did not touch the
     four that were there, or the cases that prove they work.
@@ -909,12 +918,29 @@ def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
     is relaxed: every pre-existing definition must be byte-identical, and the
     guard registry is separately pinned by
     `test_units_gate_policy.py::test_n28_the_hooks_are_byte_identical`.
+
+    **T11 (D7) declares one exception, `write_fence`.** The plan's X9 row named
+    only `test_n28` as the hooks byte-pin; this is a second one, and it is
+    recorded as a plan deviation rather than quietly re-baselined. The
+    exception is narrow and it is *proved*, not asserted: the whole of the
+    baseline definition must still be present line for line, so the only
+    change that can pass here is an insertion. `test_n28` pins what
+    `write_fence` must still *do*; this pins that nothing it did was taken
+    away.
     """
     for relative in (".claude/hooks/hooks.py", "tests/test_hooks.py"):
         before = _top_level(at_baseline(relative))
         after = _top_level(here(relative))
         assert set(before) <= set(after), sorted(set(before) - set(after))
         for name, source in before.items():
+            if relative == ".claude/hooks/hooks.py" and name in T11_HOOK_EDITS:
+                was = [line for line in source.splitlines() if line.strip()]
+                now = [line for line in after[name].splitlines() if line.strip()]
+                missing = [line for line in was if line not in now]
+                assert not missing, f"{relative}::{name} lost lines: {missing}"
+                assert len(now) > len(was), (
+                    f"{relative}::{name} is declared edited but did not change")
+                continue
             assert after[name] == source, f"{relative}::{name}"
 
     # And the four guards are still the four guards, by name.
