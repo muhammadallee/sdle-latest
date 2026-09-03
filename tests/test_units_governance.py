@@ -848,21 +848,31 @@ def test_the_evidence_document_records_proposal_and_decision(project):
     assert payload["record"] == record_of(project)
 
 
-def test_governance_refuses_under_the_legacy_binding(bare_project):
+def test_governance_refuses_when_a_legacy_runtime_is_all_there_is(bare_project):
     """Governance is WorkItem-scoped. §8.9 says the legacy runtime is never
-    written to, so `assess` must refuse rather than write into `.workflow/`."""
+    written to, so `assess` must refuse rather than write into `.workflow/`.
+
+    T11 X2: the refusal moved *earlier*, from `bind_for_governance`'s own
+    `governance_workitem_required` to the ladder's `workitem_required`. The
+    guarantee this test exists for — nothing is written into `.workflow/` —
+    is unchanged, and the refusal now also names the recovery path, so the
+    property tested here is strictly wider than before.
+    """
     legacy = bare_project.root / ".workflow"
     legacy.mkdir()
     (legacy / "state.json").write_text(
         json.dumps({"workflow_version": "1.15", "current_phase": "spec_draft"}),
         encoding="utf-8")
+    before = sorted(p.name for p in legacy.iterdir())
     write_input(bare_project, governance_input())
 
     result = bare_project.run("governance", "assess", "--input", INPUT_NAME)
 
     assert result.exit_code == EXIT_REFUSED, result
-    assert result.reason == "governance_workitem_required", result
+    assert result.reason == "workitem_required", result
+    assert "migrate-workflow" in result.envelope["message"]
     assert not (legacy / "governance.json").exists()
+    assert sorted(p.name for p in legacy.iterdir()) == before
 
 
 # --------------------------------------------------------------------------
@@ -1216,10 +1226,17 @@ def test_adding_a_requirement_file_is_also_stale(project):
     assert frozen(project) == before
 
 
-def test_e1_is_skipped_under_the_legacy_binding_and_only_there(bare_project):
-    """N12. The transitional `.workflow/` rung has no WorkItem to hold a
-    record, so E1 stands aside there — a declared bounded residual T11 removes
-    with the rung itself. Pinned in both directions so it cannot widen."""
+def test_e1_now_applies_unconditionally_because_nothing_binds_without_a_workitem(
+    bare_project,
+):
+    """N12, inverted by T11 D4. E1's carve-out existed only for the legacy
+    binding; with the rung gone there is no binding without a WorkItem, so the
+    "and only there" half becomes "always".
+
+    The `.workflow/` runtime no longer advances at all — it refuses before
+    reaching E1 — and the contrast half, where a bound WorkItem without a
+    governance record refuses `governance_missing`, is kept verbatim.
+    """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
@@ -1227,14 +1244,18 @@ def test_e1_is_skipped_under_the_legacy_binding_and_only_there(bare_project):
     legacy.mkdir()
     (legacy / "state.json").write_text(json.dumps(template, indent=2) + "\n",
                                        encoding="utf-8", newline="\n")
+    frozen_legacy = sdle.sha256_file(legacy / "state.json")
 
-    assert bare_project.workitem is None, "rung 3 needs zero WorkItems"
+    assert bare_project.workitem is None
     moved = bare_project.run("advance", "--to", "constitution_draft")
-    assert moved.exit_code == EXIT_OK, moved
+    assert moved.exit_code == EXIT_REFUSED, moved
+    assert moved.reason == "workitem_required", moved
     assert not (legacy / "governance.json").exists()
+    assert sdle.sha256_file(legacy / "state.json") == frozen_legacy
 
     # The same sequence with a WorkItem bound refuses. `init` refuses a
-    # legacy workflow unconditionally (T02), so the rung is retired first.
+    # legacy workflow unconditionally (T02), so the legacy tree is cleared
+    # first.
     workitem = create_wi(bare_project, "Wi A")
     shutil.rmtree(legacy)
     bound = bare_project.as_workitem(workitem)

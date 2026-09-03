@@ -1006,9 +1006,15 @@ def test_n17_an_override_can_make_every_gate_universal_again(git_project):
 
 
 def test_n18_the_legacy_runtime_can_never_omit_a_gate(bare_project):
-    """N18/A12/D8: the transitional `.workflow/` rung has no WorkItem and
-    therefore no governance record, so nothing there can be shown to be
-    unnecessary. Refused — and the legacy traversal itself is unchanged."""
+    """N18/A12/D8, preserved through T11's removal.
+
+    The *guarantee* is unchanged: a repository-global `.workflow/` can never
+    omit a gate. What changed is where it is enforced — T11 D4 deleted
+    `cmd_gate_omit`'s `governance_workitem_required` branch because the ladder
+    now refuses first, so the refusal is `workitem_required` and it arrives
+    strictly earlier. The traversal half inverts with it: the legacy runtime
+    does not advance either, and nothing under `.workflow/` is written.
+    """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
@@ -1022,16 +1028,21 @@ def test_n18_the_legacy_runtime_can_never_omit_a_gate(bare_project):
             newline="\n")
 
     write_legacy("gate_design")
-    assert bare_project.workitem is None, "rung 3 needs zero WorkItems"
+    assert bare_project.workitem is None
 
     refused = bare_project.run("gate", "omit", "--gate", "gate_design")
     assert refused.exit_code == EXIT_REFUSED, refused
-    assert refused.reason == "governance_workitem_required", refused
+    assert refused.reason == "workitem_required", refused
 
-    # The legacy traversal itself still works exactly as it did.
+    # T11: the legacy traversal is gone too — `.workflow/` is a migration
+    # source, not a runtime — and the refusal writes nothing.
     write_legacy("requirements_check")
-    assert bare_project.run("advance",
-                            "--to", "constitution_draft").exit_code == EXIT_OK
+    frozen = sdle.sha256_file(legacy / "state.json")
+    advanced = bare_project.run("advance", "--to", "constitution_draft")
+    assert advanced.exit_code == EXIT_REFUSED, advanced
+    assert advanced.reason == "workitem_required", advanced
+    assert sdle.sha256_file(legacy / "state.json") == frozen
+    assert sorted(p.name for p in legacy.iterdir()) == ["state.json"]
 
 
 # --------------------------------------------------------------------------
@@ -1577,27 +1588,51 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
                        "security-review.md"], modules
 
 
-def test_n31_no_t11_leakage():
-    """X1's other half, moved verbatim. T11 owns the legacy rung, the version
-    bump and the fixed-8-gate prose. None of it moved.
+def test_t11_the_legacy_rung_is_gone():
+    """Replaces `test_n31_no_t11_leakage`, which was an anti-leakage pin whose
+    declared owner was T11 and which therefore had to fail once T11 did its
+    job. It is replaced, not deleted: the same surfaces are asserted, now in
+    the direction T11 establishes.
 
-    Every assertion below is byte-for-byte what it was inside
-    `test_n31_no_t10_or_t11_leakage`, message string included: X1 says this
-    half is moved and not touched otherwise, so the message still reads
-    "not T09's" — it is the assertion T09 landed, unchanged.
+    The three surfaces it guarded are re-asserted positively here:
+
+    * the legacy **rung** is gone from `resolve_decision` / `bind_workitem`;
+    * `legacy_workflow` itself is *kept* — P1/P2, it is the migration source
+      and the project-root marker, and removing it would brick a legacy-only
+      repository;
+    * `current_feature_id` is kept, but only inside migration rows (P8).
     """
-    # T11's transitional surfaces, still present and still T11's.
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
+
+    # Removed: the rung, in both of the places it lived.
+    assert 'decision.rung = "legacy"' not in source
+    assert 'rung == "legacy"' not in source
+
+    # Preserved: the migration source view and the project-root marker.
     assert "legacy_workflow" in source
+    assert '(".workflow", "state.json")' in source, (
+        "P1: without this marker a legacy-only repository cannot be found, "
+        "so `migrate-workflow` could never be pointed at it")
+    assert ".workflow/" in sdle.SDLE_OWNED_PREFIXES
     assert "current_feature_id" in source
-    assert "SDLE_OWNED_PREFIXES" in source
-    assert ".sdle" not in sdle.SDLE_OWNED_PREFIXES, (
-        "T04 N-7 / T05 NB-7(b) is T11's, not T09's")
+
+    # And the ladder itself no longer offers the value.
+    assert "legacy" not in {
+        rung for rung in ("explicit", "cwd", "sole", "context", "branch")
+    }
 
 
-def test_n31_the_legacy_rung_and_migrate_workflow_are_untouched(bare_project):
-    """A12: legacy dual-read still binds with no WorkItem registered, and
-    `migrate-workflow` still leaves `.workflow/` byte-for-byte untouched."""
+def test_n31_migrate_workflow_still_leaves_the_legacy_tree_untouched(
+    bare_project,
+):
+    """A12, split by T11 X3.
+
+    The half that asserted the legacy rung *binds* is inverted (the rung is
+    gone; `state get` refuses `workitem_required`). The half that asserts
+    `migrate-workflow` leaves `.workflow/` byte-for-byte untouched is kept
+    verbatim — that is B9, the migration-discipline guarantee §17 preserves,
+    and it must never be lost.
+    """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
@@ -1610,8 +1645,9 @@ def test_n31_the_legacy_rung_and_migrate_workflow_are_untouched(bare_project):
                                      newline="\n")
 
     before = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    assert bare_project.run("state", "get",
-                            "--field", "current_phase").exit_code == EXIT_OK
+    refused = bare_project.run("state", "get", "--field", "current_phase")
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "workitem_required", refused
 
     bare_project.ok("workitem", "create", "--name", "migrated thing")
     wid = bare_project.run("workitem", "list").data["workitems"][-1]["id"]

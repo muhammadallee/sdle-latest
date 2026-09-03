@@ -16,6 +16,8 @@ here would let a resolution bug hide behind the fixture.
 
 from __future__ import annotations
 
+import argparse
+import ast
 import hashlib
 import json
 import re
@@ -23,7 +25,7 @@ import shutil
 
 import pytest
 
-from conftest import FIXTURE_WORKITEM_ID, Project, sdle
+from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 from test_units_artifact_review import review_for_gate
 
@@ -190,16 +192,52 @@ def test_rung2_the_sole_registered_workitem_binds_with_no_flag(project):
     assert not (project.root / ".workflow").exists()
 
 
-def test_rung3_legacy_state_stays_readable_when_no_workitem_exists(bare_project):
-    """Transitional (removed at T11). Without it T02 would brick a repository
-    that already holds a workflow: every command would refuse before
-    `migrate-workflow` could ever run."""
+def test_rung3_legacy_state_no_longer_binds_and_the_refusal_names_recovery(
+    bare_project,
+):
+    """T11 D1/D3, the inverse of the rung this test used to pin.
+
+    The transitional rung is gone: a repository-global `.workflow/state.json`
+    is a migration *source*, never a runtime. The replacement safety property
+    (§28) is that the refusal now names the whole recovery, in order, so the
+    repository is signposted rather than bricked — which is strictly more
+    than the old assertion, not less.
+    """
     legacy_state(bare_project, project_name="Legacy Project")
 
     result = bare_project.run("state", "get", "--field", "project_name")
-    assert result.exit_code == EXIT_OK, result
-    assert result.data["value"] == "Legacy Project"
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "workitem_required", result
+    message = result.envelope["message"]
+    assert "workitem create" in message
+    assert "migrate-workflow" in message
+    assert message.index("workitem create") < message.index("migrate-workflow")
+    assert result.data["legacy_state"].replace("\\", "/").endswith(
+        ".workflow/state.json"), result.data
+    # Nothing was created and the legacy runtime was not touched.
     assert not (bare_project.root / "workitems").exists()
+    assert (bare_project.root / ".workflow" / "state.json").is_file()
+
+
+def test_the_legacy_recovery_path_is_exactly_two_runtime_free_commands(
+    bare_project,
+):
+    """T11 A4/F1, through the real CLI. Both recovery commands must remain
+    invocable in a repository that resolves to nothing, or removing the rung
+    would brick it — which is the one outcome §17's gate forbids."""
+    legacy_state(bare_project, project_name="Legacy Project")
+
+    created = bare_project.ok("workitem", "create", "--name", "Recovered")
+    wid = created.data["id"]
+    assert bare_project.ok("migrate-workflow", "--workitem", wid).data["to"] == (
+        f"workitems/{wid}/.sdle"
+    )
+
+    bound = bare_project.as_workitem(wid)
+    assert bound.ok("state", "get", "--field", "project_name").data["value"] == (
+        "Legacy Project"
+    )
 
 
 def test_rung4_no_workitem_and_no_legacy_state_is_refused(bare_project):
@@ -305,13 +343,35 @@ def test_migrating_a_state_at_the_legacy_location_leaves_workitem_null(bare_proj
         json.dumps(planted, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
 
-    result = bare_project.ok("migrate")
+    # T11 D1: `migrate` is not RUNTIME_FREE, so it can no longer reach a state
+    # file at the legacy location at all — there is nothing there to bind.
+    refused = bare_project.run("migrate")
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "workitem_required", refused
 
-    assert result.data["to"] == "1.16"
+    # The 1.13 -> 1.14 rule itself is unchanged and still reachable: a state
+    # whose file does not live under a WorkItem keeps `workitem: null`. It is
+    # asserted against the migration chain directly, which is where the rule
+    # lives, and then end-to-end through `migrate-workflow` — the only route a
+    # legacy state has left.
+    paths = sdle.resolve_paths(str(bare_project.root),
+                               str(bare_project.skill_root))
+    state = dict(planted)
+    steps = sdle.migrate_state(state, paths, sdle.load_constants(paths))
+    assert "1.13->1.14" in steps, steps
+    assert state["workflow_version"] == "1.16"
+    assert state["workitem"] is None
+
+    wid = create_wi(bare_project, "Recovered").data["id"]
+    moved = bare_project.ok("migrate-workflow", "--workitem", wid)
+    assert moved.data["to"] == f"workitems/{wid}/.sdle"
     migrated = json.loads(
-        (bare_project.root / ".workflow" / "state.json").read_text(encoding="utf-8")
+        (bare_project.root / "workitems" / wid / ".sdle" / "state.json")
+        .read_text(encoding="utf-8")
     )
-    assert migrated["workitem"] is None
+    assert migrated["workflow_version"] == "1.16"
+    assert migrated["workitem"] == wid, (
+        "once it lives under a WorkItem the field names it")
 
 
 # ==========================================================================
@@ -668,3 +728,114 @@ def test_project_name_falls_back_to_the_workitem_title(bare_project):
     assert result.data["project_name"] == "Customer Notification Service"
     assert result.data["project_name"] != bare_project.root.name
     assert bare_project.state()["project_name"] == "Customer Notification Service"
+
+
+# ==========================================================================
+# T11 N17/N25 — the removal, asserted positively
+#
+# N17 pins D3's refusal *shape*: reason string, exit code, the two recovery
+# steps in order, and `legacy_state` in structured `data`.
+# N25 pins R2 over the parser's own registered command set, so a command
+# added later cannot quietly reintroduce an unbound runtime.
+# ==========================================================================
+
+
+def test_n17_the_workitem_required_refusal_names_the_recovery_in_order(
+    bare_project,
+):
+    """T11 D3 / A5 / N17, and the close of T02 NB-2.
+
+    Post-removal this refusal is the only signpost a pre-v1.14 repository
+    gets, so its content is a contract, not prose: same reason string as
+    before (no CLI break), exit 1, both steps named, `workitem create` before
+    `migrate-workflow`, and the path in structured `data`.
+    """
+    legacy_state(bare_project)
+
+    result = bare_project.run("state", "get")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "workitem_required", result
+    message = result.envelope["message"]
+    assert "workitem create" in message, message
+    assert "migrate-workflow --workitem" in message, message
+    assert message.index("workitem create") < message.index("migrate-workflow")
+    assert result.data["workitems"] == []
+    assert result.data["legacy_state"].replace("\\", "/").endswith(
+        ".workflow/state.json"), result.data
+    # Human text on stderr, JSON on stdout — B6, unchanged by the widening.
+    assert "workitem_required" in result.stderr
+
+
+def test_n17_without_legacy_state_the_refusal_stays_the_short_one(bare_project):
+    """The widening is conditional: a genuinely empty repository is not told
+    to migrate something that does not exist."""
+    result = bare_project.run("state", "get")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "workitem_required", result
+    assert "migrate-workflow" not in result.envelope["message"]
+    assert "legacy_state" not in result.data
+
+
+def test_n25_every_bound_runtime_command_names_a_workitem(bare_project):
+    """T11 R2 / A3, proven over the parser's registered command set rather
+    than a hand-copied list.
+
+    `main()` binds exactly when the command is not RUNTIME_FREE. For every
+    such command, a successful `bind_workitem` must return a `Paths` whose
+    `workitem` is not None — that is what makes all eleven deleted carve-outs
+    unreachable rather than merely unused.
+    """
+    parser = sdle.build_parser()
+    subparsers = [action for action in parser._actions  # noqa: SLF001
+                  if isinstance(action, argparse._SubParsersAction)]
+    assert len(subparsers) == 1, subparsers
+    registered = set(subparsers[0].choices)
+    assert registered, "the parser must register a command set"
+    assert sdle.RUNTIME_FREE_COMMANDS <= registered, (
+        sdle.RUNTIME_FREE_COMMANDS - registered)
+
+    # Both recovery steps must stay RUNTIME_FREE, or removing the rung would
+    # brick a legacy-only repository (F1).
+    assert {"workitem", "migrate-workflow"} <= sdle.RUNTIME_FREE_COMMANDS
+
+    bound_commands = sorted(registered - sdle.RUNTIME_FREE_COMMANDS)
+    assert bound_commands, "some command must still bind"
+
+    workitem = create_wi(bare_project, "Only One").data["id"]
+    paths = sdle.resolve_paths(str(bare_project.root),
+                               str(bare_project.skill_root))
+    for command in bound_commands:
+        result = sdle.bind_workitem(paths, None,
+                                    for_init=(command == "init"))
+        assert result.workitem == workitem, command
+        assert result.runtime == (
+            bare_project.root / "workitems" / workitem / ".sdle"), command
+
+
+def test_n25_no_unbound_runtime_carve_out_survives_in_the_engine():
+    """A3, by AST rather than by grep.
+
+    Exactly two `workitem is None` tests may remain in `sdle.py`:
+    `Paths.workitem_root`, which is the dataclass describing its own shape,
+    and `collect_validation_findings`' speculative resolution warning, which
+    `validate` needs so a repository that cannot resolve is still diagnosable
+    (P5). Every other site was a runtime carve-out for the deleted rung.
+    """
+    tree = ast.parse(SDLE_PY.read_text(encoding="utf-8"))
+    owners = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Compare)
+                    and isinstance(inner.ops[0], ast.Is)
+                    and isinstance(inner.comparators[0], ast.Constant)
+                    and inner.comparators[0].value is None
+                    and isinstance(inner.left, ast.Attribute)
+                    and inner.left.attr == "workitem"):
+                owners.append(node.name)
+    assert sorted(set(owners)) == [
+        "collect_validation_findings", "workitem_root",
+    ], owners

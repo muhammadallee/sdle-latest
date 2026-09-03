@@ -85,8 +85,10 @@ def two_workitems(bare_project: Project) -> tuple[Project, Project]:
 def plant_legacy_workflow(bare_project: Project) -> None:
     """A repository-global `.workflow/state.json`, as a pre-v1.14 repo has.
 
-    The transitional dual-read rung is T11's to remove, not T04's; these tests
-    exist to prove T04 left it working.
+    T11 removed the transitional dual-read rung, so planting this no longer
+    produces a *runtime*: it produces a repository that refuses
+    `workitem_required` and is signposted at `migrate-workflow`. The helper is
+    kept because that refusal is exactly what its dependents now assert.
     """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json")
@@ -626,19 +628,29 @@ def test_n7_ambiguity_inside_the_chosen_tier_still_refuses_and_lists(project):
     assert project.state()["specKit"]["featureDirectory"] is None
 
 
-def test_n7_the_legacy_binding_keeps_its_baseline_behaviour(bare_project):
-    """T11 removes the transitional rung; T04 must leave it working."""
+def test_n7_the_legacy_binding_no_longer_resolves_a_feature(bare_project):
+    """T11 D1/D4 removed the transitional rung, so `feature resolve` has no
+    legacy behaviour left to keep: it refuses at the ladder.
+
+    The property T04 cared about — that nothing on disk is relocated or
+    adopted under the legacy layout — is asserted here more strongly than
+    before: both candidate directories are untouched *and* no Spec Kit
+    binding was recorded anywhere.
+    """
     plant_legacy_workflow(bare_project)
     bare_project.write_artifact(".specify/specs/001-legacy/spec.md")
     bare_project.write_artifact("specs/002-native/spec.md")
 
-    data = bare_project.ok("feature", "resolve").data
+    result = bare_project.run("feature", "resolve")
 
-    assert data["searched"] == [".specify/specs"]
-    assert data["feature_directory"] == ".specify/specs/001-legacy"
-    assert data["adopted"] is None
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "workitem_required", result
+    assert "migrate-workflow" in result.envelope["message"]
     assert (bare_project.root / ".specify" / "specs" / "001-legacy").is_dir()
     assert (bare_project.root / "specs" / "002-native").is_dir()
+    assert sorted(
+        p.name for p in (bare_project.root / ".workflow").iterdir()
+    ) == ["state.json"]
 
 
 # ==========================================================================
@@ -724,14 +736,18 @@ def test_n9_workitem_runtime_resolves_under_the_active_workitem(project):
     )
 
 
-def test_n9_workitem_runtime_resolves_to_workflow_under_the_legacy_binding(
+def test_n9_no_artifact_path_resolves_into_the_legacy_runtime_any_more(
     bare_project,
 ):
+    """T11 D1: `{workitem_runtime}` can no longer expand to `.workflow/`,
+    because nothing binds there. The command refuses instead of emitting a
+    path into a directory the engine will never write."""
     plant_legacy_workflow(bare_project)
 
-    data = bare_project.ok("artifact", "path", "--gate", "gate_implement").data
+    result = bare_project.run("artifact", "path", "--gate", "gate_implement")
 
-    assert data["resolved"] == ".workflow/implementation-manifest.md"
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "workitem_required", result
 
 
 def test_n9_an_unresolved_feature_directory_produces_the_documented_skip(project):

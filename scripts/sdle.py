@@ -107,10 +107,12 @@ class Paths:
 
     ``project_root`` is the target project (the repository context).
     ``skill_root`` is the directory holding ``SKILL.md`` — the constants host.
-    ``workitem`` is the bound WorkItem id, or ``None`` for the transitional
-    legacy layout. It is the *only* switch between the two runtime locations:
-    every runtime path below derives from ``runtime``, so no command ever
-    concatenates a WorkItem-owned path of its own.
+    ``workitem`` is the bound WorkItem id. After T11 a *bound* ``Paths``
+    always names one: ``None`` survives only before binding and in the
+    migration **source view** ``cmd_migrate_workflow`` constructs to read a
+    pre-v1.14 ``.workflow/``. It is still the *only* switch between the two
+    locations: every runtime path below derives from ``runtime``, so no
+    command ever concatenates a WorkItem-owned path of its own.
     """
 
     project_root: Path
@@ -124,7 +126,14 @@ class Paths:
 
     @property
     def legacy_workflow(self) -> Path:
-        """Repository-global runtime. Transitional: migration source only."""
+        """The pre-v1.14 repository-global directory.
+
+        T11 removed the resolution rung that bound it as a *runtime*. It
+        survives as exactly two things and nothing more: a **migration
+        source** (``cmd_migrate_workflow`` reads it and never writes it) and a
+        **project-root marker**, without which a legacy-only repository could
+        not be discovered and therefore could not be migrated at all.
+        """
         return self.project_root / ".workflow"
 
     @property
@@ -2910,21 +2919,25 @@ def resolve_decision(
        rungs below can only return that same id or nothing;
     4. else a persisted *valid* active context;
     5. else a *unique* Git-branch match;
-    6. else zero WorkItems *and* a legacy ``.workflow/state.json`` -> legacy
-       binding (``workitem is None``). TRANSITIONAL, removed at T11: without
-       it a repository that already holds a workflow would be bricked, because
-       every command would refuse before `migrate-workflow` could run;
-    7. else zero WorkItems -> ``none`` (refuse ``workitem_required``);
-    8. else -> ``ambiguous``. Never pick one.
+    6. else zero WorkItems -> ``none`` (refuse ``workitem_required``);
+    7. else -> ``ambiguous``. Never pick one.
 
     Rungs 4 and 5 are only reachable with two or more registered WorkItems, so
     the git subprocess of rung 5 never runs in a single-WorkItem repository.
 
-    ``for_init`` is the one exception. `init` never takes rung 6 and reports
-    ``legacy_present`` whenever legacy state exists, *whatever* the registered
-    count. Proceeding would create a second runtime while the legacy one
-    became simultaneously unbindable (rung 6 needs zero WorkItems) and
-    unmigratable (`migrate-workflow` would then refuse `target_exists`).
+    **T11 deleted the transitional rung** that bound the repository-global
+    ``.workflow/`` runtime when nothing was registered. It was *deleted, not
+    replaced by an inference*: with zero WorkItems the answer is ``none``
+    whether or not legacy state exists, and the ladder still never guesses.
+    A legacy runtime is now a migration source and a project-root marker only.
+    ``bind_workitem`` names the two-step recovery in its refusal, and both
+    steps (`workitem create`, `migrate-workflow`) are RUNTIME_FREE, so neither
+    reaches this ladder and neither can be locked out by the removal.
+
+    ``for_init`` is the one exception left. `init` reports ``legacy_present``
+    whenever legacy state exists, *whatever* the registered count. Proceeding
+    would create a second runtime beside a legacy one that `migrate-workflow`
+    would then refuse to move (`target_exists`).
     """
     known = registered_workitem_ids(paths)
     decision = Resolution(known=known)
@@ -2978,10 +2991,9 @@ def resolve_decision(
             return decision
 
     if not known:
-        # Rung 6 — transitional legacy binding.
-        if not for_init and legacy_state_present(paths):
-            decision.rung = "legacy"
-            return decision
+        # Rung 6 — nothing is registered. A legacy `.workflow/` on disk does
+        # not change the answer (T11): it is a migration source, not a
+        # runtime, and `bind_workitem` names the recovery path in its refusal.
         decision.reason = "none"
         return decision
 
@@ -2999,6 +3011,10 @@ def bind_workitem(
     printed and nothing is written, so the hooks can call it speculatively.
     The ladder itself lives in ``resolve_decision``; this function only turns
     a decision into a binding or into the refusal the contract names.
+
+    **T11 invariant (R2): every non-raising return names a WorkItem.** There
+    is no longer any return path that yields ``paths`` with ``workitem is
+    None``, so no command downstream needs a carve-out for one.
     """
     decision = resolve_decision(paths, explicit, for_init=for_init)
 
@@ -3038,6 +3054,25 @@ def bind_workitem(
         )
 
     if decision.reason == "none":
+        if legacy_state_present(paths):
+            # A pre-v1.14 repository. T11 removed the transitional rung that
+            # bound `.workflow/` directly, so this refusal is now the *only*
+            # signpost such a repository ever gets. It must name both recovery
+            # steps, in order, or the repository looks bricked (T02 NB-2).
+            # Same reason string, same exit code: no CLI-contract break.
+            legacy = paths.legacy_workflow / "state.json"
+            raise Refused(
+                "workitem_required",
+                "No WorkItem is registered, but a pre-v1.14 workflow still "
+                f"exists at {paths.legacy_workflow.name}/state.json. SDLE no "
+                "longer runs a repository-global runtime. Recover it in two "
+                "steps, in this order:\n"
+                "  1. `workitem create --name <name>`\n"
+                "  2. `migrate-workflow --workitem <id>`\n"
+                f"The migration never modifies {paths.legacy_workflow.name}/ "
+                "— it is left in place as an archive.",
+                {"workitems": [], "legacy_state": str(legacy)},
+            )
         raise Refused(
             "workitem_required",
             "No WorkItem is registered in this repository. Create one first: "
@@ -3053,9 +3088,6 @@ def bind_workitem(
             "you.",
             {"workitems": decision.known, "candidates": decision.candidates},
         )
-
-    if decision.rung == "legacy":
-        return paths  # transitional legacy binding, `workitem` stays None
 
     return dataclass_replace(paths, workitem=decision.workitem)
 
@@ -4935,8 +4967,8 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
                                 state: dict) -> dict | None:
     """The requirement model for the WorkItem this ``state`` belongs to.
 
-    ``None`` when it cannot be derived at all — the transitional legacy
-    `.workflow/` binding has no WorkItem and therefore no governance record.
+    ``None`` when it cannot be derived at all — the WorkItem holds no
+    governance record yet.
     Every caller treats ``None`` as "nothing may be omitted here", which is
     the fail-closed direction: an omission nobody can justify is not one the
     engine will accept.
@@ -4945,8 +4977,6 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
     would be the stored second source of truth this design refuses, and the
     whole point is that a recorded omission is re-derived rather than trusted.
     """
-    if paths.workitem is None:
-        return None
     record = read_governance_record(paths)
     if record is None:
         return None
@@ -4966,17 +4996,14 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
 def bind_for_governance(args, paths: Paths) -> Paths:
     """`governance` is runtime-free at the group level so `policy` can resolve
     with no WorkItem. Its WorkItem-scoped members bind here — through the
-    ladder, never around it."""
-    bound = bind_workitem(paths, args.workitem)
-    if bound.workitem is None:
-        raise Refused(
-            "governance_workitem_required",
-            "Governance is WorkItem-scoped and this repository still resolves "
-            f"to the legacy {paths.legacy_workflow.name}/ runtime. Move it "
-            "under a WorkItem first: `migrate-workflow --workitem <id>`.",
-            {"legacy_runtime": str(paths.legacy_workflow)},
-        )
-    return bound
+    ladder, never around it.
+
+    T11 removed the second refusal this used to carry
+    (``governance_workitem_required``): with the legacy rung gone a
+    non-raising ``bind_workitem`` always names a WorkItem (R2), so the branch
+    was unreachable code, not a guard.
+    """
+    return bind_workitem(paths, args.workitem)
 
 
 def cmd_governance_assess(args, paths: Paths) -> int:
@@ -5525,17 +5552,10 @@ def discovery_accepted(paths: Paths) -> dict | None:
 def bind_for_discovery(args, paths: Paths) -> Paths:
     """`discovery` is runtime-free at the group level so `schema` can be read
     with no WorkItem. `assess` binds here — through the ladder, never around
-    it. The shape `bind_for_governance` established."""
-    bound = bind_workitem(paths, args.workitem)
-    if bound.workitem is None:
-        raise Refused(
-            "discovery_workitem_required",
-            "Discovery is WorkItem-scoped and this repository still resolves "
-            f"to the legacy {paths.legacy_workflow.name}/ runtime. Move it "
-            "under a WorkItem first: `migrate-workflow --workitem <id>`.",
-            {"legacy_runtime": str(paths.legacy_workflow)},
-        )
-    return bound
+    it. The shape `bind_for_governance` established, including T11's removal
+    of the now-unreachable ``discovery_workitem_required`` refusal (R2).
+    """
+    return bind_workitem(paths, args.workitem)
 
 
 def cmd_discovery_schema(args, paths: Paths) -> int:
@@ -5678,12 +5698,10 @@ def discovery_precondition(paths: Paths, state: dict | None = None) -> None:
 
     Only the phase is tested, not the flow: `discovery` is in exactly one
     flow's declared phases, so a WorkItem can only be standing here if that is
-    the flow it is traversing. Skipped under the transitional legacy binding
-    for the same reason ``governance_precondition`` skips it — there is no
-    WorkItem to hold a record.
+    the flow it is traversing. **T11 removed the legacy-binding carve-out**:
+    there is no binding without a WorkItem, so the rule now applies
+    unconditionally.
     """
-    if paths.workitem is None:
-        return None
     if (state or {}).get("current_phase") != DISCOVERY_PHASE:
         return None
     if discovery_accepted(paths) is not None:
@@ -6047,13 +6065,10 @@ def baseline_precondition(paths: Paths, flow: str, rediscovery: bool) -> str:
     cannot fix. The status it returns is recorded in the `flow_selected` audit
     entry, so the facts the decision was made on are auditable.
 
-    Never enforced under the transitional legacy `.workflow/` binding, for the
-    same reason `governance_precondition` and `discovery_precondition` skip it:
-    there is no WorkItem to hold the record either rule reasons about.
+    **T11 removed the legacy-binding carve-out**: there is no binding without
+    a WorkItem, so R1 and R2 now apply unconditionally.
     """
     status, findings = baseline_state(paths)
-    if paths.workitem is None:
-        return status
     relative = f"{paths.config_root_relative}/{paths.baseline_file.name}"
     data = {"workitem": paths.workitem, "flow": flow, "baseline_status": status,
             "path": relative, "findings": findings}
@@ -6115,13 +6130,6 @@ def establish_baseline(paths: Paths, state: dict, consts: Constants,
     could not be undone. Validity is derived later by ``baseline_findings``,
     never asserted here.
     """
-    if paths.workitem is None:
-        # The transitional legacy `.workflow/` binding has no WorkItem, and
-        # §14's second required fact is the *producing WorkItem*. A descriptor
-        # naming no producer would be invalid the moment it was written, so
-        # the honest outcome is to establish nothing. Same reason
-        # `governance_precondition` and `discovery_precondition` skip it.
-        return None, None
     if (state.get("flow") or DEFAULT_FLOW) not in BASELINE_ESTABLISHING_FLOWS:
         return None, None
     descriptor = baseline_descriptor(
@@ -6670,12 +6678,11 @@ def review_precondition(paths: Paths, state: dict, gate_key: str,
     content against a review of the pre-drift content is the exact violation,
     so the drift path is guarded too rather than trusted.
 
-    Skipped when the gate has no resolvable artifact (there is nothing to
-    review) and under the transitional legacy binding, which has no WorkItem
-    to hold a review ledger — the same declared, bounded residual as E1, which
-    T11 removes with the rung itself.
+    Skipped only when the gate has no resolvable artifact — there is nothing
+    to review. **T11 removed the other half of this carve-out with the rung
+    itself**: E2 now applies to every bound WorkItem, unconditionally.
     """
-    if paths.workitem is None or not resolved:
+    if not resolved:
         return None
     if not (paths.project_root / review_key(paths, resolved)).is_file():
         return None  # `artifact_missing` is the caller's refusal to raise.
@@ -6859,14 +6866,9 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
     makes the early call side-effect free, so the facts still enter the
     ledger exactly once, from ``apply_advance``.
 
-    Skipped under the transitional legacy binding, which has no WorkItem to
-    hold a record. That mirrors the identical, already-tested carve-out in
-    ``gate_precondition_hook``, and is a declared bounded residual: it fires
-    only when zero WorkItems are registered, and T11 removes the rung itself.
+    **T11 removed the legacy-binding carve-out along with the rung itself**:
+    there is no binding without a WorkItem, so E1 now applies unconditionally.
     """
-    if paths.workitem is None:
-        return None
-
     record = read_governance_record(paths)
     if record is None:
         raise Refused(
@@ -6935,11 +6937,9 @@ def flow_precondition(paths: Paths, state: dict | None = None) -> None:
     That is what keeps `audit.md` byte-identical across a refused advance,
     approval or skip (B1, and the ordering NB-6 recorded for `cmd_skip`).
 
-    Skipped under the transitional legacy binding for the same reason
-    `governance_precondition` skips it: there is no WorkItem to hold a record.
+    **T11 removed the legacy-binding carve-out**: there is no binding without
+    a WorkItem, so D10 now applies unconditionally.
     """
-    if paths.workitem is None:
-        return None
     record = read_governance_record(paths)
     if record is None:
         return None
@@ -7475,19 +7475,12 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             {"gate": args.gate, "current_phase": state.get("current_phase")},
         )
 
-    # The requirement model, derived now rather than read from anywhere. Both
-    # of the ways it can be underivable are refusals, because an omission
-    # nobody can justify is not one the engine will take.
-    if paths.workitem is None:
-        raise Refused(
-            "governance_workitem_required",
-            "Gate policy is WorkItem-scoped and this repository still "
-            f"resolves to the legacy {paths.legacy_workflow.name}/ runtime, "
-            "which holds no governance record. Every gate requires an "
-            "approval here. Move it under a WorkItem first: "
-            "`migrate-workflow --workitem <id>`.",
-            {"legacy_runtime": str(paths.legacy_workflow), "gate": args.gate},
-        )
+    # The requirement model, derived now rather than read from anywhere. The
+    # one remaining way it can be underivable is a refusal, because an
+    # omission nobody can justify is not one the engine will take. T11 deleted
+    # the second (the legacy binding) with the rung itself: `cmd_gate_omit` is
+    # reached only through `main()`'s `bind_workitem`, which after R2 never
+    # returns an unbound `Paths`.
     if read_governance_record(paths) is None:
         raise Refused(
             "governance_missing",
@@ -8184,11 +8177,12 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     The four Spec Kit gates carry a second such refusal. Spec Kit keeps a
     single repository-global feature slot, so a stale one can point this
     WorkItem at another's directory; a WorkItem's gate must never approve
-    another WorkItem's artifact. Skipped under the transitional legacy
-    binding, which has no WorkItem to contain anything to.
+    another WorkItem's artifact. **T11 removed the legacy-binding carve-out
+    with the rung itself**, so the containment rule now applies to every
+    resolvable Spec Kit gate.
     """
     if gate_key in SPECKIT_GATE_KEYS:
-        if not resolved or paths.workitem is None:
+        if not resolved:
             return None
         directory = speckit_ref(state)["featureDirectory"]
         prefix = f"{paths.speckit_specs_relative}/"

@@ -781,10 +781,15 @@ def _literal_tuple(source: str, name: str) -> tuple[str, ...]:
     raise AssertionError(f"{name} is not a module-level tuple")
 
 
-def test_n22_the_legacy_rung_and_migrate_workflow_are_untouched(bare_project):
-    """N22/A24. T11 owns removing the legacy rung. T10 must leave the dual-read
-    binding and `migrate-workflow`'s read-only treatment of `.workflow/`
-    exactly as it found them."""
+def test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched(
+    bare_project,
+):
+    """N22/A24, split by T11 X3.
+
+    T11 removed the dual-read rung it named as its owner, so the "the legacy
+    rung still binds" half is inverted here. `migrate-workflow`'s read-only
+    treatment of `.workflow/` is B9 and is kept verbatim.
+    """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
@@ -797,8 +802,9 @@ def test_n22_the_legacy_rung_and_migrate_workflow_are_untouched(bare_project):
                                      newline="\n")
 
     before = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    assert bare_project.run("state", "get",
-                            "--field", "current_phase").exit_code == EXIT_OK
+    refused = bare_project.run("state", "get", "--field", "current_phase")
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "workitem_required", refused
 
     bare_project.ok("workitem", "create", "--name", "migrated thing")
     wid = bare_project.run("workitem", "list").data["workitems"][-1]["id"]

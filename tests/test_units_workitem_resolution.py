@@ -594,7 +594,10 @@ def test_bind_workitem_writes_nothing_and_prints_nothing(bare_project):
     (bare_project.root / "workitems" / ".active-context.json").unlink()
     assert isinstance(call(), sdle.Refused)
 
-    # the legacy rung, in a repository with no WorkItems at all
+    # T11 D1/D2: a repository with no WorkItems and a legacy `.workflow/`
+    # now *refuses* instead of binding. The property this test exists for —
+    # purity — is asserted on the refusal path, which is the path the hook
+    # actually takes in such a repository.
     legacy = Project(bare_project.root / "legacy", bare_project.skill_root)
     (legacy.root / ".workflow").mkdir(parents=True)
     (legacy.root / ".workflow" / "state.json").write_text("{}", encoding="utf-8")
@@ -602,8 +605,9 @@ def test_bind_workitem_writes_nothing_and_prints_nothing(bare_project):
     out, err = io.StringIO(), io.StringIO()
     before = sha_map(legacy.root)
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        bound = sdle.bind_workitem(legacy_paths)
-    assert bound.workitem is None
+        with pytest.raises(sdle.Refused) as caught:
+            sdle.bind_workitem(legacy_paths)
+    assert caught.value.reason == "workitem_required"
     assert sha_map(legacy.root) == before
     assert out.getvalue() == "" and err.getvalue() == ""
 
@@ -1391,8 +1395,11 @@ def test_no_rung_ever_returns_an_unregistered_workitem(bare_project, monkeypatch
 
     for decision in states:
         assert decision.workitem is None or decision.workitem in decision.known
+        # T11 X12: "legacy" is deliberately absent. Leaving it in a
+        # permissive membership test would let the deleted rung come back
+        # silently.
         assert decision.rung in {None, "explicit", "cwd", "sole", "context",
-                                 "branch", "legacy"}
+                                 "branch"}
 
 
 def test_the_ladder_has_no_tie_break_operator():
@@ -1472,13 +1479,28 @@ def test_init_still_refuses_a_legacy_workflow_unconditionally(bare_project):
     assert result.reason == "legacy_workflow_present"
 
 
-def test_the_legacy_dual_read_rung_still_binds(bare_project):
-    """P10: the transitional rung stays working until T11."""
+def test_the_legacy_dual_read_rung_is_gone(bare_project):
+    """T11 D1/D2, the inverse of P10. The rung was *deleted*, not replaced by
+    an inference: with zero WorkItems the ladder answers `none` whether or not
+    legacy state is on disk, and `bind_workitem` refuses instead of returning
+    an unbound `Paths`."""
     legacy = bare_project.root / ".workflow"
     legacy.mkdir()
     (legacy / "state.json").write_text("{}", encoding="utf-8")
+    paths = paths_for(bare_project)
 
-    decision = sdle.resolve_decision(paths_for(bare_project))
+    decision = sdle.resolve_decision(paths)
 
-    assert decision.rung == "legacy"
+    assert decision.rung is None
+    assert decision.reason == "none"
     assert decision.workitem is None
+
+    # The same answer with no legacy state at all — the removal added no
+    # branch, so the two cases are indistinguishable to the ladder.
+    (legacy / "state.json").unlink()
+    bare = sdle.resolve_decision(paths_for(bare_project))
+    assert (bare.rung, bare.reason, bare.workitem) == (None, "none", None)
+
+    with pytest.raises(sdle.Refused) as caught:
+        sdle.bind_workitem(paths)
+    assert caught.value.reason == "workitem_required"

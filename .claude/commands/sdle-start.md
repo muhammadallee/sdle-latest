@@ -24,8 +24,12 @@ argument-hint: "[--verbose]"
    If the registry itself looks wrong, `sdle.sh validate` diagnoses it and
    still runs when resolution cannot.
    If a repository-global `.workflow/state.json` exists, it is a pre-v1.14
-   workflow: run `sdle.sh migrate-workflow --workitem <id>` once, after the
-   WorkItem in step 3 exists. `init` refuses while it is there.
+   workflow and it does **not** run: every runtime command refuses exit 1
+   `workitem_required` and the refusal names the recovery. Do exactly what
+   it names, in order — `sdle.sh workitem create --name "<name>"`, then
+   `sdle.sh migrate-workflow --workitem <id>` once. The migration leaves
+   `.workflow/` byte-for-byte untouched as an archive. `init` refuses
+   `legacy_workflow_present` while it is there.
 3. Otherwise this is a new workflow, and identity comes before initialisation.
    Ask `WorkItem name?` and run
    `sdle.sh workitem create --name "<what the user typed>"`.

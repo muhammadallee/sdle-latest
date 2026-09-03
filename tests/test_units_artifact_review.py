@@ -550,11 +550,18 @@ def test_the_engine_invokes_no_agent(project):
 
 
 # --------------------------------------------------------------------------
-# N34 — E2 is skipped under the legacy binding, and only there
+# N34 — E2 applies to every bound WorkItem, because T11 removed the only
+# binding that had no WorkItem
 # --------------------------------------------------------------------------
 
 
-def test_e2_stands_aside_under_the_legacy_binding_and_only_there(bare_project):
+def test_e2_no_longer_stands_aside_anywhere(bare_project):
+    """T11 D4, the inverse of the carve-out this test used to pin.
+
+    A repository-global `.workflow/` used to be approvable without a review
+    ledger. It is not a runtime any more: the approval refuses at the ladder,
+    before E2 is reached, and `.workflow/` is left byte-identical.
+    """
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
@@ -564,13 +571,17 @@ def test_e2_stands_aside_under_the_legacy_binding_and_only_there(bare_project):
     legacy.mkdir()
     (legacy / "state.json").write_text(json.dumps(template, indent=2) + "\n",
                                        encoding="utf-8", newline="\n")
+    before = sdle.sha256_file(legacy / "state.json")
     bare_project.write_artifact(CONSTITUTION)
 
-    assert bare_project.workitem is None, "rung 3 needs zero WorkItems"
+    assert bare_project.workitem is None
     approved = bare_project.run("gate", "approve", "--gate",
                                 "gate_constitution")
-    assert approved.exit_code == EXIT_OK, approved
+    assert approved.exit_code == EXIT_REFUSED, approved
+    assert approved.reason == "workitem_required", approved
     assert not (legacy / "reviews.json").exists()
+    assert not (legacy / "audit.md").exists()
+    assert sdle.sha256_file(legacy / "state.json") == before
 
 
 def test_e2_applies_as_soon_as_a_workitem_holds_the_runtime(project):
