@@ -221,10 +221,12 @@ class Paths:
     def speckit_specs_root(self) -> Path | None:
         """Where this WorkItem's Spec Kit feature directories live.
 
-        ``None`` under the transitional legacy binding, which has no WorkItem
-        to scope to and keeps using the repository-global ``.specify/specs/``.
-        Derived here so no call site ever concatenates a Spec Kit path of its
-        own — the same discipline ``runtime`` established for the runtime.
+        ``None`` only for an **unbound** ``Paths`` — the source view
+        ``cmd_migrate_workflow`` constructs, which has no WorkItem to scope
+        to. T11 removed the legacy runtime binding, so no *bound* ``Paths``
+        reaches this with ``workitem`` unset (R2). Derived here so no call
+        site ever concatenates a Spec Kit path of its own — the same
+        discipline ``runtime`` established for the runtime.
         """
         root = self.workitem_root
         return None if root is None else root / "specs"
@@ -8023,14 +8025,18 @@ def cmd_feature_capabilities(args, paths: Paths) -> int:
 
 
 def _feature_candidates(directory: Path) -> list[Path]:
-    """Feature directories in one tier, newest first. Baseline's rule."""
+    """Feature directories in one tier, in a stable order.
+
+    **T11 D10** removed the newest-mtime *selection* (T04 N-2), so this order
+    no longer picks a winner — it only makes the refusal's candidate list
+    deterministic. Sorted by name for exactly that reason: two directories
+    created in the same second have no meaningful mtime order, and an order
+    that decides nothing should not pretend to rank.
+    """
     if not directory.is_dir():
         return []
-    return sorted(
-        (p for p in directory.glob("*") if p.is_dir()),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    return sorted((p for p in directory.glob("*") if p.is_dir()),
+                  key=lambda p: p.name)
 
 
 def _adopt_feature_directory(paths: Paths, source: Path, target: Path) -> dict:
@@ -8083,12 +8089,8 @@ def _adopt_feature_directory(paths: Paths, source: Path, target: Path) -> dict:
 def cmd_feature_resolve(args, paths: Paths) -> int:
     """Identify — and where necessary adopt — this WorkItem's feature directory.
 
-    Under the transitional legacy binding the behaviour is baseline's exactly:
-    scan `.specify/specs/`, newest mtime wins, refuse rather than guess. T11
-    removes that rung, not T04.
-
-    Under a WorkItem, candidates are collected in a **fixed tier order** and
-    the first tier that yields anything is used:
+    Candidates are collected in a **fixed tier order** and the first tier
+    that yields anything is used:
 
       1. ``workitems/<id>/specs/*``  — already contained;
       2. ``<project-root>/specs/*``  — where Spec Kit 0.15.0 actually creates
@@ -8100,21 +8102,32 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     unpinned Spec Kit install can guarantee. Nothing under another WorkItem is
     ever a candidate: no tier reaches into ``workitems/<other-id>/``.
 
-    Within the chosen tier the baseline selection rule is unchanged — newest
-    mtime, and `feature_ambiguous` when the two newest share a timestamp.
+    Within the chosen tier there is no selection rule left to get wrong.
+    **T11 D10** (T04 N-2): more than one candidate refuses `feature_ambiguous`
+    and lists them. Baseline picked the newest mtime and refused only on an
+    exact timestamp tie, which meant two WorkItems both standing at the
+    specification phase could cross-adopt through the repository-global
+    `specs/` tier — a silent wrong pick out of a shared staging area, which
+    §9 ("never silently pick one among multiple plausible") and §10 ("WorkItem
+    A's Spec Kit output cannot be mistaken for WorkItem B's") both forbid.
+    Recency is not evidence of ownership.
+
+    There is no override flag, because there does not need to be one: tier 1
+    is `workitems/<id>/specs/`, so *moving* the directory this WorkItem owns
+    into its own tier resolves the ambiguity by precedence, deterministically
+    and without SDLE guessing. The refusal names that remedy.
+
+    **T11 D1/D2** removed the legacy binding, so `speckit_specs_root` is never
+    `None` here: `feature` is not `RUNTIME_FREE`, so `bind_workitem` has
+    already returned a bound `Paths` (R2, pinned by N25).
     """
     state = read_state(paths)
     specs_root = paths.speckit_specs_root
-    legacy = specs_root is None
-
-    if legacy:
-        tiers = [(".specify/specs", paths.project_root / ".specify" / "specs")]
-    else:
-        tiers = [
-            (paths.speckit_specs_relative, specs_root),
-            ("specs", paths.project_root / "specs"),
-            (".specify/specs", paths.project_root / ".specify" / "specs"),
-        ]
+    tiers = [
+        (paths.speckit_specs_relative, specs_root),
+        ("specs", paths.project_root / "specs"),
+        (".specify/specs", paths.project_root / ".specify" / "specs"),
+    ]
 
     searched: list[str] = []
     chosen_tier: str | None = None
@@ -8135,29 +8148,31 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
             {"searched": searched},
         )
 
-    ambiguous = (
-        len(candidates) > 1
-        and candidates[0].stat().st_mtime == candidates[1].stat().st_mtime
-    )
-    if ambiguous:
+    # T11 D10. Pure reader, and placed ahead of every write below, so a
+    # refused `feature resolve` leaves state.json and audit.md untouched.
+    if len(candidates) > 1:
+        names = sorted(p.name for p in candidates)
         raise Refused(
             "feature_ambiguous",
-            f"Multiple feature directories under {chosen_tier}/ share the "
-            "newest timestamp; cannot choose between them.",
-            {"candidates": [p.name for p in candidates],
-             "searched": searched, "tier": chosen_tier},
+            f"{len(names)} feature directories under {chosen_tier}/: "
+            + ", ".join(names)
+            + ". SDLE will not choose between them — recency is not evidence "
+            "of ownership, and a directory under a shared tier may belong to "
+            f"another WorkItem entirely. Move the one '{paths.workitem}' owns "
+            f"into {paths.speckit_specs_relative}/, which takes precedence "
+            "over every shared tier, or remove the others.",
+            {"candidates": names, "searched": searched, "tier": chosen_tier,
+             "workitem": paths.workitem,
+             "remedy_tier": paths.speckit_specs_relative},
         )
 
     source = candidates[0]
     chosen = source.name
     adopted = None
-    if legacy:
-        directory = f".specify/specs/{chosen}"
-    else:
-        target = specs_root / chosen
-        if source != target:
-            adopted = _adopt_feature_directory(paths, source, target)
-        directory = f"{paths.speckit_specs_relative}/{chosen}"
+    target = specs_root / chosen
+    if source != target:
+        adopted = _adopt_feature_directory(paths, source, target)
+    directory = f"{paths.speckit_specs_relative}/{chosen}"
 
     if adopted is not None:
         append_audit(

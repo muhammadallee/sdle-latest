@@ -614,6 +614,34 @@ def test_n7_all_tiers_empty_refuses_and_lists_what_was_searched(project):
 
 
 def test_n7_ambiguity_inside_the_chosen_tier_still_refuses_and_lists(project):
+    """T11 D10 re-valued this (TP-003 category 3 — T04 N-2 was a defect).
+
+    It planted two directories and then forced their mtimes **equal**,
+    because baseline refused only on an exact timestamp tie and otherwise
+    picked the newest. The tie is no longer what makes this refuse, so the
+    equalising is gone and the timestamps are deliberately left far apart: if
+    the newest-mtime rule ever came back, this test would see a successful
+    pick and fail here instead of passing quietly.
+
+    The tie case itself is not dropped — it keeps its own test below.
+    """
+    project.ok("init")
+    project.write_artifact(f"{project.feature_dir('aaa')}/spec.md")
+    project.write_artifact(f"{project.feature_dir('bbb')}/spec.md")
+    age(project.specs_root / "bbb", 2_000_000_000)  # far newer, and irrelevant
+
+    result = project.run("feature", "resolve")
+
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "feature_ambiguous"
+    assert sorted(result.data["candidates"]) == ["aaa", "bbb"]
+    assert project.state()["specKit"]["featureDirectory"] is None
+
+
+def test_n7_a_timestamp_tie_still_refuses_exactly_as_it_did(project):
+    """The one case baseline already refused keeps refusing, with the same
+    reason string and the same candidate list. D10 widened this refusal; it
+    removed nothing from it."""
     project.ok("init")
     project.write_artifact(f"{project.feature_dir('aaa')}/spec.md")
     project.write_artifact(f"{project.feature_dir('bbb')}/spec.md")
@@ -625,7 +653,101 @@ def test_n7_ambiguity_inside_the_chosen_tier_still_refuses_and_lists(project):
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "feature_ambiguous"
     assert sorted(result.data["candidates"]) == ["aaa", "bbb"]
-    assert project.state()["specKit"]["featureDirectory"] is None
+
+
+# ==========================================================================
+# T11 N21 — D10: a shared tier can no longer hand one WorkItem another's work
+# ==========================================================================
+
+
+def test_n21_two_candidates_in_the_shared_tier_refuse_and_write_nothing(
+    bare_project,
+):
+    """T11 D10 (T04 N-2). Tier 2 is the repository-global `specs/`, which is
+    where Spec Kit 0.15.0 actually creates a feature directory. Two WorkItems
+    both standing at the specification phase therefore stage into one shared
+    directory, and baseline's newest-mtime rule would hand whichever ran
+    second the *other* one's work — silently, with no refusal and no audit
+    entry recording that a choice had been made.
+
+    The check is a pure reader placed ahead of every write, so the refusal
+    leaves `state.json` and `audit.md` byte-identical (B2), and neither
+    staged directory moves.
+    """
+    a, b = two_workitems(bare_project)
+    bare_project.write_artifact("specs/001-alpha/spec.md")
+    bare_project.write_artifact("specs/002-bravo/spec.md")
+    age(bare_project.root / "specs" / "002-bravo", 2_000_000_000)
+
+    a_state, a_audit = a.state_file.read_bytes(), a.audit_file.read_bytes()
+    b_state, b_audit = b.state_file.read_bytes(), b.audit_file.read_bytes()
+
+    result = a.run("feature", "resolve")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "feature_ambiguous", result
+    assert result.data["candidates"] == ["001-alpha", "002-bravo"], result
+    assert result.data["tier"] == "specs", result
+    assert result.data["workitem"] == "wi-a", result
+    # Nothing was picked, moved, recorded or logged — for either WorkItem.
+    assert a.state_file.read_bytes() == a_state
+    assert a.audit_file.read_bytes() == a_audit
+    assert b.state_file.read_bytes() == b_state
+    assert b.audit_file.read_bytes() == b_audit
+    assert (bare_project.root / "specs" / "001-alpha" / "spec.md").is_file()
+    assert (bare_project.root / "specs" / "002-bravo" / "spec.md").is_file()
+    assert not a.specs_root.exists()
+
+
+def test_n21_the_named_remedy_is_a_real_one(bare_project):
+    """A fail-closed refusal is only honest if the way out actually works.
+
+    The message names one remedy — move the directory this WorkItem owns into
+    its own tier — and it is asserted end to end here rather than described.
+    Tier 1 takes precedence over every shared tier, so the move resolves the
+    ambiguity by *precedence*: SDLE still never chooses between peers, and no
+    override flag was added for it to be talked out of.
+    """
+    a, _ = two_workitems(bare_project)
+    bare_project.write_artifact("specs/001-alpha/spec.md")
+    bare_project.write_artifact("specs/002-bravo/spec.md")
+
+    refused = a.run("feature", "resolve")
+    assert refused.reason == "feature_ambiguous", refused
+    remedy = refused.data["remedy_tier"]
+    assert remedy == "workitems/wi-a/specs", refused
+    assert remedy in refused.envelope["message"], refused
+
+    # Perform exactly the move the message names, and nothing else.
+    target = bare_project.root / remedy / "001-alpha"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (bare_project.root / "specs" / "001-alpha").rename(target)
+
+    resolved = a.ok("feature", "resolve")
+
+    assert resolved.data["feature_id"] == "001-alpha"
+    assert resolved.data["tier"] == "workitems/wi-a/specs"
+    assert resolved.data["adopted"] is None
+    assert a.state()["specKit"]["featureDirectory"] == (
+        "workitems/wi-a/specs/001-alpha")
+    # The other WorkItem's staged directory was never touched.
+    assert (bare_project.root / "specs" / "002-bravo" / "spec.md").is_file()
+
+
+def test_n21_one_candidate_in_the_shared_tier_still_resolves(bare_project):
+    """The single-candidate case keeps baseline's behaviour verbatim: found
+    in tier 2, adopted into the WorkItem, recorded. D10 refuses ambiguity,
+    not work."""
+    a, _ = two_workitems(bare_project)
+    bare_project.write_artifact("specs/001-alpha/spec.md")
+
+    data = a.ok("feature", "resolve").data
+
+    assert data["tier"] == "specs"
+    assert data["feature_id"] == "001-alpha"
+    assert data["adopted"] == {"from": "specs/001-alpha",
+                               "to": "workitems/wi-a/specs/001-alpha"}
+    assert not (bare_project.root / "specs" / "001-alpha").exists()
 
 
 def test_n7_the_legacy_binding_no_longer_resolves_a_feature(bare_project):
