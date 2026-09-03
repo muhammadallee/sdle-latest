@@ -1343,17 +1343,90 @@ def test_n27_the_nine_dry_run_transcripts_are_byte_identical():
         assert here(relative) == original, relative
 
 
+HOOKS_FILE = ".claude/hooks/hooks.py"
+HOOK_FILES = (HOOKS_FILE,)
+
+# The guard registry, written out on both sides of T10. The four T09 pinned,
+# and the one T10's plan (B4) declares.
+T09_GUARDS = ("write-fence", "untrusted-read", "dirty-tree", "secrets-scan")
+T10_GUARD_ADDITIONS = ("product-agent-fence",)
+T10_HOOK_ADDITIONS = ("PRODUCT_AGENT_FENCE_REASON", "product_agent_fence")
+
+
+def _hooks_top_level(source: str) -> dict[str, str]:
+    """Every top-level definition in the hooks module, by name, with the exact
+    source that defines it. Functions by `def`, constants by assigned name."""
+    tree = ast.parse(source)
+    found = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            found[node.name] = ast.get_source_segment(source, node)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    found[target.id] = ast.get_source_segment(source, node)
+    return found
+
+
+def _registered_guards(source: str) -> list[str]:
+    """The keys of the module's `GUARDS` table, read out of the source rather
+    than by importing it, so a syntax-level edit cannot hide behind a run."""
+    for node in ast.parse(source).body:
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "GUARDS"
+                        for t in node.targets)):
+            return [key.value for key in node.value.keys]
+    raise AssertionError("hooks.py registers no GUARDS table")
+
+
 def test_n28_the_hooks_are_byte_identical():
-    """A10: hooks are tripwires and T09 added no fence. Whole directory, so a
-    new hook file would fail here rather than pass unnoticed."""
+    """T09's A10 assertion, re-valued for T10 (TP-003 category 2, X-GEN).
+
+    It read: *"hooks are tripwires and T09 added no fence. Whole directory, so
+    a new hook file would fail here rather than pass unnoticed."* T10's plan
+    declares one hook change (B4): a fifth guard, `product-agent-fence`, added
+    inside the existing `hooks.py`. Whole-directory byte identity against T09's
+    rollback point is therefore false by design, and the assertion is re-valued
+    rather than deleted or relaxed. It is split into the three things it was
+    actually buying, each still exact equality against a written-out set:
+
+    * the directory's **file list** is exactly `HOOK_FILES` -- T10 adds no hook
+      file, so a new one still fails here, which is the sentence above;
+    * every hook file other than `hooks.py` is still byte-identical to the T09
+      rollback point;
+    * inside `hooks.py`, every top-level definition T09 pinned is byte-identical
+      one at a time, and the set of definitions is exactly T09's plus the two
+      T10 declares -- so an edit to `write_fence`, a sixth guard, or a stray
+      module-level constant all still fail.
+
+    Nothing here is a subset test, a prefix test or an `any`. The guard registry
+    is additionally pinned to the five names in order, because a guard that is
+    defined but never registered would otherwise pass.
+    """
     hooks = sorted((REPO_ROOT / ".claude" / "hooks").rglob("*"))
     present = sorted(p.relative_to(REPO_ROOT).as_posix()
                      for p in hooks if p.is_file())
-    assert present, "the hooks directory has gone missing"
+    assert present == sorted(HOOK_FILES), present
+
     for relative in present:
         original = at_rollback(relative)
         assert original is not None, relative
-        assert here(relative) == original, relative
+        if relative != HOOKS_FILE:
+            assert here(relative) == original, relative
+
+    before = _hooks_top_level(at_rollback(HOOKS_FILE))
+    after = _hooks_top_level(here(HOOKS_FILE))
+    assert sorted(after) == sorted(set(before) | set(T10_HOOK_ADDITIONS)), (
+        sorted(set(after) ^ set(before)))
+    for name, source in before.items():
+        # `GUARDS` is the one definition T10 legitimately edits, by exactly one
+        # line. It is pinned below by name and order instead of by bytes.
+        if name == "GUARDS":
+            continue
+        assert after[name] == source, name
+
+    assert _registered_guards(here(HOOKS_FILE)) == list(
+        T09_GUARDS + T10_GUARD_ADDITIONS)
 
 
 def test_n28_the_state_schema_did_not_move(project):
@@ -1459,31 +1532,60 @@ def test_a19_the_unqualified_readme_clause_is_gone():
         in body
 
 
-def test_n31_no_t10_or_t11_leakage():
-    """A24: T10 owns subagents and progressive skills; T11 owns the legacy
-    rung, the version bump and the fixed-8-gate prose. None of it moved."""
-    # `.claude/agents/` exists and holds the migration control-plane agents
-    # that are driving this transition. The plan's scope exclusion names them
-    # explicitly as scaffolding rather than evidence of T10, so the assertion
-    # that matters is that no PRODUCT subagent has appeared beside them.
+def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
+    """X1 (TP-003 category 2). Was the first half of
+    `test_n31_no_t10_or_t11_leakage`, which asserted T10's *absence*: no agent
+    outside the `sdle-transition-` control plane, and exactly three modules.
+    T10 has landed, so the same three assertions now enumerate T10's expected
+    shape instead.
+
+    The shape of each assertion is unchanged — exact equality against a
+    written-out set, never relaxed to a prefix test, a subset or an `any`. The
+    agent list is in fact *stronger* than what it replaced: `stray == []` was a
+    derived check that said nothing about which control-plane files exist,
+    where this enumerates all of them. A fifth product agent, a second product
+    skill or a sixth capability file appearing without a plan still fails here.
+    """
     agents = sorted(p.name for p in (REPO_ROOT / ".claude" / "agents").iterdir()
                     if p.is_file())
-    assert agents, "the control-plane agents have gone missing"
-    stray = [name for name in agents if not name.startswith("sdle-transition-")]
-    assert stray == [], stray
+    assert agents == [
+        # The four product subagents contract §16 names.
+        "sdle-code-review.md",
+        "sdle-design-review.md",
+        "sdle-discovery.md",
+        "sdle-security-review.md",
+        # The migration control plane (contract §1.4). Scaffolding, never
+        # evidence of T10, and a post-transition cleanup owns removing it.
+        "sdle-transition-implementer.md",
+        "sdle-transition-orchestrator.md",
+        "sdle-transition-planner.md",
+        "sdle-transition-verifier.md",
+    ], agents
 
-    # The product skill is still exactly one, undivided. `apply-sdle-transition`
-    # beside it is the migration control plane — the skill running this
-    # transition — and is excluded by name rather than by pattern so a second
-    # control-plane skill could not sneak a product split in with it.
+    # The product skill is still exactly one, undivided: T10 split the
+    # *capability files*, not the skill. `apply-sdle-transition` beside it is
+    # the migration control plane — the skill running this transition —
+    # and is excluded by name rather than by pattern so a second control-plane
+    # skill could not sneak a product split in with it.
     skills = sorted(p.name for p in
                     (REPO_ROOT / ".claude" / "skills").iterdir() if p.is_dir())
     assert skills == ["apply-sdle-transition", "sdle"], skills
     modules = sorted(p.name for p in (REPO_ROOT / ".claude" / "skills" / "sdle"
                                       / "modules").glob("*.md"))
-    assert modules == ["gate-protocol.md", "phase-execution.md",
+    assert modules == ["code-review.md", "design-review.md",
+                       "gate-protocol.md", "phase-execution.md",
                        "security-review.md"], modules
 
+
+def test_n31_no_t11_leakage():
+    """X1's other half, moved verbatim. T11 owns the legacy rung, the version
+    bump and the fixed-8-gate prose. None of it moved.
+
+    Every assertion below is byte-for-byte what it was inside
+    `test_n31_no_t10_or_t11_leakage`, message string included: X1 says this
+    half is moved and not touched otherwise, so the message still reads
+    "not T09's" — it is the assertion T09 landed, unchanged.
+    """
     # T11's transitional surfaces, still present and still T11's.
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
     assert "legacy_workflow" in source

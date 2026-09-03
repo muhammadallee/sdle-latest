@@ -26,6 +26,10 @@ def repo(tmp_path: Path) -> Project:
     (root / ".claude" / "skills").mkdir(parents=True)
     shutil.copytree(REPO_ROOT / ".claude" / "skills" / "sdle",
                     root / ".claude" / "skills" / "sdle")
+    # X5: without the agents the three product-agent checks would pass
+    # vacuously — they are emitted only when a product agent file exists, and
+    # a check nobody can fail is not evidence of anything.
+    shutil.copytree(REPO_ROOT / ".claude" / "agents", root / ".claude" / "agents")
     (root / "docs").mkdir()
     shutil.copy(REPO_ROOT / "README.md", root / "README.md")
     shutil.copy(REPO_ROOT / "docs" / "SDLE-Reference-Guide.md",
@@ -378,6 +382,131 @@ def test_a_restated_classification_token_fires(repo):
          "`sdle.sh discovery schema` —")
     assert_only_failure(
         repo, "discovery_vocabulary_is_not_restated_in_prompt_files")
+
+
+# -- T10: the capability map and the product-agent boundary -----------------
+#
+# One case per new check. Each breakage is chosen to trip exactly one rule:
+# where a second would fire on the same edit, the fixture picks the edit that
+# isolates one, the same discipline the flow cases above follow.
+
+
+def capability_row(repo: Project, phase: str) -> str:
+    """The CAPABILITY_MAP row for ``phase``, read rather than restated."""
+    text = (repo.skill_root / "SKILL.md").read_text(encoding="utf-8")
+    prefix = f"| `{phase}` | modules/"
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"no CAPABILITY_MAP row for {phase}")
+
+
+def test_a_phase_with_no_capability_row_fires(repo):
+    """`analyze` still has a NEXT_PHASE row, a label and an execution block, so
+    removing only its capability row isolates the coverage rule."""
+    edit(repo, "SKILL.md", capability_row(repo, "analyze") + "\n", "")
+    assert_only_failure(repo, "capability_map_covers_every_registry_phase")
+
+
+def test_a_capability_file_that_does_not_exist_fires(repo):
+    row = capability_row(repo, "analyze")
+    edit(repo, "SKILL.md", row,
+         "| `analyze` | modules/not-a-real-capability.md |")
+    assert_only_failure(repo, "every_capability_file_exists")
+
+
+def test_naming_the_orchestrator_as_a_capability_fires(repo):
+    """SKILL.md is always loaded; calling it a capability makes "load only
+    what this phase needs" mean nothing."""
+    row = capability_row(repo, "analyze")
+    edit(repo, "SKILL.md", row, "| `analyze` | SKILL.md |")
+    assert_only_failure(repo, "capability_map_never_names_the_orchestrator")
+
+
+def test_a_module_no_row_names_fires(repo):
+    """An orphan capability file is one nobody is ever told to read."""
+    (repo.skill_root / "modules" / "orphan.md").write_text(
+        "> Orphan capability, mapped by nothing.\n", encoding="utf-8")
+    assert_only_failure(repo, "every_capability_file_is_linted")
+
+
+def test_a_row_that_requires_the_whole_capability_set_fires(repo):
+    """The progressive property, stated as a rule: a phase that needs
+    everything is a phase for which nothing was decided."""
+    text = (repo.skill_root / "SKILL.md").read_text(encoding="utf-8")
+    everything = sorted({
+        value
+        for line in text.splitlines() if line.startswith("| `") and "modules/" in line
+        for value in line.split("|")[2].split()
+        if value.startswith("modules/")
+    })
+    edit(repo, "SKILL.md", capability_row(repo, "complete"),
+         "| `complete` | " + " ".join(everything) + " |")
+    assert_only_failure(
+        repo, "every_row_is_a_strict_subset_of_the_capability_set")
+
+
+def test_a_capability_pointing_at_an_unmapped_file_fires(repo):
+    path = repo.skill_root / "modules" / "phase-execution.md"
+    path.write_text(path.read_text(encoding="utf-8")
+                    + "\nFurther reading: `modules/ghost.md`.\n",
+                    encoding="utf-8")
+    assert_only_failure(repo, "capability_cross_references_are_mapped_files")
+
+
+# -- the product-agent boundary ---------------------------------------------
+#
+# The declaration is what SDLE can check. That a declared `tools:` list is
+# actually applied, and that a frontmatter hook actually fires, belong to the
+# Claude Code runtime and are not assertable from here — ADR-007 says so in a
+# table rather than letting a green suite imply otherwise.
+
+
+def agent_path(repo: Project) -> Path:
+    return repo.root / ".claude" / "agents" / "sdle-design-review.md"
+
+
+def test_a_product_agent_granted_a_mutating_tool_fires(repo):
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "tools: Read, Grep, Glob", "tools: Read, Grep, Glob, Bash", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_are_read_only")
+
+
+def test_a_product_agent_with_the_fence_stripped_fires(repo):
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "python .claude/hooks/hooks.py product-agent-fence",
+            "python .claude/hooks/hooks.py write-fence", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_fence_matcher_that_misses_bash_fires(repo):
+    """`Bash` is on the matcher because a shell is all it takes to run
+    `gate approve`."""
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "Write|Edit|MultiEdit|NotebookEdit|Bash",
+            "Write|Edit|MultiEdit|NotebookEdit", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_product_agent_missing_the_invariant_8_clause_fires(repo):
+    from conftest import sdle
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            sdle.PRODUCT_AGENT_NON_APPROVAL_CLAUSE,
+            "It behaves itself.", 1),
+        encoding="utf-8")
+    assert_only_failure(
+        repo, "product_agents_declare_the_non_approval_clause")
 
 
 def test_the_discovery_execution_block_may_not_carry_an_ordinal(repo):

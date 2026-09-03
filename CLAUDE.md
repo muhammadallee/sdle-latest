@@ -43,11 +43,18 @@ As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `s
 - **`modules/phase-execution.md`** — per-phase generation logic. Loaded when executing a phase.
 - **`modules/gate-protocol.md`** — gate display and rejection/remediation. Loaded at gate phases.
 - **`modules/security-review.md`** — Phase 17 review template. Loaded at Phase 17.
+- **`modules/design-review.md`** / **`modules/code-review.md`** — how those two reviews are conducted, what a finding looks like, and how the parent records the outcome.
 - **`templates/state.json`** — the initial state template. The **only** copy; SKILL.md must not embed a second one.
+
+Which capability files a phase requires is not a judgement the model makes each turn: it is the **`CAPABILITY_MAP`** table in SKILL.md, parsed by the script and reported by `sdle.sh resume`. The row is a floor, not a ceiling — a capability file may still point at another one. `lint-skill` fails on a missing row, an unknown phase, a file that does not exist, an orphan module, a row that names SKILL.md, a row that requires the whole set, or an unmapped cross-reference.
+
+**`.claude/agents/`** — four read-only product subagents (`sdle-discovery`, `sdle-design-review`, `sdle-code-review`, `sdle-security-review`) for high-context independent analysis. They may inspect, reason and return findings; they may not mutate lifecycle state, approve a gate, bypass policy or become workflow controllers. That is enforced twice: a `tools: Read, Grep, Glob` grant, and a `PreToolUse` fence in each agent's own frontmatter that denies every write and every command. `lint-skill` fails if either stops being true. Findings enter the governed record through one door the parent opens — `artifact review --actor-type agent --actor-name <agent>`. The `sdle-transition-*` files beside them are this repo's migration control plane, not the product.
+
+**Two of those enforcement points are not SDLE's.** That a declared `tools:` list is applied, and that a frontmatter hook fires, are guarantees of the **Claude Code runtime**; SDLE checks the *declaration*, not the runtime's honouring of it. And three things remain **convention only**: that the parent delegates at all, that `--actor-name` truthfully names the producer, and that a human rather than the orchestrator typed `approve`. `docs/architecture/ADR-007-progressive-capabilities-and-product-subagents.md` §3 carries the full split; it must not be softened.
 
 **`.claude/commands/`** — nine `/sdle-*` slash commands. Invocation and presentation only: no business logic, no restated constants, no restated header format.
 
-**`.claude/hooks/`** + **`.claude/settings.json`** — four guardrail hooks. Hooks are *tripwires*; where they overlap the script, the script's refusal at the choke point is the guarantee.
+**`.claude/hooks/`** + **`.claude/settings.json`** — five guardrail hooks. Hooks are *tripwires*; where they overlap the script, the script's refusal at the choke point is the guarantee. Four inspect the payload and stay silent when it does not concern them; the fifth, `product-agent-fence`, denies everything it is registered for and is registered in the four product agents' frontmatter rather than in `settings.json`, because it must bind those agents and not the parent session.
 
 Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is transitional — it is still read when a repository has a pre-v1.14 workflow and no WorkItem registered, and `migrate-workflow --workitem <id>` moves it under a WorkItem without ever mutating it.
 

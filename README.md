@@ -33,14 +33,19 @@ SDLE is no longer only a skill folder. The engine (`scripts/`), the commands
 registration in `.claude/settings.json`) live outside `.claude/skills/sdle/`,
 so copying the skill folder alone installs a half-engine.
 
-Copy all four into your target project:
+Copy all five into your target project:
 
 ```
 .claude/skills/sdle/     the orchestrator prompt files
 .claude/commands/        the nine /sdle-* commands
-.claude/hooks/           the four guardrail hooks
+.claude/hooks/           the five guardrail hooks
+.claude/agents/sdle-*    the four read-only product subagents
 scripts/                 sdle.py and its launchers
 ```
+
+`.claude/agents/` in this repository also holds `sdle-transition-*` files. Those
+are the migration control plane for this repo's own development, not part of the
+product — do not copy them.
 
 Then merge `.claude/settings.json`'s `hooks` block into your project's
 settings. Run `scripts/sdle.sh preflight` to confirm the install.
@@ -396,19 +401,37 @@ scripts/
 ├── skills/sdle/
 │   ├── SKILL.md              ← Orchestrator entry point (always loaded).
 │   │                           Hosts the constant tables sdle.py parses.
-│   ├── modules/
+│   ├── modules/              ← Capability files. Which ones a phase
+│   │   │                         requires is CAPABILITY_MAP in SKILL.md,
+│   │   │                         reported by `sdle.sh resume`
 │   │   ├── phase-execution.md    ← Phase logic (loaded when executing)
 │   │   ├── gate-protocol.md      ← Gate + rejection (loaded at gates)
+│   │   ├── design-review.md      ← Design review capability
+│   │   ├── code-review.md        ← Code review capability
 │   │   └── security-review.md    ← Review template (loaded at Phase 17)
 │   └── templates/state.json  ← Initial state template (the only copy)
 ├── commands/                 ← The nine /sdle-* slash commands
-├── hooks/                    ← Four guardrail hooks
-└── settings.json             ← Hook registration
+├── agents/                   ← Four read-only product subagents: discovery,
+│                               design review, code review, security review.
+│                               Grant is Read/Grep/Glob; a PreToolUse fence
+│                               denies every write and every command
+├── hooks/                    ← Five guardrail hooks
+└── settings.json             ← Hook registration (the product-agent fence is
+                                registered per agent, not here)
 tests/                        ← pytest: units, 9 transcript integrations, hooks
 ```
 
 Run `scripts/sdle.sh lint-skill` after editing any of it — the cross-file sync
 rules are checked mechanically rather than by hand.
+
+Adding a capability file means adding the file under `modules/`, naming it in
+the `CAPABILITY_MAP` rows that require it, and nothing else: the linted file set
+is derived, so the new file is covered by the content checks automatically, and
+an unmapped module or a mapped file that does not exist both fail `lint-skill`.
+A product subagent's read-only grant and its deny fence are checked the same
+way. See `docs/architecture/ADR-007-progressive-capabilities-and-product-subagents.md`,
+whose section 3 states plainly which parts of that boundary SDLE enforces, which
+belong to the Claude Code runtime, and which are convention only.
 
 ### In your target project (runtime state):
 ```

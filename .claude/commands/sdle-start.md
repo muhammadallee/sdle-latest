@@ -7,8 +7,10 @@ argument-hint: "[--verbose]"
    prerequisite is missing and nothing should be initialised.
 2. If a workflow already exists for the resolved WorkItem
    (`workitems/<id>/.sdle/state.json`), this is a resume: run
-   `sdle.sh migrate`, then `sdle.sh header`, then follow the skill's resume
-   path. A resume never asks for a WorkItem name. Resolution handles the
+   `sdle.sh migrate`, then `sdle.sh header`, then `sdle.sh resume` — which
+   reports position, pending work and the `capabilities` this phase requires,
+   from disk alone. Load exactly those capability files and follow them. A
+   resume never asks for a WorkItem name. Resolution handles the
    common cases on its own — the directory Claude was launched from, a single
    registered WorkItem, a persisted active context, or a unique branch match.
    On exit 1 `workitem_ambiguous`, run `sdle.sh workitem resolve` (it always

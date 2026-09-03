@@ -465,10 +465,51 @@ def test_reviewing_a_missing_artifact_is_refused(project):
     assert result.reason == "artifact_missing", result
 
 
-def test_t06_creates_no_subagent(project):
-    """Invariant 8. `sdle-architect` is a recorded actor *string* supplied by
-    the caller; nothing delegates, registers or invokes an agent. T10 owns
-    subagents, and it must inherit a decision rather than an assumption."""
+SPAWNING_ATTRS = (
+    "run", "Popen", "call", "check_call", "check_output", "getoutput",
+    "system", "popen", "execv", "execvp", "execve", "execl", "execlp",
+    "spawnv", "spawnvp", "spawnl", "spawnlp", "posix_spawn",
+)
+
+
+def _spawn_sites(tree):
+    """Every `subprocess.*` / `os.*` call in the engine that starts a process,
+    with the name of the function it sits in."""
+    enclosing = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                enclosing[id(child)] = node.name
+    sites = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id in ("subprocess", "os")
+                and func.attr in SPAWNING_ATTRS):
+            continue
+        sites.append((enclosing.get(id(node), "<module>"),
+                      f"{func.value.id}.{func.attr}", node))
+    return sites
+
+
+def test_the_engine_invokes_no_agent(project):
+    """X2 (TP-003 category 2). Was `test_t06_creates_no_subagent`, which
+    banned the bare substring `"subagent"` in the engine source.
+
+    T10's `lint-skill` has to read and reason about `.claude/agents/*.md`, and
+    the honest English for what is in those files is a subagent, so the
+    vocabulary ban is retired and the *guarantee* is strengthened instead:
+    every invocation literal stays banned, and a structural assertion now
+    proves the engine starts no process that names an agent — the engine may
+    describe agents, it may not start one. Passing by wording discipline
+    (writing "agent" everywhere and never "subagent") was rejected: it leaves
+    a booby trap for the next editor and makes a green test mean nothing.
+
+    `sdle-architect` remains a recorded actor *string* supplied by the caller.
+    """
     at_gate_constitution(project)
     project.ok("artifact", "review", "--path", CONSTITUTION,
                "--type", "architecture-review", "--result", "PASS",
@@ -486,8 +527,26 @@ def test_t06_creates_no_subagent(project):
         "the engine stays standard-library only"
 
     source = Path(SDLE_PY).read_text(encoding="utf-8")
-    for forbidden in ("Task(", "subagent", "launch_agent"):
+    for forbidden in ("Task(", "launch_agent"):
         assert forbidden not in source, forbidden
+
+    # The structural half. The engine starts a process in exactly two places,
+    # and neither of them can start an agent.
+    sites = _spawn_sites(tree)
+    assert sorted({where for where, _, _ in sites}) == ["git", "run_tests"], (
+        "the engine spawns processes somewhere new: "
+        f"{sorted({where for where, _, _ in sites})}")
+    named = []
+    for where, call, node in sites:
+        for literal in ast.walk(node):
+            if not (isinstance(literal, ast.Constant)
+                    and isinstance(literal.value, str)):
+                continue
+            lowered = literal.value.lower()
+            if "claude" in lowered or "agent" in lowered or "Task" in literal.value:
+                named.append((where, call, literal.value))
+    assert named == [], (
+        "the engine may describe agents; it may not start one: " f"{named}")
 
 
 # --------------------------------------------------------------------------

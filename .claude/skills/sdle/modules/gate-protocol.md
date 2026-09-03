@@ -35,8 +35,9 @@ Use this table in Step 7 (Rejection & Remediation) to determine whether re-execu
      If every item is covered: show `✅ All guidance items addressed.` and no gaps.
    - If the guidance file **does not exist**: skip this step silently — do not mention guidance at all.
 4. **Review status:** run `sdle.sh artifact reviews --path <current_artifact>` and read the entry for this artifact. Show the review type, result and actor in the prompt's `Review:` line. If it is not a current `PASS`, do not display the prompt — record the review first (see **Governed Artifact Review** in `modules/phase-execution.md`); `gate approve` would refuse anyway, and asking for an approval you know will be refused wastes the user's decision.
-5. **Requirement status:** read `required` and `requirement_reasons` from `sdle.sh gate show --gate <gate_key>`. **Ask the engine; never decide this from a risk level yourself.** If `required` is `true`, the protocol below is unchanged. If it is `false`, this gate is *omittable* — see **Step 6b** — and you still display the artifact content first. If it is `null` the engine has no answer for this runtime (no WorkItem, so no governance record); treat the gate as required.
-6. THEN display the gate prompt below.
+5. **Review capability:** if `capabilities` for this phase names a review file (`modules/design-review.md`, `modules/code-review.md`, `modules/security-review.md`), that file is how the review behind the `Review:` line is conducted and recorded. Loading it does not move the decision: the artifact content is still displayed here and the approval is still a human act in this conversation.
+6. **Requirement status:** read `required` and `requirement_reasons` from `sdle.sh gate show --gate <gate_key>`. **Ask the engine; never decide this from a risk level yourself.** If `required` is `true`, the protocol below is unchanged. If it is `false`, this gate is *omittable* — see **Step 6b** — and you still display the artifact content first. If it is `null` the engine has no answer for this runtime (no WorkItem, so no governance record); treat the gate as required.
+7. THEN display the gate prompt below.
 
 The user must never need to open an external file to know what they are approving.
 

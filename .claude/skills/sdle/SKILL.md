@@ -229,6 +229,38 @@ Each cell lists that flow's phases in registry order, **space separated and not 
 | `gate_security` | 18/18 |
 | `complete` | 18/18 |
 
+### CAPABILITY_MAP
+
+Which capability files a phase **requires**. `sdle.sh resume` reports the row for the current phase, so the orchestrator asks the script what to load instead of deciding from prose — the same move `flow show` made for traversal and `governance gates` made for gate requirement.
+
+Each cell lists that phase's capability files, **space separated and not backticked** — one pair of backticks around the whole cell would be stripped and the list mangled into a single unrecognisable path, exactly as in FLOW_PHASES. Paths are relative to this skill's directory.
+
+It is a **floor, not a ceiling.** A capability file may send you to another one (remediation at `gate_design` sends you back to phase execution); follow that, it still works. What the row guarantees is the minimum a phase cannot be executed without. `SKILL.md` is never a value: it is the always-loaded orchestrator, not a capability, and `lint-skill` fails if it appears here.
+
+| phase | capabilities |
+|---|---|
+| `requirements_check` | modules/phase-execution.md |
+| `discovery` | modules/phase-execution.md |
+| `impact_analysis` | modules/phase-execution.md |
+| `constitution_draft` | modules/phase-execution.md |
+| `gate_constitution` | modules/gate-protocol.md |
+| `spec_draft` | modules/phase-execution.md |
+| `gate_spec` | modules/gate-protocol.md |
+| `plan_draft` | modules/phase-execution.md |
+| `gate_plan` | modules/gate-protocol.md |
+| `checklist_draft` | modules/phase-execution.md |
+| `tasks_draft` | modules/phase-execution.md |
+| `gate_tasks` | modules/gate-protocol.md |
+| `analyze` | modules/phase-execution.md |
+| `gate_analyze` | modules/gate-protocol.md |
+| `design_generation` | modules/phase-execution.md modules/design-review.md |
+| `gate_design` | modules/gate-protocol.md modules/design-review.md |
+| `implement` | modules/phase-execution.md modules/code-review.md |
+| `gate_implement` | modules/gate-protocol.md modules/code-review.md |
+| `security_review` | modules/phase-execution.md modules/security-review.md |
+| `gate_security` | modules/gate-protocol.md modules/security-review.md |
+| `complete` | modules/phase-execution.md |
+
 ### VERSION_MIGRATION
 
 Applied in chain order by `sdle.sh migrate`, the only thing that writes them. This table is the **authoritative version chain**; `lint-skill` fails if the script's migration steps disagree with it. An unrecognised `workflow_version` halts.
@@ -361,15 +393,25 @@ Verb-shaped actions are slash commands in `.claude/commands/`. Natural language 
 
 ---
 
-## Step 5: Phase Execution
+## Step 5: Capabilities — What to Load
 
-**Read `modules/phase-execution.md`** and follow it. Do not execute a phase without reading it.
+**`sdle.sh resume` reports `capabilities`: the exact capability files this phase requires.** Read those and follow them. Never execute a phase without loading what its row names, and never decide from prose which file a phase needs — CAPABILITY_MAP is the engine's, and asking it is one call.
+
+`capabilities` is a **floor, not a ceiling**. A capability file may send you to another one; following that pointer is correct and expected.
 
 ## Step 6: Gates and Rejection
 
-**Read `modules/gate-protocol.md`** when `current_phase` is a gate, or on `approve` / `reject` / a `continue` that resumes after a rejection.
+At a gate phase, and on `approve` / `reject` / a `continue` that resumes after a rejection, the gate capability is what `capabilities` names — load it the same way you load any other.
 
 A gate requires artifact content in the conversation for a human decision. That never gets delegated and never gets skipped.
+
+## Step 6b: Product Subagents
+
+Four read-only product subagents exist for high-context independent analysis: discovery, design review, code review and security review. The capability file for a phase says when to hand work to one and what to give it.
+
+They may inspect, reason and return structured findings, and they can do nothing else — their tool grant is read-only and a `PreToolUse` hook denies every write and every command they might attempt. **They return findings; they do not record them.** A finding enters the governed record only when *you* run `sdle.sh artifact review --actor-type agent --actor-name <agent>` in this session, and `--actor-name` is a string you supply: the engine records it faithfully and cannot verify it.
+
+Approval is never delegated. Human approval gates stay in this conversation, and nothing a subagent returns approves, omits or skips one.
 
 ---
 

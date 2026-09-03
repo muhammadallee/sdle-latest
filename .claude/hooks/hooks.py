@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 """SDLE guardrail hooks.
 
-Four guardrails that execute regardless of what the model decides.
+Five guardrails that execute regardless of what the model decides. Four of
+them inspect the payload and stay silent when it does not concern them; the
+fifth, `product-agent-fence`, denies everything it is registered for, and the
+difference is explained where it is defined.
 
 Written in Python rather than sh for two reasons. First, `sh` does not resolve
 on Windows outside Git Bash, so shell hooks silently never fired on the
@@ -143,7 +146,7 @@ def relative(path):
     return path[len(root) + 1:] if path.startswith(root + "/") else path
 
 
-# -- the four guardrails ----------------------------------------------------
+# -- the guardrails ---------------------------------------------------------
 
 
 def write_fence(payload):
@@ -257,11 +260,43 @@ def secrets_scan(payload):
             return
 
 
+PRODUCT_AGENT_FENCE_REASON = (
+    "SDLE product-agent fence: a product subagent may inspect, reason and "
+    "return findings, and nothing else. Writing is denied because a governed "
+    "file has exactly one writer, the engine (invariant 6). Running a command "
+    "is denied because anything that can run scripts/sdle.sh can approve a "
+    "gate, and human approval gates stay in the parent Claude session "
+    "(invariant 8). Return your findings as your final message; the parent "
+    "records them with `artifact review --actor-type agent --actor-name "
+    "<agent>`."
+)
+
+
+def product_agent_fence(payload):
+    """Deny every call this guard is registered for. Unconditional, on purpose.
+
+    The other four inspect the payload and stay silent when it does not
+    concern them. This one must not. A guard that read a Bash command string
+    and denied "the mutating sdle subcommands" would need a list of mutating
+    subcommands: a second source of truth for something sdle.py already knows,
+    and one that fails open on the subcommand nobody remembered to add. A
+    product subagent has no legitimate reason to write anything or to run
+    anything, so denial is total -- there is no list to drift, no payload
+    shape that gets through, and no path on which it fails open.
+
+    It is registered in the four product agents' own frontmatter and NOT in
+    .claude/settings.json, because it must bind those agents and not the
+    parent session: the parent legitimately writes, through sdle.py.
+    """
+    emit("PreToolUse", "deny", PRODUCT_AGENT_FENCE_REASON)
+
+
 GUARDS = {
     "write-fence": write_fence,
     "untrusted-read": untrusted_read,
     "dirty-tree": dirty_tree,
     "secrets-scan": secrets_scan,
+    "product-agent-fence": product_agent_fence,
 }
 
 

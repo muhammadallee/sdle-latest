@@ -115,8 +115,28 @@ SDLE Orchestrator (Claude Code Skill)
 ├── modules/gate-protocol.md         Loaded at any gate phase or on approve/reject
 │     • Gate prompt rendering, approval recording, rejection & remediation flow
 │
+├── modules/design-review.md         Loaded at design generation and its gate
+│     • How the design review is conducted, finding shape, how the parent
+│       records the outcome
+│
+├── modules/code-review.md           Loaded at implementation and its gate
+│     • How the code review is conducted, finding shape, how the parent
+│       records the outcome
+│
 ├── modules/security-review.md       Loaded only at Phase 17 (security_review)
 │     • Evidence-gathering procedure and review template
+│
+│     Which of these a phase requires is CAPABILITY_MAP in SKILL.md, parsed by
+│     the engine and reported by `sdle.sh resume`. The row is a floor, not a
+│     ceiling: a capability file may point at another one.
+│
+├── .claude/agents/sdle-*            Four read-only product subagents
+│     • Discovery, design review, code review, security review
+│     • Grant is Read/Grep/Glob and a PreToolUse fence denies every write and
+│       every command; they return findings and record nothing. The parent
+│       records, with `artifact review --actor-type agent --actor-name <agent>`
+│     • What SDLE enforces here, what the Claude Code runtime enforces, and
+│       what is convention only: ADR-007 §3
 │
 └── SpecKit (external, wrapped)
       • speckit-constitution / -specify / -plan / -checklist / -tasks

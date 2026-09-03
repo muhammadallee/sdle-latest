@@ -16,6 +16,9 @@ import sys
 
 import pytest
 
+import re
+from pathlib import Path
+
 from conftest import FIXTURE_WORKITEM_ID, REPO_ROOT
 
 HOOKS = REPO_ROOT / ".claude" / "hooks"
@@ -328,3 +331,120 @@ def test_secrets_hook_uses_the_engine_patterns_not_a_copy(project):
     body = (HOOKS / "hooks.py").read_text(encoding="utf-8")
     assert "AKIA[0-9A-Z]" not in body, "patterns must not be forked into the hook"
     assert "SECRET_PATTERNS" in body
+
+
+# -- T10: the product-agent fence, driven from the agent's own frontmatter --
+#
+# The sibling of `registered()` above, and for the same reason. The fence is
+# deliberately NOT in settings.json: it must bind the four product subagents
+# and not the parent session, which legitimately writes through sdle.py. So the
+# settings-based resolver would raise, and this one reads the exact string
+# production takes out of the frontmatter instead. Same philosophy, same
+# guarantee: a test that exercises a path production never takes proves
+# nothing.
+
+AGENTS = REPO_ROOT / ".claude" / "agents"
+
+
+def product_agents() -> list[Path]:
+    return sorted(p for p in AGENTS.glob("sdle-*.md")
+                  if not p.name.startswith("sdle-transition-"))
+
+
+def frontmatter_command(agent: Path) -> str:
+    """The hook command registered in this agent's own frontmatter.
+
+    A narrow regex over the `command:` line, not a YAML parse: the engine has
+    been standard-library only since v1.13 and the suite adds no dependency it
+    does not have.
+    """
+    body = agent.read_text(encoding="utf-8")
+    assert body.startswith("---"), agent.name
+    front = body.split("---", 2)[1]
+    found = re.findall(r'^\s*-?\s*command:\s*"([^"]+)"', front, re.MULTILINE)
+    assert found, f"{agent.name} registers no frontmatter hook command"
+    assert len(set(found)) == 1, f"{agent.name} registers {found}"
+    return found[0]
+
+
+def run_hook(command: str, payload: dict, cwd) -> dict:
+    """Run a registered command verbatim, substituting only this interpreter
+    for `python` so the test does not depend on PATH ordering."""
+    parts = command.split()
+    assert parts[0] == "python", parts
+    completed = subprocess.run(
+        [sys.executable, *parts[1:]],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=str(cwd),
+        env={**dict(__import__("os").environ), "CLAUDE_PROJECT_DIR": str(cwd)},
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout) if completed.stdout.strip() else {}
+
+
+def test_every_product_agent_registers_the_same_fence():
+    agents = product_agents()
+    assert len(agents) == 4, [p.name for p in agents]
+    commands = {frontmatter_command(p) for p in agents}
+    assert commands == {"python .claude/hooks/hooks.py product-agent-fence"}, \
+        commands
+    # And it is deliberately absent from settings.json — see the docstring.
+    assert "product-agent-fence" not in json.dumps(SETTINGS)
+
+
+FENCE_BATTERY = [
+    ("Write", {"file_path": "workitems/%s/.sdle/state.json"}),
+    ("Edit", {"file_path": "workitems/%s/.sdle/audit.md"}),
+    ("Write", {"file_path": "workitems/index.md"}),
+    ("Write", {"file_path": "src/ordinary_source_file.py"}),
+    ("Bash", {"command": "scripts/sdle.sh gate approve --gate gate_spec"}),
+    ("Bash", {"command": "scripts/sdle.sh advance"}),
+    ("Bash", {"command": "echo hello"}),
+    ("MultiEdit", {"file_path": "README.md"}),
+    ("NotebookEdit", {"file_path": "notebook.ipynb"}),
+]
+
+
+@pytest.mark.parametrize("agent", [p.name for p in product_agents()])
+@pytest.mark.parametrize("tool,tool_input", FENCE_BATTERY)
+def test_the_fence_denies_every_mutating_call(project, agent, tool, tool_input):
+    """N13/A11 — the headline. Every payload a product subagent could use to
+    mutate state or approve a gate comes back denied, driven through the exact
+    command string that agent's frontmatter registers."""
+    payload = {"tool_name": tool, "tool_input": {
+        key: (value % FIXTURE_WORKITEM_ID if "%s" in value else value)
+        for key, value in tool_input.items()}}
+    output = run_hook(frontmatter_command(AGENTS / agent), payload,
+                      project.root)
+
+    assert decision(output) == "deny", (agent, tool, output)
+    why = reason(output)
+    assert "invariant 6" in why and "invariant 8" in why, why
+    assert "artifact review --actor-type agent" in why
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"tool_name": "Write"},
+    {"tool_name": "Write", "tool_input": {}},
+    {"tool_name": "Bash", "tool_input": {"command": ""}},
+    {"tool_input": None},
+    {"tool_name": "SomethingNobodyHasHeardOf", "tool_input": {"x": 1}},
+])
+def test_the_fence_never_fails_open(project, payload):
+    """N14/A12. `write_fence` returns silently when there is no path, which is
+    correct for a guard that inspects a target and wrong for one whose whole
+    purpose is that there is nothing legitimate to inspect."""
+    output = run_hook(
+        frontmatter_command(AGENTS / "sdle-design-review.md"), payload,
+        project.root)
+    assert decision(output) == "deny", (payload, output)
+
+
+def test_the_fence_battery_is_the_size_it_claims_to_be():
+    """Non-vacuity guard: parametrising over an empty list passes silently."""
+    assert len(FENCE_BATTERY) == 9
+    assert len(product_agents()) == 4

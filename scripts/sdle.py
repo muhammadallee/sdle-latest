@@ -294,16 +294,37 @@ class Paths:
         return self.skill_root / "SKILL.md"
 
     @property
+    def modules_dir(self) -> Path:
+        """Where the on-demand capability files live.
+
+        One home for the folder name: every module property below derives
+        from it, and `lint-skill` enumerates it rather than keeping a second
+        hand-maintained list of what is inside.
+        """
+        return self.skill_root / "modules"
+
+    @property
+    def agents_dir(self) -> Path:
+        """`.claude/agents/`, the sibling of `.claude/skills/`.
+
+        Derived, never configured — the same discipline `runtime` established
+        for the WorkItem runtime. When the skill is installed somewhere with
+        no sibling `agents/` the directory simply does not exist, and every
+        caller treats that as "no agent files", never as an error.
+        """
+        return self.skill_root.parent.parent / "agents"
+
+    @property
     def gate_protocol_md(self) -> Path:
-        return self.skill_root / "modules" / "gate-protocol.md"
+        return self.modules_dir / "gate-protocol.md"
 
     @property
     def phase_execution_md(self) -> Path:
-        return self.skill_root / "modules" / "phase-execution.md"
+        return self.modules_dir / "phase-execution.md"
 
     @property
     def security_review_md(self) -> Path:
-        return self.skill_root / "modules" / "security-review.md"
+        return self.modules_dir / "security-review.md"
 
     @property
     def state_template(self) -> Path:
@@ -708,6 +729,11 @@ class Constants:
     gate_to_execution_phase: dict[str, str] = field(default_factory=dict)
     version_chain: list[tuple[str, str]] = field(default_factory=list)
     flow_phases: dict[str, list[str]] = field(default_factory=dict)
+    # Which capability files each phase requires. Parsed, never inferred: the
+    # engine decides what the prompt layer loads, so "load only the relevant
+    # phase context" is a deterministic lookup rather than a judgement the
+    # model re-makes every turn.
+    capability_map: dict[str, list[str]] = field(default_factory=dict)
 
     # -- derived ---------------------------------------------------------
 
@@ -897,6 +923,17 @@ class Constants:
             )
         return self.render_label(phase, flow)
 
+    def capabilities_for(self, phase: str | None) -> list[str]:
+        """The capability files ``phase`` requires. Never raises.
+
+        A phase with no row answers with the empty list.
+        ``capability_map_covers_every_registry_phase`` is what makes a missing
+        row impossible in a repository that lints; a read-only reporter must
+        still be able to say where a WorkItem *is* rather than refusing
+        because a table has a hole in it.
+        """
+        return list(self.capability_map.get(phase or "", []))
+
     def progress_for(self, phase: str) -> str:
         if phase not in self.progress:
             raise Refused(
@@ -969,6 +1006,19 @@ def load_constants(paths: Paths) -> Constants:
             cell = _column(row, "phases",
                            "phases_registry_order_space_separated") or ""
             consts.flow_phases[name] = cell.split()
+
+    # Same cell convention as FLOW_PHASES, and the same pitfall: space
+    # separated and NOT backticked, because one pair of backticks around the
+    # whole cell is stripped and the list mangles into a single unrecognisable
+    # path. Parsed here and validated in `run_sync_checks`, for the reason
+    # FLOW_PHASES is: a broken row must surface as the named check it breaks,
+    # not as one opaque `tables_wellformed` failure that short-circuits the
+    # rest.
+    for row in parse_md_table(skill, "CAPABILITY_MAP"):
+        phase = _column(row, "phase", "phase_id")
+        if phase:
+            cell = _column(row, "capabilities") or ""
+            consts.capability_map[phase] = cell.split()
 
     for row in parse_md_table(paths.gate_protocol_md, "GATE_TO_EXECUTION_PHASE"):
         key = _column(row, "gate_key")
@@ -2058,6 +2108,79 @@ def cmd_header(args, paths: Paths) -> int:
                 state.get("current_phase", ""), flow_for_state(state, consts)
             ),
             "branch_mismatch": mismatch,
+        },
+    )
+    return EXIT_OK
+
+
+def cmd_resume(args, paths: Paths) -> int:
+    """Everything a cold session needs to pick a WorkItem back up. Read-only.
+
+    Contract §16's exit criterion is that *a fresh Claude session can resume a
+    WorkItem safely and load only relevant phase context*, and TP-006 says
+    correctness may never depend on old conversation context. This is that
+    criterion as one call: identity, position, what is pending, and what to
+    read next — all reconstructed from disk by a process that has never seen
+    the conversation.
+
+    It is **pure composition**. Every value is produced by the derivation the
+    dedicated command already uses: `render_header` for the header,
+    `flow_for_state` and `Flow` for position and traversal,
+    `gate_disposition` for the requirement model, `branch_mismatch` for the
+    branch, `Constants.capabilities_for` for what to load. A second renderer
+    or a second requirement derivation would be the invariant-7 violation this
+    phase exists to defend against.
+
+    It **writes nothing**: no state, no audit entry, no lock touch, and
+    deliberately no migration. A read-only command that silently migrates is
+    not read-only; a caller that needs `migrate` calls `migrate`.
+    """
+    consts = load_constants(paths)
+    state = read_state(paths)
+    flow = flow_for_state(state, consts)
+    phase = state.get("current_phase")
+    gate_key = gate_key_for(consts, phase) if phase else None
+
+    gate = None
+    if gate_key:
+        disposition = gate_disposition(paths, consts, state, gate_key)
+        gate = {
+            "gate": gate_key,
+            "gate_number": flow.gate_number(gate_key),
+            "gate_total": flow.gate_total,
+            "decision": approval_decision(state, gate_key),
+            "required": (None if disposition is None
+                         else disposition["disposition"] == "required"),
+            "requirement_reasons": (None if disposition is None
+                                    else disposition["reasons"]),
+        }
+
+    emit(
+        "resume",
+        {
+            "workitem": paths.workitem,
+            "flow": flow.name,
+            "current_phase": phase,
+            "status": state.get("status"),
+            "progress": state.get("progress"),
+            "position": flow.position(phase),
+            "next_phase": flow.next_phase(phase),
+            "label": consts.label_or(phase, flow),
+            "header": render_header(state, consts),
+            "gate": gate,
+            # What is outstanding. Each one is a thing a resuming session
+            # would otherwise have to notice for itself, which is precisely
+            # what "correctness must not depend on conversation history"
+            # forbids.
+            "pending": {
+                "drift_queue": state.get("drift_queue") or [],
+                "pending_confirm_action": state.get("pending_confirm_action"),
+                "pending_phase": state.get("pending_phase"),
+                "phase_checkpoint": state.get("phase_checkpoint"),
+                "clarification_phase": state.get("clarification_phase"),
+            },
+            "branch_mismatch": branch_mismatch(paths),
+            "capabilities": consts.capabilities_for(phase),
         },
     )
     return EXIT_OK
@@ -7031,6 +7154,25 @@ def require_gate(consts: Constants, gate_key: str) -> str:
     )
 
 
+def gate_disposition(paths: Paths, consts: Constants, state: dict,
+                     gate_key: str) -> dict | None:
+    """§15 — whether ``gate_key`` needs a human approval, and why.
+
+    ``None`` when the question has no answer for this runtime: the legacy
+    `.workflow/` binding has no WorkItem and therefore no governance record,
+    and a gate outside the bound flow has no disposition. Reporting `false`
+    in either case would be an answer the engine has not got.
+
+    Extracted so `gate show` and `resume` cannot answer the same question
+    differently. A second derivation of gate requirement would be exactly the
+    second source of truth invariant 7 forbids.
+    """
+    model = gate_requirements_for_state(paths, consts, state)
+    return next(
+        (entry for entry in (model or {}).get("dispositions") or []
+         if entry["gate"] == gate_key), None)
+
+
 def cmd_gate_show(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
@@ -7038,15 +7180,7 @@ def cmd_gate_show(args, paths: Paths) -> int:
     flow = flow_for_state(state, consts)
     resolved, skipped = resolve_artifact_path(state, consts, args.gate, paths)
     full = paths.project_root / resolved if resolved else None
-    # §15 — whether this gate needs a human approval, and why. `null` when the
-    # question has no answer for this runtime: the legacy `.workflow/` binding
-    # has no WorkItem and therefore no governance record, and a gate outside
-    # the bound flow has no disposition. Reporting `false` in either case
-    # would be an answer the engine has not got.
-    model = gate_requirements_for_state(paths, consts, state)
-    disposition = next(
-        (entry for entry in (model or {}).get("dispositions") or []
-         if entry["gate"] == args.gate), None)
+    disposition = gate_disposition(paths, consts, state, args.gate)
     emit(
         "gate show",
         {
@@ -9418,6 +9552,8 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     )
 
     checks.extend(_check_flow_model(consts))
+    checks.extend(_check_capability_map(paths, consts))
+    checks.extend(_check_product_agents(paths))
     checks.extend(_check_discovery(paths, consts))
     checks.append(_check_single_state_template(paths))
     checks.append(_check_version_consistency(paths))
@@ -9540,6 +9676,220 @@ def _check_flow_model(consts: Constants) -> list[Check]:
     return checks
 
 
+# A capability file may point at another one. The reference is a load
+# directive in prose, so it is matched as the literal path it has to be.
+_CAPABILITY_REF_RE = re.compile(r"modules/[A-Za-z0-9._-]+\.md")
+
+# The always-loaded orchestrator. Never a capability — see D1/`CAPABILITY_MAP`.
+ORCHESTRATOR_FILE = "SKILL.md"
+
+
+def _capability_values(consts: Constants) -> set[str]:
+    """Every distinct capability path any row names."""
+    return {value for values in consts.capability_map.values()
+            for value in values}
+
+
+def _check_capability_map(paths: Paths, consts: Constants) -> list[Check]:
+    """CAPABILITY_MAP is what makes progressive loading deterministic.
+
+    Before it, which module to read was decided from prose, turn by turn.
+    These checks are what stop the table drifting away from the registry, from
+    the files actually on disk, and from the lint coverage `_skill_files`
+    provides — a capability the engine names but nothing lints would be the
+    quiet way a split prompt layer loses its guarantees.
+    """
+    checks: list[Check] = []
+    mapping = consts.capability_map
+    registry = list(consts.phase_sequence)
+
+    missing = [phase for phase in registry if phase not in mapping]
+    unknown = sorted(set(mapping) - set(registry))
+    problems = []
+    if missing:
+        problems.append(f"no CAPABILITY_MAP row for {missing}")
+    if unknown:
+        problems.append(f"rows naming phases outside the registry: {unknown}")
+    checks.append(Check(
+        "capability_map_covers_every_registry_phase", not problems,
+        "; ".join(problems) if problems
+        else f"all {len(registry)} registry phases have a row"))
+
+    values = _capability_values(consts)
+    resolved = {value: paths.skill_root / value for value in values}
+    absent = sorted(v for v, target in resolved.items() if not target.is_file())
+    checks.append(Check(
+        "every_capability_file_exists", not absent,
+        f"named by CAPABILITY_MAP but not on disk: {absent}" if absent
+        else f"all {len(resolved)} named capability files exist"))
+
+    orchestrator = sorted(
+        phase for phase, row in mapping.items()
+        if any(Path(value).name == ORCHESTRATOR_FILE for value in row))
+    checks.append(Check(
+        "capability_map_never_names_the_orchestrator", not orchestrator,
+        f"{ORCHESTRATOR_FILE} is named as a capability by {orchestrator}"
+        if orchestrator
+        else f"{ORCHESTRATOR_FILE} is the always-loaded orchestrator, never "
+             "a capability"))
+
+    linted = {path.resolve() for path in _skill_files(paths)}
+    unlinted = sorted(v for v, target in resolved.items()
+                      if target.is_file() and target.resolve() not in linted)
+    on_disk = (sorted(p.name for p in paths.modules_dir.glob("*.md")
+                      if p.is_file()) if paths.modules_dir.is_dir() else [])
+    named = {Path(value).name for value in values}
+    orphans = [name for name in on_disk if name not in named]
+    coverage = []
+    if unlinted:
+        coverage.append(f"capabilities outside the linted file set: {unlinted}")
+    if orphans:
+        coverage.append(f"modules/ files no row names: {orphans}")
+    checks.append(Check(
+        "every_capability_file_is_linted", not coverage,
+        "; ".join(coverage) if coverage
+        else f"{len(resolved)} capability files, all linted, no orphan module"))
+
+    saturated = sorted(phase for phase, row in mapping.items()
+                       if set(row) == values)
+    checks.append(Check(
+        "every_row_is_a_strict_subset_of_the_capability_set", not saturated,
+        f"{saturated} require the entire capability set, so loading is not "
+        "progressive" if saturated
+        else f"every row is a strict subset of the {len(values)} capabilities"))
+
+    dangling = []
+    for value in sorted(resolved):
+        target = resolved[value]
+        if not target.is_file():
+            continue  # `every_capability_file_exists` owns that failure
+        for ref in sorted(set(_CAPABILITY_REF_RE.findall(
+                target.read_text(encoding="utf-8")))):
+            if not (paths.skill_root / ref).is_file():
+                dangling.append(f"{value} -> {ref} does not exist")
+            elif ref not in values:
+                dangling.append(f"{value} -> {ref} is in no CAPABILITY_MAP row")
+    checks.append(Check(
+        "capability_cross_references_are_mapped_files", not dangling,
+        "; ".join(dangling) if dangling
+        else "every capability cross-reference resolves and is itself mapped"))
+    return checks
+
+
+# The product subagent boundary, as constants rather than as prose. Contract
+# §16 says a subagent may inspect, reason and produce findings, and MUST NOT
+# mutate lifecycle state, approve a human gate, bypass deterministic policy or
+# become an independent workflow controller. Every one of those four is denied
+# by taking away the tools that would perform it.
+PRODUCT_AGENT_TOOLS = ("Read", "Grep", "Glob")
+FORBIDDEN_AGENT_TOOLS = ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit",
+                         "Agent", "Task")
+# The tools the frontmatter fence must match. `Bash` is on the list because a
+# shell is all it takes to run `gate approve`.
+FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash")
+PRODUCT_AGENT_FENCE = "hooks.py product-agent-fence"
+PRODUCT_AGENT_NON_APPROVAL_CLAUSE = (
+    "This subagent inspects and reports. It never mutates lifecycle state, "
+    "never runs `gate approve`, `gate omit` or `advance`, and never decides "
+    "a gate — human approval gates stay in the parent Claude session."
+)
+
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+_AGENT_TOOLS_RE = re.compile(r"^tools:[ \t]*(.+)$", re.MULTILINE)
+_AGENT_MATCHER_RE = re.compile(r'^\s*-\s*matcher:\s*"([^"]*)"', re.MULTILINE)
+
+
+def agent_frontmatter(body: str) -> str:
+    """The frontmatter block of an agent file, as text. Empty when absent.
+
+    Read with two narrow regexes rather than parsed: the engine has been
+    standard-library only since v1.13 and §11's policy-format decision
+    explicitly refuses a hand-rolled YAML parser. One line, one shape — and a
+    file that does not match declares nothing, which *fails* the checks below
+    rather than passing them.
+    """
+    match = _FRONTMATTER_RE.match(body)
+    return match.group(1) if match else ""
+
+
+def agent_tools(front: str) -> list[str]:
+    """The declared tool grant, in declaration order."""
+    match = _AGENT_TOOLS_RE.search(front)
+    if match is None:
+        return []
+    return [tool.strip() for tool in match.group(1).split(",") if tool.strip()]
+
+
+def _check_product_agents(paths: Paths) -> list[Check]:
+    """The product subagent boundary, machine-checked instead of promised.
+
+    What these checks do and do not guarantee is worth stating exactly,
+    because named specialist agents look like more enforcement than they are:
+
+    * **SDLE guarantees** that a declaration cannot be weakened without CI
+      saying so — a widened grant, a stripped fence or a missing non-approval
+      clause each fails a check here, by name.
+    * **Claude Code**, not SDLE, guarantees that a declared `tools:` list is
+      actually applied and that a frontmatter `PreToolUse` hook actually
+      fires. The engine cannot assert either from inside the suite.
+    * Nothing at all guarantees that the parent delegates to the right agent,
+      or that `--actor-name` truthfully names who produced a finding. Those
+      are convention, and they predate T10.
+
+    Emitted only when product agent files exist, mirroring the documentation
+    checks' tolerance of a project with no README.md — an installed skill need
+    not ship agents. Tolerating absence is precisely how a check stops meaning
+    anything, so it is paid for twice: the lint fixture copies the directory,
+    and a repository-level test asserts the four are really there.
+    """
+    agents = product_agent_files(paths)
+    if not agents:
+        return []
+    bodies = {path: path.read_text(encoding="utf-8") for path in agents}
+
+    over = []
+    for path in agents:
+        granted = agent_tools(agent_frontmatter(bodies[path]))
+        if not granted:
+            over.append(f"{path.name} declares no `tools:` grant")
+            continue
+        extra = [tool for tool in granted if tool not in PRODUCT_AGENT_TOOLS]
+        if extra:
+            over.append(f"{path.name} grants {extra}")
+    checks = [Check(
+        "product_agents_are_read_only", not over,
+        "; ".join(over) + f"; a product subagent may grant only "
+        f"{list(PRODUCT_AGENT_TOOLS)} — each of "
+        f"{list(FORBIDDEN_AGENT_TOOLS)} is a way to mutate state, approve a "
+        "gate or spawn a further agent" if over
+        else f"all {len(agents)} product agents grant only "
+             f"{list(PRODUCT_AGENT_TOOLS)}")]
+
+    unfenced = []
+    for path in agents:
+        front = agent_frontmatter(bodies[path])
+        if PRODUCT_AGENT_FENCE not in front:
+            unfenced.append(f"{path.name} registers no {PRODUCT_AGENT_FENCE}")
+            continue
+        covered = " ".join(_AGENT_MATCHER_RE.findall(front))
+        gaps = [tool for tool in FENCED_AGENT_TOOLS if tool not in covered]
+        if gaps:
+            unfenced.append(f"{path.name} fence matcher misses {gaps}")
+    checks.append(Check(
+        "product_agents_declare_the_fence", not unfenced,
+        "; ".join(unfenced) if unfenced
+        else f"all {len(agents)} product agents fence "
+             f"{list(FENCED_AGENT_TOOLS)}"))
+
+    silent = [path.name for path in agents
+              if PRODUCT_AGENT_NON_APPROVAL_CLAUSE not in bodies[path]]
+    checks.append(Check(
+        "product_agents_declare_the_non_approval_clause", not silent,
+        f"{silent} do not carry the invariant-8 clause verbatim" if silent
+        else f"all {len(agents)} product agents carry the invariant-8 clause"))
+    return checks
+
+
 def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
     """T08's cross-file rules for the `discovery` registry phase.
 
@@ -9610,15 +9960,58 @@ def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
 REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
 
 
+# `.claude/agents/` holds two populations. Product agent prompts are part
+# of the shipped prompt layer and are linted like any other prompt file; the
+# `sdle-transition-*` control plane is the migration scaffolding contract §1.4
+# describes, and is excluded by prefix — exactly how the leakage test already
+# excludes it by name.
+PRODUCT_AGENT_GLOB = "sdle-*.md"
+CONTROL_PLANE_AGENT_PREFIX = "sdle-transition-"
+
+
+def product_agent_files(paths: Paths) -> list[Path]:
+    """The product agent prompts on disk, in name order.
+
+    Empty — never an error — when there is no `.claude/agents/` directory at
+    all. An installed skill need not ship one, and the checks that read this
+    list are emitted only when the directory exists, so that "absent" can
+    never be mistaken for "passed".
+    """
+    directory = paths.agents_dir
+    if not directory.is_dir():
+        return []
+    return sorted(
+        (p for p in directory.glob(PRODUCT_AGENT_GLOB)
+         if p.is_file() and not p.name.startswith(CONTROL_PLANE_AGENT_PREFIX)),
+        key=lambda p: p.name,
+    )
+
+
 def _skill_files(paths: Paths) -> list[Path]:
-    return [
-        p for p in (
-            paths.skill_md,
-            paths.phase_execution_md,
-            paths.gate_protocol_md,
-            paths.security_review_md,
-        ) if p.is_file()
-    ]
+    """Every prompt file the content checks must cover — derived, not listed.
+
+    This was four hardcoded property names. A list is something a future
+    editor has to remember to extend, and the moment the prompt layer splits
+    into progressively loaded capability files a forgotten entry means a new
+    file sits outside `no_powershell_only_cmdlets`,
+    `no_hardcoded_progress_outside_progress_map` and
+    `discovery_vocabulary_is_not_restated_in_prompt_files` while still looking
+    linted — coverage narrowing silently, which is exactly the failure mode
+    splitting a prompt layer invites.
+
+    Deriving it makes the split *strengthen* those three checks: every file
+    under `modules/` and every product agent prompt is covered
+    automatically, and a capability file cannot be added to an unlinted
+    corner. The result is a set, not an order — every consumer accumulates
+    offenders and reports them sorted or whole.
+    """
+    files = [paths.skill_md] if paths.skill_md.is_file() else []
+    if paths.modules_dir.is_dir():
+        files.extend(sorted(
+            (p for p in paths.modules_dir.glob("*.md") if p.is_file()),
+            key=lambda p: p.name))
+    files.extend(product_agent_files(paths))
+    return files
 
 
 def _repo_root(paths: Paths) -> Path:
@@ -9939,6 +10332,7 @@ def cmd_constants(args, paths: Paths) -> int:
             "phase_label": consts.phase_label,
             "progress": consts.progress,
             "gate_to_execution_phase": consts.gate_to_execution_phase,
+            "capability_map": consts.capability_map,
             # Every declared flow plus the injected GREENFIELD. Dumped
             # unvalidated, exactly as every other table here is: `constants`
             # is a diagnostic, and a broken FLOW_PHASES must still be
@@ -9986,6 +10380,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = subparsers.add_parser("header", help="Render the status assertion header.")
     sub.set_defaults(handler=cmd_header)
+
+    sub = subparsers.add_parser(
+        "resume",
+        help="Everything a fresh session needs to pick a WorkItem up "
+             "(read-only).",
+    )
+    sub.set_defaults(handler=cmd_resume)
 
     sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
     sub.set_defaults(handler=cmd_migrate)

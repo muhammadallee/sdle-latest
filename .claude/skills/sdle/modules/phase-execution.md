@@ -262,7 +262,8 @@ Artifact existence is not evidence of artifact quality. Post-SpecKit Verificatio
 Run `sdle.sh artifact review --path <artifact_path> --type <review type> --result PASS|FAIL --actor-type human|agent|tool|test|system --actor-name <who> [--evidence <path>] [--comments "<notes>"]`.
 
 - The review is fingerprinted against the file as it stands now, appended to the WorkItem's append-only review ledger, written to an evidence document, and linked into the audit ledger as an `artifact_reviewed` entry. It is **not** a gate decision and never substitutes for one.
-- `--actor-name` records who performed it, verbatim. It is a recorded string only: recording a name neither creates nor invokes anything, and a gate is never delegated.
+- `--actor-name` records who performed it, verbatim. It is a recorded string only: recording a name neither creates nor invokes anything, and a gate is never delegated. When a product subagent produced the findings, record `--actor-type agent --actor-name <agent>` — that is the only door a subagent's output enters the record through.
+- How to conduct each review, and which subagent to hand it to, is in the review capability for the phase: `modules/design-review.md`, `modules/code-review.md` and `modules/security-review.md`. `sdle.sh resume` names the ones the current phase requires.
 - `sdle.sh artifact reviews [--path <p>]` lists the records with a freshness verdict. Freshness is recomputed from content each time; there is no stored flag to consult or to set.
 
 **On exit 1 the gate refuses and nothing advances.** Surface the `message` verbatim:

@@ -663,6 +663,20 @@ def searchable_files() -> list[Path]:
                       REPO_ROOT / "docs" / "architecture"):
         if directory.is_dir():
             files.extend(p for p in sorted(directory.rglob("*")) if p.is_file())
+    # T10 (X3): product subagent prompts are part of the shipped prompt layer,
+    # so a restatement in one of them is exactly the drift this search exists
+    # to catch. The four `sdle-transition-*` files are deliberately excluded:
+    # they are the migration control plane (contract §1.4), not the product,
+    # and `sdle-transition-planner.md` legitimately uses the transition
+    # contract's own evidence vocabulary — OBSERVED / INFERRED / UNKNOWN —
+    # which happens to be spelled exactly like §14's classifications. Scanning
+    # it would flag the scaffolding for restating a product constant it does
+    # not restate. Reported in the T10 handoff rather than silently narrowed.
+    agents = REPO_ROOT / ".claude" / "agents"
+    if agents.is_dir():
+        files.extend(path for path in sorted(agents.glob("sdle-*.md"))
+                     if path.is_file()
+                     and not path.name.startswith("sdle-transition-"))
     return files
 
 
