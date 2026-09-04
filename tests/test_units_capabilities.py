@@ -848,10 +848,14 @@ def test_n24_a18_the_engine_gained_no_writer_and_no_state_field():
 
     # Occurrence counts, not a line diff: a line diff would miss a write call
     # spelled like an existing one, and would be fooled by a pure move. Every
-    # one of these must be exactly the number it was.
+    # one of these must be exactly the number it was, PLUS the delta the
+    # phase after T10 declares below — which is stronger than re-baselining,
+    # because the permitted movement is named and quantified and everything
+    # else must still be identical.
     for needle in WRITE_PRIMITIVES:
-        assert after.count(needle) == before.count(needle), (
-            needle, before.count(needle), after.count(needle))
+        expected = before.count(needle) + T11_WRITE_DELTA.get(needle, 0)
+        assert after.count(needle) == expected, (
+            needle, before.count(needle), after.count(needle), expected)
 
     was = set(ADD_PARSER.findall(before))
     now = set(ADD_PARSER.findall(after))
@@ -862,6 +866,15 @@ def test_n24_a18_the_engine_gained_no_writer_and_no_state_field():
 WRITE_PRIMITIVES = ("write_atomic", "save_state", "append_audit",
                     "record_audit", ".write_text(", ".write_bytes(",
                     "os.replace", ".mkdir(")
+
+# T11 D11 adds exactly ONE new ledger call site: the `governance_downgraded`
+# entry in `_record_governance_downgrade_audit`. That is a new *call site*, not
+# a new *writer* — `append_audit` is still the only thing that writes the
+# ledger and `write_atomic` is still the only thing that writes a file, both
+# unchanged at 48-1 and 30. Invariant 6 is about who may write, and it is
+# untouched. Declared as a signed delta rather than a re-baseline so that any
+# OTHER movement, in this primitive or any other, still fails.
+T11_WRITE_DELTA = {"append_audit": 1}
 
 ADD_PARSER = re.compile(r'add_parser[(]' + r"\s*" + r'"([a-z][a-z-]*)"')
 

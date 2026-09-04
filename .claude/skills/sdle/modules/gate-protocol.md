@@ -147,6 +147,8 @@ On `omit`, run `sdle.sh gate omit --gate <gate_key>`. The engine re-derives the 
 
 **You may never omit a required gate, and there is no flag that lets you.** If `gate omit` refuses `gate_required`, print the message and the reasons and ask the user to approve or reject. That refusal is the guardrail working.
 
+**Re-assessing risk is not a way of clearing a gate.** When `gate omit` refuses, the answer is `approve` or `reject` — never "re-run `governance assess` with fewer risk signals until the gate becomes omittable". Re-assessment exists for one reason: the WorkItem's actual scope changed. If it genuinely did, say so to the user and re-assess openly. The engine records a re-assessment that **lowers** a previously recorded final level as a `governance_downgraded` audit entry, and carries it into the evidence of every gate omitted afterwards, so the omission and the level it rests on are read together. A downgrade is never refused — a real re-scope is legitimate — and never invisible.
+
 ## Step 7: Rejection & Remediation
 
 **On rejection:**

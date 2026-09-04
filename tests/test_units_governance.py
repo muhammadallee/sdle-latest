@@ -1511,10 +1511,20 @@ def test_only_evaluate_risk_produces_a_final_level():
     # the producer assertion above is what carries that guarantee, and it is
     # unchanged. The set staying CLOSED is the point; growing it by one named
     # reader is not the same as opening it.
+    #
+    # T11 D11 adds one reader, `governance_downgrade` (X-GEN re-valuation; the
+    # set was {cmd_governance_assess, cmd_governance_gates,
+    # gate_requirements_for_state, record_governance_audit}). It COMPARES two
+    # already-decided levels and returns a dict keyed `from`/`to` — never
+    # `finalLevel` — so it cannot appear in `producers`, and the producer
+    # assertion above is what carries the guarantee. Asserted, not argued:
+    # the producer set is re-checked immediately below against the new reader.
     assert readers - producers == {"cmd_governance_assess",
                                    "cmd_governance_gates",
                                    "gate_requirements_for_state",
-                                   "record_governance_audit"}
+                                   "record_governance_audit",
+                                   "governance_downgrade"}
+    assert "governance_downgrade" not in producers
 
 
 # --------------------------------------------------------------------------
@@ -2039,3 +2049,281 @@ def test_a_corrupt_governance_record_is_an_integrity_failure(project,
     assert result.exit_code == EXIT_INTEGRITY, result
     assert result.reason == "governance_record_invalid", result
     assert frozen(project) == before
+
+# ==========================================================================
+# T11 D11 / N12 — a re-assessment that LOWERS a recorded level is evidence
+#
+# T09's verifier recorded the asymmetry (NB-2): inside one assessment a lower
+# proposal is inert and recorded (`loweringAttempted`), but ACROSS two
+# assessments there was no record at all, so re-running `governance assess`
+# with a smaller signal set was the practical route to making a required gate
+# omittable. T11 records it. It never refuses: a genuine re-scope is
+# legitimate, and refusing would invent a floor no contract section states.
+# ==========================================================================
+
+
+HIGH_SIGNALS = ["authentication_or_authorization", "payment_or_financial"]
+
+
+def _assess_at(project, signals):
+    document = governance_input()
+    document["risk"] = {"signals": list(signals), "proposedLevel": "LOW",
+                        "uncertainty": "LOW"}
+    result = assess(project, document)
+    assert result.exit_code == EXIT_OK, result
+    return result
+
+
+def _assess_high(project):
+    """Record a HIGH assessment. Both signals carry a §15 hard floor, so the
+    level is the policy's and not the proposal's."""
+    result = _assess_at(project, HIGH_SIGNALS)
+    assert record_of(project)["risk"]["finalLevel"] == "HIGH"
+    return result
+
+
+def _assess_low(project):
+    """Re-assess with the signals removed. This is the downgrade."""
+    result = _assess_at(project, [])
+    assert record_of(project)["risk"]["finalLevel"] == "LOW"
+    return result
+
+
+def _alpha(bare_project):
+    """One registered WorkItem, bound through the ladder (no --workitem)."""
+    workitem = create_wi(bare_project, "Alpha")
+    bare_project.workitem = workitem
+    return bare_project
+
+
+def test_n12_a_lower_proposal_inside_one_assessment_still_has_no_effect(
+    bare_project,
+):
+    """The property that was already true, asserted directly rather than
+    assumed: `final` is the lattice maximum of the deterministic level and the
+    proposal, so a proposal *below* a hard floor cannot lower anything.
+
+    Note the shape, because the plan's N12 row says "refused" and the engine
+    does something different and stronger. §12 does **not** refuse a low
+    proposal — it takes the maximum and records the attempt — and there is no
+    branch that can return a level under `deterministicLevel` for any input at
+    all. A refusal would be one enforcement point; the maximum is a total
+    function. Asserted across every level in the lattice, not on one example.
+    """
+    _alpha(bare_project)
+    for proposed in sdle.GOVERNANCE_LEVELS:
+        document = governance_input()
+        document["risk"] = {"signals": ["credential_or_key_exposure"],
+                            "proposedLevel": proposed, "uncertainty": "LOW"}
+        assert assess(bare_project, document).exit_code == EXIT_OK
+        risk = record_of(bare_project)["risk"]
+        # `credential_or_key_exposure` carries a CRITICAL hard floor.
+        assert risk["deterministicLevel"] == "CRITICAL", proposed
+        assert risk["finalLevel"] == "CRITICAL", proposed
+        assert risk["loweringAttempted"] is (proposed != "CRITICAL"), proposed
+
+
+def test_n12_a_downgrading_reassessment_is_recorded_on_the_record(bare_project):
+    """D11. The record is self-describing: `downgrade` is `null` for an
+    ordinary assessment, and carries both levels and both signal sets when an
+    assessment lands below a level already recorded for this WorkItem."""
+    project = _alpha(bare_project)
+
+    _assess_high(project)
+    first = record_of(project)
+    assert first["downgrade"] is None, "a first assessment lowers nothing"
+
+    _assess_low(project)
+    downgrade = record_of(project)["downgrade"]
+
+    assert downgrade is not None
+    assert downgrade["from"] == "HIGH"
+    assert downgrade["to"] == "LOW"
+    assert downgrade["fromExecutionId"] == first["executionId"]
+    assert downgrade["fromRecordedAt"] == first["recordedAt"]
+    assert downgrade["fromSignals"] == sorted(HIGH_SIGNALS)
+    assert downgrade["toSignals"] == []
+    assert downgrade["signalsRemoved"] == sorted(HIGH_SIGNALS)
+    assert downgrade["signalsAdded"] == []
+
+
+def test_n12_raising_or_holding_a_level_is_not_a_downgrade(bare_project):
+    """The other direction, so the detector cannot be satisfied by any
+    re-assessment at all. Re-assessing at the SAME level and re-assessing
+    UPWARD both leave `downgrade` null."""
+    project = _alpha(bare_project)
+
+    _assess_low(project)
+    assert record_of(project)["downgrade"] is None
+
+    _assess_low(project)            # same level again
+    assert record_of(project)["downgrade"] is None
+
+    _assess_high(project)           # upward
+    assert record_of(project)["downgrade"] is None
+
+
+def test_n12_a_downgrade_is_audited_and_never_refused(bare_project):
+    """B3, stated as the boundary D11 must not cross. A downgrade produces
+    evidence and exit code 0; it is not a refusal, and no policy floor value
+    moved to make it one.
+
+    Refusing would be the wrong instrument. A real re-scope — authentication
+    dropped out of the WorkItem — legitimately lowers risk, and a refusal
+    would leave a correct user no honest way forward, pushing them toward
+    hand-editing the record, which the write fence denies and the audit chain
+    would catch. That is a dead end, not a guardrail.
+    """
+    project = _alpha(bare_project)
+    _assess_high(project)
+    result = _assess_low(project)
+
+    assert result.exit_code == EXIT_OK
+    assert result.reason is None
+    assert result.data["downgrade"]["from"] == "HIGH"
+
+    # And no floor moved to make any of this possible.
+    assert sdle.GOVERNANCE_POLICY_BUILTIN["hard_floors"] == BUILTIN["hard_floors"]
+    assert sdle.GOVERNANCE_POLICY_BUILTIN["risk_thresholds"] == BUILTIN[
+        "risk_thresholds"]
+
+
+def test_n12_governance_show_surfaces_the_downgrade(bare_project):
+    """A reader must not have to know the record schema to see that a level
+    was lowered."""
+    project = _alpha(bare_project)
+    _assess_high(project)
+    _assess_low(project)
+
+    shown = project.ok("governance", "show")
+
+    assert shown.data["downgrade"]["from"] == "HIGH"
+    assert shown.data["downgrade"]["to"] == "LOW"
+    assert shown.data["record"]["downgrade"] == shown.data["downgrade"]
+
+
+def test_n12_the_downgrade_detector_is_a_pure_reader(bare_project):
+    """B2. `governance_downgrade` reads two dictionaries and returns a third,
+    so it must reach no writer — otherwise a *comparison* would have become a
+    side effect and a refused assessment could move the ledger."""
+    function = function_named(sdle_ast(), "governance_downgrade")
+    called = {node.func.id for node in ast.walk(function)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert not called & {"write_atomic", "save_state", "append_audit",
+                         "emit", "touch_lock"}, called
+    referenced = names_referenced(function)
+    assert "audit_file" not in referenced
+    assert "state_file" not in referenced
+
+
+def _drive_to_gate_tasks(project):
+    """GREENFIELD as far as `gate_tasks`, the first gate whose requirement
+    actually moves between HIGH and LOW under the built-in policy.
+
+    That is what makes this the T09 NB-2 scenario rather than a paraphrase of
+    it: `gate_tasks` is in `required_gates_by_risk["HIGH"]` and absent from
+    `["LOW"]`, so a HIGH→LOW re-assessment is precisely what turns a refused
+    omission into a permitted one.
+    """
+    project.ok("init", session="d11")
+    feature = project.feature_dir("001-x")
+    project.write_artifact(".specify/memory/constitution.md")
+    project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")
+    project.ok("gate", "approve", "--gate", "gate_constitution")
+    project.write_artifact(f"{feature}/spec.md")
+    project.ok("feature", "resolve")
+    project.ok("advance", "--to", "gate_spec")
+    review_for_gate(project, "gate_spec")
+    project.ok("gate", "approve", "--gate", "gate_spec")
+    project.write_artifact(f"{feature}/plan.md")
+    project.ok("advance", "--to", "gate_plan")
+    review_for_gate(project, "gate_plan")
+    project.ok("gate", "approve", "--gate", "gate_plan")
+    project.write_artifact(f"{feature}/checklist.md")
+    project.ok("advance", "--to", "tasks_draft")
+    project.write_artifact(f"{feature}/tasks.md")
+    project.ok("advance", "--to", "gate_tasks")
+    review_for_gate(project, "gate_tasks")
+
+
+def test_n12_an_omission_that_rests_on_a_downgrade_carries_it_as_evidence(
+    bare_project,
+):
+    """The half that closes T09 NB-2 in substance rather than in the ledger
+    alone, driven through the exact route NB-2 described.
+
+    At HIGH, `gate omit --gate gate_tasks` refuses `gate_required`. Re-assess
+    with the risk signals removed and the same command is permitted — that is
+    the asymmetry T09 named, and T11 does **not** take it away, because a
+    genuine re-scope is allowed to do exactly this. What T11 adds is that the
+    omission then *says so*: §15 requires an omitted gate to be explainable,
+    and "the policy did not require it" is only half an explanation when the
+    input to the policy moved.
+    """
+    project = _alpha(bare_project)
+    _assess_high(project)
+    _drive_to_gate_tasks(project)
+
+    # At HIGH the gate is required and the omission is refused outright.
+    refused = project.run("gate", "omit", "--gate", "gate_tasks")
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "gate_required", refused
+    assert refused.data["final_risk"] == "HIGH", refused
+    ledger_before = project.audit_file.read_text(encoding="utf-8")
+
+    _assess_low(project)
+    record = record_of(project)
+
+    omitted = project.ok("gate", "omit", "--gate", "gate_tasks")
+
+    # 1. the payload carries it
+    carried = omitted.data["governance_downgrade"]
+    assert carried is not None, omitted
+    assert (carried["from"], carried["to"]) == ("HIGH", "LOW")
+    assert carried["signalsRemoved"] == sorted(HIGH_SIGNALS)
+
+    # 2. the recorded omission carries it
+    entry = project.state()["approvals"]["gate_tasks"]
+    assert entry["decision"] == sdle.GATE_OMITTED_DECISION
+    assert entry["governance_downgrade"]["from"] == "HIGH"
+    assert entry["risk_level"] == "LOW"
+
+    # 3. the ledger carries it, as a distinct event AND in the omission entry
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "governance_downgraded" not in ledger_before
+    assert "governance_downgraded" in ledger
+    assert f"(governance downgrade {record['executionId']})" in ledger
+    assert "HIGH -> LOW" in ledger
+    assert "authentication_or_authorization" in ledger
+    assert "LOWERED the final risk level from HIGH to LOW" in ledger
+
+    # 4. and the chain is intact — a second event is a chained entry, not a
+    #    hand-written line.
+    assert project.ok("audit", "verify").exit_code == EXIT_OK
+
+
+def test_n12_the_downgrade_event_is_logged_once_however_often_it_is_consumed(
+    bare_project,
+):
+    """De-duplicated by the record's own `executionId`, exactly like
+    `governance_recorded`: re-assessing produces a new entry, advancing
+    repeatedly does not produce one per advance."""
+    project = _alpha(bare_project)
+    _assess_high(project)
+    _drive_to_gate_tasks(project)
+    _assess_low(project)
+
+    marker = f"(governance downgrade {record_of(project)['executionId']})"
+
+    project.ok("gate", "omit", "--gate", "gate_tasks")
+    # Counted on the de-duplication MARKER, not on the event name: the
+    # `gate_omitted` message deliberately names the event so a reader of the
+    # omission is pointed at it, so the name itself appears more than once by
+    # design. The marker appears only in the entry it de-duplicates.
+    assert project.audit_file.read_text(encoding="utf-8").count(marker) == 1
+
+    project.write_artifact(f"{project.feature_dir('001-x')}/analysis.md")
+    project.ok("advance", "--to", "gate_analyze")
+    assert project.audit_file.read_text(encoding="utf-8").count(marker) == 1
+

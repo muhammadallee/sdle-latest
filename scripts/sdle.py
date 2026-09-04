@@ -4811,6 +4811,54 @@ def evaluate_risk(document: dict, policy: dict, relative: str) -> dict:
     }
 
 
+def governance_downgrade(previous: dict | None, risk: dict) -> dict | None:
+    """A re-assessment landing on a **lower** final level than one already
+    recorded for this WorkItem, described — or ``None``.
+
+    **T11 D11** closes the asymmetry T09's verifier named (NB-2). *Within* one
+    assessment a lower proposal is already inert and already recorded:
+    ``final`` is the lattice maximum and ``loweringAttempted`` says an attempt
+    was made. *Across* two assessments there was no such record. Re-running
+    `governance assess` with a smaller signal set simply replaced the record,
+    so a gate that had been required could become omittable with nothing
+    anywhere stating that a level had fallen — which is the practical route to
+    omitting a gate that T09 flagged.
+
+    It **audits**; it does not refuse, and that is deliberate. A genuine
+    re-scope (authentication dropped out of the WorkItem) legitimately lowers
+    risk. Refusing it would invent a floor no contract section states, would
+    leave a correct user no honest way forward, and would push them toward
+    editing the record by hand — which the write fence denies and the audit
+    chain would catch, i.e. a dead end. What §15 actually requires is that
+    every omitted gate be *explainable and auditable*, so evidence is the
+    right instrument: `governance_downgraded` in the ledger, `downgrade` on
+    the record, and the same block carried into every omission that rests on
+    it.
+
+    Pure: it reads two dictionaries and returns a third. Nothing here writes.
+    """
+    if not isinstance(previous, dict):
+        return None
+    before = (previous.get("risk") or {}).get("finalLevel")
+    after = risk.get("finalLevel")
+    if before not in GOVERNANCE_LEVELS or after not in GOVERNANCE_LEVELS:
+        return None
+    if GOVERNANCE_LEVELS.index(after) >= GOVERNANCE_LEVELS.index(before):
+        return None
+    was = list((previous.get("risk") or {}).get("signals") or [])
+    now = list(risk.get("signals") or [])
+    return {
+        "from": before,
+        "to": after,
+        "fromExecutionId": previous.get("executionId"),
+        "fromRecordedAt": previous.get("recordedAt"),
+        "fromSignals": was,
+        "toSignals": now,
+        "signalsRemoved": sorted(set(was) - set(now)),
+        "signalsAdded": sorted(set(now) - set(was)),
+    }
+
+
 def _policy_gate_reasons(classification: dict, final_level: str | None,
                          policy: dict) -> dict[str, list[str]]:
     """Which gates the policy DICTIONARIES name, and under which rule each.
@@ -5080,6 +5128,11 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     classification = evaluate_classification(document, relative)
     risk = evaluate_risk(document, policy, relative)
 
+    # T11 D11: read the record this one replaces *before* it is overwritten.
+    # A pure read, and the only thing it can produce is evidence.
+    superseded = read_governance_record(paths)
+    downgrade = governance_downgrade(superseded, risk)
+
     stamp = now_iso()
     execution_id = execution_identity(paths, stamp)
     sources, digest = requirements_sources(paths)
@@ -5102,6 +5155,10 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         # the model against the bound one.
         "requiredGates": proposed_requirements["required_gates"],
         "omittableGates": proposed_requirements["omittable_gates"],
+        # T11 D11. Always present, `null` when this assessment did not lower
+        # anything, so the record is self-describing rather than making a
+        # reader infer "no downgrade" from an absent key.
+        "downgrade": downgrade,
         "policy": {"source": effective["source"], "sha256": effective["sha256"]},
     }
 
@@ -5146,6 +5203,7 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         "advisory_findings": quality["advisory"],
         "classification": classification,
         "risk": risk,
+        "downgrade": downgrade,
         "requirements_digest": digest,
         "policy": record["policy"],
     })
@@ -5168,6 +5226,9 @@ def cmd_governance_show(args, paths: Paths) -> int:
     emit("governance show", {
         "workitem": paths.workitem,
         "record": record,
+        # T11 D11: promoted out of `record` so a reader does not have to know
+        # the record schema to see that a level was lowered.
+        "downgrade": record.get("downgrade"),
         "fresh": freshness["fresh"],
         "recorded_digest": freshness["recorded_digest"],
         "current_digest": freshness["current_digest"],
@@ -6557,12 +6618,20 @@ def approval_decision(state: dict, gate_key: str) -> str | None:
 
 
 GOVERNANCE_AUDIT_EVENT = "governance_recorded"
+GOVERNANCE_DOWNGRADE_EVENT = "governance_downgraded"
 
 
 def governance_audit_marker(execution_id: str) -> str:
     """The unambiguous string that says "this assessment is already in the
     ledger". Derived from the record, so nothing has to be stored twice."""
     return f"(governance execution {execution_id})"
+
+
+def governance_downgrade_marker(execution_id: str) -> str:
+    """The same idiom for the T11 D11 downgrade entry. A separate marker, so
+    the two entries de-duplicate independently and neither can suppress the
+    other."""
+    return f"(governance downgrade {execution_id})"
 
 
 def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
@@ -6587,6 +6656,7 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
     marker = governance_audit_marker(execution_id)
     if paths.audit_file.is_file():
         if marker in paths.audit_file.read_text(encoding="utf-8"):
+            _record_governance_downgrade_audit(paths, state, record)
             return
 
     risk = record.get("risk") or {}
@@ -6619,6 +6689,55 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
             + (f" (floors: {', '.join(floors)})" if floors else "")
             + f", proposed {risk.get('proposedLevel')}, final "
             f"{risk.get('finalLevel')}{lowering}." + dispositions
+        ),
+    )
+    _record_governance_downgrade_audit(paths, state, record)
+
+
+def _record_governance_downgrade_audit(paths: Paths, state: dict,
+                                       record: dict) -> None:
+    """**T11 D11.** A second, distinct ledger entry when this assessment
+    lowered a level that had already been recorded.
+
+    Deliberately its own event rather than a clause inside
+    `governance_recorded`: §15 asks for every omission to be *explainable*,
+    and an explanation someone has to parse out of a longer sentence is
+    weaker evidence than an event with its own name that `grep` finds. The
+    de-duplication marker is the record's own `executionId`, exactly like its
+    sibling, so re-advancing does not re-log it.
+
+    It never refuses and never changes a level. It is the record of a fact.
+    """
+    downgrade = record.get("downgrade")
+    if not isinstance(downgrade, dict):
+        return
+    execution_id = record.get("executionId")
+    if not execution_id:
+        return
+    marker = governance_downgrade_marker(execution_id)
+    if paths.audit_file.is_file():
+        if marker in paths.audit_file.read_text(encoding="utf-8"):
+            return
+    removed = ", ".join(downgrade.get("signalsRemoved") or []) or "none"
+    added = ", ".join(downgrade.get("signalsAdded") or []) or "none"
+    append_audit(
+        paths,
+        state,
+        phase=state.get("current_phase") or "unknown",
+        event=GOVERNANCE_DOWNGRADE_EVENT,
+        message=(
+            f"Governance level LOWERED {marker}: final risk "
+            f"{downgrade.get('from')} -> {downgrade.get('to')}, superseding "
+            f"the record from execution {downgrade.get('fromExecutionId')} "
+            f"recorded at {downgrade.get('fromRecordedAt')}. Risk signals "
+            f"were [{', '.join(downgrade.get('fromSignals') or []) or 'none'}]"
+            f" and are now "
+            f"[{', '.join(downgrade.get('toSignals') or []) or 'none'}] "
+            f"(removed: {removed}; added: {added}). This is a re-assessment, "
+            "not an override: no policy floor moved, and every gate the new "
+            "level makes omittable still needs an explicit, audited `gate "
+            "omit`. Recorded because a gate omitted after this point rests "
+            "on the lower level."
         ),
     )
 
@@ -7531,7 +7650,8 @@ def cmd_gate_omit(args, paths: Paths) -> int:
     # the second (the legacy binding) with the rung itself: `cmd_gate_omit` is
     # reached only through `main()`'s `bind_workitem`, which after R2 never
     # returns an unbound `Paths`.
-    if read_governance_record(paths) is None:
+    governance_record = read_governance_record(paths)
+    if governance_record is None:
         raise Refused(
             "governance_missing",
             f"WorkItem '{paths.workitem}' has no governance record, so no "
@@ -7539,6 +7659,11 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             "--input <path>` first.",
             {"workitem": paths.workitem, "path": str(paths.governance_file)},
         )
+    # T11 D11: if the level this omission rests on was reached by lowering an
+    # earlier one, the omission evidence says so. §15 wants an omitted gate
+    # explainable; "the policy did not require it" is only half an
+    # explanation when the input to the policy moved.
+    downgrade = governance_record.get("downgrade")
     model = gate_requirements_for_state(paths, consts, state)
     disposition = next(
         (entry for entry in (model or {}).get("dispositions") or []
@@ -7600,6 +7725,9 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         "risk_level": model["final_risk"],
         "reasons": disposition["reasons"],
         "policy_sha256": model["policy"]["sha256"],
+        # T11 D11. `null` for the ordinary case; the whole block when the
+        # governing level was reached by lowering an earlier one.
+        "governance_downgrade": downgrade,
     }
 
     flow = flow_for_state(state, consts)
@@ -7614,7 +7742,12 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         f"{args.gate} at final risk {model['final_risk']} on the "
         f"{flow.name} flow. No human approved this gate. The artifact was "
         "still generated, registered and reviewed, and its baseline SHA is "
-        f"recorded: {sha or 'n/a'}.",
+        f"recorded: {sha or 'n/a'}."
+        + ("" if not isinstance(downgrade, dict) else
+           " NOTE: the governance record this rests on LOWERED the final risk "
+           f"level from {downgrade.get('from')} to {downgrade.get('to')} "
+           f"(see the {GOVERNANCE_DOWNGRADE_EVENT} entry for execution "
+           f"{downgrade.get('fromExecutionId')})."),
         artifact=resolved,
         artifact_sha=sha,
         decision="OMITTED",
@@ -7635,6 +7768,7 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             "final_risk": model["final_risk"],
             "reasons": disposition["reasons"],
             "policy": model["policy"],
+            "governance_downgrade": downgrade,
             "next_phase": moved["to"],
             "status": moved["status"],
             "progress": moved["progress"],
