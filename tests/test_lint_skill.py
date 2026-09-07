@@ -164,7 +164,7 @@ def test_version_drift_fires(repo):
     readme = repo.root / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
-            "# SDLE — Spec Driven Lifecycle Engine (v1.16)",
+            "# SDLE — Spec Driven Lifecycle Engine (v1.17)",
             "# SDLE — Spec Driven Lifecycle Engine (v1.13)",
         ),
         encoding="utf-8",
@@ -586,3 +586,113 @@ def test_a_project_with_no_repository_documentation_still_lints(repo):
                  if c["name"] == "repo_config_defaults_match_documentation")
     assert check["passed"] is True
     assert "no repository documentation" in check["message"]
+# -- documentation_set_is_present (T11 D16 / N24) ---------------------------
+#
+# The rule this file exists for applies to the newest check as much as the
+# oldest: a check nobody has proven can fail is not evidence of anything. The
+# documentation targets all exist in the real repository, so the only honest
+# place to prove the check fires is a copied tree we are free to break.
+
+DOCUMENTATION_DIRECTORIES = (
+    "docs/architecture",
+    "docs/workitems",
+    "docs/lifecycle",
+    "docs/risk-and-gates",
+    "docs/brownfield",
+    "docs/spec-kit-integration",
+    "docs/troubleshooting",
+)
+
+
+def test_n24_the_case_list_is_exactly_the_engines_directory_targets():
+    """Non-vacuity guard for the parametrisation below.
+
+    The list above is written out so a reader can see what is covered, but a
+    written-out list can drift from the constant it mirrors. Exact equality
+    against `DOCUMENTATION_TARGETS`, so a target added to the engine and not
+    to this file fails here rather than going unexercised.
+    """
+    from conftest import sdle
+    engine = tuple(t.rstrip("/") for t in sdle.DOCUMENTATION_TARGETS
+                   if t.endswith("/"))
+    assert DOCUMENTATION_DIRECTORIES == engine
+
+
+@pytest.fixture
+def documented_repo(repo: Project) -> Project:
+    """`repo`, plus everything `documentation_set_is_present` reads.
+
+    The base fixture deliberately carries no `CLAUDE.md`, which makes the
+    check go absent there. Here it is present and passing, so every case
+    below starts from a green check and breaks exactly one thing.
+    """
+    shutil.copy(REPO_ROOT / "CLAUDE.md", repo.root / "CLAUDE.md")
+    for relative in DOCUMENTATION_DIRECTORIES:
+        shutil.copytree(REPO_ROOT / relative, repo.root / relative)
+    return repo
+
+
+def test_n24_the_documentation_check_passes_on_a_complete_copy(
+        documented_repo):
+    """The second non-vacuity guard: if this failed, every case below would be
+    asserting a failure that was already there."""
+    checks = results(documented_repo)
+    assert checks["documentation_set_is_present"] is True
+    assert documented_repo.run("lint-skill").data["failed"] == []
+
+
+@pytest.mark.parametrize("relative", DOCUMENTATION_DIRECTORIES)
+def test_n24_removing_any_documentation_directory_fires_the_check(
+        documented_repo, relative):
+    """N24/D16. Asserted on a copied tree, never on the live one.
+
+    Parametrised over the whole list rather than spot-checking one, so a
+    target that stopped being enforced fails here by name.
+    """
+    shutil.rmtree(documented_repo.root / relative)
+    assert_only_failure(documented_repo, "documentation_set_is_present")
+
+    check = next(c for c in documented_repo.run("lint-skill").data["checks"]
+                 if c["name"] == "documentation_set_is_present")
+    assert f"{relative}/ is missing" in check["message"], check["message"]
+
+
+def test_n24_a_directory_holding_only_an_empty_document_fires_the_check(
+        documented_repo):
+    """"Exists" is not the requirement. A placeholder file would satisfy a
+    weaker rule while documenting nothing, and the contract asks for the
+    documentation to be updated, not created."""
+    target = documented_repo.root / "docs" / "troubleshooting"
+    emptied = list(target.rglob("*.md"))
+    assert emptied, "fixture copied no documents"
+    for document in emptied:
+        document.write_text("", encoding="utf-8")
+
+    assert_only_failure(documented_repo, "documentation_set_is_present")
+    check = next(c for c in documented_repo.run("lint-skill").data["checks"]
+                 if c["name"] == "documentation_set_is_present")
+    assert "docs/troubleshooting/ holds no non-empty .md" in check["message"]
+
+
+def test_n24_an_emptied_top_level_document_fires_the_check(documented_repo):
+    """The two file targets are checked for content by the same rule."""
+    (documented_repo.root / "CLAUDE.md").write_text("", encoding="utf-8")
+    assert_only_failure(documented_repo, "documentation_set_is_present")
+
+
+def test_n24_the_check_goes_absent_rather_than_passing_on_a_bare_tree(repo):
+    """The other half, and the reason the rule is not a relaxation.
+
+    `lint-skill` runs against any project root, including one that was never
+    meant to hold SDLE's own documentation. There the check is **not emitted**
+    at all rather than passing over an empty set -- and it cannot fail open,
+    because `test_n26`'s exact-set equality over the emitted check names is
+    computed against the real repository, where it must be present.
+    """
+    assert not (repo.root / "CLAUDE.md").exists(), (
+        "the base fixture must stay bare, or this test proves nothing")
+    result = repo.run("lint-skill")
+    assert result.exit_code == EXIT_OK, result
+    names = [c["name"] for c in result.data["checks"]]
+    assert "documentation_set_is_present" not in names
+    assert result.data["failed"] == []

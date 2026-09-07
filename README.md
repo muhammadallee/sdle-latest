@@ -1,4 +1,4 @@
-# SDLE — Spec Driven Lifecycle Engine (v1.16)
+# SDLE — Spec Driven Lifecycle Engine (v1.17)
 
 An autonomous, gated SDLC orchestrator for Claude Code that wraps SpecKit.
 Users interact only with SDLE — SpecKit commands never surface directly.
@@ -151,10 +151,13 @@ Every runtime command resolves a WorkItem before it runs:
 4. otherwise a still-valid persisted active context
    (`workitem use --workitem <id>` sets it, `--clear` removes it);
 5. otherwise a unique Git-branch match;
-6. otherwise a legacy repository-global `.workflow/state.json`, if one exists
-   and no WorkItem is registered (transitional — see `migrate-workflow`);
-7. otherwise `workitem_required`;
-8. and when several are plausible and none is named, `workitem_ambiguous`,
+6. otherwise `workitem_required` — and when a legacy repository-global
+   `.workflow/state.json` is also on disk, that refusal names the two-step
+   recovery, `workitem create` then `migrate-workflow --workitem <id>`, in that
+   order. There is no rung that binds a legacy runtime: since v1.17
+   `.workflow/` is a migration source and a project-root marker, never a
+   runtime;
+7. and when several are plausible and none is named, `workitem_ambiguous`,
    listing the candidates. SDLE never picks one for you.
 
 The project root itself is discovered by walking up from the launch directory
@@ -181,11 +184,15 @@ is logged; everything else warns.
 and `config` touch no runtime state and need no resolution.
 
 A repository that already has a pre-v1.14 `.workflow/` moves it under a
-WorkItem once:
+WorkItem once. Since v1.17 no command runs against a legacy runtime, so this is
+the whole recovery — two commands, in this order:
 
 ```
+scripts/sdle.sh workitem create --name "Customer Notification Service"
 scripts/sdle.sh migrate-workflow --workitem customer-notification-service
 ```
+
+Both are runtime-free, so neither is locked out by the very condition it fixes.
 
 It validates the legacy state, verifies the legacy audit chain, copies the
 ledger, manifest, completion summary and migration evidence, writes the target
@@ -477,8 +484,9 @@ belong to the Claude Code runtime, and which are convention only.
 ```
 
 A pre-v1.14 repository also has a `.workflow/` directory with the same runtime
-files. It is transitional: `migrate-workflow --workitem <id>` moves it under a
-WorkItem and never mutates it.
+files. Since v1.17 it is **archival**, not transitional: nothing runs against
+it, and `migrate-workflow --workitem <id>` moves its contents under a WorkItem
+without ever mutating it.
 
 The two `.sdle/` directories are different boundaries that happen to share a
 name. The one at the repository root is derived from the project root alone and
@@ -667,6 +675,7 @@ For full rationale behind each hardening pass, see the Reference Guide. Condense
 
 | Version | Summary |
 |---|---|
+| **v1.17** | V1 convergence. The WorkItem-based runtime is now the **only** runtime: the transitional dual-read of a repository-global `.workflow/state.json` is gone, and a repository still on the pre-v1.14 layout recovers with exactly two commands — `workitem create` then `migrate-workflow --workitem <id>` — which the `workitem_required` refusal now names in order. `.workflow/` remains a *migration source* and a project-root marker: `migrate-workflow` still moves it under a WorkItem without ever mutating it, and the write fence still protects it. Spec Kit feature discovery fails closed — more than one candidate in a tier refuses `feature_ambiguous` instead of picking the newest, so a shared `specs/` staging area can no longer hand one WorkItem another's specification. A governance re-assessment that lowers a recorded risk level is recorded as `governance_downgraded` and carried into the evidence of every gate omitted after it. New `pending_branch_ack` state field closes the branch-guard fail-open: an acknowledgement names one checkout and is no longer standing permission for the next. `.sdle/` is engine bookkeeping on both guard surfaces, and the write fence normalises `..` before matching its carve-out. |
 | **v1.16** | Declarative flow selection. `PHASE_SEQUENCE` became a 21-entry phase *registry* and a **flow** — an ordered subset of it — became what a WorkItem traverses. Five flows: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX`, `HOTFIX`, declared in `FLOW_PHASES` except GREENFIELD, which is frozen in the engine so a new registry row can never silently join it. New gateless `impact_analysis` phase in the two defect flows. Progress fractions, gate numbers and gate labels are derived per flow. New `flow` state field, bound once at `init` and never re-bound; a governance record that later proposes a different flow is refused `flow_mismatch`. Seven new `lint-skill` checks. Then the brownfield half: a gateless `discovery` phase in `BROWNFIELD_DISCOVERY` whose findings are recorded through `discovery assess` and are refused unless every one of them is classified; and `.sdle/baseline.json`, written once at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` completion, which is what makes discovery happen once — a later WorkItem converges onto `ITERATIVE` against it, and `init` refuses `baseline_present` or `baseline_required` rather than relying on convention. |
 | **v1.15** | WorkItem-scoped Spec Kit context. The active WorkItem's Spec Kit feature directory moved from the repository-global `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, so two WorkItems in one repository can never be handed each other's specification. Repository-wide Spec Kit scaffolding — `.specify/`, including `memory/constitution.md` — stays where it is. New `specKit` state object replacing `current_feature_id`, new `feature bind` and `feature capabilities` subcommands, Spec Kit capability detection that refuses rather than assumes, and a gate that will not approve another WorkItem's artifact. |
 | **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |

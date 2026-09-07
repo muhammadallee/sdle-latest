@@ -629,8 +629,8 @@ def test_a_v1_15_state_migrates_to_greenfield(project):
 
     result = project.ok("migrate", session="s")
 
-    assert result.data["steps"] == ["1.15->1.16"]
-    assert result.data["to"] == "1.16"
+    assert result.data["steps"] == ["1.15->1.16", "1.16->1.17"]
+    assert result.data["to"] == "1.17"
     assert project.state()["flow"] == "GREENFIELD"
 
 
@@ -703,8 +703,9 @@ def test_a_v1_13_state_migrates_the_whole_chain_and_lands_on_greenfield(project)
 
     result = project.ok("migrate", session="s")
 
-    assert result.data["steps"] == ["1.13->1.14", "1.14->1.15", "1.15->1.16"]
-    assert project.state()["workflow_version"] == "1.16"
+    assert result.data["steps"] == ["1.13->1.14", "1.14->1.15", "1.15->1.16",
+                                    "1.16->1.17"]
+    assert project.state()["workflow_version"] == "1.17"
     assert project.state()["flow"] == "GREENFIELD"
 
 
@@ -716,7 +717,9 @@ def test_the_version_chain_declares_the_flow_row(skill_copy):
     its own. Asserted here directly instead.
     """
     consts = constants_of(skill_copy)
-    assert consts.version_chain[-1] == ("1.15", "1.16")
+    assert consts.version_chain[-1] == ("1.16", "1.17")
+    assert ("1.15", "1.16") in consts.version_chain, (
+        "T11 D14 appends a row; it never replaces one")
     import re
     text = (skill_copy.skill_root / "SKILL.md").read_text(encoding="utf-8")
     row = re.search(r"^\| `1\.15` \| `1\.16` \| (.+)$", text, re.MULTILINE)
@@ -730,7 +733,11 @@ def test_the_state_template_carries_the_flow_field(skill_copy):
         (skill_copy.skill_root / "templates" / "state.json")
         .read_text(encoding="utf-8"))
     assert template["flow"] == "GREENFIELD"
-    assert template["workflow_version"] == "1.16"
+    # T11 X11 re-valuation (TP-003 category 2): "1.16" -> "1.17". D14 bumps
+    # the version because D13 adds `pending_branch_ack`. The shape is
+    # unchanged - still one exact equality against one literal - and what this
+    # test is actually for, that the template declares `flow`, is untouched.
+    assert template["workflow_version"] == "1.17"
     # The GREENFIELD defaults stay exactly as they were.
     assert template["progress"] == "1/18"
     assert set(template["approvals"]) == PRE_T07_APPROVAL_KEYS
@@ -992,7 +999,7 @@ def test_a_pre_v1_16_state_with_a_hotfix_record_refuses_flow_mismatch(project):
 
     migrated = project.ok("migrate", session="s")
 
-    assert migrated.data["steps"] == ["1.15->1.16"]
+    assert migrated.data["steps"] == ["1.15->1.16", "1.16->1.17"]
     assert project.state()["flow"] == "GREENFIELD"
 
     project.write_artifact(".specify/memory/constitution.md")
@@ -1686,13 +1693,22 @@ def test_the_state_schema_did_not_move(skill_copy):
 
     A ninth approval key or a new field would force a `workflow_version` bump
     and a VERSION_MIGRATION row, and T08 deliberately adds neither.
+
+    **T11 X11 re-valuation (TP-003 category 2).** T11 D13 *does* add a state
+    field, so the three version literals here move: `"1.16"` -> `"1.17"`,
+    `"v1.16"` -> `"v1.17"`, and the chain length `16` -> `17`. That is the
+    schema movement this test was watching for, arriving with its bump, its
+    VERSION_MIGRATION row and its migration step — which is what the test
+    demanded of anyone who moved it. Every other assertion is untouched and
+    still carries T08's claim: eight approval keys, no `discovery` and no
+    `baseline` field, and both lint checks still passing.
     """
     import json
     template = json.loads(
         (skill_copy.skill_root / "templates" / "state.json")
         .read_text(encoding="utf-8"))
 
-    assert template["workflow_version"] == "1.16"
+    assert template["workflow_version"] == "1.17"
     assert set(template["approvals"]) == PRE_T07_APPROVAL_KEYS
     assert len(template["approvals"]) == 8
     assert "discovery" not in template
@@ -1701,9 +1717,9 @@ def test_the_state_schema_did_not_move(skill_copy):
 
     checks = {c["name"]: c for c in skill_copy.run("lint-skill").data["checks"]}
     assert checks["version_string_consistent"]["passed"] is True
-    assert "v1.16" in checks["version_string_consistent"]["message"]
+    assert "v1.17" in checks["version_string_consistent"]["message"]
     assert checks["migration_covers_every_state_field"]["passed"] is True
-    assert len(constants_of(skill_copy).version_chain) == 16
+    assert len(constants_of(skill_copy).version_chain) == 17
 
 
 def test_the_two_guard_surfaces_were_adopted_by_t11():

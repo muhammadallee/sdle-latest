@@ -39,7 +39,13 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, Project, sdle
+from conftest import (
+    DRY_RUN_SUBSTITUTIONS,
+    REPO_ROOT,
+    Project,
+    apply_dry_run_substitutions,
+    sdle,
+)
 from test_units_flow_model import bind, tree_map
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -376,9 +382,13 @@ def test_n9_a_fresh_process_reconstructs_the_workitem_from_disk(
     assert data["position"] == CONSTS.flow(flow).position(phase)
     assert data["progress"] == CONSTS.flow(flow).progress_for(phase)
     assert data["next_phase"] == CONSTS.flow(flow).next_phase(phase)
+    # T11 X-GEN (D13). Was the same set without `pending_branch_ack`;
+    # `pending_confirm_action` is a flag that says an acknowledgement is
+    # outstanding, and the new key says which checkout it was given for, so a
+    # resuming session can see the whole fact. Still an exact equality.
     assert set(data["pending"]) == {
-        "drift_queue", "pending_confirm_action", "pending_phase",
-        "phase_checkpoint", "clarification_phase"}
+        "drift_queue", "pending_confirm_action", "pending_branch_ack",
+        "pending_phase", "phase_checkpoint", "clarification_phase"}
 
     capabilities = data["capabilities"]
     assert capabilities, f"{phase} resumed with nothing to load"
@@ -638,7 +648,11 @@ FROZEN = (
     "tests/test_integration_02_to_05.py",
     "tests/test_integration_06_to_09.py",
     ".claude/settings.json",
-    ".claude/skills/sdle/templates/state.json",
+    # `.claude/skills/sdle/templates/state.json` moved out of this tuple at
+    # T11: D13 adds a state field and D14 bumps the version, so it cannot be
+    # byte-identical to `adbdc5e`. It is pinned instead by
+    # `test_t11_the_state_template_changed_only_as_declared` below, which is a
+    # stricter comparison, not a looser one. Every other entry is untouched.
     ".gitignore",
 )
 
@@ -693,6 +707,15 @@ T10_CHECKS = (
     "product_agents_declare_the_non_approval_clause",
 )
 
+# T11 X7 (TP-003 category 2, X-GEN). D16 adds exactly one check, so the closed
+# set grows by exactly one literal and the assertion below keeps its
+# exact-equality shape. Old value: `BASELINE_CHECKS + T10_CHECKS` (42 names).
+# New value: the same union plus `T11_CHECKS` (43). The check is proven able to
+# fail in `test_lint_skill.py::test_n24_*`, on a copied tree.
+T11_CHECKS = (
+    "documentation_set_is_present",
+)
+
 
 def at_baseline(relative: str) -> str | None:
     """The file's content at T10's rollback point, or None."""
@@ -728,20 +751,38 @@ def test_n20_n24_the_frozen_files_are_byte_identical(relative):
     assert here(relative) == original, relative
 
 
-def test_n20_the_nine_dry_run_transcripts_are_byte_identical():
-    """N20/A22: the transcripts are the behavioural specification. The
-    directory holds ten Markdown files — the nine numbered transcripts and its
-    own README — and every one is compared, so the README cannot drift
-    unnoticed either."""
+def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
+    """N20/A22/X10: the transcripts are the behavioural specification.
+
+    T11 D15 converged them off the repository-global `.workflow/` runtime,
+    stale since the runtime became WorkItem-scoped. The pin was **not**
+    re-baselined — re-baselining would have thrown away everything it was
+    buying. It became a declared-substitution comparison instead:
+
+        apply_dry_run_substitutions(at_baseline(f)) == here(f)
+
+    `DRY_RUN_SUBSTITUTIONS` is an enumerated list of exact literals in
+    `conftest.py`, never a pattern, so any change to a transcript other than
+    those substitutions still fails here. Two anti-vacuity guards ride along:
+    every declared pair must be used at least once (so a pair cannot decay
+    into a no-op), and the directory's whole file list is still compared, so
+    the README cannot drift unnoticed either.
+    """
     directory = REPO_ROOT / "docs" / "dry-runs"
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
     assert len(numbered) == 9, [p.name for p in every]
+
+    used: set[str] = set()
     for path in every:
         relative = path.relative_to(REPO_ROOT).as_posix()
         original = at_baseline(relative)
         assert original is not None, relative
-        assert here(relative) == original, relative
+        assert here(relative) == apply_dry_run_substitutions(
+            original, used), relative
+
+    assert used == {old for old, _ in DRY_RUN_SUBSTITUTIONS}, sorted(
+        {old for old, _ in DRY_RUN_SUBSTITUTIONS} - used)
 
 
 def test_n21_greenfield_is_frozen_and_every_flow_is_element_wise_identical(
@@ -816,22 +857,32 @@ def test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched(
 
 def test_n24_the_schema_did_not_move(repo, bare_project):
     """N24/A18/A23/F9. The acceptance criterion of the whole phase, stated as
-    numbers: no state field, no migration row, no version bump, no gate."""
+    numbers: no state field, no migration row, no version bump, no gate.
+
+    **T11 X11 re-valuation (TP-003 category 2).** T09's phase added none of
+    those; T11 D13/D14 deliberately add a state field, a migration row and a
+    version bump, so three literals move here: `"1.16"` -> `"1.17"`,
+    `"v1.16"` -> `"v1.17"` and the chain length `16` -> `17`. The counts that
+    carry T09's claim do not move: eight approval keys equal to
+    `PHASE_TO_GATE_KEY`'s values, 21 registry phases, 8 gate phases — T11 adds
+    no gate and no phase. The exact-equality shape is kept throughout; the
+    `templates/state.json` movement itself is pinned change-for-change by
+    `test_t11_the_state_template_changed_only_as_declared`."""
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json").read_text(
             encoding="utf-8"))
-    assert template["workflow_version"] == "1.16"
+    assert template["workflow_version"] == "1.17"
     assert len(template["approvals"]) == 8
     assert set(template["approvals"]) == set(CONSTS.phase_to_gate_key.values())
 
-    assert len(CONSTS.version_chain) == 16
+    assert len(CONSTS.version_chain) == 17
     assert len(CONSTS.phase_sequence) == 21
     assert len(CONSTS.gate_phases) == 8
 
     report = repo.ok("lint-skill").data
     version = next(c for c in report["checks"]
                    if c["name"] == "version_string_consistent")
-    assert "v1.16" in version["message"], version
+    assert "v1.17" in version["message"], version
 
 
 def test_n24_a18_the_engine_gained_no_writer_and_no_state_field():
@@ -867,14 +918,24 @@ WRITE_PRIMITIVES = ("write_atomic", "save_state", "append_audit",
                     "record_audit", ".write_text(", ".write_bytes(",
                     "os.replace", ".mkdir(")
 
-# T11 D11 adds exactly ONE new ledger call site: the `governance_downgraded`
-# entry in `_record_governance_downgrade_audit`. That is a new *call site*, not
-# a new *writer* — `append_audit` is still the only thing that writes the
-# ledger and `write_atomic` is still the only thing that writes a file, both
-# unchanged at 48-1 and 30. Invariant 6 is about who may write, and it is
-# untouched. Declared as a signed delta rather than a re-baseline so that any
-# OTHER movement, in this primitive or any other, still fails.
-T11_WRITE_DELTA = {"append_audit": 1}
+# T11 adds exactly THREE new call sites, all declared here as a signed delta
+# rather than a re-baseline, so that any OTHER movement — in these primitives
+# or any other — still fails.
+#
+#   `append_audit` 47 -> 49: D11's `governance_downgraded` entry in
+#       `_record_governance_downgrade_audit`, and D13's `branch_ack_stale`
+#       entry in `branch_guard` - the record T03-1 said was missing when an
+#       acknowledgement given for one checkout is rejected on another.
+#   `save_state`   46 -> 47: D13's `branch_guard`, which now has two exits
+#       that must persist the guard's own bookkeeping — the acceptance arm
+#       (clearing both fields) and the stale-acknowledgement arm (re-arming
+#       against the current checkout). Before D13 there was one.
+#
+# Both are new *call sites*, not new *writers*: `append_audit` is still the
+# only thing that writes the ledger, `save_state` the only thing that writes
+# `state.json`, and `write_atomic` the only thing that writes a file —
+# unchanged at 30. Invariant 6 is about who may write, and it is untouched.
+T11_WRITE_DELTA = {"append_audit": 2, "save_state": 1}
 
 ADD_PARSER = re.compile(r'add_parser[(]' + r"\s*" + r'"([a-z][a-z-]*)"')
 
@@ -897,8 +958,9 @@ def test_n26_every_baseline_check_is_still_present_and_passing(repo):
     report = repo.ok("lint-skill").data
     names = [c["name"] for c in report["checks"]]
 
-    assert sorted(names) == sorted(BASELINE_CHECKS + T10_CHECKS), (
-        sorted(set(names) ^ set(BASELINE_CHECKS + T10_CHECKS)))
+    expected = BASELINE_CHECKS + T10_CHECKS + T11_CHECKS
+    assert sorted(names) == sorted(expected), (
+        sorted(set(names) ^ set(expected)))
     assert len(names) == len(set(names)), "a check name is emitted twice"
     assert report["failed"] == [], report["failed"]
     assert all(c["passed"] for c in report["checks"]), [
@@ -913,13 +975,40 @@ def _top_level(source: str) -> dict[str, str]:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
-# T11 D7 edits exactly one pre-existing hook definition: `write_fence`
-# normalises `..` before matching, which is the fence bypass T04 recorded as
-# N-3. Declared here by name, and pinned below by a property that is *not*
-# weaker than the byte comparison it replaces: every line the baseline
-# definition had must still be present. An edit that removed or altered any
-# existing line fails, and only a pure insertion passes.
-T11_HOOK_EDITS = ("write_fence",)
+# T11 edits two pre-existing hook definitions. Declared here by name, and
+# pinned below by a property that is *not* weaker than the byte comparison it
+# replaces: every line the baseline definition had must still be present. An
+# edit that removed or altered any existing line fails, and only a pure
+# insertion passes.
+#
+#   `write_fence`  D7. Normalises `..` before matching, closing the fence
+#                  bypass T04 recorded as N-3.
+#   `in_dir`       **Not a D-item.** A user-approved correction made outside
+#                  the plan, during M7. `SDLE_OWNED_PREFIXES` is entirely
+#                  repository-root-relative, but `in_dir` matched `/{name}/`
+#                  *anywhere* in a path, so the hook was strictly broader than
+#                  the ownership it exists to protect and denied
+#                  `docs/workitems/` — a path the engine does not own and has
+#                  no choke-point refusal for. A tripwire that fires where the
+#                  engine would not refuse is the one failure mode a tripwire
+#                  must not have. The fix is the new `fenced_target`; `in_dir`
+#                  itself keeps its loose form verbatim for paths outside the
+#                  repository and gained only a docstring, which is why it
+#                  passes the pure-insertion pin below.
+T11_HOOK_EDITS = ("write_fence", "in_dir")
+
+# The one line T11 *replaces* rather than inserts, written out on both sides.
+# `write_fence` now tests each fenced name with the anchored `fenced_target`
+# instead of the loose `in_dir`. Declaring it here keeps the pin above exact:
+# any other lost line still fails, and dropping this line *without* the
+# replacement arriving also fails. `test_n28` asserts the resulting behaviour
+# of `write_fence`; `tests/test_hooks.py` asserts it end to end through the
+# registered command.
+T11_HOOK_LINE_SUBSTITUTIONS = {
+    "write_fence": {
+        "        if in_dir(path, name):": "        if fenced_target(path, name):",
+    },
+}
 
 
 def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
@@ -932,14 +1021,15 @@ def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
     guard registry is separately pinned by
     `test_units_gate_policy.py::test_n28_the_hooks_are_byte_identical`.
 
-    **T11 (D7) declares one exception, `write_fence`.** The plan's X9 row named
-    only `test_n28` as the hooks byte-pin; this is a second one, and it is
-    recorded as a plan deviation rather than quietly re-baselined. The
-    exception is narrow and it is *proved*, not asserted: the whole of the
-    baseline definition must still be present line for line, so the only
-    change that can pass here is an insertion. `test_n28` pins what
+    **T11 declares two exceptions, `write_fence` and `in_dir`.** The plan's X9
+    row named only `test_n28` as the hooks byte-pin; this is a second one, and
+    both exceptions are recorded as plan deviations rather than quietly
+    re-baselined. Each is narrow and *proved*, not asserted: the whole of the
+    baseline definition must still be present line for line, so the only change
+    that can pass is an insertion — with exactly one declared substitution,
+    written out below as a before/after pair. `test_n28` pins what
     `write_fence` must still *do*; this pins that nothing it did was taken
-    away.
+    away by accident.
     """
     for relative in (".claude/hooks/hooks.py", "tests/test_hooks.py"):
         before = _top_level(at_baseline(relative))
@@ -950,8 +1040,15 @@ def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
                 was = [line for line in source.splitlines() if line.strip()]
                 now = [line for line in after[name].splitlines() if line.strip()]
                 missing = [line for line in was if line not in now]
-                assert not missing, f"{relative}::{name} lost lines: {missing}"
-                assert len(now) > len(was), (
+                substituted = T11_HOOK_LINE_SUBSTITUTIONS.get(name, {})
+                assert sorted(missing) == sorted(substituted), (
+                    f"{relative}::{name} lost undeclared lines: "
+                    f"{sorted(set(missing) - set(substituted))}")
+                for gone, arrived in substituted.items():
+                    assert arrived in now, (
+                        f"{relative}::{name} dropped {gone.strip()!r} without "
+                        f"the declared replacement {arrived.strip()!r}")
+                assert len(now) > len(was) - len(substituted), (
                     f"{relative}::{name} is declared edited but did not change")
                 continue
             assert after[name] == source, f"{relative}::{name}"
@@ -1101,3 +1198,57 @@ def test_a25_the_needles_are_not_vacuous():
             if line.startswith("| ") and "Enforced by" not in line
             and not set(line) <= set("|- ")]
     assert len(rows) >= 10, len(rows)
+# T11 X6 — the one FROZEN file this phase edits.
+#
+# D13 adds the `pending_branch_ack` state field and D14 bumps the version, so
+# `templates/state.json` cannot stay byte-identical. It is pulled out of the
+# parametrised comparison above and pinned here instead against T11's own
+# baseline, by a DECLARED SUBSTITUTION: take the baseline text, apply exactly
+# the two changes T11 declares, and the result must equal the file byte for
+# byte. That is strictly more auditable than a re-baseline — a third change,
+# anywhere in the file, still fails — and it keeps the pin non-vacuous.
+T11_TEMPLATE_BASELINE = "4b1aa71"
+STATE_TEMPLATE = ".claude/skills/sdle/templates/state.json"
+T11_TEMPLATE_SUBSTITUTIONS = (
+    ('"workflow_version": "1.16",', '"workflow_version": "1.17",'),
+    ('  "pending_confirm_action": null,\n',
+     '  "pending_confirm_action": null,\n  "pending_branch_ack": null,\n'),
+)
+
+
+def at_t11_template_baseline() -> str | None:
+    result = subprocess.run(
+        ["git", "show", f"{T11_TEMPLATE_BASELINE}:{STATE_TEMPLATE}"],
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode != 0:
+        return None
+    return result.stdout.replace("\r\n", "\n")
+
+
+def test_t11_the_state_template_changed_only_as_declared():
+    """X6. Two changes, both named, both required, nothing else."""
+    original = at_t11_template_baseline()
+    assert original is not None, (
+        f"{T11_TEMPLATE_BASELINE} must be reachable, or this test is vacuous")
+
+    expected = original
+    for old, new in T11_TEMPLATE_SUBSTITUTIONS:
+        assert expected.count(old) == 1, old
+        expected = expected.replace(old, new)
+    assert expected != original, "the substitution set matched nothing"
+
+    assert here(STATE_TEMPLATE) == expected
+
+    # And the same two facts stated structurally, so a future reader does not
+    # have to reverse-engineer them out of the substitution literals.
+    before = json.loads(original)
+    after = json.loads(here(STATE_TEMPLATE))
+    assert set(after) - set(before) == {"pending_branch_ack"}
+    assert set(before) - set(after) == set()
+    assert after["pending_branch_ack"] is None
+    assert (before["workflow_version"], after["workflow_version"]) == (
+        "1.16", "1.17")
+    for key in before:
+        if key != "workflow_version":
+            assert after[key] == before[key], key
+

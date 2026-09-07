@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import ast
+import copy
+import json
+from pathlib import Path
+
 import pytest
 
+from conftest import SDLE_PY, sdle
 from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED = 0, 1
@@ -241,4 +247,355 @@ def test_final_gate_completes_the_workflow(started):
     import json
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
     assert summary["all_gates_approved"] is True
-    assert summary["workflow_version"] == "1.16"
+    assert summary["workflow_version"] == "1.17"
+# ==========================================================================
+# T11 N22 / D13 — an acknowledgement names one checkout
+#
+# `pending_confirm_action` was a *flag*: it recorded THAT a branch mismatch had
+# been acknowledged, never WHICH branch. So the second step of a two-step
+# command could arrive on a third branch and be waved through on an
+# acknowledgement given for a different checkout — the guard's whole subject
+# matter, and unaudited. T03 recorded that as a declared fail-open with no
+# other owner; D13 closes it with `pending_branch_ack`.
+# ==========================================================================
+
+
+SESSION = "n22"
+
+# The four two-step commands N22 names, as the invocations that reach the
+# guard. `skip` carries the detailed assertions below; this tuple parametrises
+# `test_n22_every_two_step_command_refuses_a_stale_acknowledgement` so the
+# other three are covered too rather than assumed to behave alike.
+BRANCH_TWO_STEP = (
+    (("skip",), "skip"),
+    (("reset",), "reset"),
+    (("restart", "--to", "1"), "restart"),
+    (("implement", "preflight"), "implement preflight"),
+)
+
+
+def _on_a_mismatched_branch(project, name="feature/elsewhere"):
+    """Start the execution on one branch, then check out another."""
+    project.git("checkout", "-q", "-b", name)
+    mismatch = sdle.branch_mismatch(
+        sdle.dataclass_replace(
+            sdle.resolve_paths(str(project.root), str(project.skill_root)),
+            workitem=project.workitem))
+    assert mismatch is not None, "fixture did not produce a branch mismatch"
+    return mismatch
+
+
+def test_n22_the_first_step_records_which_branch_it_armed_against(started_git):
+    """The new field has exactly one writer and it records the branch, not
+    merely the fact."""
+    project = started_git
+    _on_a_mismatched_branch(project)
+
+    refused = project.run("skip", session=SESSION)
+
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "branch_mismatch", refused
+    state = project.state()
+    assert state["pending_confirm_action"] == "branch_mismatch"
+    assert state["pending_branch_ack"] == "feature/elsewhere"
+
+
+def test_n22_acknowledging_on_the_same_branch_still_works(started_git):
+    """The behaviour that must NOT regress: the ordinary two-step
+    acknowledgement is unchanged, and both fields clear together."""
+    project = started_git
+    _on_a_mismatched_branch(project)
+
+    project.run("skip", session=SESSION)          # arms the guard
+    second = project.run("skip", session=SESSION)  # acknowledges it
+
+    # The branch guard passed; `skip`'s own confirmation is what refuses now.
+    assert second.reason != "branch_mismatch", second
+    state = project.state()
+    assert state["pending_branch_ack"] is None, state
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "branch_mismatch_accepted" in ledger
+
+
+def test_n22_switching_branch_between_the_two_steps_is_refused_and_audited(
+    started_git,
+):
+    """The fail-open T03-1 recorded, closed.
+
+    Acknowledge on branch B, switch to branch C, re-run. Before D13 the flag
+    said only "an acknowledgement is outstanding" and the command proceeded on
+    a checkout nobody had agreed to. It now refuses, re-arms against the
+    branch you are actually on, and leaves a `branch_ack_stale` entry saying
+    why.
+    """
+    project = started_git
+    _on_a_mismatched_branch(project, "feature/b")
+
+    armed = project.run("skip", session=SESSION)
+    assert armed.reason == "branch_mismatch"
+    assert project.state()["pending_branch_ack"] == "feature/b"
+
+    project.git("checkout", "-q", "-b", "feature/c")
+
+    stale = project.run("skip", session=SESSION)
+
+    assert stale.exit_code == EXIT_REFUSED, stale
+    assert stale.reason == "branch_mismatch", stale
+    assert stale.data["acknowledged"] == "feature/b", stale
+    assert stale.data["current"] == "feature/c", stale
+    # Re-armed against the branch we are actually on, not consumed.
+    assert project.state()["pending_branch_ack"] == "feature/c"
+    assert project.state()["pending_confirm_action"] == "branch_mismatch"
+    # Audited, which is the half T03 said was missing.
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "branch_ack_stale" in ledger
+    assert "feature/b" in ledger and "feature/c" in ledger
+    assert "branch_mismatch_accepted" not in ledger, (
+        "the switched-to branch must not inherit the acknowledgement")
+    # And the action did not run.
+    assert project.state()["status"] != "skipped"
+    assert project.ok("audit", "verify").exit_code == EXIT_OK
+
+
+def test_n22_acknowledging_again_on_the_new_branch_then_proceeds(started_git):
+    """Fail-closed, not dead-ended: the user can still consent, on the
+    checkout they are actually on."""
+    project = started_git
+    _on_a_mismatched_branch(project, "feature/b")
+    project.run("skip", session=SESSION)
+    project.git("checkout", "-q", "-b", "feature/c")
+    project.run("skip", session=SESSION)      # refused, re-armed
+
+    accepted = project.run("skip", session=SESSION)
+
+    assert accepted.reason != "branch_mismatch", accepted
+    assert project.state()["pending_branch_ack"] is None
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "branch_mismatch_accepted" in ledger
+    assert "feature/c" in ledger.split("branch_mismatch_accepted", 1)[1][:400]
+
+
+def test_n22_returning_to_the_recorded_branch_needs_no_acknowledgement(
+    started_git,
+):
+    """There is nothing to acknowledge when there is no mismatch. The guard
+    returns before it reads or writes anything."""
+    project = started_git
+    recorded = json.loads(
+        (project.runtime / "execution.json").read_text(encoding="utf-8")
+    )["git"]["branch"]
+    _on_a_mismatched_branch(project, "feature/b")
+    project.run("skip", session=SESSION)
+    assert project.state()["pending_branch_ack"] == "feature/b"
+
+    project.git("checkout", "-q", recorded)
+
+    result = project.run("skip", session=SESSION)
+
+    assert result.reason != "branch_mismatch", result
+    # Untouched rather than cleared: the guard never ran.
+    assert project.state()["pending_branch_ack"] == "feature/b"
+
+
+@pytest.mark.parametrize("invocation,action", BRANCH_TWO_STEP,
+                         ids=[action for _, action in BRANCH_TWO_STEP])
+def test_n22_every_two_step_command_refuses_a_stale_acknowledgement(
+    started_git, invocation, action
+):
+    """N22 names four commands, so all four are asserted.
+
+    Every one of them is two-step, and before D13 every one of them would
+    consume an acknowledgement given for a different checkout. The refusal is
+    the same for all four because the guard is one function — which is the
+    point: there is no per-command carve-out to get wrong.
+    """
+    project = started_git
+    mismatch = _on_a_mismatched_branch(project, "feature/b")
+
+    armed = project.run(*invocation, session=SESSION)
+    assert armed.exit_code == EXIT_REFUSED, armed
+    assert armed.reason == "branch_mismatch", armed
+    assert project.state()["pending_branch_ack"] == "feature/b"
+
+    project.git("checkout", "-q", "-b", "feature/c")
+    before = project.state()
+
+    stale = project.run(*invocation, session=SESSION)
+
+    assert stale.exit_code == EXIT_REFUSED, stale
+    assert stale.reason == "branch_mismatch", stale
+    assert stale.data["acknowledged"] == "feature/b", stale
+    assert stale.data["current"] == "feature/c", stale
+    # Still measured against the branch the execution was started on: the
+    # stale acknowledgement replaces neither of the other two facts.
+    assert stale.data["recorded"] == mismatch["recorded"], stale
+    assert stale.data["action"] == action, stale
+
+    # The action did not run: nothing but the guard's own bookkeeping moved.
+    after = project.state()
+    assert after["current_phase"] == before["current_phase"]
+    assert after["approvals"] == before["approvals"]
+    assert after["status"] == before["status"]
+    assert after["pending_branch_ack"] == "feature/c"
+
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "branch_ack_stale" in ledger
+    assert "branch_mismatch_accepted" not in ledger
+    assert project.ok("audit", "verify").exit_code == EXIT_OK
+
+
+def test_n22_the_field_has_exactly_one_writer(started_git):
+    """Invariant 6, and the reason `pending_branch_ack` cannot drift out of
+    step with the flag it qualifies: only `branch_guard` assigns it."""
+    tree = ast.parse(Path(SDLE_PY).read_text(encoding="utf-8"))
+    writers = set()
+    for function in [n for n in ast.walk(tree)
+                     if isinstance(n, ast.FunctionDef)]:
+        for node in ast.walk(function):
+            if (isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Constant)
+                    and node.slice.value == "pending_branch_ack"
+                    and isinstance(node.ctx, ast.Store)):
+                writers.add(function.name)
+    assert writers == {"branch_guard"}, writers
+
+
+def test_n22_a_resuming_session_can_see_which_branch_was_acknowledged(
+    started_git,
+):
+    """TP-006: correctness may not depend on conversation history. The flag
+    alone is no longer the whole fact, so `resume` reports the branch too."""
+    project = started_git
+    _on_a_mismatched_branch(project, "feature/b")
+    project.run("skip", session=SESSION)
+
+    pending = project.ok("resume").data["pending"]
+
+    assert pending["pending_confirm_action"] == "branch_mismatch"
+    assert pending["pending_branch_ack"] == "feature/b"
+
+
+def test_tr20_the_acknowledgement_is_still_ledgered_before_a_later_refusal(
+    started_git,
+):
+    """T11 TR20, verified rather than assumed — and the verdict is DEFERRED.
+
+    T03-8 recorded that `branch_mismatch_accepted` is written even when the
+    command then refuses for an unrelated reason. The T11 plan lists TR20 as
+    "FIXED as a by-product of D13 — verify explicitly; if it does not fall out,
+    record as DEFERRED". It does not fall out, and this test is the evidence.
+
+    D13 changes *which* acknowledgement is honoured, not *when* it is written:
+    `branch_guard` runs ahead of the command body and cannot know whether that
+    body will succeed, so the acceptance entry precedes any later refusal
+    exactly as before. What D13 does remove is the harm T03-8 pointed at — the
+    entry is no longer a standing permission, because a subsequent invocation
+    on a different checkout is refused (`test_n22_switching_...`).
+
+    The residual is recorded, not silently left: the ledger's claim is that the
+    *branch* was acknowledged, which is true, while the command's own outcome
+    is a separate later entry. Pinned here so a future edit that reorders the
+    guard has to face the question deliberately.
+    """
+    project = started_git
+    _on_a_mismatched_branch(project, "feature/b")
+
+    first = project.run("advance", "--to", "constitution_draft",
+                        session=SESSION)
+    assert first.reason == "branch_mismatch", first
+
+    second = project.run("advance", "--to", "constitution_draft",
+                         session=SESSION)
+
+    # The guard let it past; the command itself refused for its own reason.
+    assert second.exit_code == EXIT_REFUSED, second
+    assert second.reason != "branch_mismatch", second
+
+    ledger = project.audit_file.read_text(encoding="utf-8")
+    assert "branch_mismatch_accepted" in ledger
+    # And the action demonstrably did not happen.
+    assert project.state()["current_phase"] == "constitution_draft"
+    assert project.ok("audit", "verify").exit_code == EXIT_OK
+
+
+# ==========================================================================
+# T11 N23 / D14 — the 1.16 -> 1.17 migration
+# ==========================================================================
+
+
+def test_n23_the_migration_adds_the_field_and_is_idempotent(started):
+    """Running the chain twice must be indistinguishable from running it
+    once — a migration that is not idempotent turns a retried command into a
+    corruption."""
+    state = started.state()
+    state["workflow_version"] = "1.16"
+    state.pop("pending_branch_ack", None)
+    started.write_state(state)
+
+    first = started.ok("migrate", session="n23")
+    assert first.data["steps"] == ["1.16->1.17"], first
+    once = started.state()
+    assert once["workflow_version"] == "1.17"
+    assert once["pending_branch_ack"] is None
+
+    second = started.ok("migrate", session="n23")
+    assert second.data["steps"] == [], second
+    assert started.state() == once
+
+
+def test_n23_the_migration_preserves_every_verified_field(started):
+    """The fields `migrate-workflow` verifies after a move are exactly the
+    ones a migration must not disturb, so they are the ones asserted here."""
+    before = started.state()
+    keep = {field: copy.deepcopy(before[field])
+            for field in sdle.MIGRATION_VERIFIED_FIELDS}
+
+    state = started.state()
+    state["workflow_version"] = "1.16"
+    state.pop("pending_branch_ack", None)
+    started.write_state(state)
+    started.ok("migrate", session="n23b")
+
+    after = started.state()
+    for field, value in keep.items():
+        assert after[field] == value, field
+
+
+def test_n23_an_outstanding_acknowledgement_is_migrated_to_null_deliberately(
+    started,
+):
+    """The safe value, not the convenient one.
+
+    A v1.16 state can be mid-acknowledgement: `pending_confirm_action` is
+    `branch_mismatch` and nobody recorded which branch. Inferring
+    `current_branch()` here would manufacture a consent the user never gave,
+    so the field arrives `null` and the guard asks again on the next
+    lifecycle-critical command. `pending_confirm_action` itself is left
+    exactly as it was — the migration invents nothing in either direction.
+    """
+    state = started.state()
+    state["workflow_version"] = "1.16"
+    state.pop("pending_branch_ack", None)
+    state["pending_confirm_action"] = "branch_mismatch"
+    started.write_state(state)
+
+    started.ok("migrate", session="n23c")
+
+    after = started.state()
+    assert after["pending_branch_ack"] is None
+    assert after["pending_confirm_action"] == "branch_mismatch"
+
+
+def test_n23_the_version_chain_gained_a_row_and_lost_none(started):
+    """D14 appends; it never replaces. The whole chain is still walkable from
+    the oldest version the engine knows."""
+    consts = sdle.load_constants(
+        sdle.resolve_paths(str(started.root), str(started.skill_root)))
+    chain = consts.version_chain
+    assert chain[-1] == ("1.16", "1.17")
+    assert chain[0][0] == "1.0"
+    # Contiguous: every row's `to` is the next row's `from`.
+    for (_, to), (frm, _) in zip(chain, chain[1:]):
+        assert to == frm, (to, frm)
+    assert len(chain) == 17
+

@@ -19,7 +19,7 @@ import pytest
 import re
 from pathlib import Path
 
-from conftest import FIXTURE_WORKITEM_ID, REPO_ROOT
+from conftest import FIXTURE_WORKITEM_ID, REPO_ROOT, sdle
 
 HOOKS = REPO_ROOT / ".claude" / "hooks"
 SETTINGS = json.loads(
@@ -165,6 +165,158 @@ def test_write_fence_allows_normal_artifacts(project, path):
     output = fire("write-fence", {"tool_name": "Write",
                                   "tool_input": {"file_path": path}}, project.root)
     assert output == {}, f"{path} should not be fenced"
+
+
+# -- the fence is anchored, not loose ---------------------------------------
+#
+# A user-approved correction made during T11 M7, outside the plan's D-items and
+# recorded as such. `in_dir` matched `/{name}/` *anywhere* in a path, while
+# `SDLE_OWNED_PREFIXES` — the ownership the fence exists to protect — is
+# entirely repository-root-relative. The hook was therefore strictly broader
+# than the engine, and it denied `docs/workitems/`: a documentation path SDLE
+# does not own, does not write, and has no choke-point refusal for.
+#
+# **A tripwire that fires where the engine would not refuse is the one failure
+# mode a tripwire must not have** — it teaches the reader that the fence is
+# noise, and a fence people route around has stopped being a fence.
+#
+# These cases are the regression pin. They are driven through the registered
+# command as a subprocess, like every other test in this file, so they exercise
+# the hook Claude Code actually runs.
+
+FENCED_INSIDE_THE_REPOSITORY = (
+    # repo-relative — the form the fence has always accepted
+    "workitems/index.md",
+    "workitems/wi-a/workitem.json",
+    "workitems/wi-a/.sdle/state.json",
+    ".workflow/state.json",
+    "requirements/todo-api.md",
+    "guidance/plan.md",
+)
+
+NOT_FENCED_INSIDE_THE_REPOSITORY = (
+    # `docs/workitems/` is the §17 documentation target. It is not owned, not
+    # written by the engine, and must not be denied.
+    "docs/workitems/README.md",
+    "docs/workitems/index.md",
+    # the sibling documentation directories, for the same reason
+    "docs/lifecycle/README.md",
+    "docs/troubleshooting/README.md",
+    # the fenced names appearing anywhere but the root
+    "docs/requirements/README.md",
+    "src/guidance/helper.py",
+    "tests/fixtures/workitems/sample.json",
+    # a name that merely starts with a fenced name is a different directory
+    "workitems-archive/old.md",
+    "requirements-draft/notes.md",
+)
+
+
+@pytest.mark.parametrize("relative_path", FENCED_INSIDE_THE_REPOSITORY)
+def test_the_fence_denies_owned_paths_in_both_forms(project, relative_path):
+    """Anchoring must not have narrowed the fence.
+
+    Asserted twice per path — repo-relative and absolute-under-the-project —
+    because those are the two shapes that resolve to the same file and a fix
+    that only handled one of them would leave a live hole. That is not
+    hypothetical: the first cut of this correction anchored only the absolute
+    form, and the repo-relative form of `docs/workitems/README.md` was still
+    being denied.
+    """
+    absolute = (project.root / relative_path).as_posix()
+    for form in (relative_path, absolute):
+        output = fire("write-fence", {"tool_name": "Write",
+                                      "tool_input": {"file_path": form}},
+                      project.root)
+        assert decision(output) == "deny", f"{form} must stay fenced"
+        assert "SDLE write fence" in reason(output)
+
+
+@pytest.mark.parametrize("relative_path", NOT_FENCED_INSIDE_THE_REPOSITORY)
+def test_the_fence_permits_paths_the_engine_does_not_own(project, relative_path):
+    """The fence denies exactly `SDLE_OWNED_PREFIXES`, and nothing more."""
+    absolute = (project.root / relative_path).as_posix()
+    for form in (relative_path, absolute):
+        output = fire("write-fence", {"tool_name": "Write",
+                                      "tool_input": {"file_path": form}},
+                      project.root)
+        assert output == {}, f"{form} is not owned by SDLE and must not be denied"
+
+
+@pytest.mark.parametrize("path", [
+    "/some/other/tree/workitems/wi-b/.sdle/state.json",
+    "/some/other/tree/.workflow/state.json",
+    r"C:\some\other\tree\workitems\wi-b\.sdle\state.json",
+    r"C:\some\other\tree\requirements\todo-api.md",
+])
+def test_the_fence_stays_loose_outside_the_repository(project, path):
+    """Defence in depth, and the reason `in_dir` was kept rather than deleted.
+
+    Outside this project directory the hook has no root to anchor against, so
+    the loose segment match is the only thing left — and an absolute write into
+    *another* tree's `workitems/` is still a write the fence wants to see. A
+    Windows drive-letter path counts as absolute here even though
+    `posixpath.isabs` would disagree; if it did not, another tree's path would
+    be wrongly anchored against this root and silently permitted.
+    """
+    output = fire("write-fence", {"tool_name": "Write",
+                                  "tool_input": {"file_path": path}},
+                  project.root)
+    assert decision(output) == "deny", f"{path} should still be seen"
+
+
+def _fenced_names() -> tuple[str, ...]:
+    """The hook's own `FENCED` tuple, read out of the source rather than
+    hand-copied, so this test cannot drift away from the file it describes."""
+    import ast
+    source = (HOOKS / "hooks.py").read_text(encoding="utf-8")
+    for node in ast.parse(source).body:
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "FENCED"
+                        for t in node.targets)):
+            return ast.literal_eval(node.value)
+    raise AssertionError("hooks.py declares no FENCED tuple")
+
+
+def test_every_fenced_name_is_anchored_at_the_repository_root(project):
+    """The correction's invariant, asserted over the hook's whole `FENCED`
+    tuple rather than over the one path that exposed it.
+
+    For every fenced name: a repository-root path under it is denied, and the
+    *same name one directory down* is not. A name added to `FENCED` later
+    inherits both halves automatically, so this cannot rot into a test of one
+    special case.
+    """
+    fenced = _fenced_names()
+    assert fenced, "FENCED is empty; this test would be vacuous"
+    for name in fenced:
+        at_root = fire("write-fence", {"tool_name": "Write", "tool_input": {
+            "file_path": f"{name}/probe.json"}}, project.root)
+        assert decision(at_root) == "deny", f"{name}/ must be fenced"
+        nested = fire("write-fence", {"tool_name": "Write", "tool_input": {
+            "file_path": f"docs/{name}/probe.json"}}, project.root)
+        assert nested == {}, (
+            f"docs/{name}/ is not owned by the engine and must not be denied")
+
+
+def test_the_fence_is_a_subset_of_what_the_engine_owns(project):
+    """`FENCED` ⊆ `SDLE_OWNED_PREFIXES`, and deliberately a strict subset.
+
+    This is the relationship the correction restored, and stating it precisely
+    matters. Everything the hook fences is something the engine claims to own,
+    so the tripwire never fires where the engine would not refuse. The converse
+    is false *by design*: `design/`, `reviews/`, `.specify/` and
+    `clarifications/` are owned prefixes for the dirty-tree guard's purposes
+    but are artifacts the model legitimately writes, so fencing them would
+    block the work. Asserted against the engine constant, not a copy.
+    """
+    owned = {p.strip("/") for p in sdle.SDLE_OWNED_PREFIXES}
+    fenced = set(_fenced_names())
+    assert fenced <= owned, sorted(fenced - owned)
+    assert owned - fenced, (
+        "the subset is expected to be strict; if it became equality, the "
+        "reasoning in this test needs revisiting rather than the assertion "
+        "being widened")
 
 
 def test_write_fence_explains_the_single_writer_rule(project):

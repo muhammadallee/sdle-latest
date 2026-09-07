@@ -89,7 +89,7 @@ To advance through the workflow, approve the intervening gates.
 
 ### Part 3 — Hand-edited state: the Recovery Consistency Check
 
-*(Someone edited `.workflow/state.json` and set `current_phase` to `implement` while history only confirms up to `gate_spec`. On the next turn:)*
+*(Someone edited `workitems/todo-api/.sdle/state.json` and set `current_phase` to `implement` while history only confirms up to `gate_spec`. On the next turn:)*
 
 **User:** `continue`
 
@@ -148,7 +148,7 @@ reset workflow
 ⚠️ FULL WORKFLOW RESET
 
 This will:
-  • Delete .workflow/state.json and .workflow/audit.md
+  • Delete workitems/todo-api/.sdle/state.json and workitems/todo-api/.sdle/audit.md
   • Preserve all generated artifacts (.specify/, design/, reviews/, clarifications/)
 
 This action cannot be undone.
@@ -173,7 +173,7 @@ confirm reset
 Say 'start workflow' to begin fresh.
 ```
 
-*(`state.json`, `audit.md`, and the `.workflow/lock` session lock are deleted; every generated artifact under `.specify/`, `design/`, `reviews/`, and `clarifications/` survives. No status header on this turn — state no longer exists.)*
+*(`state.json`, `audit.md`, and the `workitems/todo-api/.sdle/lock` session lock are deleted; every generated artifact under `.specify/`, `design/`, `reviews/`, and `clarifications/` survives. No status header on this turn — state no longer exists.)*
 
 ---
 

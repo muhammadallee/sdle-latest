@@ -1180,7 +1180,7 @@ def actor(paths: Paths) -> str:
 # State IO
 # --------------------------------------------------------------------------
 
-CURRENT_VERSION = "1.16"
+CURRENT_VERSION = "1.17"
 
 STATUS_DISPLAY = {
     "pending": "PENDING",
@@ -1740,6 +1740,20 @@ def _mig_1_15(state, paths, consts):
         state["flow"] = DEFAULT_FLOW
 
 
+def _mig_1_16(state, paths, consts):
+    """Introduce ``pending_branch_ack`` (T11 D13).
+
+    ``None`` unconditionally, and that is the safe value rather than a
+    convenient one: a migrated workflow with an outstanding
+    ``pending_confirm_action == "branch_mismatch"`` has an acknowledgement
+    whose branch nobody recorded, so the guard must ask again on the next
+    critical command instead of honouring an acknowledgement it cannot
+    attribute. Guessing ``current_branch()`` here would manufacture consent
+    the user never gave.
+    """
+    _add_missing(state, pending_branch_ack=None)
+
+
 MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.0", "1.1", _mig_1_0),
     ("1.1", "1.2", _mig_1_1),
@@ -1757,6 +1771,7 @@ MIGRATIONS: list[tuple[str, str, object]] = [
     ("1.13", "1.14", _mig_1_13),
     ("1.14", "1.15", _mig_1_14),
     ("1.15", "1.16", _mig_1_15),
+    ("1.16", "1.17", _mig_1_16),
 ]
 
 
@@ -2186,6 +2201,11 @@ def cmd_resume(args, paths: Paths) -> int:
             "pending": {
                 "drift_queue": state.get("drift_queue") or [],
                 "pending_confirm_action": state.get("pending_confirm_action"),
+                # T11 D13: the flag alone is no longer the whole fact. A
+                # session resuming from disk has to be able to see which
+                # checkout the outstanding acknowledgement was given for, or
+                # it would have to re-derive it from the ledger.
+                "pending_branch_ack": state.get("pending_branch_ack"),
                 "pending_phase": state.get("pending_phase"),
                 "phase_checkpoint": state.get("phase_checkpoint"),
                 "clarification_phase": state.get("clarification_phase"),
@@ -3317,6 +3337,19 @@ def branch_guard(args, paths: Paths, state: dict) -> None:
     Reuses the existing two-step ``pending_confirm_action`` idiom rather than
     inventing a bypass flag, so the acknowledgement is audited exactly like
     every other one. Advisory commands never reach here.
+
+    **T11 D13 closes the fail-open T03 recorded.** ``pending_confirm_action``
+    is a *flag*: it said an acknowledgement was outstanding, never what had
+    been acknowledged. So the second invocation could arrive on a **third**
+    branch and be waved through on an acknowledgement the user had given for a
+    different checkout — the guard's whole subject matter, unaudited. The new
+    ``pending_branch_ack`` field records the branch that was acknowledged, and
+    the second step must match it. A mismatch re-arms the guard against the
+    branch you are actually on and refuses again; it never silently proceeds.
+
+    Both fields are cleared together on acceptance, and ``pending_branch_ack``
+    has exactly one writer — this function — so it cannot drift out of step
+    with the flag it qualifies.
     """
     if action_key(args) not in BRANCH_CRITICAL_ACTIONS:
         return
@@ -3333,17 +3366,53 @@ def branch_guard(args, paths: Paths, state: dict) -> None:
     session = getattr(args, "session", None)
 
     if pending == "branch_mismatch":
-        state["pending_confirm_action"] = None
+        acknowledged = state.get("pending_branch_ack")
+        if acknowledged == mismatch["current"]:
+            state["pending_confirm_action"] = None
+            state["pending_branch_ack"] = None
+            append_audit(
+                paths, state, phase=phase, event="branch_mismatch_accepted",
+                message=f"User acknowledged running `{action_name(args)}` on "
+                        f"branch '{mismatch['current']}' while this WorkItem's "
+                        f"execution was started on '{mismatch['recorded']}'.",
+            )
+            save_state(paths, state, session)
+            return
+
+        # T11 D13: the acknowledgement was for a different checkout. Re-arm
+        # against the branch we are actually on rather than consuming it.
+        state["pending_branch_ack"] = mismatch["current"]
         append_audit(
-            paths, state, phase=phase, event="branch_mismatch_accepted",
-            message=f"User acknowledged running `{action_name(args)}` on "
-                    f"branch '{mismatch['current']}' while this WorkItem's "
-                    f"execution was started on '{mismatch['recorded']}'.",
+            paths, state, phase=phase, event="branch_ack_stale",
+            message=f"Branch-mismatch acknowledgement rejected before "
+                    f"`{action_name(args)}`: the outstanding acknowledgement "
+                    f"was for branch '{acknowledged}', but the checkout is now "
+                    f"'{mismatch['current']}'. An acknowledgement names one "
+                    "checkout; it is not a standing permission. The guard was "
+                    "re-armed against the current branch.",
         )
         save_state(paths, state, session)
-        return
+        raise Refused(
+            "branch_mismatch",
+            f"The outstanding branch acknowledgement was given for "
+            f"'{acknowledged}', but the checkout is now "
+            f"'{mismatch['current']}' and this WorkItem's execution was "
+            f"started on '{mismatch['recorded']}'. `{action_name(args)}` "
+            "either advances the lifecycle or fingerprints working-tree "
+            "content, so it will not run on the strength of an "
+            "acknowledgement for a different branch. Switch back, or re-run "
+            "the same command here to acknowledge this checkout (logged).",
+            {
+                "recorded": mismatch["recorded"],
+                "current": mismatch["current"],
+                "acknowledged": acknowledged,
+                "workitem": paths.workitem,
+                "action": action_name(args),
+            },
+        )
 
     state["pending_confirm_action"] = "branch_mismatch"
+    state["pending_branch_ack"] = mismatch["current"]
     append_audit(
         paths, state, phase=phase, event="branch_mismatch_guard",
         message=f"Branch-mismatch guard triggered before "
@@ -3358,7 +3427,7 @@ def branch_guard(args, paths: Paths, state: dict) -> None:
         f"'{mismatch['current']}'. `{action_name(args)}` either advances the "
         "lifecycle or fingerprints working-tree content, so running it here "
         "would record the wrong checkout. Switch back, or re-run the same "
-        "command to proceed anyway (logged).",
+        "command on this branch to proceed anyway (logged).",
         {
             "recorded": mismatch["recorded"],
             "current": mismatch["current"],
@@ -6141,6 +6210,22 @@ def baseline_status(findings: list[dict], present: bool) -> str:
     return BASELINE_VALID
 
 
+def baseline_commit(paths: Paths) -> str | None:
+    """The commit the baseline was established at, or ``None``.
+
+    T11 N11. A baseline finding says *what* is wrong; without the commit it
+    was established at, a reader cannot tell *which* repository state the
+    baseline's claims were ever true for. Deliberately swallowing to ``None``
+    on an unreadable file: this is a decoration on a refusal that has already
+    been decided, and it must never turn a diagnosed ``INVALID`` into an
+    exit-3.
+    """
+    try:
+        return (read_baseline(paths) or {}).get("commit")
+    except SdleError:
+        return None
+
+
 def baseline_state(paths: Paths) -> tuple[str, list[dict]]:
     """``(status, findings)`` for this repository. The one entry point."""
     present = paths.baseline_file.is_file()
@@ -6180,7 +6265,9 @@ def baseline_precondition(paths: Paths, flow: str, rediscovery: bool) -> str:
     status, findings = baseline_state(paths)
     relative = f"{paths.config_root_relative}/{paths.baseline_file.name}"
     data = {"workitem": paths.workitem, "flow": flow, "baseline_status": status,
-            "path": relative, "findings": findings}
+            "path": relative, "findings": findings,
+            # T11 N11: which repository state the baseline ever described.
+            "baseline_commit": baseline_commit(paths)}
 
     if flow == BASELINE_REDISCOVERY_FLOW and status in (BASELINE_VALID,
                                                         BASELINE_STALE):
@@ -6277,6 +6364,8 @@ def cmd_baseline_validate(args, paths: Paths) -> int:
         "status": status,
         "path": f"{paths.config_root_relative}/{paths.baseline_file.name}",
         "findings": findings,
+        # T11 N11, the same fact in the same shape as `baseline_precondition`.
+        "baseline_commit": baseline_commit(paths),
         "errors": len([f for f in findings if f["severity"] == VALIDATE_ERROR]),
         "warnings": len([f for f in findings
                          if f["severity"] == VALIDATE_WARNING]),
@@ -7664,6 +7753,11 @@ def cmd_gate_omit(args, paths: Paths) -> int:
     # explainable; "the policy did not require it" is only half an
     # explanation when the input to the policy moved.
     downgrade = governance_record.get("downgrade")
+    # T11 N13: §15 requires an omitted gate to be explainable *later*, from
+    # what was written down. The policy sha said which rules applied; this
+    # says which governance record supplied the level they were applied to.
+    governance_sha = (sha256_file(paths.governance_file)
+                      if paths.governance_file.is_file() else None)
     model = gate_requirements_for_state(paths, consts, state)
     disposition = next(
         (entry for entry in (model or {}).get("dispositions") or []
@@ -7725,6 +7819,9 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         "risk_level": model["final_risk"],
         "reasons": disposition["reasons"],
         "policy_sha256": model["policy"]["sha256"],
+        # T11 N13. The record the level was read from, fingerprinted, so a
+        # later reader can tell whether it is still the record on disk.
+        "governance_sha256": governance_sha,
         # T11 D11. `null` for the ordinary case; the whole block when the
         # governing level was reached by lowering an earlier one.
         "governance_downgrade": downgrade,
@@ -7768,6 +7865,7 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             "final_risk": model["final_risk"],
             "reasons": disposition["reasons"],
             "policy": model["policy"],
+            "governance_sha256": governance_sha,
             "governance_downgrade": downgrade,
             "next_phase": moved["to"],
             "status": moved["status"],
@@ -9772,6 +9870,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
+    checks.extend(_check_documentation_set(paths))
     checks.append(_check_repo_config_defaults_documented(paths))
     return checks
 
@@ -10170,6 +10269,22 @@ def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
 
 REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
 
+# T11 D16. Transition contract §17 "Documentation" names nine targets that the
+# V1 documentation set must cover. A checklist in a plan rots; a lint rule does
+# not, so the list lives here and is checked, not remembered. A trailing "/"
+# means a directory that must hold at least one non-empty `.md`.
+DOCUMENTATION_TARGETS = (
+    "README.md",
+    "CLAUDE.md",
+    "docs/architecture/",
+    "docs/workitems/",
+    "docs/lifecycle/",
+    "docs/risk-and-gates/",
+    "docs/brownfield/",
+    "docs/spec-kit-integration/",
+    "docs/troubleshooting/",
+)
+
 
 # `.claude/agents/` holds two populations. Product agent prompts are part
 # of the shipped prompt layer and are linted like any other prompt file; the
@@ -10252,10 +10367,20 @@ def _check_single_state_template(paths: Paths) -> Check:
 
 
 def _check_version_consistency(paths: Paths) -> Check:
-    """One version string, four documents."""
+    """One version string, six locations.
+
+    T11 F6 anticipated a sixth turning up during the v1.17 bump, and one did:
+    ``sdle.py``'s own ``CURRENT_VERSION``, which decides when `migrate` stops
+    and which nothing was checking against the template it must agree with.
+    Added here rather than checked by hand, so this rule stays the single
+    authority for the version string (invariant 7).
+    """
     template = json.loads(paths.state_template.read_text(encoding="utf-8"))
     version = template.get("workflow_version")
-    found: dict[str, str | None] = {"templates/state.json": version}
+    found: dict[str, str | None] = {
+        "templates/state.json": version,
+        "sdle.py CURRENT_VERSION": CURRENT_VERSION,
+    }
 
     skill = paths.skill_md.read_text(encoding="utf-8")
     frontmatter = re.search(r"Lifecycle Engine v([0-9]+\.[0-9]+)", skill)
@@ -10282,7 +10407,7 @@ def _check_version_consistency(paths: Paths) -> Check:
     return Check(
         "version_string_consistent",
         not mismatched,
-        f"all four locations report v{version}" if not mismatched
+        f"all {len(found)} locations report v{version}" if not mismatched
         else f"expected v{version}, found {mismatched}",
     )
 
@@ -10443,6 +10568,50 @@ def _check_repo_config_defaults_documented(paths: Paths) -> Check:
         else f"{examined} documented configuration block(s) equal "
              "REPO_CONFIG_DEFAULTS",
     )
+
+
+def _check_documentation_set(paths: Paths) -> list[Check]:
+    """T11 D16 — §17's nine documentation targets exist and say something.
+
+    Emitted only when the tree carries **both** `README.md` and `CLAUDE.md` at
+    its root, which is what distinguishes the SDLE source repository from a
+    project that merely has the skill installed. That is the same convention
+    `_check_doc_phase_tables` already follows — a documentation rule is not
+    evaluated against a tree that was never supposed to hold documentation —
+    and it does not fail open: if `README.md` disappears from the source
+    repository this check and `doc_lists_every_phase_README` both go absent,
+    and `test_n26`'s exact-set equality over the check names fails loudly.
+
+    "Non-empty" is deliberate. A directory holding a placeholder `.md` with no
+    content would satisfy "exists" while documenting nothing, and §17 asks for
+    the documentation to be *updated*, not created.
+    """
+    root = _repo_root(paths)
+    if not ((root / "README.md").is_file() and (root / "CLAUDE.md").is_file()):
+        return []
+
+    problems: list[str] = []
+    for target in DOCUMENTATION_TARGETS:
+        path = root / target.rstrip("/")
+        if target.endswith("/"):
+            if not path.is_dir():
+                problems.append(f"{target} is missing")
+                continue
+            documents = [f for f in sorted(path.rglob("*.md"))
+                         if f.is_file() and f.stat().st_size > 0]
+            if not documents:
+                problems.append(f"{target} holds no non-empty .md")
+        elif not path.is_file():
+            problems.append(f"{target} is missing")
+        elif path.stat().st_size == 0:
+            problems.append(f"{target} is empty")
+
+    return [Check(
+        "documentation_set_is_present",
+        not problems,
+        "; ".join(problems) if problems
+        else f"all {len(DOCUMENTATION_TARGETS)} documentation targets present",
+    )]
 
 
 def _check_doc_phase_tables(paths: Paths, consts: Constants) -> list[Check]:

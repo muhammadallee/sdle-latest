@@ -87,7 +87,7 @@ Please review the content above, then respond with:
 5. Append to `state.json → phase_history`: `{ "phase": "<current_phase>", "completed_at": "<ISO>", "outcome": "approved" }`. Set `last_updated`. Save state.
 6. Do **not** derive `next_phase` from a table. **NEXT_PHASE** is the *registry* chain, not the bound flow's — under GREENFIELD it maps `requirements_check` to `impact_analysis`, a phase GREENFIELD does not contain. `sdle.sh gate approve` moves the phase itself and returns the one it moved to; `sdle.sh flow show` reports `next_phase` for the bound flow.
 7. **gate_security special case:** If `gate_key` is `gate_security`:
-   a. Write `.workflow/completion-summary.json`:
+   a. Write `completion-summary.json` into the bound WorkItem's own runtime, `workitems/<workitem>/.sdle/` — never a repository-global path. Take `<workitem>` from `state.json → workitem`, which `sdle.sh resume` also reports:
       ```json
       {
         "workflow_version": "<state.workflow_version>",
@@ -106,7 +106,7 @@ Please review the content above, then respond with:
       ```
       ✅ Security review approved. Workflow complete!
 
-      All {gate_total} gates passed. Completion summary: .workflow/completion-summary.json
+      All {gate_total} gates passed. Completion summary: <the path you just wrote>
       Security review: <security_review_artifact>
       ```
    f. HALT — do not propose a next phase.

@@ -26,7 +26,7 @@ than by convention. See
 
 As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
 
-**Validation** is `pytest` plus `scripts/sdle.sh lint-skill`. The repo carries a test fixture (`requirements/todo-api.md`) so the workflow can also be exercised in place by saying `start workflow`. Runtime artifacts from such runs (`.specify/`, `design/`, `reviews/`, `clarifications/`, and the transitional legacy `.workflow/`) are gitignored — never commit them. WorkItem records under `workitems/` are the exception: they are **versioned** by design, and only `workitems/*/.sdle/lock` and the developer-local `workitems/.active-context.json` are ignored.
+**Validation** is `pytest` plus `scripts/sdle.sh lint-skill`. The repo carries a test fixture (`requirements/todo-api.md`) so the workflow can also be exercised in place by saying `start workflow`. Runtime artifacts from such runs (`.specify/`, `design/`, `reviews/`, `clarifications/`, and the archival legacy `.workflow/`) are gitignored — never commit them. WorkItem records under `workitems/` are the exception: they are **versioned** by design, and only `workitems/*/.sdle/lock` and the developer-local `workitems/.active-context.json` are ignored.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `s
 
 Which capability files a phase requires is not a judgement the model makes each turn: it is the **`CAPABILITY_MAP`** table in SKILL.md, parsed by the script and reported by `sdle.sh resume`. The row is a floor, not a ceiling — a capability file may still point at another one. `lint-skill` fails on a missing row, an unknown phase, a file that does not exist, an orphan module, a row that names SKILL.md, a row that requires the whole set, or an unmapped cross-reference.
 
-**`.claude/agents/`** — four read-only product subagents (`sdle-discovery`, `sdle-design-review`, `sdle-code-review`, `sdle-security-review`) for high-context independent analysis. They may inspect, reason and return findings; they may not mutate lifecycle state, approve a gate, bypass policy or become workflow controllers. That is enforced twice: a `tools: Read, Grep, Glob` grant, and a `PreToolUse` fence in each agent's own frontmatter that denies every write and every command. `lint-skill` fails if either stops being true. Findings enter the governed record through one door the parent opens — `artifact review --actor-type agent --actor-name <agent>`. The `sdle-transition-*` files beside them are this repo's migration control plane, not the product.
+**`.claude/agents/`** — four read-only product subagents (`sdle-discovery`, `sdle-design-review`, `sdle-code-review`, `sdle-security-review`) for high-context independent analysis. They may inspect, reason and return findings; they may not mutate lifecycle state, approve a gate, bypass policy or become workflow controllers. That is enforced twice: a read-only `tools:` grant in each agent's frontmatter — the permitted set is `PRODUCT_AGENT_TOOLS` in `scripts/sdle.py`, not a literal restated here — and a `PreToolUse` fence in each agent's own frontmatter that denies every write and every command. `lint-skill` fails if either stops being true. Findings enter the governed record through one door the parent opens — `artifact review --actor-type agent --actor-name <agent>`. The `sdle-transition-*` files beside them are this repo's migration control plane, not the product.
 
 **Two of those enforcement points are not SDLE's.** That a declared `tools:` list is applied, and that a frontmatter hook fires, are guarantees of the **Claude Code runtime**; SDLE checks the *declaration*, not the runtime's honouring of it. And three things remain **convention only**: that the parent delegates at all, that `--actor-name` truthfully names the producer, and that a human rather than the orchestrator typed `approve`. `docs/architecture/ADR-007-progressive-capabilities-and-product-subagents.md` §3 carries the full split; it must not be softened.
 
@@ -56,7 +56,7 @@ Which capability files a phase requires is not a judgement the model makes each 
 
 **`.claude/hooks/`** + **`.claude/settings.json`** — five guardrail hooks. Hooks are *tripwires*; where they overlap the script, the script's refusal at the choke point is the guarantee. Four inspect the payload and stay silent when it does not concern them; the fifth, `product-agent-fence`, denies everything it is registered for and is registered in the four product agents' frontmatter rather than in `settings.json`, because it must bind those agents and not the parent session.
 
-Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is transitional — it is still read when a repository has a pre-v1.14 workflow and no WorkItem registered, and `migrate-workflow --workitem <id>` moves it under a WorkItem without ever mutating it.
+Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is **archival**, not a runtime: as of v1.17 nothing binds it and nothing runs against it. It survives as exactly two things — a migration source for `migrate-workflow --workitem <id>`, which moves it under a WorkItem without ever mutating it, and a project-root marker, so a legacy-only repository can still be found. It stays write-fenced for that reason. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`.
 
 Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/`, `templates/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it; no lifecycle rule lives there and nothing in any lifecycle flow reads it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
@@ -113,6 +113,24 @@ python scripts/sdle.py lint-skill  # cross-file sync rules
 
 The engine is cross-platform. Embedded commands in prompt files must be too — `lint-skill` fails on PowerShell-only cmdlets. Where a shell wrapper genuinely needs to be platform-specific, ship both (`sdle.sh` and `sdle.ps1`).
 
+## The Documentation Set
+
+`lint-skill`'s `documentation_set_is_present` check requires each of these to exist and hold at least one non-empty document. A checklist rots; a lint rule does not.
+
+| Path | Covers |
+|---|---|
+| `README.md` | The product, end to end |
+| `CLAUDE.md` | This file — how to work on the repository |
+| `docs/architecture/` | ADRs. Numbered, immutable once merged; the next number is ADR-009 |
+| `docs/workitems/` | WorkItem identity, the registry, the resolution ladder, the legacy migration path |
+| `docs/lifecycle/` | The phase registry, the five flows, gates and gate discipline |
+| `docs/risk-and-gates/` | How the required gate set is derived from governance, and the floors |
+| `docs/brownfield/` | Discovery, the repository baseline, and why discovery happens once |
+| `docs/spec-kit-integration/` | Capability detection, feature-directory tiers, opacity |
+| `docs/troubleshooting/` | Every refusal a user can hit, and the intended way out |
+
+Each of them is a **derived view**. `scripts/sdle.py` and the constant tables in `SKILL.md` are the authority; where a document and the engine disagree, the document is the defect.
+
 ## Historical Context
 
-`docs/architecture/ADR-001-deterministic-core.md` records why the mechanical layer moved into code, what was rejected, and every deliberate divergence from v1.12 behaviour.
+`docs/architecture/ADR-001-deterministic-core.md` records why the mechanical layer moved into code, what was rejected, and every deliberate divergence from v1.12 behaviour. `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md` records the V1 convergence: what the legacy removal took out, what it deliberately kept, and every finding the migration closed or deferred.

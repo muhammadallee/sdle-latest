@@ -32,7 +32,7 @@ implementation manifest as if the implementation produced them.
 Commit or stash them first, or say "confirm implement" to proceed anyway (logged).
 ```
 
-*(The guard filters out SDLE's own artifact paths (`.workflow/`, `.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`, `requirements/`) — mid-workflow those are legitimately dirty. Only the user's `notes/ideas.md` remains, so the phase halts with `pending_confirm_action: "implement_dirty_tree"`.)*
+*(The guard filters out SDLE's own artifact paths (`.workflow/`, `.sdle/`, `workitems/`, `.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`, `requirements/`) — mid-workflow those are legitimately dirty. Only the user's `notes/ideas.md` remains, so the phase halts with `pending_confirm_action: "implement_dirty_tree"`.)*
 
 ---
 
@@ -78,7 +78,7 @@ src/config.py:12 — secret API key — sk-p ****(masked)
 Implemented the Todo REST API per tasks.md: CRUD endpoints, filtering,
 completion shortcut endpoint, validation layer, and pytest suite.
 
-Artifact path: .workflow/implementation-manifest.md
+Artifact path: workitems/todo-api/.sdle/implementation-manifest.md
 Fingerprint: 7A2E90CF…B14D
 
 Please review the content above, then respond with:

@@ -109,7 +109,10 @@ an independent workflow controller.
 Those four inabilities are not asserted in prose. They are expressed twice, and
 each layer holds if the other is removed:
 
-1. **The grant.** `tools: Read, Grep, Glob`. No `Bash`, so the agent cannot run
+1. **The grant.** A read-only `tools:` line in each agent's frontmatter. The
+   permitted set is `PRODUCT_AGENT_TOOLS` in `scripts/sdle.py` and is not
+   restated here — this ADR records why the grant is narrow, not what is in it.
+   No `Bash`, so the agent cannot run
    `sdle.sh` at all — not `gate approve`, not `advance`, not anything. No
    `Write` or `Edit`, so it cannot reach the filesystem. No `Agent`/`Task`, so
    it cannot spawn a further agent and become a controller for want of the only

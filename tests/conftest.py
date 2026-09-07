@@ -440,3 +440,77 @@ def started_git(project: Project) -> Project:
     project.init_git()
     project.ok("init", session="testsess")
     return project
+# ---------------------------------------------------------------------------
+# T11 D15 / X10 -- the dry-run transcript substitution set
+# ---------------------------------------------------------------------------
+#
+# The nine transcripts are the behavioural specification, and they are pinned
+# byte-identical against two different commits, in two different test files.
+# T11 converged them off the repository-global `.workflow/` runtime, which had
+# been stale since the runtime became WorkItem-scoped.
+#
+# Rather than re-baselining the pins -- which would have thrown away everything
+# they were buying -- both became a **declared substitution** comparison:
+#
+#     apply_dry_run_substitutions(at_baseline(f)) == here(f)
+#
+# Every pair below is an exact literal, never a pattern. A wildcard here would
+# silently absorb a real edit, which is the one failure mode this shape exists
+# to prevent: any change to a transcript other than these substitutions still
+# fails both pins. Each pin additionally asserts that every pair was used at
+# least once, so a pair that stopped matching cannot decay into a no-op.
+#
+# The list lives here, once, so the two pins cannot drift apart.
+
+DRY_RUN_WORKITEM_RUNTIME = "workitems/todo-api/.sdle"
+
+DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
+    ('No `.workflow/` exists.',
+     'No WorkItem runtime exists.'),
+    ('`.workflow/audit.md` created, `.workflow/lock` written',
+     '`workitems/todo-api/.sdle/audit.md` created, `workitems/todo-api/.sdle/lock` written'),
+    ('Artifact path: .workflow/implementation-manifest.md',
+     'Artifact path: workitems/todo-api/.sdle/implementation-manifest.md'),
+    ('Completion summary: .workflow/completion-summary.json',
+     'Completion summary: workitems/todo-api/.sdle/completion-summary.json'),
+    ('- `.workflow/lock` was rewritten',
+     '- `workitems/todo-api/.sdle/lock` was rewritten'),
+    ('- `.workflow/completion-summary.json` written exactly once',
+     '- `workitems/todo-api/.sdle/completion-summary.json` written exactly once'),
+    ('Fresh project (no `.workflow/`)',
+     'Fresh project (no WorkItem runtime)'),
+    ('(`.workflow/`, `.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`, `requirements/`)',
+     '(`.workflow/`, `.sdle/`, `workitems/`, `.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`, `requirements/`)'),
+    ('(`.workflow/lock` is fresh with a different token)',
+     '(`workitems/todo-api/.sdle/lock` is fresh with a different token)'),
+    ('rejection entry from `.workflow/audit.md`',
+     'rejection entry from `workitems/todo-api/.sdle/audit.md`'),
+    ('.workflow/audit.md has been edited, truncated, or written by another session.',
+     'workitems/todo-api/.sdle/audit.md has been edited, truncated, or written by another session.'),
+    ('.workflow/audit.md before proceeding.',
+     'workitems/todo-api/.sdle/audit.md before proceeding.'),
+    ('(inspects `.workflow/audit.md`,',
+     '(inspects `workitems/todo-api/.sdle/audit.md`,'),
+    ('Someone edited `.workflow/state.json`',
+     'Someone edited `workitems/todo-api/.sdle/state.json`'),
+    ('Delete .workflow/state.json and .workflow/audit.md',
+     'Delete workitems/todo-api/.sdle/state.json and workitems/todo-api/.sdle/audit.md'),
+    ('and the `.workflow/lock` session lock are deleted',
+     'and the `workitems/todo-api/.sdle/lock` session lock are deleted'),
+    ('independent fresh project (no `.workflow/`)',
+     'independent fresh project (no WorkItem runtime)'),
+)
+
+
+def apply_dry_run_substitutions(text: str, used: set | None = None) -> str:
+    """Rewrite a baseline transcript into its post-T11 form.
+
+    `used`, when given, collects the left-hand side of every pair that
+    actually matched, so the caller can assert the whole set was exercised.
+    """
+    for old, new in DRY_RUN_SUBSTITUTIONS:
+        if old in text:
+            if used is not None:
+                used.add(old)
+            text = text.replace(old, new)
+    return text

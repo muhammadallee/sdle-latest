@@ -4,8 +4,8 @@
 | Field | Value |
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
-| **Covers software version** | SDLE v1.16 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
-| **Document version** | 1.1 |
+| **Covers software version** | SDLE v1.17 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
+| **Document version** | 1.5 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
 | **Status** | Active |
@@ -214,9 +214,11 @@ Every command that touches runtime state resolves a WorkItem first, in this
 order: an explicit `--workitem <id>`, which must be registered; otherwise the
 launch directory, when it sits inside `workitems/<x>/`; otherwise the sole
 registered WorkItem; otherwise a still-valid persisted active context;
-otherwise a unique Git-branch match; otherwise a repository-global
-`.workflow/state.json`, if one exists and **no** WorkItem is registered. With
-none registered the command refuses `workitem_required`; with several plausible
+otherwise a unique Git-branch match. **There is no sixth rung.** With
+none registered the command refuses `workitem_required` — and when a
+repository-global `.workflow/state.json` is also on disk, that refusal names
+the two-step recovery (`workitem create`, then `migrate-workflow --workitem
+<id>`) in that order; with several plausible
 and none named it refuses `workitem_ambiguous` and lists the candidates. SDLE
 never picks one. `lint-skill`, `sha`, `constants`, `workitem`,
 `migrate-workflow` and `validate` touch no runtime state and need no
@@ -257,13 +259,20 @@ the only input the orchestrator gets for the ask-the-user rung. The engine
 never infers and never returns an inferred answer; the user's choice re-enters
 as an explicit `--workitem <id>`.
 
-The sixth rung is transitional. It exists so a repository holding a pre-v1.14
-workflow stays readable long enough to be migrated, and it disappears once any
-WorkItem is registered. `init` never takes it: while a repository-global
-`.workflow/state.json` exists, `init` refuses `legacy_workflow_present`
-regardless of how many WorkItems are registered, because creating a second
-runtime beside it would leave the legacy workflow simultaneously unbindable
-and unmigratable.
+Up to v1.16 a sixth rung bound a pre-v1.14 repository-global `.workflow/`
+runtime directly, so such a repository stayed readable long enough to be
+migrated. **v1.17 deleted that rung** — and deleted it rather than replacing it
+with an inference: with zero WorkItems the ladder answers `none` whether or not
+legacy state exists, so it still never guesses. `.workflow/` is now a migration
+source and a project-root marker, and nothing else.
+
+Nothing is stranded by the removal. `workitem create` and `migrate-workflow`
+are both runtime-free, so neither reaches the ladder, and every other command
+refuses `workitem_required` with a message naming those two steps in order.
+`init` refuses `legacy_workflow_present` while a repository-global
+`.workflow/state.json` exists, regardless of how many WorkItems are registered,
+because creating a second runtime beside it would leave the legacy workflow
+simultaneously unbindable and unmigratable.
 
 `migrate-workflow --workitem <id>` moves it, in an order chosen so that an
 interruption is always recoverable. It requires an already-registered
@@ -1158,7 +1167,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | Field | Type | Description |
 |---|---|---|
 | `workflow_version` | string | Schema version; auto-migrated forward on load. |
-| `workitem` | string \| null | The WorkItem this state belongs to. `null` only at the transitional legacy `.workflow/` location. Makes a state file self-describing and a misplaced one detectable. |
+| `workitem` | string \| null | The WorkItem this state belongs to. `null` only in an unmigrated pre-v1.14 `.workflow/state.json`, which since v1.17 is a migration input and never a runtime. Makes a state file self-describing and a misplaced one detectable. |
 | `project_name` | string \| null | Inferred from requirements, else the WorkItem title, else asked of the user. |
 | `current_phase` | string | Current phase ID (e.g., `gate_plan`). |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed`. |
@@ -1229,6 +1238,7 @@ The engine commands behind the governance and review records, for operators read
 
 | Version | Date | Summary |
 |---|---|---|
+| 1.5 | 2026-09-07 | Updated for SDLE v1.17 — V1 convergence. The WorkItem runtime is the only runtime: the transitional sixth resolution rung is gone and `.workflow/` is now a migration source and project-root marker only, recovered with `workitem create` then `migrate-workflow --workitem <id>`. Spec Kit feature discovery fails closed on more than one candidate in a tier. A governance re-assessment that lowers a recorded level is audited as `governance_downgraded` and carried into later omission evidence. New `pending_branch_ack` state field closes the branch-guard fail-open. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`. |
 | 1.4 | 2026-08-24 | Updated for SDLE v1.15: SpecKit context is WorkItem-scoped. A WorkItem's feature directory moved from `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, while repository-wide SpecKit scaffolding — `.specify/`, including `memory/constitution.md` — stays at the repository root. New `specKit` state object replacing `current_feature_id`, `feature bind` and `feature capabilities`, SpecKit capability detection that refuses rather than assumes, tiered feature discovery with an audited move into the WorkItem, and a gate that refuses to approve another WorkItem's artifact. |
 | 1.3 | 2026-08-23 | Updated for SDLE v1.14: runtime state is WorkItem-scoped. `state.json`, `execution.json`, `audit.md`, `lock`, `evidence/`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`. New `workitem` state field, `--workitem` override and resolution ladder, `migrate-workflow` for a legacy runtime, and execution identity. |
 | 1.2 | 2026-08-10 | Updated for SDLE v1.13: the mechanical layer moved into `scripts/sdle.py`, a deterministic core that refuses rather than warns. Constants are parsed from SKILL.md rather than hand-synced; `lint-skill` verifies every cross-file rule; nine slash commands and four hooks; Gate 7 carries test evidence and refuses an incomplete manifest; the security diff is pinned to `implementation_base_ref`. See `docs/architecture/ADR-001-deterministic-core.md`. |

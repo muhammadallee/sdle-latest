@@ -33,11 +33,18 @@ import copy
 import functools
 import json
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, sdle
+from conftest import (
+    DRY_RUN_SUBSTITUTIONS,
+    SDLE_PY,
+    Project,
+    apply_dry_run_substitutions,
+    sdle,
+)
 from test_units_artifact_review import audit_entries, review_for_gate
 from test_units_flow_model import FEATURE, prepare
 from test_units_governance import (
@@ -1310,7 +1317,11 @@ def here(relative: str) -> str:
 
 FROZEN_FILES = (
     "tests/test_integration_01_happy_path.py",
-    ".claude/skills/sdle/templates/state.json",
+    # `templates/state.json` moved out at T11 (D13/D14) and is pinned by
+    # `test_t11_the_state_template_changed_only_as_declared` in
+    # test_units_capabilities.py, by declared substitution against `4b1aa71`.
+    # One home for that pin, not two: a second copy would be a second source
+    # of truth for the same fact (invariant 7).
     ".claude/settings.json",
     ".gitignore",
 )
@@ -1334,9 +1345,17 @@ def test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point(
     assert here(relative) == original, relative
 
 
-def test_n27_the_nine_dry_run_transcripts_are_byte_identical():
-    """A11: the transcripts are the behavioural specification. A run that
+def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
+    """A11/X10: the transcripts are the behavioural specification. A run that
     approves all eight gates is still a valid run.
+
+    T11 D15 converged them off the repository-global `.workflow/` runtime. The
+    pin is **not** re-baselined: it becomes a declared-substitution comparison
+    against the same rollback point, using the same enumerated literal list as
+    the other transcript pin (`DRY_RUN_SUBSTITUTIONS` in `conftest.py`, which
+    is why there is one list and not two). Any transcript change other than
+    those substitutions still fails here, and every declared pair must be used
+    at least once so a pair cannot decay into a no-op.
 
     The directory holds ten Markdown files — the nine numbered transcripts and
     its own README. The count guard is on the nine, because that is the number
@@ -1347,11 +1366,17 @@ def test_n27_the_nine_dry_run_transcripts_are_byte_identical():
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
     assert len(numbered) == 9, [p.name for p in every]
+
+    used: set[str] = set()
     for path in every:
         relative = path.relative_to(REPO_ROOT).as_posix()
         original = at_rollback(relative)
         assert original is not None, relative
-        assert here(relative) == original, relative
+        assert here(relative) == apply_dry_run_substitutions(
+            original, used), relative
+
+    assert used == {old for old, _ in DRY_RUN_SUBSTITUTIONS}, sorted(
+        {old for old, _ in DRY_RUN_SUBSTITUTIONS} - used)
 
 
 HOOKS_FILE = ".claude/hooks/hooks.py"
@@ -1368,11 +1393,22 @@ T10_HOOK_ADDITIONS = ("PRODUCT_AGENT_FENCE_REASON", "product_agent_fence")
 # additions and edits T11 declares are written out, so anything else still
 # fails.
 T11_HOOKS_BASELINE = "4b1aa71"
-T11_HOOK_ADDITIONS = ("normalized", "import:import posixpath")
+# `normalized` and the `posixpath` import are D7's. `fenced_target` is **not a
+# D-item**: it is a user-approved correction made outside the plan, during M7,
+# and it is recorded as such rather than folded into an X row that does not fit
+# it. `in_dir` matched `/{name}/` anywhere in a path while `SDLE_OWNED_PREFIXES`
+# is entirely repository-root-relative, so the fence was strictly broader than
+# the ownership it protects and denied `docs/workitems/` — a path the engine
+# does not own and has no choke-point refusal for. `fenced_target` anchors the
+# match at the repository-relative path start, mirroring the constant, and
+# falls back to `in_dir` for absolute paths outside the repository as defence
+# in depth. The `SCANNED`/`untrusted_read` call site still uses `in_dir` and is
+# byte-identical.
+T11_HOOK_ADDITIONS = ("normalized", "import:import posixpath", "fenced_target")
 # Definitions T11 legitimately edits. Each is pinned below by an explicit
 # property assertion instead of by bytes, so dropping it from the byte
 # comparison does not drop it from coverage.
-T11_HOOK_EDITS = ("FENCE_REASONS", "write_fence")
+T11_HOOK_EDITS = ("FENCE_REASONS", "write_fence", "in_dir")
 
 
 def at_t11_hooks_baseline(relative: str) -> str | None:
@@ -1411,6 +1447,25 @@ def _hooks_top_level(source: str) -> dict[str, str]:
             found["import:" + ast.get_source_segment(source, node)] = (
                 ast.get_source_segment(source, node))
     return found
+
+
+def _without_docstring(definition: str) -> str:
+    """A function definition's structure with its docstring removed.
+
+    Used to prove that a definition changed *only* in prose. Comparing
+    `ast.dump` rather than text means whitespace and line wrapping cannot
+    disguise a real edit, and the docstring is the single node dropped — not
+    a class of nodes, so nothing else can hide behind the exclusion.
+    """
+    node = ast.parse(textwrap.dedent(definition)).body[0]
+    body = node.body
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]
+    assert body, "a definition that is only a docstring pins nothing"
+    node.body = body
+    return ast.dump(node)
 
 
 def _registered_guards(source: str) -> list[str]:
@@ -1520,13 +1575,49 @@ def test_n28_the_hooks_are_byte_identical():
     # (3) and T11's declared addition: it normalises first (D7 / T04 N-3).
     assert "normalized(" in fence
 
+    # (4) The fence tests each name through `fenced_target`, not `in_dir`.
+    #     This is the M7 out-of-plan correction, pinned structurally here and
+    #     behaviourally in `tests/test_hooks.py`.
+    assert "fenced_target(" in fence
+    assert "in_dir(" not in fence, (
+        "the fence must use the anchored test, not the loose one")
+
+    defs = _hooks_top_level(hooks_now)
+
+    # (5) `in_dir` keeps its loose form *verbatim* — it is what `fenced_target`
+    #     falls back to outside the repository, and what `untrusted_read`
+    #     still uses. Only prose was added, and that is asserted rather than
+    #     trusted: with the docstring removed from both sides, the definition
+    #     must be structurally identical to the baseline. Byte-identity was
+    #     buying exactly this, and nothing else, because the baseline
+    #     definition carried no docstring at all.
+    assert _without_docstring(before["in_dir"]) == _without_docstring(
+        defs["in_dir"]), "in_dir changed by more than its docstring"
+
+    # (6) `fenced_target` anchors against the repository-relative path and
+    #     falls back to the loose test only outside it. Both halves asserted:
+    #     an implementation that dropped the anchor would silently restore the
+    #     over-broad denial, and one that dropped the fallback would stop
+    #     seeing writes into another tree's `workitems/`.
+    anchored = defs["fenced_target"]
+    assert "relative(path)" in anchored
+    assert 'inside.startswith(f"{name}/")' in anchored
+    assert "return in_dir(path, name)" in anchored
+
+    # (7) `untrusted_read` is the one caller that must stay loose: SCANNED is
+    #     an advisory warn-and-acknowledge scan, not an ownership claim. It is
+    #     byte-identical above; this records *why* it was left alone.
+    assert "in_dir(path, name) for name in SCANNED" in defs["untrusted_read"]
+
 
 def test_n28_the_state_schema_did_not_move(project):
     """A10: no state field, no migration row, no version bump, eight approval
     keys. The requirement set is derived at every decision point and stored
     nowhere, so there was nothing to migrate."""
     consts = repo_consts()
-    assert len(consts.version_chain) == 16
+    # T11 X11 re-valuation (TP-003 category 2): 16 -> 17. D14 appends the
+    # `1.16 -> 1.17` row for D13's `pending_branch_ack`. Exact equality kept.
+    assert len(consts.version_chain) == 17
 
     template = json.loads(
         (project.skill_root / "templates" / "state.json").read_text(
@@ -1538,10 +1629,10 @@ def test_n28_the_state_schema_did_not_move(project):
     # The version string itself, at the two locations a WorkItem runtime can
     # see. `version_string_consistent` covers all four and is exercised over a
     # repo copy by `test_lint_skill.py`; this is the half T09 could have moved.
-    assert template["workflow_version"] == "1.16"
-    assert "v1.16" in (project.skill_root / "SKILL.md").read_text(
+    assert template["workflow_version"] == "1.17"
+    assert "v1.17" in (project.skill_root / "SKILL.md").read_text(
         encoding="utf-8")
-    assert consts.version_chain[-1][1] == "1.16"
+    assert consts.version_chain[-1][1] == "1.17"
 
 
 def test_n29_the_frozen_greenfield_tuple_and_every_flow_are_unchanged():

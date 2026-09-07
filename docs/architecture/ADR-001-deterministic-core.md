@@ -47,7 +47,7 @@ Note this reverses `CLAUDE.md`'s previous platform guidance; that file has been 
 
 ### Hooks are tripwires, not guarantees
 
-Four hooks enforce guardrails regardless of model decisions. But there is no tool event meaning "implementation finished" — `speckit-implement` is one Skill call spanning many writes — so a `PostToolUse` hook cannot be where the secrets scan lives.
+Hooks enforce guardrails regardless of model decisions — four when this ADR was written, and a fifth (`product-agent-fence`) once product subagents arrived; see ADR-007. This ADR records a decision, not a count: the guard registry lives in `.claude/hooks/hooks.py` and is pinned by test, so read it there rather than here. But there is no tool event meaning "implementation finished" — `speckit-implement` is one Skill call spanning many writes — so a `PostToolUse` hook cannot be where the secrets scan lives.
 
 The resolution generalises: **where a hook and the script overlap, the script refuses at the choke point.** `gate approve --gate gate_implement` rejects a manifest missing its secrets-scan or test-evidence section. Skipping the hook cannot get an unscanned implementation in front of a reviewer. The hook only surfaces the finding earlier, while the file is fresh.
 

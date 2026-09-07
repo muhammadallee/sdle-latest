@@ -142,7 +142,48 @@ def emit(event, decision=None, reason=None, context=None):
 
 
 def in_dir(path, name):
+    """Is `path` inside the top-level directory `name`?
+
+    The loose form -- `/{name}/` anywhere -- is deliberate for a path that
+    is *outside* this repository: an absolute write into some other tree's
+    `workitems/` is still a write the fence wants to see.
+
+    Inside the repository it is wrong, and T11 M7 found it. `SDLE_OWNED_PREFIXES`
+    is entirely repository-root-relative, so the loose match made the hook
+    strictly broader than the ownership it exists to protect: it denied
+    `docs/workitems/`, a path the engine does not own and has no choke-point
+    refusal for. A tripwire that fires where the engine would not refuse is
+    the one failure mode a tripwire must not have -- it teaches the reader
+    that the fence is noise. `fenced_target` anchors it; this stays loose for
+    everything else, as defence in depth.
+    """
     return f"/{name}/" in path or path.startswith(f"{name}/")
+
+
+def fenced_target(path, name):
+    """The fence's own test: anchored inside the repository, loose outside.
+
+    Mirrors `SDLE_OWNED_PREFIXES`, which is root-relative, so the hook denies
+    exactly what the engine claims to own and nothing more.
+
+    Two path shapes are repository-relative and both must anchor:
+
+    * one under `PROJECT_DIR`, which `relative` strips; and
+    * one that is **not absolute at all**, which is relative to the project
+      directory by definition -- this is how the fence has always read
+      `.workflow/state.json`, and `relative` returns it unchanged, so it
+      cannot be told apart from a foreign absolute path by that test alone.
+
+    Only an absolute path *outside* the repository falls through to `in_dir`'s
+    loose segment match, as defence in depth. Absoluteness is tested after
+    `tool_path` has turned backslashes into `/`, so a Windows drive-letter
+    path counts as absolute -- `posixpath.isabs` would call `C:/proj/...`
+    relative and wrongly anchor another tree's path against this root.
+    """
+    inside = relative(path)
+    if inside != path or not re.match(r"^(?:/|[A-Za-z]:/)", path):
+        return inside == name or inside.startswith(f"{name}/")
+    return in_dir(path, name)
 
 
 def relative(path):
@@ -180,7 +221,7 @@ def write_fence(payload):
     if SPECS_CARVE_OUT.search(relative(path)):
         return
     for name in FENCED:
-        if in_dir(path, name):
+        if fenced_target(path, name):
             emit("PreToolUse", "deny",
                  "SDLE write fence: " + FENCE_REASONS[name])
             return

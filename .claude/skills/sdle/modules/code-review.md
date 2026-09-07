@@ -55,7 +55,7 @@ The same three rules apply as for any governed review: `FAIL` when a finding is 
 
 A review is an **input to** a decision. It is never the decision.
 
-- A subagent inspects, reasons and returns findings. It records nothing, because it can record nothing: its tool grant is read-only and a `PreToolUse` hook denies every write and every command it might attempt.
+- A subagent inspects, reasons and returns findings. It records nothing, because it can record nothing: its tool grant is read-only and a `PreToolUse` hook denies every write and every command it might attempt, when the runtime honours a declared `tools:` list and a registered hook (ADR-007 §3 — that guarantee is Claude Code's, not SDLE's). SDLE's own guarantee is that a finding enters the record only through `artifact review`, which you run.
 - **You** record the outcome, in this session, with `artifact review`.
 - **A human** approves the gate, in this session, after seeing the artifact content in the conversation.
 

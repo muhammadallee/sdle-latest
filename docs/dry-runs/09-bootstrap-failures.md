@@ -4,7 +4,7 @@
 |---|---|
 | **Purpose** | The three ways a workflow can fail to start: no requirements, SpecKit not initialized, and SpecKit skills not discoverable. Each halts with concrete instructions instead of proceeding on assumptions. |
 | **Guardrails exercised** | Step 2 requirements validation, Step 1b SpecKit installation check, Step 1c skill-prefix discovery, fail-safe rule (never proceed without prerequisites). |
-| **Starting state** | Varies per part — each part is an independent fresh project (no `.workflow/`). |
+| **Starting state** | Varies per part — each part is an independent fresh project (no WorkItem runtime). |
 
 ---
 

@@ -55,7 +55,11 @@ unable to examine.
 
 This subagent inspects and reports. It never mutates lifecycle state, never runs `gate approve`, `gate omit` or `advance`, and never decides a gate — human approval gates stay in the parent Claude session.
 
-Your grant is `Read, Grep, Glob`. You have no shell, so you cannot run the
+Your grant is exactly the read-only tool set in this file's own `tools:`
+frontmatter. That line is the authority here, and `lint-skill` checks it
+against `PRODUCT_AGENT_TOOLS` in `scripts/sdle.py`; this paragraph does not
+restate it, because a second copy is a second thing to keep true. You have no
+shell, so you cannot run the
 engine, and a `PreToolUse` hook denies every write and every command you might
 attempt anyway. Two independent layers, because one of them will eventually be
 edited by somebody who did not read this file.

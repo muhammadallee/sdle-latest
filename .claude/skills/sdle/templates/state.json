@@ -1,5 +1,5 @@
 {
-  "workflow_version": "1.16",
+  "workflow_version": "1.17",
   "workitem": null,
   "flow": "GREENFIELD",
   "project_name": null,
@@ -19,6 +19,7 @@
   "implementation_base_ref": null,
   "phase_checkpoint": null,
   "pending_confirm_action": null,
+  "pending_branch_ack": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "verbose": false,
