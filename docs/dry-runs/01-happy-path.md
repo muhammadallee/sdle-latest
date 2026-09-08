@@ -4,7 +4,7 @@
 |---|---|
 | **Purpose** | The complete success flow: fresh project → 18 phases → 8 gate approvals → `complete`. |
 | **Guardrails exercised** | Baseline gate discipline, state assertion headers, Post-SpecKit Verification (all passing), clarification persistence, dirty-tree guard and secrets scan (both passing silently), completion summary. |
-| **Starting state** | No `.workflow/` exists. SpecKit initialized (`.specify/` present, `speckit-*` skills installed). `requirements/todo-api.md` present. Clean git working tree. |
+| **Starting state** | No WorkItem runtime exists. SpecKit initialized (`.specify/` present, `speckit-*` skills installed). `requirements/todo-api.md` present. Clean git working tree. |
 
 > Gates 3, 5 and 6 are shown in compact form — their prompts are structurally identical to Gates 1 and 2. Artifact bodies are abridged throughout.
 
@@ -31,7 +31,7 @@ Content scan passed. Requirements look good — project name inferred: "Todo Lis
 I'll now generate the project constitution. Shall I proceed?
 ```
 
-*(Internally: no `state.json` existed → new workflow. SpecKit skill prefix discovered (`speckit-`). Untrusted Content Scan ran on `requirements/todo-api.md` — no matches. `state.json` initialized, `.workflow/audit.md` created, `.workflow/lock` written, phase advanced to `constitution_draft`.)*
+*(Internally: no `state.json` existed → new workflow. SpecKit skill prefix discovered (`speckit-`). Untrusted Content Scan ran on `requirements/todo-api.md` — no matches. `state.json` initialized, `workitems/todo-api/.sdle/audit.md` created, `workitems/todo-api/.sdle/lock` written, phase advanced to `constitution_draft`.)*
 
 ---
 
@@ -71,7 +71,7 @@ Please review the content above, then respond with:
 ---
 ```
 
-*(Internally: `speckit-constitution` invoked; Post-SpecKit Verification passed (file ≥100 bytes, SHA-256 recorded); clarify step produced no questions; phase advanced to `gate_constitution`, status `awaiting_approval`.)*
+*(Internally: `speckit-constitution` invoked; Post-SpecKit Verification passed (file ≥100 bytes, SHA-256 recorded); phase advanced to `gate_constitution`, status `awaiting_approval`. Post-Generation Clarify only runs after `spec_draft`, so it is skipped here.)*
 
 ---
 
@@ -278,6 +278,7 @@ Implementing against tasks.md, informed by the approved design documents...
 
 Implementation complete. Building the implementation manifest...
 Secrets scan: no high-risk patterns found in the changed files.
+Test evidence: pytest detected — 28 passed (exit 0).
 
 ---
 ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
@@ -297,11 +298,19 @@ requirements.txt
 ## Potential Secrets Detected
 None detected.
 
+## Test Evidence
+Runner: pytest
+Result: passed (exit 0)
+
+```
+28 passed in 3.41s
+```
+
 ## Summary
 Implemented the Todo REST API per tasks.md: CRUD endpoints, filtering,
 completion shortcut endpoint, validation layer, and pytest suite.
 
-Artifact path: .workflow/implementation-manifest.md
+Artifact path: workitems/todo-api/.sdle/implementation-manifest.md
 Fingerprint: B07E33D1…A2C5
 
 Please review the content above, then respond with:
@@ -370,7 +379,7 @@ Please review the content above, then respond with:
 
 ✅ Security review approved. Workflow complete!
 
-All 8 gates passed. Completion summary: .workflow/completion-summary.json
+All 8 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
 Security review: reviews/security-review-2026-07-06-1151.md
 ```
 
@@ -381,6 +390,6 @@ Security review: reviews/security-review-2026-07-06-1151.md
 - `state.json` traversed: `requirements_check → constitution_draft → gate_constitution → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
 - All 8 `approvals.*` entries populated with `decision: "approved"`, timestamps, and (for Gate 2) comments; `artifact_shas` holds 8 baseline fingerprints.
 - `audit.md` gained ~30 entries (phase starts/completions, 8 gate decisions, 1 clarification save, secrets-scan result, completion). After every append, `audit_sha` in `state.json` was updated (v1.12 hash chain).
-- `.workflow/lock` was rewritten on every state save with this session's token.
+- `workitems/todo-api/.sdle/lock` was rewritten on every state save with this session's token.
 - One clarification file persisted: `clarifications/spec_draft-2026-07-06-1012.clarify`.
-- `.workflow/completion-summary.json` written exactly once, at Gate 8 approval.
+- `workitems/todo-api/.sdle/completion-summary.json` written exactly once, at Gate 8 approval.

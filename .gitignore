@@ -1,0 +1,10 @@
+.workflow/
+.specify/
+design/
+reviews/
+clarifications/
+__pycache__/
+*.pyc
+.pytest_cache/
+workitems/*/.sdle/lock
+workitems/.active-context.json

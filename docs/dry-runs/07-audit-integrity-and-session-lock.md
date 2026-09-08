@@ -4,7 +4,7 @@
 |---|---|
 | **Purpose** | Resuming a workflow in a brand-new conversation while three integrity signals fire: a fresh lock from another session, a hand-edited audit log, and repository commits newer than the last approval. |
 | **Guardrails exercised** | **Session lock** (v1.12, item 7), **audit hash chain** + `accept audit` (v1.12, item 5), **repository staleness check** (v1.12, item 14). |
-| **Starting state** | Workflow at `gate_design` (14/18), `status: awaiting_approval`, Gates 1–5 approved (latest approval 2026-07-05T16:40Z). Since then: a colleague opened the project in another Claude Code session 4 minutes ago (`.workflow/lock` is fresh with a different token), someone deleted an embarrassing rejection entry from `.workflow/audit.md`, and two commits landed on the branch. |
+| **Starting state** | Workflow at `gate_design` (14/18), `status: awaiting_approval`, Gates 1–5 approved (latest approval 2026-07-05T16:40Z). Since then: a colleague opened the project in another Claude Code session 4 minutes ago (`workitems/todo-api/.sdle/lock` is fresh with a different token), someone deleted an embarrassing rejection entry from `workitems/todo-api/.sdle/audit.md`, and two commits landed on the branch. |
 
 ---
 
@@ -27,19 +27,19 @@ Concurrent sessions can corrupt state.json. Proceed only if you are sure no othe
 session is active.
 
 ⚠️ Audit log integrity check failed.
-.workflow/audit.md has been edited, truncated, or written by another session.
+workitems/todo-api/.sdle/audit.md has been edited, truncated, or written by another session.
 Expected hash: 6E01BD4A…33F8
 Current:       9B7C20E5…A1D0
 
 Say `accept audit` to re-baseline the audit hash and continue (logged), or inspect
-.workflow/audit.md before proceeding.
+workitems/todo-api/.sdle/audit.md before proceeding.
 ```
 
 *(Order of checks on load: state read + migration → session lock (warn-only, does not halt) → audit integrity (halts: `pending_confirm_action = "accept_audit_mismatch"`). `audit.md` is deliberately left untouched before acknowledgement so the evidence can be inspected. The staleness check hasn't run yet — it comes after the halt clears.)*
 
 ---
 
-**User:** *(inspects `.workflow/audit.md`, confirms with the colleague that they trimmed it, decides to proceed)*
+**User:** *(inspects `workitems/todo-api/.sdle/audit.md`, confirms with the colleague that they trimmed it, decides to proceed)*
 
 ```
 accept audit

@@ -11,11 +11,10 @@
 **Step 8a — Gather evidence:**
 1. Read the following files (note which ones exist):
    - `.specify/memory/constitution.md`
-   - `.specify/specs/{state.current_feature_id}/spec.md`
-   - `.specify/specs/{state.current_feature_id}/plan.md`
-   - `.specify/specs/{state.current_feature_id}/tasks.md`
-2. Run `git diff --stat HEAD~1` (PowerShell Bash tool) and capture the output. If git is unavailable or fails, note this explicitly — do not skip the review.
-3. Run `git diff HEAD~1 -- . ":(exclude).specify" ":(exclude).workflow"` to get the actual implementation diff. Capture it.
+   - `{state.specKit.featureDirectory}/spec.md`
+   - `{state.specKit.featureDirectory}/plan.md`
+   - `{state.specKit.featureDirectory}/tasks.md`
+2. Run `sdle.sh security-review evidence`. It diffs against `implementation_base_ref` — the HEAD recorded when Phase 15 started — rather than `HEAD~1`, which is only correct when the implementation happened to be exactly one commit. The response carries `stat`, `diff`, the resolved `base_ref`, and whether it was `pinned`. If git is unavailable it says so; note that explicitly rather than skipping the review.
 4. Extract the tech stack from `plan.md` (look for frameworks, languages, databases, auth libraries).
 
 **Step 8b — Generate the review file:**
@@ -25,7 +24,7 @@ Create the review file at `<review_filename>` (the pre-computed path from Phase 
 ```markdown
 # AI-Assisted Security Review — <Project Name>
 **Date:** <YYYY-MM-DD HH:MM>
-**Phase:** 17/18 — Security Review
+**Phase:** <progress> — Security Review
 **Disclaimer:** This is an AI-assisted review based on artifacts and a git diff.
 It is NOT a substitute for SAST/DAST tools, dependency scanners, or a professional audit.
 
@@ -33,7 +32,7 @@ It is NOT a substitute for SAST/DAST tools, dependency scanners, or a profession
 
 ## What We Reviewed
 - Artifacts read: <list each .specify/ file that was read>
-- Git diff range: HEAD~1..HEAD (or "git not available")
+- Git diff range: <base_ref>..HEAD (or "git not available")
 - Diff summary:
   <paste output of git diff --stat, or "git unavailable">
 

@@ -38,8 +38,8 @@ Retry attempt 1/3. Options: "retry" to run again, "skip with warning" to continu
 ⛔ Retry limit reached: plan_draft has failed 3/3 times.
 
 To continue, choose one of:
-  • Raise the limit: edit .workflow/state.json → rate_limits.max_retry_attempts
-  • Reset this phase's counter: edit .workflow/state.json → attempt_counts.plan_draft.retries to 0
+  • Raise the limit: `sdle.sh limit set --retries <n>`
+  • Reset this phase's counter: `sdle.sh limit reset --phase plan_draft --retries`
   • `skip with warning` — advance without a successful artifact (not recommended)
   • `restart phase <N>` — restart this phase from scratch
 ```
@@ -129,3 +129,4 @@ Moving to Phase 7: Gate 3: Plan Approval. Say "continue" to proceed.
 - Any intervening command clears the pending confirmation (logged: `Pending confirmation "skip" cancelled — new command received.`).
 - `confirm skip`: audit entry `⚠️ SKIPPED WITH WARNING: Phase plan_draft advanced without a verified artifact…`, `current_artifact`/`current_artifact_sha` set to null, phase advanced via NEXT_PHASE.
 - A successful verification later resets `attempt_counts.<phase>.retries` to 0; remediation counts are unaffected.
+- **v1.13:** the limit escape hatches are audited commands rather than hand edits to `state.json` (improvement item 6).

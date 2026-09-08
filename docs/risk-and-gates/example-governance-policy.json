@@ -1,0 +1,178 @@
+{
+  "_comment": [
+    "EXAMPLE ONLY - this file is inert where it sits.",
+    "",
+    "SDLE reads exactly one policy override, at",
+    "  .sdle/policies/governance-policy.json",
+    "and nothing else. Copy this file there to activate it; leaving it in",
+    "docs/ has no effect on any workflow. Strip the `_`-prefixed keys when",
+    "you do - they are commentary, not policy.",
+    "",
+    "An override is MONOTONE: it may only make governance stricter. Six",
+    "weakening shapes are refused `policy_weakens_baseline` - you cannot",
+    "lower a signal weight, raise a threshold, remove a hard floor, demote a",
+    "floor's level, or drop a required gate. The built-in is the weakest",
+    "admissible policy, which is why an absent file is safe and a malformed",
+    "one is refused rather than silently defaulted.",
+    "",
+    "How much you must repeat depends on the key's type, and the difference",
+    "is easy to get wrong:",
+    "",
+    "  LIST-valued keys - hard_floors, required_gates_always, blocking_checks",
+    "  - are compared whole. Omit an entry and it reads as a removal, and the",
+    "  policy is refused. Repeat the built-in verbatim, then add.",
+    "",
+    "  DICT-valued keys - risk_signals, risk_thresholds, required_gates_by_risk,",
+    "  required_gates_by_type - MERGE entry by entry. So",
+    "  {\"policyVersion\":\"1\",\"risk_thresholds\":{\"HIGH\":4}} is a complete and",
+    "  accepted override; the other three thresholds keep their built-in values.",
+    "",
+    "  optional_checks is a list whose comparison runs the other way: adding to",
+    "  it is a weakening and is refused, emptying it is a tightening.",
+    "",
+    "The blocks below repeat the built-in dictionaries in full anyway. That is",
+    "harmless and shows the real values beside the changed one, but it is not",
+    "required for a dictionary - only for a list.",
+    "",
+    "Generate the current baseline with `sdle governance policy` rather than",
+    "copying it from here: this file was written by hand once and six signal",
+    "weights were wrong, and the engine refused every one.",
+    "",
+    "Only these top-level keys may appear: policyVersion, blocking_checks,",
+    "optional_checks, risk_signals, risk_thresholds, hard_floors,",
+    "required_gates_always, required_gates_by_risk, required_gates_by_type.",
+    "`quality_checks` is deliberately not overridable - the twelve check ids",
+    "are the contract's, and a repository that could rename or drop one would",
+    "be editing the contract rather than tightening it.",
+    "",
+    "Verify any override with `sdle governance policy`, which prints the",
+    "effective policy or refuses with the exact clause that weakened it."
+  ],
+  "policyVersion": "1",
+  "_example_1_lower_the_bar_for_HIGH": [
+    "Built-in thresholds: LOW 0, MEDIUM 2, HIGH 5, CRITICAL 9.",
+    "A LOWER number makes a level EASIER to reach, so lowering is a",
+    "tightening and is permitted; raising one is refused. Here HIGH is",
+    "reached at 4 instead of 5."
+  ],
+  "risk_thresholds": {
+    "LOW": 0,
+    "MEDIUM": 2,
+    "HIGH": 4,
+    "CRITICAL": 9
+  },
+  "_example_2_add_a_hard_floor_for_your_own_domain": [
+    "A hard floor sets a minimum risk level regardless of the computed",
+    "score, and Claude cannot lower one. The twelve built-ins are repeated",
+    "below unchanged; the last entry is the addition."
+  ],
+  "hard_floors": [
+    {
+      "signal": "payment_or_financial",
+      "level": "HIGH"
+    },
+    {
+      "signal": "cryptography_or_secrets",
+      "level": "HIGH"
+    },
+    {
+      "signal": "personal_or_sensitive_data",
+      "level": "HIGH"
+    },
+    {
+      "signal": "authentication_or_authorization",
+      "level": "HIGH"
+    },
+    {
+      "uncertainty": "HIGH",
+      "level": "HIGH"
+    },
+    {
+      "uncertainty": "CRITICAL",
+      "level": "CRITICAL"
+    },
+    {
+      "signal": "destructive_or_irreversible_migration",
+      "level": "HIGH"
+    },
+    {
+      "signal": "backward_incompatible_change",
+      "level": "HIGH"
+    },
+    {
+      "signal": "regulatory_or_compliance",
+      "level": "HIGH"
+    },
+    {
+      "signal": "production_security_boundary",
+      "level": "HIGH"
+    },
+    {
+      "signal": "credential_or_key_exposure",
+      "level": "CRITICAL"
+    },
+    {
+      "signal": "catastrophic_blast_radius",
+      "level": "CRITICAL"
+    },
+    {
+      "signal": "patient_or_clinical_data",
+      "level": "CRITICAL"
+    }
+  ],
+  "_example_3_add_a_risk_signal": [
+    "A floor can only key on a signal the policy knows, so a new floor",
+    "usually needs a new signal. Weights feed the score that the thresholds",
+    "turn into a level. Every built-in weight is repeated at its exact",
+    "value - lowering any one of them is refused."
+  ],
+  "risk_signals": {
+    "external_api_surface": 2,
+    "persistent_data_store": 2,
+    "schema_or_data_migration": 3,
+    "authentication_or_authorization": 3,
+    "personal_or_sensitive_data": 4,
+    "payment_or_financial": 4,
+    "cryptography_or_secrets": 4,
+    "public_network_exposure": 3,
+    "third_party_dependency": 1,
+    "concurrency_or_distributed_state": 2,
+    "infrastructure_or_deployment": 2,
+    "backward_incompatible_change": 3,
+    "destructive_or_irreversible_migration": 4,
+    "regulatory_or_compliance": 4,
+    "production_security_boundary": 4,
+    "credential_or_key_exposure": 5,
+    "catastrophic_blast_radius": 5,
+    "patient_or_clinical_data": 5
+  },
+  "_example_4_require_a_gate_at_a_lower_risk_level": [
+    "Built-in MEDIUM requires gate_tasks and gate_design. Adding to a level",
+    "is a tightening; removing is refused. Here MEDIUM also requires the",
+    "security gate, so anything above LOW gets a security review.",
+    "",
+    "You cannot make a gate optional this way. The flow's final gate before",
+    "`complete` is always required by a derived positional rule that lives",
+    "in no dictionary, so an override cannot reach it."
+  ],
+  "required_gates_by_risk": {
+    "LOW": [],
+    "MEDIUM": [
+      "gate_design",
+      "gate_security",
+      "gate_tasks"
+    ],
+    "HIGH": [
+      "gate_tasks",
+      "gate_analyze",
+      "gate_design",
+      "gate_security"
+    ],
+    "CRITICAL": [
+      "gate_tasks",
+      "gate_analyze",
+      "gate_design",
+      "gate_security"
+    ]
+  }
+}

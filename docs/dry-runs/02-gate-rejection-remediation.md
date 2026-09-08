@@ -129,8 +129,8 @@ continue
 ⛔ Remediation limit reached: spec_draft has been remediated 3/3 times.
 
 To continue, choose one of:
-  • Raise the limit: edit .workflow/state.json → rate_limits.max_remediation_attempts
-  • Reset this phase's counter: edit .workflow/state.json → attempt_counts.spec_draft.remediations to 0
+  • Raise the limit: `sdle.sh limit set --remediations <n>`
+  • Reset this phase's counter: `sdle.sh limit reset --phase spec_draft --remediations`
   • `restart phase <N>` — restart this phase from scratch
   • `skip with warning` — advance without re-running (not recommended)
 ```
@@ -145,3 +145,4 @@ To continue, choose one of:
 - Each `continue`: remediation counter check → increment `attempt_counts.spec_draft.remediations` → feedback mirrored to `.specify/sdle-feedback.md` → SpecKit re-invoked with feedback inline → on verification, feedback archived + audit `Remediation complete for spec_draft.`
 - At the limit: no state advance, no skill invocation — halt message only.
 - Remediation counters never auto-reset (unlike retry counters); only the user can reset them.
+- **v1.13:** the halt no longer tells the user to hand-edit `state.json` — doing so would defeat the audit chain and violate the single-writer invariant. Both escape hatches are audited commands (improvement item 6).

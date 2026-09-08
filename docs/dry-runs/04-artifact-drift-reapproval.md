@@ -26,8 +26,13 @@ continue
 
   • Gate 2: Specification Approval (gate_spec)
     Path:          .specify/specs/001-todo-api/spec.md
-    Approved SHA:  88D204CA…19BE
-    Current SHA:   F30A57E1…0C42
+    Approved SHA:  88d204ca…19be
+    Current SHA:   f30a57e1…0c42
+    Changes since approval:
+      @@ -48,6 +48,9 @@ ## User Stories
+      +- As a user, I can delete all completed todos in one request
+      +  Acceptance criteria:
+      +    1. DELETE /todos?completed=true returns 204
 
 These artifact(s) must be re-approved before plan_draft can proceed.
 
@@ -128,6 +133,7 @@ Use `approve` or `reject with comments: <feedback>` to handle the drifted artifa
 ## State & audit notes
 
 - Drift detection compares each approved gate's `artifact_shas[gate_key]` against the file's current SHA-256; a missing file counts as drifted (`FILE_MISSING`).
+- **v1.13:** when the drifted artifact is git-tracked the prompt includes the actual `git diff` (improvement item 12). Fingerprints tell you *that* something changed; re-approval requires knowing *what*. Recorded SHAs are lowercase hex from v1.13 onward.
 - Multiple drifted gates queue in PHASE_SEQUENCE order (most upstream first) and are re-approved one at a time.
 - Re-approval updates the baseline to the *new* hash — approval always means "I approved exactly this content."
 - Rejection clears the whole queue and directs the user to `restart phase <N>`; it does not attempt an automatic merge or revert.

@@ -1,5 +1,7 @@
 {
-  "workflow_version": "1.12",
+  "workflow_version": "1.17",
+  "workitem": null,
+  "flow": "GREENFIELD",
   "project_name": null,
   "current_phase": "requirements_check",
   "status": "pending",
@@ -7,10 +9,17 @@
   "last_updated": null,
   "current_artifact": null,
   "current_artifact_sha": null,
-  "current_feature_id": null,
+  "specKit": {
+    "featureId": null,
+    "featureDirectory": null,
+    "workflowId": null,
+    "runId": null
+  },
   "security_review_artifact": null,
+  "implementation_base_ref": null,
   "phase_checkpoint": null,
   "pending_confirm_action": null,
+  "pending_branch_ack": null,
   "speckit_initialized": true,
   "speckit_skill_prefix": null,
   "verbose": false,
