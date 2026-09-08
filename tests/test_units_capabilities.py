@@ -714,6 +714,12 @@ T10_CHECKS = (
 # fail in `test_lint_skill.py::test_n24_*`, on a copied tree.
 T11_CHECKS = (
     "documentation_set_is_present",
+    # Added after T11, with the documentation index. Existing is not the same
+    # as being findable: the six subject directories were present and
+    # lint-green while linked from nowhere at all. Declared here rather than
+    # merely appearing, which is what this closed set is for -- it caught this
+    # very addition in CI.
+    "documentation_index_links_every_directory",
 )
 
 
