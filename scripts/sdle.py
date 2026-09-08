@@ -10287,13 +10287,15 @@ DOCUMENTATION_TARGETS = (
 )
 
 
-# `.claude/agents/` holds two populations. Product agent prompts are part
-# of the shipped prompt layer and are linted like any other prompt file; the
-# `sdle-transition-*` control plane is the migration scaffolding contract §1.4
-# describes, and is excluded by prefix — exactly how the leakage test already
-# excludes it by name.
+# `.claude/agents/` holds the product agent prompts. They are part of the
+# shipped prompt layer and are linted like any other prompt file.
+#
+# Until the post-migration cleanup the directory held a second population: the
+# `sdle-transition-*` control plane, the migration scaffolding contract §1.4
+# described, which this glob excluded by prefix. That scaffolding has been
+# deleted and the exclusion went with it, so every `sdle-*.md` agent prompt on
+# disk is now linted — no prefix is exempt.
 PRODUCT_AGENT_GLOB = "sdle-*.md"
-CONTROL_PLANE_AGENT_PREFIX = "sdle-transition-"
 
 
 def product_agent_files(paths: Paths) -> list[Path]:
@@ -10308,8 +10310,7 @@ def product_agent_files(paths: Paths) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(
-        (p for p in directory.glob(PRODUCT_AGENT_GLOB)
-         if p.is_file() and not p.name.startswith(CONTROL_PLANE_AGENT_PREFIX)),
+        (p for p in directory.glob(PRODUCT_AGENT_GLOB) if p.is_file()),
         key=lambda p: p.name,
     )
 

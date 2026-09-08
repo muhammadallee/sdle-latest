@@ -1731,28 +1731,32 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
     """
     agents = sorted(p.name for p in (REPO_ROOT / ".claude" / "agents").iterdir()
                     if p.is_file())
+    # Closed set, narrowed by the post-transition cleanup the deleted comment
+    # below deferred to. Old value: the four product subagents plus
+    # `sdle-transition-implementer.md`, `sdle-transition-orchestrator.md`,
+    # `sdle-transition-planner.md` and `sdle-transition-verifier.md`, eight
+    # names. New value: the four product subagents, four names. Exact equality
+    # either way, and now over the whole directory rather than one population
+    # within it.
     assert agents == [
         # The four product subagents contract §16 names.
         "sdle-code-review.md",
         "sdle-design-review.md",
         "sdle-discovery.md",
         "sdle-security-review.md",
-        # The migration control plane (contract §1.4). Scaffolding, never
-        # evidence of T10, and a post-transition cleanup owns removing it.
-        "sdle-transition-implementer.md",
-        "sdle-transition-orchestrator.md",
-        "sdle-transition-planner.md",
-        "sdle-transition-verifier.md",
     ], agents
 
     # The product skill is still exactly one, undivided: T10 split the
-    # *capability files*, not the skill. `apply-sdle-transition` beside it is
-    # the migration control plane — the skill running this transition —
-    # and is excluded by name rather than by pattern so a second control-plane
-    # skill could not sneak a product split in with it.
+    # *capability files*, not the skill. `apply-sdle-transition` used to sit
+    # beside it — the migration control plane, the skill that ran this
+    # transition — enumerated by name rather than excluded by pattern so a
+    # second control-plane skill could not sneak a product split in with it.
+    # The post-migration cleanup deleted it, so this closed set narrows from
+    # `["apply-sdle-transition", "sdle"]` to `["sdle"]` and `.claude/skills/`
+    # now holds the product skill and nothing else.
     skills = sorted(p.name for p in
                     (REPO_ROOT / ".claude" / "skills").iterdir() if p.is_dir())
-    assert skills == ["apply-sdle-transition", "sdle"], skills
+    assert skills == ["sdle"], skills
     modules = sorted(p.name for p in (REPO_ROOT / ".claude" / "skills" / "sdle"
                                       / "modules").glob("*.md"))
     assert modules == ["code-review.md", "design-review.md",

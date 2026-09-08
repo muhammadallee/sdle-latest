@@ -60,12 +60,6 @@ PRODUCT_AGENTS = (
     "sdle-discovery.md",
     "sdle-security-review.md",
 )
-CONTROL_PLANE_AGENTS = (
-    "sdle-transition-implementer.md",
-    "sdle-transition-orchestrator.md",
-    "sdle-transition-planner.md",
-    "sdle-transition-verifier.md",
-)
 NEW_CAPABILITY_FILES = ("design-review.md", "code-review.md")
 
 CONSTS = sdle.load_constants(
@@ -562,8 +556,13 @@ def test_n19_the_repository_has_exactly_the_declared_agents():
     is precisely how a check can stop meaning anything. This is the other side
     of that bargain, asserted against the real tree.
     """
+    # Closed set, narrowed by the post-migration cleanup. Old value:
+    # `PRODUCT_AGENTS + CONTROL_PLANE_AGENTS`, eight names — the four product
+    # subagents plus the four `sdle-transition-*` control-plane files. New
+    # value: `PRODUCT_AGENTS`, four names, which is now the whole directory.
+    # The shape is unchanged: exact equality against a written-out set.
     present = sorted(p.name for p in AGENTS.iterdir() if p.is_file())
-    assert present == sorted(PRODUCT_AGENTS + CONTROL_PLANE_AGENTS), present
+    assert present == sorted(PRODUCT_AGENTS), present
 
 
 def test_n19_the_agent_checks_go_absent_rather_than_passing(skill_copy):
@@ -613,20 +612,24 @@ def test_a20_the_linted_file_set_is_derived_and_covers_the_new_files():
     assert "SKILL.md" in covered
     assert set(modules_on_disk()) <= covered
     assert set(PRODUCT_AGENTS) <= covered
-    # The migration control plane is not the product and is excluded by prefix.
-    assert covered & set(CONTROL_PLANE_AGENTS) == set()
+    # `_skill_files` used to exclude the `sdle-transition-*` control plane by
+    # prefix. The post-migration cleanup deleted the files and the exclusion
+    # with them, so the derivation now covers every agent prompt on disk.
+    assert {p.name for p in AGENTS.glob("sdle-*.md")} <= covered
 
 
 def test_a21_the_restatement_search_now_covers_the_product_agents():
-    """A21/X3. Recorded rather than assumed: the four `sdle-transition-*`
-    files are excluded because `sdle-transition-planner.md` legitimately uses
-    the transition contract's own evidence vocabulary, which is spelled
-    exactly like §14's classifications."""
+    """A21/X3. Recorded rather than assumed: four `sdle-transition-*` files
+    were excluded from this search because `sdle-transition-planner.md`
+    legitimately used the transition contract's own evidence vocabulary,
+    which is spelled exactly like §14's classifications. The post-migration
+    cleanup deleted those files and the exclusion with them, so the search now
+    covers every agent prompt on disk."""
     from test_units_governance import _searchable_files
 
     scanned = {p.name for p in _searchable_files()}
     assert set(PRODUCT_AGENTS) <= scanned
-    assert scanned & set(CONTROL_PLANE_AGENTS) == set()
+    assert {p.name for p in AGENTS.glob("sdle-*.md")} <= scanned
 
 
 # ==========================================================================

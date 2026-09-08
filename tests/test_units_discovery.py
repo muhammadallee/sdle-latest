@@ -665,18 +665,19 @@ def searchable_files() -> list[Path]:
             files.extend(p for p in sorted(directory.rglob("*")) if p.is_file())
     # T10 (X3): product subagent prompts are part of the shipped prompt layer,
     # so a restatement in one of them is exactly the drift this search exists
-    # to catch. The four `sdle-transition-*` files are deliberately excluded:
-    # they are the migration control plane (contract §1.4), not the product,
-    # and `sdle-transition-planner.md` legitimately uses the transition
+    # to catch. Four `sdle-transition-*` files used to be excluded here: they
+    # were the migration control plane (contract §1.4), not the product, and
+    # `sdle-transition-planner.md` legitimately used the transition
     # contract's own evidence vocabulary — OBSERVED / INFERRED / UNKNOWN —
-    # which happens to be spelled exactly like §14's classifications. Scanning
-    # it would flag the scaffolding for restating a product constant it does
-    # not restate. Reported in the T10 handoff rather than silently narrowed.
+    # which happens to be spelled exactly like §14's classifications. The
+    # post-migration cleanup deleted those four files, so the carve-out went
+    # with them and every agent prompt on disk is scanned. `docs/transition/`
+    # stays outside the roots above for a different and still-live reason,
+    # given in the docstring.
     agents = REPO_ROOT / ".claude" / "agents"
     if agents.is_dir():
         files.extend(path for path in sorted(agents.glob("sdle-*.md"))
-                     if path.is_file()
-                     and not path.name.startswith("sdle-transition-"))
+                     if path.is_file())
     return files
 
 

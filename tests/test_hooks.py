@@ -513,8 +513,16 @@ AGENTS = REPO_ROOT / ".claude" / "agents"
 
 
 def product_agents() -> list[Path]:
-    return sorted(p for p in AGENTS.glob("sdle-*.md")
-                  if not p.name.startswith("sdle-transition-"))
+    """Every agent prompt the repository ships.
+
+    This used to exclude `sdle-transition-*`, which registered a different
+    frontmatter hook and would have failed the fence assertions below. The
+    carve-out existed only for the migration control plane; the post-migration
+    cleanup deleted those four files and the exclusion went with them, so the
+    fence battery now binds every agent in `.claude/agents/` — a fifth agent
+    that failed to register the fence fails here rather than being skipped.
+    """
+    return sorted(p for p in AGENTS.glob("sdle-*.md") if p.is_file())
 
 
 def frontmatter_command(agent: Path) -> str:

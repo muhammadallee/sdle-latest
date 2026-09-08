@@ -43,10 +43,6 @@ Copy all five into your target project:
 scripts/                 sdle.py and its launchers
 ```
 
-`.claude/agents/` in this repository also holds `sdle-transition-*` files. Those
-are the migration control plane for this repo's own development, not part of the
-product — do not copy them.
-
 Then merge `.claude/settings.json`'s `hooks` block into your project's
 settings. Run `scripts/sdle.sh preflight` to confirm the install.
 
