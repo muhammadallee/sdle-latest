@@ -346,15 +346,44 @@ $ sdle.sh advance --to spec_draft
 --- exit 0 ---
 ```
 
+**Why the advance worked.** Because the analysis was recorded *and reviewed*
+first. Try it the other way round and the phase will not let go:
+
+```
+$ sdle.sh advance --to spec_draft
+{
+  "ok": false,
+  "command": "advance",
+  "reason": "impact_analysis_missing",
+  "data": {
+    "workitem": "wi-2026-09-08-login-reset",
+    "phase": "impact_analysis",
+    "artifact": null
+  }
+}
+--- exit 1 ---
+```
+
+`advance` and `skip` both refuse until this WorkItem has an analysis on file
+carrying a *current* PASS review — exactly as `discovery` refuses
+`discovery_missing`. The two "understand before you draft" phases behave
+alike: `discovery` surveys a repository before a brownfield WorkItem specifies
+anything, and `impact_analysis` establishes a defect's blast radius before a
+fix is specified. Neither has a gate; in both, the record is what replaces
+one.
+
+Recording alone is not enough — that only fingerprints the file. And the
+review must be current, so editing the analysis after reviewing it makes it
+stale by the mechanism [TP-011](../SDLE-Reference-Guide.md) already provides,
+and the refusal returns. Record the review last.
+
 **Where the human reads it.** The phase has no gate, so the orchestrator
 displays the analysis in full in the conversation, and again immediately before
 the Gate 2 prompt — the first gate downstream of it. Gate 2 nominally approves
 the specification; in a defect flow it is the point at which somebody with the
-blast radius in front of them decides the fix is scoped correctly. If you are
-driving the CLI yourself, that display is on you: `advance` will move out of
-`impact_analysis` whether or not you recorded anything. Compare `discovery`,
-which refuses `discovery_missing` and cannot be left without an accepted
-record. The analysis is required by the phase contract, not by a refusal.
+blast radius in front of them decides the fix is scoped correctly. The engine
+guarantees an analysis exists and was reviewed; whether it is *right* is the
+judgement Gate 2 is for.
 
 ---
 

@@ -1313,6 +1313,137 @@ def test_the_impact_analysis_review_is_bound_to_that_exact_sha(git_project):
     assert stale.data["status"][IMPACT_ARTIFACT]["current"] is False
 
 
+# -- N7(7): the phase contract is enforced, not merely written -------------
+#
+# `modules/phase-execution.md` tells the orchestrator to write the analysis,
+# `artifact record` it and `artifact review` it, and until now the engine
+# backed none of that: `advance --to spec_draft` succeeded out of a DEFECT_FIX
+# WorkItem that had produced nothing at all. A phase contract the engine does
+# not enforce is a suggestion, and the deterministic core exists precisely so
+# the rules do not depend on the orchestrator having read them.
+#
+# `impact_analysis_precondition` closes it as the exact mirror of
+# `discovery_precondition`, so the block below is deliberately the shape of
+# N11/N12 in `test_units_discovery.py`: refuse on every mover, and leave the
+# ledger byte-identical while refusing.
+
+
+@pytest.mark.parametrize("flow", ["DEFECT_FIX", "HOTFIX"])
+def test_advance_out_of_impact_analysis_without_an_analysis_refuses(
+        git_project, flow):
+    bind(git_project, flow)
+    assert git_project.state()["current_phase"] == "impact_analysis"
+
+    result = git_project.run("advance", "--to", "spec_draft")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "impact_analysis_missing"
+    assert result.data["phase"] == "impact_analysis"
+    assert result.data["artifact"] is None
+
+
+def test_skip_out_of_impact_analysis_without_an_analysis_refuses(git_project):
+    """The fail-open case discovery already pins: `skip` must not walk past
+    the phase either, which is why the precondition sits at each mover rather
+    than in `cmd_advance` alone."""
+    bind(git_project, "DEFECT_FIX")
+    state = git_project.state()
+    state["status"] = "failed"
+    git_project.write_state(state)
+
+    # The first `skip` is a confirmation prompt, not a move: it exits 0 with
+    # `pending`, and only `--confirm` reaches the precondition.
+    pending = git_project.ok("skip")
+    assert pending.data["pending"] is True
+
+    result = git_project.run("skip", "--confirm")
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "impact_analysis_missing"
+
+
+@pytest.mark.parametrize("mover", ["advance", "skip"])
+def test_the_impact_analysis_refusal_leaves_the_ledger_byte_identical(
+        git_project, mover):
+    """B1/NB-6 for this precondition. A pure reader writes nothing, so a
+    refused mover must not strand an audit entry describing a move that never
+    happened."""
+    bind(git_project, "DEFECT_FIX")
+    if mover == "skip":
+        state = git_project.state()
+        state["status"] = "failed"
+        git_project.write_state(state)
+        git_project.ok("skip")
+
+    before = git_project.audit_file.read_bytes()
+    result = (git_project.run("advance", "--to", "spec_draft")
+              if mover == "advance" else git_project.run("skip", "--confirm"))
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "impact_analysis_missing"
+    assert git_project.audit_file.read_bytes() == before
+    assert git_project.ok("audit", "verify").data["matches"] is True
+
+
+def test_a_recorded_but_unreviewed_analysis_does_not_authorise_the_advance(
+        git_project):
+    """Recording is a fingerprint, not a judgement. The review is what says
+    somebody actually looked at the blast radius, so the artifact merely being
+    on file is not enough."""
+    bind(git_project, "DEFECT_FIX")
+    git_project.write_artifact(IMPACT_ARTIFACT)
+    git_project.ok("artifact", "record", "--phase", "impact_analysis",
+                   "--path", IMPACT_ARTIFACT)
+
+    result = git_project.run("advance", "--to", "spec_draft")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "impact_analysis_missing"
+    assert result.data["artifact"] == IMPACT_ARTIFACT
+
+
+def test_an_analysis_edited_after_its_review_does_not_authorise_the_advance(
+        git_project):
+    """The review must be *current*, which is why the precondition reads
+    `review_status` rather than looking for any past record. No new mechanism
+    is needed: TP-011 already binds a review to one SHA, so rewriting the file
+    makes it stale. It is also why the phase contract says to record the
+    review last."""
+    bind(git_project, "DEFECT_FIX")
+    prepare(git_project, "impact_analysis", git_project.feature_dir(FEATURE))
+    git_project.write_artifact(
+        IMPACT_ARTIFACT, "# Widened impact analysis\n\n" + "word " * 40)
+
+    result = git_project.run("advance", "--to", "spec_draft")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "impact_analysis_missing"
+    assert result.data["artifact"] == IMPACT_ARTIFACT
+
+
+@pytest.mark.parametrize("flow", ["GREENFIELD", "BROWNFIELD_DISCOVERY",
+                                  "ITERATIVE"])
+def test_the_precondition_cannot_touch_a_flow_without_the_phase(git_project,
+                                                                flow):
+    """The precondition tests `current_phase` and never the bound flow — the
+    argument `discovery_precondition` makes, and the reason neither needs a
+    membership check. `impact_analysis` belongs to exactly two flows, so a
+    WorkItem standing there is necessarily traversing one of them, and no
+    WorkItem in the other three can ever be refused by it."""
+    bind(git_project, flow)
+    spec = constants_of(git_project).flows[flow]
+    assert "impact_analysis" not in spec.phases
+
+    # `phases[0]` is `requirements_check`, which `init` consumes, so the phase
+    # a bound WorkItem actually stands on is the one after it.
+    started = git_project.state()["current_phase"]
+    following = spec.next_phase(started)
+
+    prepare(git_project, started, git_project.feature_dir(FEATURE))
+    git_project.ok("advance", "--to", following)
+
+    assert git_project.state()["current_phase"] == following
+
+
 @pytest.mark.parametrize("flow", ["DEFECT_FIX", "HOTFIX"])
 def test_advancing_out_of_impact_analysis_lands_on_spec_draft(git_project, flow):
     """N7(5)."""

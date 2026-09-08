@@ -65,7 +65,7 @@ Run `sdle.sh checkpoint get`. If `checkpoint` is non-null this phase was interru
 - `sdle.sh artifact record --phase impact_analysis --path <analysis_filename>` — enforces the size floor, fingerprints the file and appends the audit entry.
 - `sdle.sh artifact review --path <analysis_filename> --type impact-analysis --result PASS --actor-type agent --actor-name sdle-orchestrator` — binds the review to that exact SHA. Record it **last**: editing the file afterwards makes the review stale by the existing mechanism.
 - Display the analysis content in full in the conversation. This phase has no gate of its own, so the human reads it here — ahead of the specification gate, which is the first gate downstream of it.
-- Advance: `sdle.sh advance --to spec_draft`. The script records phase history, progress and the audit entry.
+- Advance: `sdle.sh advance --to spec_draft`. The script refuses `impact_analysis_missing` when this WorkItem has no recorded analysis carrying a current PASS review, and otherwise records phase history, progress and the audit entry.
 
 **Phase 2 — `constitution_draft`:**
 - **If the bound flow ran `discovery`** (`sdle.sh flow show` reports the phases): run `sdle.sh discovery show` first, and display the recorded findings in the conversation again, grouped by category and showing each finding's classification, before the constitution is drafted. The constitution of an existing repository must be written from what was actually found in it — and the human approving the next gate has to see, in this conversation, which of those statements were read out of a file and which were inferred.

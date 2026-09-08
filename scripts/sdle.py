@@ -5394,6 +5394,7 @@ def cmd_governance_gates(args, paths: Paths) -> int:
 # and is recorded in ADR-005.
 
 DISCOVERY_PHASE = "discovery"
+IMPACT_ANALYSIS_PHASE = "impact_analysis"
 DISCOVERY_RECORD_VERSION = "1"
 DISCOVERY_INPUT_VERSIONS = ("1",)
 DISCOVERY_INPUT_SECTIONS = ("discoveryInputVersion", "findings")
@@ -6927,6 +6928,72 @@ def review_status(paths: Paths, resolved: str,
     }
 
 
+def impact_analysis_precondition(paths: Paths,
+                                 state: dict | None = None) -> None:
+    """A WorkItem may not leave `impact_analysis` without a reviewed analysis.
+
+    The mirror of `discovery_precondition`, and added for the same reason:
+    `modules/phase-execution.md` tells the orchestrator to write the analysis,
+    `artifact record` it and `artifact review` it, and until now the engine
+    enforced none of that -- `advance --to spec_draft` succeeded with nothing
+    written. A phase contract the engine does not back is a suggestion, and
+    the whole point of the deterministic core is that it refuses rather than
+    trusting the caller to have complied.
+
+    The two "understand before you draft" phases now behave alike: `discovery`
+    surveys a repository before a brownfield WorkItem specifies anything, and
+    `impact_analysis` establishes a defect's blast radius before a fix is
+    specified. Leaving one enforced and the other not was an accident of
+    sequencing -- §14 demanded discovery's rule explicitly and nothing made
+    the same demand of T07's gateless phase.
+
+    A **pure reader**: it writes no state and appends nothing to the ledger.
+    Callers place it ahead of their first irreversible write so a refused
+    advance, approval, omission or skip leaves `audit.md` byte-identical
+    (B1, NB-6). Spelling that out in prose rather than naming the write
+    primitives is deliberate: N24/A18 counts those names textually across the
+    whole engine, and a docstring is not a call site.
+
+    The review must be *current*, not merely present, which is why this reads
+    `review_status` rather than looking for any past record: TP-011 clause 1
+    is about the exact content version, and editing the analysis after review
+    makes it stale by the existing mechanism. That is also why the phase
+    contract says to record the review last.
+
+    Only the phase is tested, not the flow. `impact_analysis` belongs to
+    exactly two flows, so a WorkItem standing here is necessarily traversing
+    one of them -- the same argument `discovery_precondition` makes.
+    """
+    if (state or {}).get("current_phase") != IMPACT_ANALYSIS_PHASE:
+        return None
+
+    recorded = (state or {}).get("current_artifact")
+    if recorded:
+        status = review_status(paths, recorded)
+        if status["current"]:
+            return None
+        detail = (
+            f"'{recorded}' is recorded but its review is not current"
+            if status["records"] else
+            f"'{recorded}' is recorded but has never been reviewed"
+        )
+    else:
+        detail = "no analysis has been recorded"
+
+    raise Refused(
+        "impact_analysis_missing",
+        f"WorkItem '{paths.workitem}' is at {IMPACT_ANALYSIS_PHASE} and "
+        f"{detail}, so the workflow cannot leave the phase. A defect is "
+        "specified from its blast radius, not before it: write the analysis, "
+        "then `artifact record --phase impact_analysis --path <file>` and "
+        "`artifact review --path <file> --type impact-analysis --result PASS "
+        "--actor-type agent --actor-name sdle-orchestrator`. Record the "
+        "review last -- editing the file afterwards makes it stale.",
+        {"workitem": paths.workitem, "phase": IMPACT_ANALYSIS_PHASE,
+         "artifact": recorded},
+    )
+
+
 def review_precondition(paths: Paths, state: dict, gate_key: str,
                         resolved: str | None) -> None:
     """Enforcement clause E2 — TP-011 at the approval choke point.
@@ -7313,6 +7380,7 @@ def apply_advance(
     governance_precondition(paths)
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
+    impact_analysis_precondition(paths, state)
     governance_precondition(paths, state)
 
     if status is None:
@@ -7540,6 +7608,7 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     governance_precondition(paths)
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
+    impact_analysis_precondition(paths, state)
     revalidate_recorded_omissions(paths, state, consts, args.gate)
 
     state.setdefault("approvals", {})[args.gate] = {
@@ -7807,6 +7876,7 @@ def cmd_gate_omit(args, paths: Paths) -> int:
     governance_precondition(paths)
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
+    impact_analysis_precondition(paths, state)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": GATE_OMITTED_DECISION,
@@ -8860,6 +8930,7 @@ def cmd_skip(args, paths: Paths) -> int:
     governance_precondition(paths)
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
+    impact_analysis_precondition(paths, state)
 
     state["pending_confirm_action"] = None
     state["current_artifact"] = None

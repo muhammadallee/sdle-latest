@@ -213,7 +213,10 @@ before the first gate downstream. See
 [defect-fix.md §4](defect-fix.md#4-the-impact-analysis). Under incident
 pressure it is the phase you will most want to skip and the one most worth
 keeping: it is where "what could regress" gets written down before anybody
-touches a live query.
+touches a live query. Which is exactly why you cannot skip it — `advance` and
+`skip` both refuse `impact_analysis_missing` until the analysis is recorded
+and carries a current PASS review. `HOTFIX` drops gates; it does not drop
+this.
 
 ---
 

@@ -139,6 +139,33 @@ already existed rather than new code:
   downstream of it, so design invariant 4 (a human sees the artifact before
   approving) is *strengthened*, not bypassed.
 
+**Amended after ADR-005.** The three points above were all the enforcement
+there was, and between them they left a hole: every one of them describes what
+happens *if* an analysis is produced, and nothing made the engine insist that
+one was. `advance --to spec_draft` succeeded out of a `DEFECT_FIX` WorkItem
+that had written nothing. The phase contract in `phase-execution.md` said to
+write, record and review the analysis, but a contract the engine does not back
+is a suggestion, and the deterministic core exists so that the rules do not
+depend on the orchestrator having read them.
+
+ADR-005 then solved exactly this problem for `discovery` — also gateless, also
+"understand before you draft" — with `discovery_precondition`, and the
+asymmetry was an accident of sequencing rather than a decision: §14 demanded
+discovery's rule explicitly, and nothing made the same demand of this phase.
+`impact_analysis_precondition` closes it as the mirror image, so a fourth
+point now belongs on the list:
+
+- `advance` and `skip` both refuse `impact_analysis_missing` until this
+  WorkItem has a recorded analysis carrying a *current* PASS review. Recording
+  alone does not lift it — a fingerprint is not a judgement — and because the
+  review is bound to one SHA, editing the analysis afterwards re-arms the
+  refusal. It is a pure reader placed ahead of each mover's first irreversible
+  write, so a refusal leaves `audit.md` byte-identical.
+
+This is a tightening of a gateless phase, not the ninth gate rejected above:
+it requires that the reading was *done and checked*, and leaves the judgement
+of whether the fix is scoped correctly to `gate_spec`, where it already sat.
+
 **The artifact path was chosen from constraints, not taste.** The Spec Kit
 feature directory does not exist until `spec_draft` runs, and this phase runs
 before it — so the block must not call `feature bind --require-feature` and
