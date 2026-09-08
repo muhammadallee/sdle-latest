@@ -67,3 +67,21 @@ Two consequences, stated here rather than left to be discovered:
 
 No product code ever invoked either tool, and CI
 (`.github/workflows/ci.yml`) runs only `lint-skill` and the test suite.
+
+**Where it went.** Nothing was lost: the branch
+`archive/transition-control-plane` holds the tree exactly as it stood before
+the cleanup. To see the validator's last word:
+
+```
+git worktree add --detach /tmp/sdle-archive archive/transition-control-plane
+python /tmp/sdle-archive/tools/transition/validate.py
+# TRANSITION_VALID: complete=12/12 next=DONE
+git worktree remove /tmp/sdle-archive
+```
+
+Restoring `validate.py` alone onto this branch will not work, and the failure
+is the point: its first act is to verify `control-plane.sha256`, which pins
+the agents and the skill that were removed with it, so it exits `3` with
+`TRANSITION_INVALID: control-plane file missing`. The validator checks that
+the control plane is *whole*. A half-restored one is exactly what it exists to
+refuse.
