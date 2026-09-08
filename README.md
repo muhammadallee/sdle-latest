@@ -7,7 +7,7 @@ Users interact only with SDLE — SpecKit commands never surface directly.
 
 > For the full design rationale, a detailed walkthrough of every phase, glossary, flow diagrams, and an end-to-end example run, see **[docs/SDLE-Reference-Guide.md](docs/SDLE-Reference-Guide.md)** — the canonical enterprise reference for SDLE. This README is a quick-start and lookup reference only.
 >
-> For simulated conversation transcripts of every notable scenario (happy path, rejections, drift, guardrail trips, recovery), see **[docs/dry-runs/](docs/dry-runs/README.md)**.
+> For simulated conversation transcripts of every notable scenario (happy path, rejections, drift, guardrail trips, recovery) and of every one of the five flows, see **[docs/dry-runs/](docs/dry-runs/README.md)**.
 
 ---
 

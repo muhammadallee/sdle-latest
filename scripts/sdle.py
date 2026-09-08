@@ -9941,6 +9941,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
+    checks.extend(_check_doc_flow_counts(paths, consts))
     checks.extend(_check_documentation_set(paths))
     checks.extend(_check_documentation_index(paths))
     checks.append(_check_repo_config_defaults_documented(paths))
@@ -10341,6 +10342,33 @@ def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
 
 REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
 
+# Every document that states a flow's phase or gate count in a table row or a
+# headline. The counts are a *derived view* of the engine and drifted once
+# already: `docs/lifecycle/README.md` counted the terminal `complete` while the
+# tutorials, START-HERE, README and the Reference Guide did not, so the
+# document named "the lifecycle" contradicted the other five. Listing the files
+# here and checking them is the repo's standing answer to that class of bug --
+# a checklist rots, a lint rule does not.
+FLOW_COUNT_DOCS = (
+    "README.md",
+    "docs/START-HERE.md",
+    "docs/SDLE-Reference-Guide.md",
+    "docs/lifecycle/README.md",
+    "docs/tutorials/README.md",
+    "docs/dry-runs/README.md",
+)
+
+# A tutorial opens by naming its own flow's size, and the flow it covers is not
+# recoverable from the sentence itself, so the binding is declared.
+FLOW_HEADLINE_DOCS = {
+    "docs/tutorials/greenfield.md": "GREENFIELD",
+    "docs/tutorials/greenfield-full-tour.md": "GREENFIELD",
+    "docs/tutorials/brownfield-discovery.md": "BROWNFIELD_DISCOVERY",
+    "docs/tutorials/iterative.md": "ITERATIVE",
+    "docs/tutorials/defect-fix.md": "DEFECT_FIX",
+    "docs/tutorials/hotfix.md": "HOTFIX",
+}
+
 # T11 D16. Transition contract §17 "Documentation" names nine targets that the
 # V1 documentation set must cover. A checklist in a plan rots; a lint rule does
 # not, so the list lives here and is checked, not remembered. A trailing "/"
@@ -10739,6 +10767,111 @@ def _check_documentation_index(paths: Paths) -> list[Check]:
         not missing,
         f"docs/README.md does not link: {', '.join(missing)}" if missing
         else f"every documentation directory is linked from the index",
+    )]
+
+
+def documented_flow_counts(consts: Constants) -> dict[str, tuple[int, int]]:
+    """The phase and gate counts every document is required to state.
+
+    Nothing is computed here: it reads `FlowSpec.phase_count` and
+    `FlowSpec.gate_total`, the properties `advance` and `gate show` already
+    answer with. Documentation is required to state the number the engine
+    reports, and the only way to guarantee that is to ask the engine for it
+    rather than to re-derive it beside it (invariant 7).
+
+    So the convention is not a choice this function makes. `phase_count`
+    **excludes the terminal `complete`** -- its own docstring calls it "the N
+    in 'N/18'" -- because `complete` is a state a WorkItem lands in, not a
+    phase anybody executes: `PROGRESS_MAP` numbers GREENFIELD 1 through 18 and
+    gives `complete` no number of its own, sharing `18/18` with
+    `gate_security`. A document that counted it printed a table disagreeing
+    with the progress header the user reads on every single turn, which is
+    exactly what `docs/lifecycle/README.md` did until this check existed.
+    """
+    return {name: (flow.phase_count, flow.gate_total)
+            for name, flow in consts.flows.items()}
+
+
+def _check_doc_flow_counts(paths: Paths, consts: Constants) -> list[Check]:
+    """Every stated flow size in the documentation set equals the engine's.
+
+    Two claim shapes are checked, because the documentation makes the claim
+    two ways:
+
+    * a **table row** -- ``| `HOTFIX` | 10 | 3 | ...`` -- wherever a document
+      tabulates the five flows;
+    * a **headline** -- ``**10 phases, 3 gates.**`` -- which is how each
+      tutorial opens, bound to its flow by `FLOW_HEADLINE_DOCS` because the
+      sentence does not name the flow.
+
+    Emitted only in the source repository, the convention
+    `_check_documentation_set` and `_check_doc_phase_tables` already follow: a
+    project that merely installed the skill carries none of these files and is
+    not judged against them. A missing file is skipped rather than failed --
+    `documentation_set_is_present` is what proves the set exists, and one rule
+    per fact.
+    """
+    root = _repo_root(paths)
+    if not ((root / "README.md").is_file() and (root / "CLAUDE.md").is_file()):
+        return []
+
+    expected = documented_flow_counts(consts)
+    row = re.compile(
+        r"^\|\s*`(" + "|".join(map(re.escape, sorted(expected))) + r")`\s*"
+        r"\|\s*(\d+)\s*\|\s*(\d+)\s*\|",
+        re.MULTILINE)
+    headline = re.compile(r"\*\*(?:`[A-Z_]+`,\s*)?(\d+)\s+phases?,\s*"
+                          r"(\d+)\s+gates?\.?\*\*")
+
+    problems: list[str] = []
+    examined = 0
+
+    # A third shape, because the dry-run index tabulates the flow name and the
+    # size in separate cells: `| ... | `HOTFIX` | 10 phases, 3 gates | ... |`.
+    # Anchored to a single table row so it cannot pair a flow named in one row
+    # with a size stated in another.
+    prose_row = re.compile(
+        r"^\|[^\n]*?`(" + "|".join(map(re.escape, sorted(expected))) + r")`"
+        r"[^\n]*?\|[^|\n]*?(\d+)\s+phases?,\s*(\d+)\s+gates?[^|\n]*\|",
+        re.MULTILINE)
+
+    for relative in FLOW_COUNT_DOCS:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in (row, prose_row):
+            for match in pattern.finditer(text):
+                flow, phases, gates = match.group(1), int(
+                    match.group(2)), int(match.group(3))
+                examined += 1
+                if (phases, gates) != expected[flow]:
+                    problems.append(
+                        f"{relative}: {flow} stated as {phases} phases/"
+                        f"{gates} gates, engine says {expected[flow][0]}/"
+                        f"{expected[flow][1]}")
+
+    for relative, flow in sorted(FLOW_HEADLINE_DOCS.items()):
+        path = root / relative
+        if not path.is_file():
+            continue
+        found = headline.search(path.read_text(encoding="utf-8"))
+        if not found:
+            problems.append(f"{relative}: no '**N phases, M gates**' headline "
+                            f"for {flow}")
+            continue
+        examined += 1
+        stated = (int(found.group(1)), int(found.group(2)))
+        if stated != expected[flow]:
+            problems.append(
+                f"{relative}: headline says {stated[0]} phases/{stated[1]} "
+                f"gates, engine says {expected[flow][0]}/{expected[flow][1]}")
+
+    return [Check(
+        "doc_flow_counts_match_engine",
+        not problems,
+        "; ".join(problems) if problems
+        else f"{examined} stated flow count(s) equal the engine's",
     )]
 
 

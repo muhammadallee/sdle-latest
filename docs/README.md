@@ -83,7 +83,7 @@ rather than the original being rewritten.
 
 | Document | For |
 |---|---|
-| [dry-runs/](dry-runs/README.md) | Nine conversation transcripts that are the **acceptance specification** for orchestrator behaviour. `tests/test_integration_01..09` derive their assertions from them and two tests byte-pin all nine files. A deviation in a real run is a bug in the run or the skill files — not in the transcript. All nine are `GREENFIELD`; the tutorials cover the other four flows |
+| [dry-runs/](dry-runs/README.md) | Thirteen conversation transcripts that are the **acceptance specification** for orchestrator behaviour, one per shipped flow plus nine guardrail scenarios. `tests/test_integration_01..09` and `test_integration_10_to_13` derive their assertions from them; two tests byte-pin the nine `GREENFIELD` ones. A deviation in a real run is a bug in the run or the skill files — not in the transcript |
 
 ## Migration record
 

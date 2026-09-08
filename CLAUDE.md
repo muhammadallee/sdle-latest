@@ -95,6 +95,7 @@ Any edit must preserve these — they are the product:
 - no gate label re-hardcodes its ordinal: each carries `{gate_number}`, substituted per bound flow
 - no PowerShell-only cmdlet remains in any prompt file
 - README and the Reference Guide list every phase
+- every flow size stated anywhere in the documentation set equals the engine's — the phase count **excluding** the terminal `complete`, which is what `FlowSpec.phase_count` reports and what the progress header shows. Checked in three claim shapes: a `| \`FLOW\` | N | M |` table row, a `**N phases, M gates.**` tutorial headline, and a `| \`FLOW\` | N phases, M gates |` index row. `docs/lifecycle/README.md` once counted `complete` and published 19/20/17/15/11 against five other documents' 18/19/16/14/10, which is why this is a rule and not a habit
 
 It runs in CI on `ubuntu-latest` and `windows-latest`. If it cannot parse a constant table it fails loudly rather than defaulting — a table that silently parsed to nothing would let `advance` compute a wrong next phase and fail open.
 
@@ -107,7 +108,7 @@ python -m pytest -q                # units, 9 transcript integrations, hooks
 python scripts/sdle.py lint-skill  # cross-file sync rules
 ```
 
-`docs/dry-runs/01..09` are the behavioural specification: one integration test per transcript. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
+`docs/dry-runs/01..13` are the behavioural specification: one integration test per transcript. `01..09` are `GREENFIELD` and are byte-pinned against the T10 rollback point through an enumerated substitution list; `10..13` cover the other four flows and are pinned by their claims (`tests/test_integration_10_to_13.py`) rather than their bytes, because they postdate that rollback point. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
 
 ## Platform Note
 

@@ -19,17 +19,26 @@ Up to v1.15 SDLE assumed one universal 18-phase lifecycle. It no longer does.
 
 Five flows ship:
 
-| Flow | Phases | For |
-|---|---|---|
-| `GREENFIELD` | 19 | A new product or component in a repository with no baseline |
-| `BROWNFIELD_DISCOVERY` | 20 | The first WorkItem in an existing repository — adds the `discovery` phase |
-| `ITERATIVE` | 17 | Ordinary change in a repository that already has a sound baseline |
-| `DEFECT_FIX` | 15 | A defect, entering through `impact_analysis` |
-| `HOTFIX` | 11 | An urgent production fix — the shortest flow that still gates |
+| Flow | Phases | Gates | For |
+|---|---:|---:|---|
+| `GREENFIELD` | 18 | 8 | A new product or component in a repository with no baseline |
+| `BROWNFIELD_DISCOVERY` | 19 | 8 | The first WorkItem in an existing repository — adds the `discovery` phase |
+| `ITERATIVE` | 16 | 7 | Ordinary change in a repository that already has a sound baseline |
+| `DEFECT_FIX` | 14 | 6 | A defect, entering through `impact_analysis` |
+| `HOTFIX` | 10 | 3 | An urgent production fix — the shortest flow that still gates |
 
-Counts include the terminal `complete` phase. `GREENFIELD` is **frozen in the
-engine** rather than declared in `FLOW_PHASES`, so a new registry row can never
-silently join it.
+**What the phase count counts.** Executable phases — the ones a WorkItem
+actually moves through. It excludes the terminal `complete`, which is a state a
+WorkItem lands in rather than a phase anybody runs, and the engine says so
+itself: `PROGRESS_MAP` numbers `GREENFIELD` 1 through 18 and gives `complete`
+no number of its own (it shares `18/18` with `gate_security`). So `GREENFIELD`
+is 18 phases, and the header a user reads on every turn agrees. This table is
+checked against the engine by `lint-skill`'s `doc_flow_counts_match_engine`,
+so it cannot drift from it — an earlier version of this table counted
+`complete` and disagreed with every other document in the set.
+
+`GREENFIELD` is **frozen in the engine** rather than declared in `FLOW_PHASES`,
+so a new registry row can never silently join it.
 
 The flow is bound **once**, at `init`, and never re-bound. A governance record
 that later proposes a different flow is refused `flow_mismatch`. Read the bound

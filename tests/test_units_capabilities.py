@@ -723,6 +723,14 @@ T11_CHECKS = (
     # merely appearing, which is what this closed set is for -- it caught this
     # very addition in CI.
     "documentation_index_links_every_directory",
+    # Added with the flow transcripts. Being findable is not the same as being
+    # right: `docs/lifecycle/README.md` counted the terminal `complete` and so
+    # published 19/20/17/15/11 while the tutorials, START-HERE, the root
+    # README and the Reference Guide published 18/19/16/14/10. Five documents
+    # against one, all of them present, all of them linked, and the odd one
+    # out was the document named "the lifecycle". Prose cannot be trusted to
+    # hold a number that the engine also holds.
+    "doc_flow_counts_match_engine",
 )
 
 
@@ -780,10 +788,19 @@ def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
     directory = REPO_ROOT / "docs" / "dry-runs"
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
-    assert len(numbered) == 9, [p.name for p in every]
+
+    # The nine GREENFIELD transcripts this pin was built for. Transcripts
+    # 10-13 were authored later, for the four non-GREENFIELD flows, and have
+    # no baseline to compare against -- `at_baseline` returns None for them.
+    # They are therefore excluded here and pinned by
+    # `tests/test_integration_10_to_13.py` instead, which asserts their
+    # claims rather than their bytes. The nine keep the stronger guarantee.
+    pinned = [p for p in numbered if int(p.name[:2]) <= 9]
+    assert len(pinned) == 9, [p.name for p in every]
+    assert len(numbered) == 13, [p.name for p in every]
 
     used: set[str] = set()
-    for path in every:
+    for path in pinned:
         relative = path.relative_to(REPO_ROOT).as_posix()
         original = at_baseline(relative)
         assert original is not None, relative
@@ -792,6 +809,29 @@ def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
 
     assert used == {old for old, _ in DRY_RUN_SUBSTITUTIONS}, sorted(
         {old for old, _ in DRY_RUN_SUBSTITUTIONS} - used)
+
+
+def test_the_dry_run_index_lists_every_transcript_beside_it():
+    """What replaces the byte-pin on `docs/dry-runs/README.md`.
+
+    The README used to ride along on the substitution comparison above, which
+    is how "the README cannot drift unnoticed either" was bought. That pin was
+    released deliberately when the index was rewritten to carry transcripts
+    10-13, and releasing it without putting anything back would have been a
+    quiet loss -- so this is the replacement, and it is a better fit for an
+    index than a byte comparison ever was: a byte-pin says the file did not
+    change, which is not the property an index needs. The property an index
+    needs is that it lists what is actually there.
+
+    A transcript added to the directory and forgotten now fails here, which is
+    exactly the failure the old pin would have caught.
+    """
+    directory = REPO_ROOT / "docs" / "dry-runs"
+    index = (directory / "README.md").read_text(encoding="utf-8")
+
+    missing = [path.name for path in sorted(directory.glob("*.md"))
+               if path.name != "README.md" and path.name not in index]
+    assert not missing, f"docs/dry-runs/README.md does not link: {missing}"
 
 
 def test_n21_greenfield_is_frozen_and_every_flow_is_element_wise_identical(

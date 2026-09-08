@@ -1357,18 +1357,30 @@ def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
     those substitutions still fails here, and every declared pair must be used
     at least once so a pair cannot decay into a no-op.
 
-    The directory holds ten Markdown files — the nine numbered transcripts and
-    its own README. The count guard is on the nine, because that is the number
-    the contract and the plan name and a transcript quietly disappearing is
-    what it exists to catch; every file in the directory is compared, so the
-    README cannot drift unnoticed either."""
+    The directory now holds fourteen Markdown files — nine numbered GREENFIELD
+    transcripts, four later ones for the other flows, and its own README. The
+    count guard stays on the nine, because that is the number the contract and
+    the plan name and a transcript quietly disappearing is what it exists to
+    catch.
+
+    Transcripts 10-13 are excluded: they were authored after this rollback
+    point, so `at_rollback` returns None for them and there is nothing to
+    compare against. They are pinned by `tests/test_integration_10_to_13.py`
+    instead, which asserts their claims rather than their bytes. The README is
+    excluded for a different reason -- it was deliberately rewritten to index
+    them -- and its replacement guarantee is
+    `test_the_dry_run_index_lists_every_transcript_beside_it`, which checks
+    that it lists what is actually in the directory. That is the property an
+    index needs; a byte-pin only ever said the file had not changed."""
     directory = REPO_ROOT / "docs" / "dry-runs"
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
-    assert len(numbered) == 9, [p.name for p in every]
+    pinned = [p for p in numbered if int(p.name[:2]) <= 9]
+    assert len(pinned) == 9, [p.name for p in every]
+    assert len(numbered) == 13, [p.name for p in every]
 
     used: set[str] = set()
-    for path in every:
+    for path in pinned:
         relative = path.relative_to(REPO_ROOT).as_posix()
         original = at_rollback(relative)
         assert original is not None, relative
