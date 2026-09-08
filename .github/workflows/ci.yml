@@ -15,7 +15,17 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
+      # Full history, not the default shallow clone. Several tests assert
+      # that a file is byte-identical to its content at a named earlier
+      # commit -- `git show <sha>:<path>` -- which is how a phase proves it
+      # changed nothing it promised not to. With `fetch-depth: 1` those
+      # commits are absent, `git show` fails, and the helper returns None.
+      # Their non-vacuity guard then fails loudly rather than letting the
+      # comparisons pass by comparing None to None, which is exactly what
+      # it is for -- but the run is red for a missing clone, not a defect.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
