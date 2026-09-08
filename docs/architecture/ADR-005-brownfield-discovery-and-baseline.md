@@ -395,7 +395,7 @@ both. The version bump belongs to the phase that owns V1 convergence.
   `discovery_missing`, `discovery_workitem_required`, `baseline_present`,
   `baseline_required`, `baseline_not_valid` at exit 1;
   `discovery_record_invalid` and `baseline_invalid` at exit 3. No existing
-  refusal is removed or renamed. **Every one is evaluated by a pure reader ahead
+  refusal is removed or renamed.[^t11-d4] **Every one is evaluated by a pure reader ahead
   of the caller's first `append_audit`**, so a refused `advance`, `gate
   approve`, `skip`, `init` or `discovery assess` leaves `audit.md`
   byte-identical, and a refused `init` creates no runtime at all.
@@ -430,3 +430,16 @@ both. The version bump belongs to the phase that owns V1 convergence.
   registry and one element in one ordered subset. If the implementation ever
   grows a construct capable of expressing a lifecycle SDLE does not currently
   need, that is a defect, not a feature.
+
+
+[^t11-d4]: **Superseded in part by T11 (2026-09).** That sentence was true when
+    this ADR was written. T11's D4 retired two of the nine refusals named above:
+    `discovery_workitem_required` and `governance_workitem_required` both now
+    refuse `workitem_required`, because T11 removed the WorkItem-less
+    initialisation path those distinct reasons existed to describe. The seven
+    other refusals, and the pure-reader-before-`append_audit` property that is
+    the substance of this bullet, are unchanged. Recorded here rather than by
+    editing the sentence: an ADR is a dated record of a decision, not a
+    description of current behaviour, and rewriting it would erase the fact
+    that the refusals once existed. See ADR-008 and `T11-verification-a01.md`
+    NB-2, which found this discrepancy.

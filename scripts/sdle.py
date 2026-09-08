@@ -10403,6 +10403,19 @@ def _check_version_consistency(paths: Paths) -> Check:
                            guide.read_text(encoding="utf-8"))
         found["Reference Guide header"] = header.group(1) if header else None
 
+    # T11 NB-1. The six documentation-set READMEs each open with an
+    # `**Applies to:** SDLE vX.Y` line. They were written by the same phase
+    # that twice fixed this exact class -- an unchecked restatement of a
+    # constant -- and promptly created six more of it, so the next bump would
+    # have left six documents claiming the old version. Derived by glob, not
+    # listed: a seventh directory added later is covered without an edit here.
+    for readme in sorted((root / "docs").glob("*/README.md")):
+        applies = re.search(r"\*\*Applies to:\*\*\s*SDLE v([0-9]+\.[0-9]+)",
+                            readme.read_text(encoding="utf-8"))
+        if applies:
+            label = f"docs/{readme.parent.name}/README.md"
+            found[label] = applies.group(1)
+
     mismatched = {k: v for k, v in found.items() if v != version}
     return Check(
         "version_string_consistent",

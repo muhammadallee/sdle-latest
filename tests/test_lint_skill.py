@@ -172,6 +172,38 @@ def test_version_drift_fires(repo):
     assert_only_failure(repo, "version_string_consistent")
 
 
+def test_a_documentation_readme_pinning_the_wrong_version_fires(repo):
+    """T11 NB-1. The documentation-set READMEs each restate the version.
+
+    They were created by the phase that had already fixed this class twice,
+    and sat outside `version_string_consistent` -- so the next bump would have
+    left six documents claiming the old version with every check green. The
+    rule reads them by glob now; this proves it, on a copied tree.
+    """
+    workitems = repo.root / "docs" / "workitems"
+    workitems.mkdir(parents=True)
+    (workitems / "README.md").write_text(
+        "# WorkItems\n\n**Applies to:** SDLE v1.13\n", encoding="utf-8")
+    assert_only_failure(repo, "version_string_consistent")
+
+
+def test_a_documentation_readme_at_the_right_version_is_clean(repo):
+    """The other half: the glob must not fire on an agreeing document, or the
+    rule would be unusable and someone would delete the line rather than the
+    drift. Uses the template's own version so this cannot rot at the next bump.
+    """
+    import json as _json
+    template = _json.loads(
+        (repo.skill_root / "templates" / "state.json").read_text(encoding="utf-8"))
+    version = template["workflow_version"]
+    workitems = repo.root / "docs" / "workitems"
+    workitems.mkdir(parents=True)
+    (workitems / "README.md").write_text(
+        f"# WorkItems\n\n**Applies to:** SDLE v{version}\n", encoding="utf-8")
+    checks = results(repo)
+    assert checks["version_string_consistent"] is True, checks
+
+
 def test_a_state_field_without_a_migration_row_fires(repo):
     path = repo.skill_root / "templates" / "state.json"
     template = json.loads(path.read_text(encoding="utf-8"))
