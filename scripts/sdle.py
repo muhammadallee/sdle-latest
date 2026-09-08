@@ -9871,6 +9871,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
     checks.extend(_check_documentation_set(paths))
+    checks.extend(_check_documentation_index(paths))
     checks.append(_check_repo_config_defaults_documented(paths))
     return checks
 
@@ -10624,6 +10625,48 @@ def _check_documentation_set(paths: Paths) -> list[Check]:
         not problems,
         "; ".join(problems) if problems
         else f"all {len(DOCUMENTATION_TARGETS)} documentation targets present",
+    )]
+
+
+def _check_documentation_index(paths: Paths) -> list[Check]:
+    """Every documentation directory is reachable from `docs/README.md`.
+
+    `documentation_set_is_present` proves the directories exist. Existing is
+    not the same as being findable: the six subject directories §17 mandates
+    were created by T11 and, until the index was written, were linked from
+    nowhere at all -- present, lint-green, and invisible to every reader.
+
+    A seventh added later would be equally invisible, so this is derived from
+    `DOCUMENTATION_TARGETS` rather than listing the directories again
+    (invariant 7). Adding a directory to that tuple and forgetting the index
+    now fails the build.
+
+    Emitted under the same condition as the check above -- the tree must carry
+    both root documents -- so a project that merely installed the skill is not
+    judged against the source repository's documentation rules.
+    """
+    root = _repo_root(paths)
+    if not ((root / "README.md").is_file() and (root / "CLAUDE.md").is_file()):
+        return []
+
+    index = root / "docs" / "README.md"
+    if not index.is_file():
+        return [Check("documentation_index_links_every_directory", False,
+                      "docs/README.md is missing")]
+
+    text = index.read_text(encoding="utf-8")
+    missing = [
+        target for target in DOCUMENTATION_TARGETS
+        if target.startswith("docs/") and target not in (
+            # The index lives in docs/, so it links relatively.
+            "docs/",
+        ) and target[len("docs/"):] not in text
+    ]
+    return [Check(
+        "documentation_index_links_every_directory",
+        not missing,
+        f"docs/README.md does not link: {', '.join(missing)}" if missing
+        else f"every documentation directory is linked from the index",
     )]
 
 

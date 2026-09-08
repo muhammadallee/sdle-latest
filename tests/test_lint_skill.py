@@ -661,7 +661,43 @@ def documented_repo(repo: Project) -> Project:
     shutil.copy(REPO_ROOT / "CLAUDE.md", repo.root / "CLAUDE.md")
     for relative in DOCUMENTATION_DIRECTORIES:
         shutil.copytree(REPO_ROOT / relative, repo.root / relative)
+    # The index too: a tree with every directory but no way to find them is
+    # not a complete documentation set, which is the whole point of
+    # `documentation_index_links_every_directory`. Without this the cases
+    # below would each fail on two checks and `assert_only_failure` could
+    # not isolate the one they break.
+    shutil.copy(REPO_ROOT / "docs" / "README.md", repo.root / "docs" / "README.md")
     return repo
+
+
+def test_an_unlinked_documentation_directory_fires(documented_repo):
+    """The six subject directories were created by T11 and linked from
+    nowhere: present, lint-green, and invisible to every reader. This is the
+    check that makes that state fail rather than pass."""
+    index = documented_repo.root / "docs" / "README.md"
+    index.write_text(
+        index.read_text(encoding="utf-8").replace("troubleshooting/", "gone/"),
+        encoding="utf-8")
+    assert_only_failure(
+        documented_repo, "documentation_index_links_every_directory")
+
+
+def test_a_missing_documentation_index_fires(documented_repo):
+    """Deleting the index must fail loudly rather than making the rule vacuous
+    -- the failure mode a check that examines nothing always has."""
+    (documented_repo.root / "docs" / "README.md").unlink()
+    assert_only_failure(
+        documented_repo, "documentation_index_links_every_directory")
+
+
+def test_the_index_check_is_derived_from_the_target_list(documented_repo):
+    """Not a second list. Adding a directory to `DOCUMENTATION_TARGETS` and
+    forgetting the index must fail, which is only true while the check reads
+    that tuple rather than restating it (invariant 7)."""
+    linked = (documented_repo.root / "docs" / "README.md").read_text(
+        encoding="utf-8")
+    for target in DOCUMENTATION_DIRECTORIES:
+        assert target[len("docs/"):] + "/" in linked, target
 
 
 def test_n24_the_documentation_check_passes_on_a_complete_copy(
