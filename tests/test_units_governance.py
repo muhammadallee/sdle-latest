@@ -18,6 +18,7 @@ import ast
 import copy
 import inspect
 import json
+import time
 import re
 import shutil
 from pathlib import Path
@@ -1698,8 +1699,26 @@ def test_the_governance_entry_is_written_once_per_assessment(project):
                 if sdle.GOVERNANCE_AUDIT_EVENT in b]
 
     assert len(governance_blocks()) == 1
+    first_execution = record_of(project)["executionId"]
 
-    assert assess(project).exit_code == EXIT_OK  # a new executionId
+    # A re-assessment only earns a second entry if it is genuinely a second
+    # execution, and `execution_identity` is second-resolution by contract
+    # (`<prefix>-<UTC>`, "lightweight" identity). Two `assess` calls inside one
+    # second share an id, the de-duplication correctly suppresses the entry,
+    # and this assertion fails -- which is what CI saw on ubuntu-latest while
+    # windows-latest passed, purely because the Windows runner was slow enough
+    # to straddle a second boundary.
+    #
+    # ADR-008 recorded this exact shape in a two-worktree test: "a hardening
+    # test whose outcome turns on the clock is worse than no hardening test,
+    # because it launders a false property as a proven one." That one was
+    # found and fixed; this one was not, and it took a platform where the
+    # calls actually collide to surface it. Wait for the boundary rather than
+    # racing it: the property under test is de-duplication by execution, not
+    # the width of the clock.
+    while record_of(project)["executionId"] == first_execution:
+        time.sleep(0.2)
+        assert assess(project).exit_code == EXIT_OK
     project.write_artifact(f"workitems/{project.workitem}/specs/001-x/spec.md")
     project.ok("advance", "--to", "gate_spec")
 
