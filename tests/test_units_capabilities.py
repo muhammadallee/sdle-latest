@@ -42,8 +42,12 @@ import pytest
 from conftest import (
     DRY_RUN_SUBSTITUTIONS,
     REPO_ROOT,
+    STABILIZATION_01_TEST_ADDITIONS,
+    STABILIZATION_01_TEST_EDITS,
+    STABILIZATION_01_TEST_REMOVALS,
     Project,
     apply_dry_run_substitutions,
+    assert_frozen_module,
     sdle,
 )
 from test_units_flow_model import bind, tree_map
@@ -765,7 +769,22 @@ def test_n20_n24_the_frozen_files_are_byte_identical(relative):
     move."""
     original = at_baseline(relative)
     assert original is not None, relative
-    assert here(relative) == original, relative
+    if relative.endswith(".py"):
+        # SDLE-DEFECT-STABILIZATION-01: two of these files asserted defects
+        # the iteration fixes. Unit-by-unit byte identity, except the edits
+        # declared once in `conftest.py` -- see its comment block.
+        assert_frozen_module(relative, original, here(relative))
+    else:
+        assert here(relative) == original, relative
+
+
+def test_the_stabilization_declarations_name_only_frozen_files():
+    """A declaration against a file no pin compares would be a no-op, which
+    is the one failure a declared-delta list must not have."""
+    declared = (set(STABILIZATION_01_TEST_EDITS)
+                | set(STABILIZATION_01_TEST_ADDITIONS)
+                | set(STABILIZATION_01_TEST_REMOVALS))
+    assert declared <= set(FROZEN), sorted(declared - set(FROZEN))
 
 
 def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
@@ -1006,12 +1025,15 @@ T11_WRITE_DELTA = {"append_audit": 2, "save_state": 1}
 #
 #   `.mkdir(` +1 (D04): `reserve_evidence` creates the evidence directory
 #       before it claims a file name in it.
+#   `write_atomic` +1 (D02): `cmd_manifest_build` fills the implementation
+#       evidence record Gate 7 reads — 30 -> 31. Still a call to the one
+#       atomic writer, not a new way to write a file.
 #
 # D04 also adds the engine's one *exclusive-create* writer — `open(path,
 # "x")` in `reserve_evidence`, which claims an evidence file name so no
 # evidence is ever replaced. It is not a needle above (a bare `open(` would
 # match every reader), so it is pinned by name in the test below instead.
-STABILIZATION_01_WRITE_DELTA = {".mkdir(": 1}
+STABILIZATION_01_WRITE_DELTA = {".mkdir(": 1, "write_atomic": 1}
 
 ADD_PARSER = re.compile(r'add_parser[(]' + r"\s*" + r'"([a-z][a-z-]*)"')
 

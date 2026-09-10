@@ -474,8 +474,8 @@ belong to the Claude Code runtime, and which are convention only.
             ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>-<8 hex>)
             ├── audit.md               ← Append-only event log (hash-chained via state.json → audit_sha)
             ├── lock                   ← Session lock (concurrent-session detection; the only ignored file)
-            ├── evidence/              ← Migration evidence
-            ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + summary)
+            ├── evidence/              ← Evidence records (governance, discovery, review, implementation, migration)
+            ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + test evidence + summary)
             └── completion-summary.json    ← Written on final Gate 8 approval
 ```
 

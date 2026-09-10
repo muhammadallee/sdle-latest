@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import FIXTURE_WORKITEM_ID
+from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND
 from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -150,12 +150,32 @@ def test_06_gate_seven_refuses_a_manifest_without_scan_or_tests(git_project):
 def test_06_gate_seven_accepts_a_built_manifest(git_project):
     at_implement(git_project)
     git_project.ok("implement", "preflight")
-    git_project.ok("manifest", "build", "--skip-tests")
+    git_project.ok("manifest", "build", "--test-command",
+                   PASSING_TEST_COMMAND)
     git_project.ok("advance", "--to", "gate_implement")
     review_for_gate(git_project, "gate_implement")  # T06: E2.
 
     result = git_project.ok("gate", "approve", "--gate", "gate_implement")
     assert result.data["next_phase"] == "security_review"
+
+
+def test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped(
+        git_project):
+    """D02 (SDLE-DEFECT-STABILIZATION-01). The acceptance test above used to
+    build with `--skip-tests` and approve: a manifest carrying every heading
+    and no test run carried Gate 7. The choke point now reads the result, and
+    a PASS review of the manifest does not change what the manifest reports."""
+    at_implement(git_project)
+    git_project.ok("implement", "preflight")
+    git_project.ok("manifest", "build", "--skip-tests")
+    git_project.ok("advance", "--to", "gate_implement")
+    review_for_gate(git_project, "gate_implement")
+
+    result = git_project.run("gate", "approve", "--gate", "gate_implement")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "tests_not_passed"
+    assert result.data["status"] == "skipped by caller"
+    assert git_project.state()["approvals"]["gate_implement"] is None
 
 
 def test_06_test_evidence_records_a_real_failing_run(git_project):

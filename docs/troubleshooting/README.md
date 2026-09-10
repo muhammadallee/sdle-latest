@@ -280,3 +280,21 @@ earlier approval and `audit.md` stay byte-for-byte as they were.
 A flow that does not contain a gate, like `gate_constitution` under
 `ITERATIVE`, never asks for that gate's artifact. Nothing here makes you
 fabricate one.
+
+---
+
+## 14. Gate 7 refuses the test evidence: `tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`
+
+Gate 7 approves an implementation only on evidence that its tests **ran and
+passed**. `manifest build` writes that evidence as a structured record and
+names it on the manifest's `Evidence:` line. The gate reads it back and checks
+that it belongs to *this* manifest, *this* implementation base and *this*
+WorkItem. There is no exception or waiver path, and a PASS review of the
+manifest does not change what the manifest reports.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `tests_not_passed` | The recorded run is `FAILED`, `skipped by caller`, `no runner detected`, `runner not installed` or `timed out after Ns`. `data.status` says which | Fix the failures and rebuild. If the runner was not detected or not installed, rebuild with the project's real test command: `manifest build --test-command "<command>"`. `--skip-tests` can never pass Gate 7 |
+| `test_evidence_missing` | The manifest names no evidence (hand-written, or built by an older SDLE), or the named file is gone | Rebuild with `manifest build`. An old-format manifest cannot establish that tests passed |
+| `test_evidence_stale` | The evidence belongs to other content. `data.mismatch` names what differs: `manifestSha256` (the manifest was edited after it was built), `baseRef` (`implement preflight` re-pinned the base since), `workitem`, or `location` | Rebuild with `manifest build`. Never edit the manifest by hand |
+| `test_evidence_malformed` | The evidence file is empty, not JSON, or contradicts itself (for example `passed` with a non-zero exit code) | Rebuild with `manifest build`. An empty file means a build was interrupted |

@@ -25,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -8683,6 +8684,140 @@ REQUIRED_MANIFEST_SECTIONS = (
 )
 
 
+# **D02 (SDLE-DEFECT-STABILIZATION-01).** Gate 7's verification evidence.
+#
+# `manifest build` writes one structured record per build beside the manifest
+# and names it from a line in the manifest. Gate 7 reads it back and binds it
+# to the exact manifest bytes, the pinned implementation base and the bound
+# WorkItem, then requires a runner that actually ran and exited 0. The prose
+# statuses are unchanged; what changed is that one of them is now required.
+IMPLEMENTATION_EVIDENCE_KIND = "implementation"
+MANIFEST_EVIDENCE_LINE = re.compile(r"^Evidence: (\S+)\s*$", re.MULTILINE)
+TEST_STATUS_PASSED = "passed"
+TEST_STATUS_FAILED = "FAILED"
+TEST_STATUSES = (TEST_STATUS_PASSED, TEST_STATUS_FAILED, "no runner detected",
+                 "runner not installed", "skipped by caller")
+REBUILD_HINT = (
+    "Rebuild it with `manifest build`, adding `--test-command \"<command>\"` "
+    "when the project's test runner is not auto-detected."
+)
+
+
+def _implementation_evidence_shape(document: object) -> str | None:
+    """Why ``document`` cannot be read as implementation evidence, or None."""
+    if not isinstance(document, dict):
+        return "the evidence is not a JSON object"
+    if document.get("kind") != IMPLEMENTATION_EVIDENCE_KIND:
+        return f"kind is {document.get('kind')!r}, not implementation evidence"
+    for field_name in ("workitem", "manifestSha256", "executionId"):
+        if not isinstance(document.get(field_name), str):
+            return f"{field_name} is missing or not a string"
+    if "baseRef" not in document or not (
+            document["baseRef"] is None or isinstance(document["baseRef"], str)):
+        return "baseRef is missing or not a string"
+    tests = document.get("tests")
+    if not isinstance(tests, dict):
+        return "the tests block is missing"
+    status, code = tests.get("status"), tests.get("exit_code")
+    if not isinstance(status, str) or not (
+            status in TEST_STATUSES or status.startswith("timed out after ")):
+        return f"test status {status!r} is not one SDLE records"
+    if code is not None and (isinstance(code, bool) or not isinstance(code, int)):
+        return f"exit_code {code!r} is not an integer"
+    if status == TEST_STATUS_PASSED and code != 0:
+        return f"status says passed but the exit code is {code!r}"
+    if status == TEST_STATUS_FAILED and code in (0, None):
+        return f"status says FAILED but the exit code is {code!r}"
+    return None
+
+
+def implementation_evidence_precondition(paths: Paths, state: dict,
+                                         gate_key: str, resolved: str,
+                                         body: str) -> None:
+    """Gate 7 requires evidence of a passing test run for *this* manifest."""
+    match = MANIFEST_EVIDENCE_LINE.search(body)
+    if not match:
+        raise Refused(
+            "test_evidence_missing",
+            f"Cannot approve {gate_key}: {resolved} names no verification "
+            "evidence. A manifest in this form — written by hand, or built "
+            "before SDLE recorded evidence — cannot establish that the tests "
+            f"ran, let alone passed. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved},
+        )
+    relative = match.group(1)
+    target = paths.project_root / relative
+    try:
+        target.resolve().relative_to(paths.evidence_dir.resolve())
+    except ValueError:
+        raise Refused(
+            "test_evidence_stale",
+            f"Cannot approve {gate_key}: {resolved} points at {relative}, "
+            "which is not this WorkItem's evidence. Evidence from another "
+            f"WorkItem or location never approves this one. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved, "evidence": relative,
+             "mismatch": "location"},
+        ) from None
+    if not target.is_file():
+        raise Refused(
+            "test_evidence_missing",
+            f"Cannot approve {gate_key}: the evidence {resolved} names, "
+            f"{relative}, does not exist. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved, "evidence": relative},
+        )
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        document, problem = None, f"it cannot be read as JSON ({exc})"
+    else:
+        problem = _implementation_evidence_shape(document)
+    if problem:
+        raise Refused(
+            "test_evidence_malformed",
+            f"Cannot approve {gate_key}: {relative} is not usable evidence: "
+            f"{problem}. {REBUILD_HINT}",
+            {"gate": gate_key, "evidence": relative, "problem": problem},
+        )
+
+    for field_name, expected in (
+        ("workitem", paths.workitem),
+        ("manifestSha256", sha256_file(paths.project_root / resolved)),
+        ("baseRef", state.get("implementation_base_ref")),
+    ):
+        if document.get(field_name) != expected:
+            raise Refused(
+                "test_evidence_stale",
+                f"Cannot approve {gate_key}: {relative} does not belong to "
+                f"the manifest being approved ({field_name} is "
+                f"{document.get(field_name)!r}, expected {expected!r}). A "
+                "result for other content, another implementation base or "
+                f"another WorkItem proves nothing about this one. "
+                f"{REBUILD_HINT}",
+                {"gate": gate_key, "evidence": relative,
+                 "mismatch": field_name,
+                 "recorded": document.get(field_name), "expected": expected},
+            )
+
+    tests = document["tests"]
+    if tests["status"] != TEST_STATUS_PASSED or tests["exit_code"] != 0:
+        raise Refused(
+            "tests_not_passed",
+            f"Cannot approve {gate_key}: the recorded verification result is "
+            f"'{tests['status']}'"
+            + (f" (exit {tests['exit_code']})"
+               if tests["exit_code"] is not None else "")
+            + ". Gate 7 needs a test run that actually ran and passed, and "
+            "there is no exception path: a PASS review of the manifest does "
+            "not change the result it reports. Fix the failures, or — if the "
+            "runner was not detected or not installed — supply the project's "
+            "real test command with `manifest build --test-command "
+            "\"<command>\"`, then rebuild.",
+            {"gate": gate_key, "evidence": relative,
+             "status": tests["status"], "exit_code": tests["exit_code"],
+             "runner": tests.get("runner"), "command": tests.get("command")},
+        )
+
+
 SPECKIT_GATE_KEYS = ("gate_spec", "gate_plan", "gate_tasks", "gate_analyze")
 
 
@@ -8744,6 +8879,10 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
             "the moment of decision.",
             {"path": resolved, "missing": missing},
         )
+    # D02: the headings prove the sections exist; this proves what the test
+    # section reports is a passing run of *this* implementation.
+    implementation_evidence_precondition(paths, state, gate_key, resolved,
+                                         body)
     return None
 
 
@@ -9598,12 +9737,35 @@ def detect_test_runner(paths: Paths) -> tuple[str, list[str]] | None:
     return None
 
 
-def run_tests(paths: Paths, timeout: int) -> dict:
-    detected = detect_test_runner(paths)
-    if not detected:
-        return {"runner": None, "exit_code": None, "output": None,
-                "status": "no runner detected"}
-    name, command = detected
+def run_tests(paths: Paths, timeout: int,
+              command_text: str | None = None) -> dict:
+    """Run the project's tests and report the outcome honestly.
+
+    ``command_text`` is `manifest build --test-command`: the project's own
+    test command, for a runner `detect_test_runner` does not know. It is run
+    exactly like a detected runner — never through a shell, split with
+    ``shlex`` on POSIX and handed to the C runtime's own parser on Windows —
+    and its exit code is recorded the same way. It supplies evidence; it
+    cannot waive the need for it (D02).
+    """
+    if command_text:
+        name = "custom command"
+        command = command_text if os.name == "nt" else shlex.split(command_text)
+        display = command_text
+    else:
+        detected = detect_test_runner(paths)
+        if not detected:
+            return {"runner": None, "command": None, "exit_code": None,
+                    "output": None, "status": "no runner detected"}
+        name, command = detected
+        display = " ".join(command)
+    result = _run_test_command(paths, timeout, name, command)
+    result["command"] = display
+    return result
+
+
+def _run_test_command(paths: Paths, timeout: int, name: str,
+                      command: "str | list[str]") -> dict:
     try:
         completed = subprocess.run(
             command, cwd=str(paths.project_root), capture_output=True,
@@ -9687,10 +9849,13 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                     findings.append(f"{name}:{number} — {label} — {masked}")
                     break
 
-    tests = run_tests(paths, args.test_timeout) if not args.skip_tests else {
-        "runner": None, "exit_code": None, "output": None,
-        "status": "skipped by caller",
-    }
+    if args.skip_tests:
+        # Kept, and recorded as exactly what it is. Since D02 it can no longer
+        # carry Gate 7: the gate refuses any result but a run that passed.
+        tests = {"runner": None, "command": None, "exit_code": None,
+                 "output": None, "status": "skipped by caller"}
+    else:
+        tests = run_tests(paths, args.test_timeout, args.test_command)
 
     secrets_block = "\n".join(findings) if findings else "None detected."
     if tests["runner"] is None:
@@ -9698,15 +9863,26 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     else:
         tests_block = (
             f"Runner: {tests['runner']}\n"
-            f"Result: {tests['status']}"
+            + (f"Command: {tests['command']}\n" if tests.get("command") else "")
+            + f"Result: {tests['status']}"
             + (f" (exit {tests['exit_code']})" if tests["exit_code"] is not None
                else "")
             + (f"\n\n```\n{tests['output']}\n```" if tests["output"] else "")
         )
 
+    # D02: the structured record Gate 7 reads. Claimed before the manifest is
+    # written so the manifest can name it; filled after, so it can carry the
+    # manifest's own fingerprint and nothing can be edited in between unseen.
+    stamp = now_iso()
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"{IMPLEMENTATION_EVIDENCE_KIND}-{eid}.json")
+    evidence_relative = evidence.relative_to(paths.project_root).as_posix()
+
     body = (
         "# Implementation Manifest\n"
-        f"Generated: {now_iso()}\n"
+        f"Generated: {stamp}\n"
+        f"Evidence: {evidence_relative}\n"
         f"Phase: implement ({state.get('progress', '15/18')})\n"
         + (f"\n> {note}\n" if note else "")
         + "\n## Changed/Added Files\n"
@@ -9720,6 +9896,20 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         + "\n"
     )
     write_atomic(paths.manifest_file, body)
+    write_atomic(evidence, json.dumps({
+        "kind": IMPLEMENTATION_EVIDENCE_KIND,
+        "executionId": execution_id,
+        "recordedAt": stamp,
+        "workitem": paths.workitem,
+        "manifest": relative,
+        "manifestSha256": sha256_file(paths.manifest_file),
+        "baseRef": state.get("implementation_base_ref"),
+        "head": _git_value(paths, "rev-parse", "HEAD"),
+        "files": changed,
+        "secrets": findings,
+        "tests": {key: tests.get(key) for key in
+                  ("runner", "command", "exit_code", "status", "output")},
+    }, indent=2) + "\n")
 
     if findings:
         append_audit(
@@ -9738,6 +9928,12 @@ def cmd_manifest_build(args, paths: Paths) -> int:
 
     emit("manifest build", {
         "path": relative, "files": changed, "secrets": findings, "tests": tests,
+        "evidence": evidence_relative,
+        # Advisory, so the orchestrator can say *now* that Gate 7 will refuse
+        # rather than letting the user discover it at the gate. Gate 7 itself
+        # re-derives this from the evidence file; it never reads this flag.
+        "tests_passed": (tests["status"] == TEST_STATUS_PASSED
+                         and tests["exit_code"] == 0),
     })
     return EXIT_OK
 
@@ -11559,6 +11755,10 @@ def build_parser() -> argparse.ArgumentParser:
     mbuild.add_argument("--summary")
     mbuild.add_argument("--skip-tests", action="store_true")
     mbuild.add_argument("--test-timeout", type=int, default=600)
+    mbuild.add_argument(
+        "--test-command",
+        help="The project's own test command, for a runner SDLE does not "
+             "detect. Run without a shell; its exit code is the evidence.")
     mbuild.set_defaults(handler=cmd_manifest_build)
 
     lock_p = subparsers.add_parser("lock", help="Session lock.")

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, Project, sdle
+from conftest import PASSING_TEST_COMMAND, REPO_ROOT, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL
 from test_units_artifact_review import review_for_gate
 
@@ -1070,7 +1070,10 @@ def prepare(project: Project, phase: str, feature_dir: str) -> None:
         project.write_artifact("design/db/db-design.md")
     elif phase == "implement":
         project.ok("implement", "preflight", "--bypass")
-        project.ok("manifest", "build", "--summary", "Implemented the change.")
+        # D02: Gate 7 needs a test run that actually passed. The fixture has
+        # no runner to detect, so the driver supplies one.
+        project.ok("manifest", "build", "--summary", "Implemented the change.",
+                   "--test-command", PASSING_TEST_COMMAND)
     elif phase == "security_review":
         begun = project.ok("security-review", "begin")
         project.write_artifact(begun.data["review_filename"])

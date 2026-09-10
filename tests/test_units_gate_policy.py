@@ -43,6 +43,7 @@ from conftest import (
     SDLE_PY,
     Project,
     apply_dry_run_substitutions,
+    assert_frozen_module,
     sdle,
 )
 from test_units_artifact_review import audit_entries, review_for_gate
@@ -1339,10 +1340,18 @@ def test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point(
         relative):
     """N27/N28/A10/A11/F6: the design exists precisely so these need not
     change. `run_happy_path` approves every gate, which is always permitted,
-    so the frozen driver is a valid run at every risk level."""
+    so the frozen driver is a valid run at every risk level.
+
+    SDLE-DEFECT-STABILIZATION-01: the happy-path driver now supplies a passing
+    test command at Gate 7 (D02), so the Python file is compared unit by unit
+    against the edits declared once in `conftest.py`. Every other unit, and
+    the two non-Python files, are still byte-identical."""
     original = at_rollback(relative)
     assert original is not None, relative
-    assert here(relative) == original, relative
+    if relative.endswith(".py"):
+        assert_frozen_module(relative, original, here(relative))
+    else:
+        assert here(relative) == original, relative
 
 
 def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
