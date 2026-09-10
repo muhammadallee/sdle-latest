@@ -39,14 +39,19 @@ maintainer and answered before any code changed.
 
 | Task | Status | Commit | Notes |
 |---|---|---|---|
-| T00 Baseline | PASS | this commit | Baseline suite and lint green; D01–D04 reproduced |
-| T01 D04 execution identity | NOT STARTED | | |
-| T02 D01 artifact preconditions | NOT STARTED | | |
-| T03 D02 verification enforcement | NOT STARTED | | |
-| T04 D03 change selection | NOT STARTED | | |
-| T05 D05 SpecKit and instructions | IN PROGRESS | | Runtime checks run early (they write nothing to the repository); documentation not yet changed |
+| T00 Baseline | PASS | `9b00bc4` | Baseline suite and lint green; D01–D04 reproduced |
+| T01 D04 execution identity | PASS | `2da5394` | Affected modules 545 passed; full suite at T02 (below) |
+| T02 D01 artifact preconditions | PASS | `e778c2e` | Full suite 1800 passed (includes T01) |
+| T03 D02 verification enforcement | PASS (focused) | `c6a4f77` | Focused 137 passed; full suite at this commit: see T03 |
+| T04 D03 change selection | PASS (focused) | `cc072d9` | Focused 216 passed; full suite pending |
+| T05 D05 SpecKit and instructions | PASS (focused) | the T05 commit | Runtime verified for v1.0.6; instructions corrected; two further position/order defects found and fixed |
 | T06 D06 dry runs | NOT STARTED | | |
 | T07 Delivery | NOT STARTED | | |
+
+"PASS (focused)" means the task's own and directly affected tests passed at
+that commit. The full suite is run per commit in a detached verification
+worktree, because one run takes about 33 minutes here, and its result is
+recorded in the task's section once it finishes. No task is PASS without it.
 
 ## T00 — Baseline
 
@@ -112,3 +117,85 @@ locally: **NOT RUN**.
 Two harness faults surfaced and were fixed. Neither was a product finding:
 Python resolved `bash` to the WSL stub, and one ambiguity probe ran after the
 WorkItem already owned a feature directory, so tier 1 correctly answered first.
+
+## T01 — D04 execution identity
+
+| | |
+|---|---|
+| Reproduction | T00, above: two same-second `governance assess` calls shared `governance-usr-20260910T120000Z.json` |
+| Affected paths | `scripts/sdle.py` — `execution_identity`, and the four evidence writers `cmd_governance_assess`, `cmd_artifact_review`, `cmd_discovery_assess`, `cmd_migrate_workflow`; governance audit de-duplication (`governance_audit_marker`) |
+| Root cause | The id was `<prefix>-<UTC second>` and is used as a key: it names each evidence file (written with a replacing atomic write) and is the ledger's de-duplication marker |
+| Correction | `execution_identity` appends 32 random bits (`execution_suffix`). `reserve_evidence` claims each evidence file with an exclusive create before anything is written, retries with a fresh id up to 3 times, then refuses `execution_id_collision` (exit 3) having recorded nothing. Governance and discovery claim evidence before writing their record |
+| Compatibility | Historical ids are read unchanged — nothing parses an id. A pre-D04 record's marker still de-duplicates (test below). The contract's `<prefix>-<UTC>` format is deliberately widened; the divergence is recorded in ADR-009 |
+| Regression tests | `tests/test_units_execution_identity.py` — all 8 (frozen clock via `now_iso`, forced collision via `execution_suffix`, no sleeps) |
+| Red before fix | 6 failed / 2 passed at `9b00bc4`. The behavioural three failed on assertions (one evidence file; one ledger entry); the collision three on the missing `execution_suffix` hook. The two that passed are guards: review evidence names already carried a ledger-wide counter, and historical readability is a property to preserve. The ledger test was also re-run against the stashed pre-fix engine: 1 failed |
+| Green | 8 passed; affected modules (`execution_identity`, `governance`, `hardening`, `workitem_runtime`, `artifact_review`, `discovery`, `capabilities`) 545 passed |
+| Also changed | The second-boundary wait loop in `test_units_governance.py::test_the_governance_entry_is_written_once_per_assessment` is gone; `test_units_hardening.py` now asserts distinct ids across worktrees; both id regexes require the suffix; `STABILIZATION_01_WRITE_DELTA` declares `.mkdir(` +1, and a named pin holds the one exclusive-create writer to `reserve_evidence` |
+
+## T02 — D01 artifact preconditions
+
+| | |
+|---|---|
+| Reproduction | T00: `ITERATIVE`, `gate approve --gate gate_spec` with `featureDirectory` null → exit 0, `sha: null` |
+| Affected paths | `cmd_gate_approve`, `_approve_drift`, `cmd_gate_omit`, `gate_precondition_hook` (Gate 7 manifest read) |
+| Root cause | `resolve_artifact_path` returns `(None, reason)` for an unset binding and every caller treated `None` as "no artifact to check"; `sha256_file` errors escaped as tracebacks |
+| Correction | `required_gate_artifact` resolves, finds and hashes the artifact or refuses `artifact_unresolved` (naming the binding and recovery), `feature_ambiguous` (listing candidates via the shared `feature_candidate_tier`), `artifact_missing` or `artifact_unreadable`; a pure reader ahead of every write. A `(none)` template remains the only artifact-free gate |
+| Regression tests | `tests/test_units_gate_artifacts.py` — 19: null feature reference ×5 flows, unresolved security artifact ×5 flows, ambiguity, deleted file, unhashable (approve and omit), FAIL/stale review, drift re-approval of a deleted artifact, valid approval, and `ITERATIVE` needing no constitution |
+| Red before fix | 13 failed at `2da5394`, plus 2 added later that were also red: the omit case, and the drift case once its setup used `drift check --queue`. Most striking: an unresolved `security_review_artifact` let **every flow run to `complete`**, writing a completion summary |
+| Green | 19 passed; full suite at `e778c2e`: **1800 passed** in 33m15s |
+
+## T03 — D02 verification enforcement
+
+| | |
+|---|---|
+| Reproduction | T00: `--skip-tests` and a real failing pytest suite each approved Gate 7 under a PASS review |
+| Existing contract (recorded before coding) | Six prose statuses; nothing structured persisted; Gate 7 checked three headings; **no exception path exists** — no waiver, accepted-risk record or policy switch, and `gate omit` cannot reach the implementation gate |
+| Affected paths | `run_tests`, `cmd_manifest_build`, `gate_precondition_hook`; prompt layer `phase-execution.md`, `/sdle-approve` |
+| Root cause | The reader never read the result the producer wrote, and nothing bound a result to the manifest it described |
+| Correction | `manifest build` writes `evidence/implementation-<id>.json` (runner, command, exit code, status, manifest SHA, base, WorkItem) and names it on an `Evidence:` line. `implementation_evidence_precondition` refuses `test_evidence_missing`, `test_evidence_malformed`, `test_evidence_stale` (`manifestSha256`, `baseRef`, `workitem`, `location`) and `tests_not_passed`. `--test-command` supplies a project's real command (run without a shell; evidence, not a waiver) |
+| Compatibility | A manifest built before D02 has no `Evidence:` line and is refused `test_evidence_missing` with an explicit "this format cannot establish success" and the rebuild command — the plan's required behaviour for an insufficient existing format |
+| Regression tests | `tests/test_units_implementation_evidence.py` — 18, covering plan cases 1–8 (case 7 pins the *absence* of an exception path via the parser) |
+| Red before fix | 17 failed / 1 passed at `e778c2e` — the real-pytest-passes case is the positive control |
+| Green | 18 passed; happy path, 06–09, 10–13, every flow traversal and Spec Kit binding: 137 passed |
+| Freeze deltas | `tests/conftest.py` `STABILIZATION_01_TEST_EDITS` / `_ADDITIONS` / `_REMOVALS`: `run_happy_path` gains `--test-command`; `test_06_gate_seven_accepts_a_built_manifest` builds with a passing command; `test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped` added. Both freeze pins compare the Python files unit by unit against those declarations; `write_atomic` +1 declared |
+
+## T04 — D03 change selection
+
+| | |
+|---|---|
+| Reproduction | T00: a source file with a fake key committed after `implement preflight` was absent from `files` and `secrets` |
+| Affected paths | `cmd_manifest_build`, `cmd_security_review_evidence`, `git()` |
+| Root cause | The manifest compared against current `HEAD`; the review evidence had its own exclusions and a `HEAD~1` fallback |
+| Correction | `implementation_changes` diffs the pinned base against the working tree with `-z` (committed + staged + unstaged), adds untracked files, marks R/D/binary, and filters through `implementation_exclusions`, the one list both consumers read. A missing or invalid base refuses `implementation_base_missing` / `implementation_base_invalid`. Deletions and binary files are listed, never read; the review evidence lists `untracked` files for direct reading |
+| Additional defect found | `git()` stripped leading whitespace from its whole output, so the first `git status --short` line lost its leading space and `line[3:]` cut the first character of the path. The manifest listed `orkitems/…/state.json`, and the **dirty-tree guard** reported a false `dirty_tree` for an SDLE-owned file sorting first. Not in the plan's D-list; fixed at the root (`rstrip()` only) with a regression test |
+| Regression tests | `tests/test_units_manifest_changes.py` — 9 (post-base commit reaching both consumers and the scanner, staged/unstaged/untracked, rename, delete, binary PNG, exclusions, missing and invalid base, determinism, first-status-entry parse) |
+| Red before fix | 7 failed / 1 passed at `c6a4f77` (the exclusion case passed — existing behaviour to preserve); the parse test failed with the false `dirty_tree` |
+| Green | 9 passed; with 06–09, `workitem_runtime`, hooks and the dirty-tree tests: 216 passed |
+| Freeze deltas | Three frozen 06 manifest tests gain a declared `implement preflight` line; `test_06_security_review_falls_back_when_no_ref_pinned` is replaced, as declared, by `test_06_security_review_refuses_when_no_ref_pinned`. `CONFIG_REFERENCE_SITES` and the flow-model AST pin retarget `cmd_manifest_build` → `implementation_exclusions`, old and new values recorded |
+
+## T05 — D05 SpecKit and instructions
+
+The runtime results are in the table above. These are the changes, including the defects
+found while checking the instructions against the real parser:
+
+| Finding | Where | Correction |
+|---|---|---|
+| `specify init . --skills --here` rejected by v1.0.6 | README, `SPECKIT_MISSING_MESSAGE`, the skills-missing message, transcript 09 | One engine constant `SPECKIT_INIT_COMMAND` (pinned `@v1.0.6`), stated verbatim in README for both script flavours; transcript 09 via a declared `DRY_RUN_SUBSTITUTIONS` pair held equal to the constant |
+| Newest-mtime feature selection described | `phase-execution.md` Phase 4 (and "most recently updated `tasks.md`" at `gate_analyze`) | States the engine's rule: one candidate adopted, more than one refuses `feature_ambiguous`, never recency |
+| `preflight` documented before WorkItem creation | README step 2, SKILL.md Step 1, `/sdle-start` step 1 | `preflight` resolves a WorkItem, so in a fresh repository it refuses `workitem_required` first. The order is now identity → `sdle.sh --workitem <id> preflight` → scan → governance → `init` |
+| `sdle.sh lock acquire --session <token>` | SKILL.md Step 1 | A usage error (exit 2): `--session` is global. Now `sdle.sh --session <token> lock acquire` |
+| `sdle.sh --workitem <id> init --session <token>` | `/sdle-start` step 5 | Same defect. Now `sdle.sh --workitem <id> --session <token> init` |
+
+Regression tests are in `tests/test_units_documented_commands.py`:
+- The real parser checks every documented `sdle.sh` invocation in the prompt layer, README and docs for a global option placed after the subcommand. The check is proven able to fail on both forms above.
+- The README and the engine state the same install command.
+- No document still teaches the rejected `--skills` flag.
+- The spec-phase instruction states the engine's selection rule.
+- A real two-candidate `feature resolve` is refused.
+- In a fresh repository, preflight asks for a WorkItem first.
+
+| Environment | Result |
+|---|---|
+| Git Bash on Windows (`--script sh`) | **PASS** — install, skills, preflight, feature bind → create → resolve, ambiguity refusal |
+| PowerShell 7 on Windows (`--script ps`) | **PASS** — same checks |
+| Native Linux Bash | **NOT RUN** — no local Linux; CI runs the suite and launchers on ubuntu-latest but does not install SpecKit |

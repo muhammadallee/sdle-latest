@@ -49,7 +49,7 @@ start workflow
 SDLE requires SpecKit to be initialized in this project.
 
 Please run:
-  uvx --from git+https://github.com/github/spec-kit.git specify init . --skills --here
+  uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script sh
 
 Then try again.
 ```
@@ -87,7 +87,7 @@ start workflow
 
 ```
 ⚠️ SDLE cannot locate SpecKit skills. Re-initialize SpecKit:
-  uvx --from git+https://github.com/github/spec-kit.git specify init . --skills --here
+  uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script sh
 ```
 
 *(Discovery probes, in order: `.claude\skills\speckit-constitution\SKILL.md`, `.claude\skills\speckit.constitution\SKILL.md`, then the same two under `%USERPROFILE%\.claude\skills\`. The discovered prefix (`speckit-` vs `speckit.`) is cached in `state.json → speckit_skill_prefix`; if an invocation later fails mid-workflow, discovery re-runs automatically before surfacing an error.)*

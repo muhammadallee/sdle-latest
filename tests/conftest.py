@@ -502,6 +502,13 @@ DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
      'and the `workitems/todo-api/.sdle/lock` session lock are deleted'),
     ('independent fresh project (no `.workflow/`)',
      'independent fresh project (no WorkItem runtime)'),
+    # SDLE-DEFECT-STABILIZATION-01 D05: SpecKit v1.0.6 rejects `--skills`.
+    # The replacement is the command actually run against it, copied from
+    # `SPECKIT_INIT_COMMAND` in the engine, which a unit test holds equal.
+    ('  uvx --from git+https://github.com/github/spec-kit.git specify init . '
+     '--skills --here',
+     '  uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify '
+     'init --here --force --non-interactive --integration claude --script sh'),
 )
 
 

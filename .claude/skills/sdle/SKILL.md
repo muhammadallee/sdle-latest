@@ -293,13 +293,13 @@ Run these in order. Each is one script call; each refusal halts the turn.
 
 1. **`sdle.sh migrate`** — if the resolved WorkItem already has a `state.json`. Surface any `warnings`.
    If it exits 1 with `unknown_version`, show the message and stop.
-2. **`sdle.sh lock acquire --session <token>`** — generate one random 8-hex token per conversation and reuse it for every call in that conversation. If `warn` is true, show the concurrent-session warning. This warns; it does not halt.
+2. **`sdle.sh --session <token> lock acquire`** (`--session` is a global option and goes before the subcommand) — generate one random 8-hex token per conversation and reuse it for every call in that conversation. If `warn` is true, show the concurrent-session warning. This warns; it does not halt.
 3. **`sdle.sh audit verify`** — exit 3 means the ledger was edited, truncated, or written by another session. Show the message and stop. `accept audit` (`sdle.sh audit rebaseline`) is the only way past, and it is itself logged.
 4. **`sdle.sh doctor`** — exit 1 with `state_backwards` means possible corruption; halt. `state_jump` means the state moved more than two phases beyond confirmed history; halt and require `accept state` (`sdle.sh accept-state`).
 5. **`sdle.sh repo-staleness`** — if `stale`, show the informational notice once per conversation. Never halts.
 6. **`sdle.sh header`** — print `rendered` as the first thing the user sees.
 
-For a **new workflow** (no state file) run **`sdle.sh preflight`** first. It refuses with the exact message to show when SpecKit is missing, its skills are undiscoverable, or `requirements/` is absent or empty. Nothing is initialised on a refusal.
+For a **new workflow** (no state file), **the identity comes first, then preflight**: create the WorkItem as described under *Identity comes before initialisation* below, then run **`sdle.sh --workitem <id> preflight`** — the global `--workitem` goes before the subcommand. `preflight` resolves a WorkItem like every runtime command, so in a repository with none registered it refuses `workitem_required` before checking anything else; that refusal means "create the identity first", not "stop". Once bound, it refuses with the exact message to show when SpecKit is missing, its skills are undiscoverable, or `requirements/` is absent or empty. Nothing is initialised on a refusal.
 
 Then scan each requirements file (`sdle.sh scan --path <file>`) before doing anything with it, and if `guidance/*.md` files exist, list them and invite the user to edit before starting.
 

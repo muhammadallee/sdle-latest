@@ -19,12 +19,30 @@ Users interact only with SDLE — SpecKit commands never surface directly.
 the launcher resolves `py -3`, `python3`, `python`, then falls back to
 `uv run --python 3.11` (which SpecKit already requires) before giving up.
 
-Install SpecKit with skills mode in your **target project** (not this folder):
+Install SpecKit in your **target project** (not this folder). SDLE is verified
+against **SpecKit v1.0.6**. These are the exact commands that were run in a
+clean project for that verification:
+
+```bash
+# Bash (POSIX scripts), in your target project directory:
+uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script sh
+```
 
 ```powershell
-# In your target project directory:
-uvx --from git+https://github.com/github/spec-kit.git specify init . --skills --here
+# PowerShell scripts, in your target project directory:
+uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script ps
 ```
+
+The Claude integration installs SpecKit's skills by default (`.claude/skills/speckit-*`),
+which is what SDLE discovers. In v1.0.6 the older `specify init . --skills --here` fails
+with `No such option: --skills`, and `--integration-options=--skills` fails with
+`Unknown integration option '--skills'`. `--force` lets init merge into a directory that
+already has files; `--non-interactive` stops it waiting on a prompt. SDLE never upgrades an
+existing SpecKit installation. If you already have one, check its version with
+`specify version` before relying on it.
+
+On Windows the Bash command was run in Git Bash. Native Linux Bash was **not run**
+during that verification.
 
 ### 2. Install This Skill
 
@@ -44,7 +62,15 @@ scripts/                 sdle.py and its launchers
 ```
 
 Then merge `.claude/settings.json`'s `hooks` block into your project's
-settings. Run `scripts/sdle.sh preflight` to confirm the install.
+settings.
+
+`scripts/sdle.sh preflight` confirms the install (SpecKit, its skills, your
+requirements), but, like every runtime command, it resolves a **WorkItem**
+first. In a repository with no WorkItem it refuses `workitem_required` before
+checking anything else. That is expected, not a broken install. `start
+workflow` does this in the supported order: it asks for a WorkItem name,
+creates it, *then* runs `sdle.sh --workitem <id> preflight`. Global options
+such as `--workitem` go **before** the subcommand.
 
 ### 3. Add Requirements
 
@@ -65,7 +91,9 @@ Open Claude Code in your target project and say:
 start workflow
 ```
 
-SDLE will handle everything from there.
+SDLE will handle everything from there, in this order: WorkItem name →
+`workitem create` → `preflight` (halts on missing SpecKit, skills or
+requirements) → requirements scan → governance assessment → `init`.
 
 ---
 
@@ -387,7 +415,7 @@ and what was rejected, is in
 | Design Generation | *(SDLE-native, no SpecKit call)* |
 | Security Review | *(SDLE-native, no SpecKit call)* |
 
-These skill names are installed by `specify init . --skills --here`. SDLE auto-discovers the installed prefix (`speckit-` vs `speckit.`) on first run — these names are never exposed to the user during normal operation.
+These skill names are installed by SpecKit's Claude integration (`specify init --here --integration claude`, see Quick Start for the exact tested command). SDLE auto-discovers the installed prefix (`speckit-` vs `speckit.`) on first run — these names are never exposed to the user during normal operation.
 
 ---
 

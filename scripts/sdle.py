@@ -8388,10 +8388,26 @@ def detect_speckit_capabilities(paths: Paths) -> dict:
     }
 
 
+# D05 (SDLE-DEFECT-STABILIZATION-01). The SpecKit release SDLE is verified
+# against, and the init command as it was actually run against it — in a
+# disposable project, through both script flavours — for the record in
+# `docs/verification/defect-stabilization-01.md`. The earlier
+# `specify init . --skills --here` is rejected by this release (`No such
+# option: --skills`): the Claude integration installs skills by default.
+# Pinned with `@v<version>` so a user reproduces what was tested rather than
+# whatever the default branch is today; an existing installation is never
+# upgraded by SDLE. README's Quick Start states the same command, and a unit
+# test holds the two together.
+SPECKIT_SUPPORTED_VERSION = "1.0.6"
+SPECKIT_INIT_COMMAND = (
+    "uvx --from git+https://github.com/github/spec-kit.git"
+    f"@v{SPECKIT_SUPPORTED_VERSION} specify init --here --force "
+    "--non-interactive --integration claude --script sh"
+)
+
 SPECKIT_MISSING_MESSAGE = (
     "SDLE requires SpecKit to be initialized in this project. Run: "
-    "uvx --from git+https://github.com/github/spec-kit.git specify init . "
-    "--skills --here"
+    f"{SPECKIT_INIT_COMMAND} (use `--script ps` for PowerShell scripts)."
 )
 
 
@@ -10200,8 +10216,10 @@ def cmd_preflight(args, paths: Paths) -> int:
     if problems:
         messages = {
             "speckit_missing": SPECKIT_MISSING_MESSAGE,
-            "speckit_skills_missing": "SDLE cannot locate SpecKit skills. "
-            "Re-initialize SpecKit with --skills.",
+            "speckit_skills_missing": "SDLE cannot locate SpecKit skills "
+            "(looked for .claude/skills/speckit-constitution/ here and in "
+            "your home directory). SpecKit's Claude integration installs "
+            f"them; re-run its init: {SPECKIT_INIT_COMMAND}",
             "requirements_missing": "I need requirements before starting the "
             "workflow. Create a `requirements/` folder and add at least one "
             "document.",
