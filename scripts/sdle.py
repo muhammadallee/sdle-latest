@@ -9781,28 +9781,25 @@ def run_tests(paths: Paths, timeout: int,
                     "output": None, "status": "no runner detected"}
         name, command = detected
         display = " ".join(command)
-    result = _run_test_command(paths, timeout, name, command)
-    result["command"] = display
-    return result
-
-
-def _run_test_command(paths: Paths, timeout: int, name: str,
-                      command: "str | list[str]") -> dict:
+    # `run_tests` stays one of exactly two places the engine starts a process
+    # (`test_the_engine_invokes_no_agent` pins that set), so the spawn is here
+    # rather than in a helper.
     try:
         completed = subprocess.run(
             command, cwd=str(paths.project_root), capture_output=True,
             text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except FileNotFoundError:
-        return {"runner": name, "exit_code": None, "output": None,
-                "status": "runner not installed"}
+        return {"runner": name, "command": display, "exit_code": None,
+                "output": None, "status": "runner not installed"}
     except subprocess.TimeoutExpired:
-        return {"runner": name, "exit_code": None, "output": None,
-                "status": f"timed out after {timeout}s"}
+        return {"runner": name, "command": display, "exit_code": None,
+                "output": None, "status": f"timed out after {timeout}s"}
     output = ((completed.stdout or "") + (completed.stderr or "")).strip()
     tail = "\n".join(output.splitlines()[-40:])
     return {
         "runner": name,
+        "command": display,
         "exit_code": completed.returncode,
         "output": tail,
         "status": "passed" if completed.returncode == 0 else "FAILED",
