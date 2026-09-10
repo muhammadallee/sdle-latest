@@ -2,64 +2,102 @@
 
 **Applies to:** SDLE v1.17
 
-Simulated, end-to-end conversation flows showing exactly what the orchestrator says and does in each notable scenario. These are *dry runs*: no SpecKit was invoked and no artifacts were generated — every SDLE turn is derived from the skill files (`SKILL.md`, `modules/*.md`) and reproduces their specified output formats verbatim (status assertion headers, gate prompts, halt messages, confirmation flows).
+End-to-end conversation flows showing what the orchestrator says and does in each notable
+scenario, for **every one of the five shipped flows**, plus focused scenarios for the
+defects fixed in SDLE-DEFECT-STABILIZATION-01.
 
-Use them as:
+## What is simulated and what is executed
 
-- **Onboarding** — read `01-happy-path.md` first to see a whole flow end to end.
-- **Acceptance spec** — each transcript is the expected conversational behavior for its scenario; a deviation in a real run is a bug in either the run or the skill files.
-- **Test fixtures** — `tests/test_integration_01..09` and `tests/test_integration_10_to_13.py` derive their asserted state transitions from these transcripts. Deliberate divergences from pre-v1.13 behaviour are marked inline and recorded in `../architecture/ADR-001-deterministic-core.md`; there is no third category.
-- **Guardrail reference** — scenarios 02–09 each exercise specific guardrails (item numbers refer to the gap analysis recovered at `git show 22f3f3b^:improvements.md`); scenarios 10–13 each exercise one flow's own rules.
+Each transcript separates two kinds of content, and labels them:
 
-Transcripts 01–09 use the repo's test fixture (`requirements/todo-api.md` — Todo List REST API) as the subject project. Hashes are illustrative and truncated; artifact bodies are abridged (`[... abridged ...]`) because the transcripts document *orchestration behavior*, not SpecKit output quality.
+- **SIMULATED** — the conversation itself. It is written from the skill files and
+  the engine's real messages; no model or SpecKit run produced it. Hashes are
+  illustrative and shortened, and artifact bodies are abridged. Where a
+  transcript quotes a refusal "as the engine prints it", the text was captured
+  by driving the real CLI through the suite's fixtures.
+- **PASS / FAIL / BLOCKED / NOT RUN** — the executable checks. Every transcript
+  ends with an *Executable coverage* table naming the test nodes that assert its
+  claims. [verification-matrix.md](verification-matrix.md) records, per scenario,
+  the command that was run, the commit it ran against, and the actual result.
+
+A deviation between a real run and a transcript is a bug in the run, the skill files,
+or the transcript — and since the transcripts' claims are checked by
+`tests/test_dry_run_contracts.py`, a transcript that disagrees with the engine fails
+the build rather than drifting silently.
 
 ## Scenarios
 
-### Guardrails — `GREENFIELD`
+### `GREENFIELD` — the new-project flow and its guardrails
 
-| File | Scenario | Guardrails exercised |
+| File | Scenario | Defects |
 |---|---|---|
-| [01-happy-path.md](01-happy-path.md) | Full success run: `start workflow` → 18 phases → 8 approvals → `complete` | Baseline: status headers, gate discipline, clarification persistence, completion summary |
-| [02-gate-rejection-remediation.md](02-gate-rejection-remediation.md) | Gate rejected, remediated, approved; then remediation rate limit hit | Rejection protocol, feedback canonicalization, remediation rate limit |
-| [03-technical-failure-retry-skip.md](03-technical-failure-retry-skip.md) | Generation step fails; retries exhaust; two-step skip | Post-SpecKit Verification, retry rate limit, `confirm skip` (item 15) |
-| [04-artifact-drift-reapproval.md](04-artifact-drift-reapproval.md) | Approved artifact hand-edited; drift detected; re-approve and reject paths | Drift detection, re-approval queue, baseline re-fingerprinting |
-| [05-untrusted-content-scan.md](05-untrusted-content-scan.md) | Requirements file contains prompt-injection text; guidance-file variant | Untrusted Content Scan, `accept content` (item 1) |
-| [06-secrets-and-dirty-tree.md](06-secrets-and-dirty-tree.md) | Dirty working tree halts implement; manifest flags a hardcoded key at Gate 7 | Dirty-tree guard, `confirm implement` (item 8); secrets scan in manifest (item 2) |
-| [07-audit-integrity-and-session-lock.md](07-audit-integrity-and-session-lock.md) | Resume in a new session: foreign lock, edited audit log, stale repo | Session lock (item 7), audit hash chain + `accept audit` (item 5), staleness warning (item 14) |
-| [08-restart-reset-state-jump.md](08-restart-reset-state-jump.md) | Rollback, forward-jump refusal, manual state edit, full reset | `restart phase N` confirm flow, forward-jump guard, `accept state`, `confirm reset`, stale-confirmation guard |
-| [09-bootstrap-failures.md](09-bootstrap-failures.md) | Starting without requirements, without SpecKit, or without SpecKit skills | Step 1b/1c/2 preflight halts |
+| [01-happy-path.md](01-happy-path.md) | DR-01 · Full success run: identity → preflight → governance → 18 phases → 8 approvals → `complete` and the repository baseline | D02, D03, D05 |
+| [02-gate-rejection-remediation.md](02-gate-rejection-remediation.md) | DR-02 · Gate rejected, remediated, approved; then the remediation rate limit | — |
+| [03-technical-failure-retry-skip.md](03-technical-failure-retry-skip.md) | DR-03 · Generation fails; retries exhaust; two-step skip | — |
+| [04-artifact-drift-reapproval.md](04-artifact-drift-reapproval.md) | DR-04 · Approved artifact edited; drift, re-approve, reject, and the deleted-artifact refusal | D01 |
+| [05-untrusted-content-scan.md](05-untrusted-content-scan.md) | DR-05 · Prompt-injection text in requirements and guidance | D05 |
+| [06-secrets-and-dirty-tree.md](06-secrets-and-dirty-tree.md) | DR-06 · Dirty tree halts implement; secrets and test evidence at Gate 7 | D02, D03 |
+| [07-audit-integrity-and-session-lock.md](07-audit-integrity-and-session-lock.md) | DR-07 · Foreign lock, edited ledger, stale repository | D05 |
+| [08-restart-reset-state-jump.md](08-restart-reset-state-jump.md) | DR-08 · Restart, forward-jump refusal, state jump, reset | — |
+| [09-bootstrap-failures.md](09-bootstrap-failures.md) | DR-09 · No WorkItem, no requirements, no SpecKit, no skills | D05 |
 
 ### The other four flows
 
-| File | Flow | Size | What it pins that 01–09 cannot |
+| File | Flow | Size | What it pins |
 |---|---|---|---|
-| [10-brownfield-discovery.md](10-brownfield-discovery.md) | `BROWNFIELD_DISCOVERY` | 19 phases, 8 gates | The gateless `discovery` phase, finding classification, `discovery_missing`, the baseline written at the final gate |
-| [11-iterative.md](11-iterative.md) | `ITERATIVE` | 16 phases, 7 gates | `baseline_required`, and flow-relative gate numbering — `gate_spec` is **Gate 1 of 7** here, not Gate 2 of 8 |
-| [12-defect-fix.md](12-defect-fix.md) | `DEFECT_FIX` | 14 phases, 6 gates | The gateless `impact_analysis` phase and all three ways it refuses; `gate_tasks` kept by change *type*; `gate_design` absent |
-| [13-hotfix.md](13-hotfix.md) | `HOTFIX` | 10 phases, 3 gates | The mandatory floor, the gates the risk policy asked for and could not have, and the terminal gate no override can lower |
+| [10-brownfield-discovery.md](10-brownfield-discovery.md) | `BROWNFIELD_DISCOVERY` | 19 phases, 8 gates | DR-10 · The gateless `discovery` phase, finding classification, `discovery_missing`, the baseline at the final gate |
+| [11-iterative.md](11-iterative.md) | `ITERATIVE` | 16 phases, 7 gates | DR-11 · Brownfield → iterative continuation, `baseline_present`, baseline reuse without rewriting, invalid vs stale baselines, Gate 1 of 7 |
+| [12-defect-fix.md](12-defect-fix.md) | `DEFECT_FIX` | 14 phases, 6 gates | DR-12 · The impact analysis and its three refusals; the reproducing test verifying the fix |
+| [13-hotfix.md](13-hotfix.md) | `HOTFIX` | 10 phases, 3 gates | DR-13 · The floor, the gates the policy could not have, and urgency never turning a failed run into a pass |
 
-The flow sizes above are stated as the engine reports them — executable phases,
-excluding the terminal `complete`, which is the number in the progress header
-(`Phase 2/14`). `lint-skill`'s `doc_flow_counts_match_engine` checks every one
-of them.
+### Focused defect scenarios
 
-## Coverage: every shipped flow now has a transcript
+| File | Scenario | Defects |
+|---|---|---|
+| [14-gate-evidence-refusals.md](14-gate-evidence-refusals.md) | DR-14 · Missing/unresolved artifacts and unsuccessful verification refused, then recovered | D01, D02 |
+| [15-committed-change-manifest.md](15-committed-change-manifest.md) | DR-15 · Committed, staged, unstaged, untracked, renamed, deleted and binary changes, one change set for both consumers | D03 |
+| [16-execution-evidence-collision.md](16-execution-evidence-collision.md) | DR-16 · Same-second executions keep separate evidence and ledger entries | D04 |
 
-Transcripts 01–09 are all `GREENFIELD` runs, and remain **valid and byte-identical** under the flow model. `GREENFIELD` is the frozen pre-flow lifecycle, so every phase, progress fraction and gate number they show is still exactly what the engine produces — which is the point. The compatibility translation is that a workflow predating the flow model traversed `GREENFIELD`, and `tests/test_integration_01..09` still assert those transitions with no edits at all.
+Flow sizes are stated as the engine reports them: executable phases,
+excluding the terminal `complete`, which is the number in the progress header.
+`lint-skill`'s `doc_flow_counts_match_engine` checks every one of them.
 
-**Transcripts 10–13 close a gap that was previously an accepted one.** Until they existed, four of the five shipped flows had no conversational specification: their traversal was pinned by `tests/test_units_flow_model.py`, which drives the real CLI through every flow, but nothing pinned *what a user sees* — the progress fraction, the flow-relative gate number, the disposition of a gate the flow does not contain, or which refusal comes back when a governed record is missing. A traversal test passes while all four of those are wrong.
+## Reproducing a scenario
 
-The earlier position was that four more transcripts "would multiply the documentation without adding one executable guarantee". That turned out to be false in the specific way that matters: each of the four carries assertions that no existing test made, and `tests/test_integration_10_to_13.py` now makes them. Its last test is parametrized over `ALL_FLOWS` and fails if a flow ships without a transcript, so a sixth flow added later cannot arrive undocumented.
+1. **The executable form** — always available, no SpecKit needed:
+   `python -m pytest <node ids from the transcript's coverage table>`. The suite
+   generates its fixtures at runtime and simulates generation by writing an
+   artifact over the size floor.
+2. **By hand** — each transcript's *Setup* section builds a disposable
+   repository with the README's tested SpecKit v1.0.6 command, and its
+   *Cleanup* section removes it. Commands use global options before the
+   subcommand: `sdle.sh --workitem <id> --session <token> <command>`.
 
-## How to read a transcript
+## How a transcript is laid out
 
-Each file has three sections:
-
-1. **Scenario header** — purpose, guardrails exercised, and the starting state (fresh project, or a `state.json` snapshot for mid-workflow scenarios).
-2. **Transcript** — alternating `User:` / `SDLE:` turns. Every SDLE turn begins with the two-line state assertion header when state exists:
+1. A metadata table: scenario id, flow, purpose, defect ids, runtime, starting
+   conditions, guardrails.
+2. **Setup** — fixtures and reproducible preparation.
+3. **Transcript** — `User:` / `SDLE:` turns. Each SDLE turn that has state
+   begins with the assertion header:
    ```
    <!-- SDLE_STATE phase=<id> status=<status> progress=<N/M> -->
    📋 SDLE Status: Phase N/M — <Label> [STATUS]
    ```
-   `M` is the **bound flow's** phase count, not a constant: it is 18 in transcripts 01–09 and 19, 16, 14 and 10 in transcripts 10–13. Gate numbers are flow-relative in exactly the same way. Never carry a fraction or a gate ordinal from one transcript to another.
-3. **State & audit notes** — the `state.json` transitions and `audit.md` entries the scenario produces.
+   `M` is the **bound flow's** phase count: 18 for GREENFIELD, 19, 16, 14 and 10
+   for the other four. Gate numbers are flow-relative the same way. Italic notes
+   name the real CLI commands behind each state change.
+4. **Artifacts, state and audit** — where things were written.
+5. **Negative cases** — refusals, and proof that each left state unchanged.
+6. **Cleanup**.
+7. **Executable coverage** — the test nodes, mapped claim by claim.
+
+## History
+
+Transcripts 01–09 were once byte-pinned against a historical commit. By
+SDLE-DEFECT-STABILIZATION-01 they described Spec Kit paths, fingerprints,
+bootstrap steps and a Gate 7 the engine no longer had, and a byte pin cannot
+tell a correct file from a merely unchanged one. The pins were released
+deliberately, and each transcript's claims are now recomputed from the engine
+instead. The record of that decision is in
+[`../verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).

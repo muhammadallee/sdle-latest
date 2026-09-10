@@ -2,19 +2,33 @@
 
 | | |
 |---|---|
-| **Purpose** | The two implementation-phase guards: uncommitted user changes halt Phase 15 until confirmed, and a hardcoded credential in the generated code is flagged in the manifest the reviewer sees at Gate 7. |
-| **Guardrails exercised** | **Dirty-tree guard** + `confirm implement` (v1.12, item 8); **secrets scan** with mandatory manifest section (v1.12, item 2). |
-| **Starting state** | Workflow at `implement` (15/18), `status: pending`. Gates 1–6 approved. The user has an uncommitted local edit to `notes/ideas.md` they forgot about. |
+| **Scenario ID** | DR-06 |
+| **Flow** | `GREENFIELD` |
+| **Purpose** | The implementation-phase guards. Uncommitted user changes halt Phase 15 until confirmed. The manifest measures every change from the pinned base, a hardcoded credential is flagged in front of the reviewer at Gate 7, and Gate 7 needs a test run that passed. |
+| **Defect IDs** | D02, D03 |
+| **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `implement` (`15/18`). Gates 1–6 approved. `specKit.featureDirectory` is bound. The user has an uncommitted edit to tracked `notes/ideas.md`. The project's tests run under pytest |
+| **Guardrails exercised** | The dirty-tree guard and `confirm implement`, the implementation base pin, the change set from the base, the secrets scan, Gate 7 test evidence, and remediation at Gate 7 |
+
+> **How to read this.** The conversation under *Transcript* is **SIMULATED**.
+> It was written from the skill files and the engine's real messages. Hashes
+> and execution ids are illustrative. The engine behaviour it depends on is
+> asserted by the tests under *Executable coverage*. Their results — **PASS**,
+> **FAIL**, **BLOCKED** or **NOT RUN** — are recorded in
+> [verification-matrix.md](verification-matrix.md).
+
+---
+
+## Setup
+
+Follow DR-01 to Gate 6's approval. Commit, then edit `notes/ideas.md` without
+committing.
 
 ---
 
 ## Transcript
 
-**User:**
-
-```
-continue
-```
+**User:** `continue`
 
 **SDLE:**
 
@@ -32,15 +46,15 @@ implementation manifest as if the implementation produced them.
 Commit or stash them first, or say "confirm implement" to proceed anyway (logged).
 ```
 
-*(The guard filters out SDLE's own artifact paths (`.workflow/`, `.sdle/`, `workitems/`, `.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`, `requirements/`) — mid-workflow those are legitimately dirty. Only the user's `notes/ideas.md` remains, so the phase halts with `pending_confirm_action: "implement_dirty_tree"`.)*
+*(Engine: `sdle.sh implement preflight` pinned `implementation_base_ref` to
+HEAD, filtered SDLE's own paths (`.workflow/`, `.sdle/`, `workitems/`,
+`.specify/`, `design/`, `reviews/`, `clarifications/`, `guidance/`,
+`requirements/`), then refused `dirty_tree`. The first status line is read
+whole: its leading space is data, not whitespace.)*
 
 ---
 
-**User:**
-
-```
-confirm implement
-```
+**User:** `confirm implement`
 
 **SDLE:**
 
@@ -51,52 +65,56 @@ confirm implement
 Proceeding despite uncommitted changes (logged).
 
 Implementing against tasks.md, informed by the approved design documents...
-
-Implementation complete. Building the implementation manifest...
+Implementation complete, committed as two commits. Building the implementation manifest...
 
 ⚠️ Secrets scan flagged 1 potential secret in the changed files (see manifest below).
+Test evidence: pytest — 28 passed (exit 0).
 
 ---
 ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
 
 # Implementation Manifest
-Generated: 2026-07-06T14:20:44Z
-Phase: implement (Phase 15/18)
+Generated: 2026-09-10T14:20:44Z
+Evidence: workitems/todo-api/.sdle/evidence/implementation-muh-20260910T142044Z-12db09f4.json
+Phase: implement (15/18)
 
 ## Changed/Added Files
-src/app.py
-src/config.py
-src/models/todo.py
-src/routes/todos.py
-tests/test_todos.py
-notes/ideas.md        ← pre-existing uncommitted change (see dirty-tree acknowledgement)
+A design/app/app-design.md
+A design/db/db-design.md
+M notes/ideas.md
+A src/app.py
+A src/config.py
+A src/models/todo.py
+A src/routes/todos.py
+A tests/test_todos.py
 
 ## Potential Secrets Detected
 src/config.py:12 — secret API key — sk-p ****(masked)
 
+## Test Evidence
+Runner: pytest
+Command: python -m pytest -q
+Result: passed (exit 0)
+
 ## Summary
-Implemented the Todo REST API per tasks.md: CRUD endpoints, filtering,
-completion shortcut endpoint, validation layer, and pytest suite.
+Implemented the Todo REST API per tasks.md.
 
 Artifact path: workitems/todo-api/.sdle/implementation-manifest.md
-Fingerprint: 7A2E90CF…B14D
-
-Please review the content above, then respond with:
-  • `approve` — Accept and advance to the next phase
-  • `approve with comments: <your notes>` — Accept with recorded feedback
-  • `reject with comments: <your feedback>` — Reject and trigger remediation
+Fingerprint: 7a2e90cf…b14d
 ---
 ```
 
-*(The `## Potential Secrets Detected` section is mandatory in every manifest — either findings or the exact line `None detected.` Because the manifest is the Gate 7 artifact and is displayed in full, the finding is necessarily in front of the reviewer at the moment of decision.)*
+*(Engine: `sdle.sh implement preflight --bypass`, then generation, then
+`sdle.sh manifest build --summary "…"`. The implementation was **committed**
+during the phase, and it is still listed and scanned, because the change set is
+the diff from `implementation_base_ref`, not from the current HEAD. Before D03,
+both commits would have been absent from this list and from the scan. The
+pre-existing `notes/ideas.md` edit shows as `M`, which is why the guard asked
+first.)*
 
 ---
 
-**User:**
-
-```
-reject with comments: Move the API key out of src/config.py into an environment variable before I approve this.
-```
+**User:** `reject with comments: Move the API key out of src/config.py into an environment variable before I approve this.`
 
 **SDLE:**
 
@@ -104,14 +122,9 @@ reject with comments: Move the API key out of src/config.py into an environment 
 <!-- SDLE_STATE phase=gate_implement status=rejected progress=16/18 -->
 📋 SDLE Status: Phase 16/18 — Gate 7: Implementation Approval [REJECTED — REMEDIATION NEEDED]
 
-Understood — I've recorded your feedback in state.json:
-
-"Move the API key out of src/config.py into an environment variable before I approve this."
-
-Say "continue" to re-run the Implement step with this feedback applied.
+Understood — I've recorded your feedback. Say "continue" to re-run the Implement step
+with this feedback applied.
 ```
-
----
 
 **User:** `continue`
 
@@ -121,39 +134,61 @@ Say "continue" to re-run the Implement step with this feedback applied.
 <!-- SDLE_STATE phase=gate_implement status=in_progress progress=16/18 -->
 📋 SDLE Status: Phase 16/18 — Gate 7: Implementation Approval [IN PROGRESS]
 
-Remediation attempt 1/3 for implement.
-Re-running the implementation with your feedback applied...
-
-Implementation updated. Rebuilding the implementation manifest...
+Remediation attempt 1/3 for implement. Implementation updated. Rebuilding the manifest...
 Secrets scan: no high-risk patterns found in the changed files.
+Test evidence: pytest — 28 passed (exit 0).
 
 ---
 ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
-
-# Implementation Manifest
-[... regenerated manifest ...]
-
-## Potential Secrets Detected
-None detected.
-
-## Test Evidence
-Runner: pytest
-Result: passed (exit 0)
-
-[... abridged ...]
+[... regenerated manifest: `None detected.`, a new Evidence: line naming a new record ...]
 ---
 ```
 
-**User:** `approve`
+*(The rebuilt manifest names a **new** evidence record under a fresh execution
+id. The old record stays on disk, unchanged. Gate 7 accepts only the record
+bound to the current manifest's SHA-256.)*
 
-*(Gate 7 approved; the workflow proceeds to Phase 17 — Security Review.)*
+**User:** `approve`
 
 ---
 
-## State & audit notes
+## Artifacts, state and audit
 
-- Dirty-tree guard: runs before `phase_checkpoint` is set; skipped entirely when git is absent or when arriving via `confirm implement` (one-shot bypass). Audit: `Dirty-tree guard triggered before implement. 1 uncommitted entries.`
-- Secrets findings are masked to their first 4 characters in both the manifest and the audit entry (`⚠️ Secrets scan flagged 1 potential secret(s) in the implementation diff.`) — the transcript never reproduces the full secret.
-- **v1.13:** the manifest is built by `sdle.py manifest build`, and Gate 7 *refuses* a manifest missing its `## Potential Secrets Detected` or `## Test Evidence` section. A hook can be skipped; that refusal sits at the choke point, so an implementation whose tests never ran cannot reach a human decision.
-- Approving Gate 7 with findings present is the explicit acknowledgement; rejecting (as here) routes through the standard remediation flow, and the regenerated manifest re-runs the scan.
-- The scan is regex-based (AWS keys, private key blocks, GitHub/API tokens, credential assignments, bearer tokens) — a heuristic tripwire before human review, not a replacement for `trufflehog`/`semgrep`, which the Phase 17 review recommends running.
+- `dirty_tree_guard` and then `dirty_tree_bypassed` audit entries.
+- `implementation_base_ref` was pinned by the first preflight and not moved.
+- Each `manifest build` wrote `evidence/implementation-<execution-id>.json`
+  holding the runner, command, exit code, status, the manifest's SHA-256, the
+  base and the WorkItem.
+- Secret findings are masked to four characters in the manifest and in the
+  `secrets_flagged` audit entry. The secret is never reproduced.
+- The scan is a regex tripwire before human review, not a replacement for
+  `trufflehog` or `semgrep`, which the Phase 17 review recommends.
+
+## Negative cases
+
+| Attempt | Result | State afterwards |
+|---|---|---|
+| Gate 7 on a manifest built with `--skip-tests` | Refused `tests_not_passed` | Approvals unchanged |
+| Gate 7 on a hand-written manifest with the right headings | Refused `test_evidence_missing` | Unchanged |
+| Gate 7 on a manifest with no `## Test Evidence` section | Refused `manifest_incomplete` | Unchanged |
+| Security-review evidence with no pinned base | Refused `implementation_base_missing` | Unchanged, and no fallback range |
+
+## Cleanup
+
+`rm -rf dr01`.
+
+## Executable coverage
+
+| Claim | Test |
+|---|---|
+| A dirty tree halts implement | `tests/test_integration_06_to_09.py::test_06_dirty_tree_halts_implement` |
+| SDLE-owned paths are not dirt | `tests/test_integration_06_to_09.py::test_06_sdle_owned_paths_are_not_dirt` |
+| The first status entry is read whole | `tests/test_units_manifest_changes.py::test_d03_the_dirty_tree_guard_reads_the_first_status_entry_whole` |
+| Bypass proceeds and is logged | `tests/test_integration_06_to_09.py::test_06_bypass_proceeds_and_is_logged` |
+| Preflight pins the base | `tests/test_integration_06_to_09.py::test_06_preflight_pins_the_implementation_base_ref` |
+| A committed change after the base is listed and scanned | `tests/test_units_manifest_changes.py::test_d03_a_change_committed_after_the_base_is_listed_and_scanned` |
+| A hardcoded key is flagged and masked | `tests/test_integration_06_to_09.py::test_06_manifest_flags_a_hardcoded_key_masked` |
+| A built manifest with a passing run is accepted | `tests/test_integration_06_to_09.py::test_06_gate_seven_accepts_a_built_manifest` |
+| A skipped run is refused | `tests/test_integration_06_to_09.py::test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped` |
+| A section-less manifest is refused | `tests/test_integration_06_to_09.py::test_06_gate_seven_refuses_a_manifest_without_scan_or_tests` |
+| Review evidence refuses with no base | `tests/test_integration_06_to_09.py::test_06_security_review_refuses_when_no_ref_pinned` |

@@ -134,12 +134,12 @@ on what is *different* about its flow rather than repeating that spine.
 ## What these tutorials are not
 
 **They are not the acceptance specification.** That is
-[`../dry-runs/`](../dry-runs/README.md): nine conversation transcripts that
-`tests/test_integration_01..09` assert against, two of which byte-pin all nine
-files. All nine are `GREENFIELD`. Where the mechanics are shared, these
-tutorials link into them rather than restating them, because a second
-description of a behaviour a byte-pinned document already fixes is a
-description that will eventually drift out of agreement with it.
+[`../dry-runs/`](../dry-runs/README.md): sixteen conversation transcripts, for
+every shipped flow, whose claims `tests/test_dry_run_contracts.py` checks
+against the engine. Where the mechanics are shared, these tutorials link into
+them rather than restating them, because a second description of a behaviour a
+checked document already fixes is a description that will eventually drift out
+of agreement with it.
 
 The dry-runs show what the *conversation* looks like — what SDLE says at a
 gate, what you type to approve. These tutorials show what the engine underneath

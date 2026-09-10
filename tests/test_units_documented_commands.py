@@ -36,15 +36,16 @@ from conftest import REPO_ROOT, sdle
 
 EXIT_REFUSED = 1
 
-# The documents a user or the orchestrator copies commands out of. The
-# transition record is excluded: it is a historical log of what was run then,
-# quoted as it was.
+# The documents a user or the orchestrator copies commands out of. Two
+# records are excluded because they quote history as it was: the transition
+# log, and the verification record, which quotes the wrong forms this test
+# exists to catch.
 DOCUMENTS = sorted(
     [p for p in (REPO_ROOT / ".claude").rglob("*.md")
      if "agents" not in p.parts]
     + [REPO_ROOT / "README.md"]
     + [p for p in (REPO_ROOT / "docs").rglob("*.md")
-       if "transition" not in p.parts]
+       if "transition" not in p.parts and "verification" not in p.parts]
 )
 
 INVOCATION = re.compile(r"`((?:scripts/)?sdle\.(?:sh|ps1|py) [^`]+)`")
@@ -151,7 +152,8 @@ def test_no_document_still_teaches_the_rejected_skills_flag():
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             if "specify init" in line and "--skills" in line:
-                assert "fails" in line or "FAIL" in line or "rejected" in line, (
+                lowered = line.lower()
+                assert "fail" in lowered or "rejected" in lowered, (
                     f"{path.relative_to(REPO_ROOT)}: {line.strip()}")
 
 

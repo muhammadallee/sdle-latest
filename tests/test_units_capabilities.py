@@ -46,7 +46,6 @@ from conftest import (
     STABILIZATION_01_TEST_EDITS,
     STABILIZATION_01_TEST_REMOVALS,
     Project,
-    apply_dry_run_substitutions,
     assert_frozen_module,
     sdle,
 )
@@ -803,31 +802,33 @@ def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
     every declared pair must be used at least once (so a pair cannot decay
     into a no-op), and the directory's whole file list is still compared, so
     the README cannot drift unnoticed either.
+
+    **Released by SDLE-DEFECT-STABILIZATION-01 (D06), and replaced.** By that
+    iteration the nine byte-pinned transcripts described Spec Kit paths,
+    fingerprints, a bootstrap order and a Gate 7 the engine no longer had; a
+    byte pin proves a file did not change, not that it is right, and here it
+    was holding wrong claims in place. The maintainer chose to move them to
+    claim pins. The replacement is `tests/test_dry_run_contracts.py`, which is
+    stronger where it matters: every fraction, gate number, label and refusal
+    in every one of sixteen transcripts is recomputed from the engine, and
+    every cited test must exist. What this test still asserts, unchanged in
+    shape: the count guard (now nine GREENFIELD transcripts of sixteen), and
+    the half of the substitution pin that is still true — none of the
+    `.workflow/` literals T11 replaced may return.
     """
     directory = REPO_ROOT / "docs" / "dry-runs"
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
 
-    # The nine GREENFIELD transcripts this pin was built for. Transcripts
-    # 10-13 were authored later, for the four non-GREENFIELD flows, and have
-    # no baseline to compare against -- `at_baseline` returns None for them.
-    # They are therefore excluded here and pinned by
-    # `tests/test_integration_10_to_13.py` instead, which asserts their
-    # claims rather than their bytes. The nine keep the stronger guarantee.
-    pinned = [p for p in numbered if int(p.name[:2]) <= 9]
-    assert len(pinned) == 9, [p.name for p in every]
-    assert len(numbered) == 13, [p.name for p in every]
-
-    used: set[str] = set()
-    for path in pinned:
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        original = at_baseline(relative)
-        assert original is not None, relative
-        assert here(relative) == apply_dry_run_substitutions(
-            original, used), relative
-
-    assert used == {old for old, _ in DRY_RUN_SUBSTITUTIONS}, sorted(
-        {old for old, _ in DRY_RUN_SUBSTITUTIONS} - used)
+    greenfield = [p for p in numbered if int(p.name[:2]) <= 9]
+    assert len(greenfield) == 9, [p.name for p in every]
+    # Old value: 13. New value: 16 — DR-14..16, the focused D01-D04 scenarios.
+    assert len(numbered) == 16, [p.name for p in every]
+    for path in greenfield:
+        text = here(path.relative_to(REPO_ROOT).as_posix())
+        assert "| **Flow** | `GREENFIELD` |" in text, path.name
+        for old, _ in DRY_RUN_SUBSTITUTIONS:
+            assert old not in text, (path.name, old)
 
 
 def test_the_dry_run_index_lists_every_transcript_beside_it():

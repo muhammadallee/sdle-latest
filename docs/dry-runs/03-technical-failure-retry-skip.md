@@ -2,9 +2,27 @@
 
 | | |
 |---|---|
+| **Scenario ID** | DR-03 |
+| **Flow** | `GREENFIELD` |
 | **Purpose** | A generation step that produces no usable artifact: verification failure, the retry rate limit, and the two-step `skip with warning` → `confirm skip` escape hatch. |
-| **Guardrails exercised** | Post-SpecKit Verification (≥100-byte check), retry counter vs `rate_limits.max_retry_attempts` (default 3), **confirm skip** (v1.12, item 15), stale-confirmation guard. |
-| **Starting state** | Workflow at `plan_draft` (6/18), `status: in_progress`. Gates 1–2 approved. The plan generation step is failing (e.g., SpecKit produces an empty file). |
+| **Defect IDs** | — |
+| **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated, and here it simulates a *failure* |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `plan_draft` (`6/18`, `in_progress`). Gates 1–2 approved. The plan generator writes an empty `workitems/todo-api/specs/001-todo-api/plan.md` |
+| **Guardrails exercised** | Post-generation verification (≥100 bytes), the retry counter against `rate_limits.max_retry_attempts` (default 3), confirmed skip, and the stale-confirmation guard |
+
+> **How to read this.** The conversation under *Transcript* is **SIMULATED**.
+> It was written from the skill files and the engine's real messages. The engine
+> behaviour it depends on is asserted by the tests under *Executable coverage*.
+> Their results — **PASS**, **FAIL**, **BLOCKED** or **NOT RUN** — are recorded
+> in [verification-matrix.md](verification-matrix.md).
+
+---
+
+## Setup
+
+Follow DR-01's setup and conversation as far as Gate 2's approval. The failing
+generator is simulated by leaving `plan.md` under 100 bytes. The suite's
+equivalent is `Project.write_small`.
 
 ---
 
@@ -16,18 +34,20 @@
 <!-- SDLE_STATE phase=plan_draft status=failed progress=6/18 -->
 📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
 
-⚠️ Verification failed: .specify/specs/001-todo-api/plan.md was not created or is too small (<100 bytes).
-This usually means the SpecKit step did not complete successfully.
-Retry attempt 1/3. Options: "retry" to run again, "skip with warning" to continue anyway.
+⚠️ Verification failed: workitems/todo-api/specs/001-todo-api/plan.md was not created
+or is too small (<100 bytes). Retry attempt 1/3. Options: "retry" to run again,
+"skip with warning" to continue anyway.
 ```
 
-*(Status was frozen at `failed`; the phase did not advance. The retry counter for `plan_draft` incremented to 1.)*
+*(Engine: `sdle.sh artifact record --phase plan_draft --path workitems/todo-api/specs/001-todo-api/plan.md`
+refused `artifact_too_small`. It froze `status` at `failed` and incremented the
+retry counter. The phase did not advance.)*
 
 ---
 
 **User:** `retry`
 
-*(The step fails again → retry 2/3. The user retries once more → the counter reaches the limit:)*
+*(It fails again, 2/3. The user retries once more and the counter reaches the limit:)*
 
 **SDLE:**
 
@@ -44,15 +64,12 @@ To continue, choose one of:
   • `restart phase <N>` — restart this phase from scratch
 ```
 
-*(Note the `retry` option is no longer offered once the limit is hit.)*
+*(Refused `rate_limit_exceeded` with `retry_offered: false`, so `retry` is no
+longer offered.)*
 
 ---
 
-**User:**
-
-```
-skip with warning
-```
+**User:** `skip with warning`
 
 **SDLE:**
 
@@ -61,24 +78,16 @@ skip with warning
 📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
 
 ⚠️ You are about to skip Phase 6: Generate Plan WITHOUT a verified artifact.
-
-This will:
-  • Advance the workflow with current_artifact set to null
-  • Possibly cause downstream phases to fail or produce incorrect output
-  • Be permanently logged in audit.md
+This will be permanently logged in audit.md.
 
 Say "confirm skip" to proceed, or anything else to cancel.
 ```
 
-*(v1.12: the skip no longer executes on the first command — `pending_confirm_action` is set to `"skip"` and SDLE halts.)*
+*(Engine: `sdle.sh confirm set --action skip`. Nothing else changes.)*
 
 ---
 
-**User:**
-
-```
-status
-```
+**User:** `status`
 
 **SDLE:**
 
@@ -87,25 +96,14 @@ status
 📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
 
 (Pending confirmation "skip" cancelled — new command received.)
-
-## SDLE Workflow State
-[... full state dump — abridged ...]
-| Pending Confirm | none |
+[... state dump — abridged ...]
 ```
 
-*(The stale-confirmation guard: any command other than the expected confirmation cancels the pending skip, so an old confirmation can never fire out of context. The user must issue `skip with warning` again:)*
+*(This is the stale-confirmation guard. Any other command cancels the pending
+skip, so an old confirmation can never fire out of context. The user issues
+`skip with warning` again, then:)*
 
----
-
-**User:** `skip with warning`
-
-**SDLE:** *(same confirmation prompt as above)*
-
-**User:**
-
-```
-confirm skip
-```
+**User:** `confirm skip`
 
 **SDLE:**
 
@@ -113,20 +111,48 @@ confirm skip
 <!-- SDLE_STATE phase=gate_plan status=pending progress=7/18 -->
 📋 SDLE Status: Phase 7/18 — Gate 3: Plan Approval [PENDING]
 
-⚠️ Phase 6: Generate Plan skipped without artifact verification.
-This may cause downstream phases to fail or produce incorrect output.
-The skip is logged in audit.md.
-
-Moving to Phase 7: Gate 3: Plan Approval. Say "continue" to proceed.
+⚠️ Phase 6: Generate Plan skipped without artifact verification. The skip is
+logged in audit.md.
 ```
+
+*(Engine: `sdle.sh skip --confirm`. The skip moves past a *generation* step
+and records no approval. Gate 3 still needs `plan.md` to exist, which D01
+enforces (`artifact_missing`), and to carry a current PASS review of its exact
+content, which TP-011 enforces (`review_missing`). A regenerated plan is the
+honest way through.)*
 
 ---
 
-## State & audit notes
+## Artifacts, state and audit
 
-- Each verification failure: `status = "failed"`, retry counter incremented **before** comparing against the limit; no phase advance.
-- `skip with warning` (first step): only sets `pending_confirm_action: "skip"` — nothing else changes.
-- Any intervening command clears the pending confirmation (logged: `Pending confirmation "skip" cancelled — new command received.`).
-- `confirm skip`: audit entry `⚠️ SKIPPED WITH WARNING: Phase plan_draft advanced without a verified artifact…`, `current_artifact`/`current_artifact_sha` set to null, phase advanced via NEXT_PHASE.
-- A successful verification later resets `attempt_counts.<phase>.retries` to 0; remediation counts are unaffected.
-- **v1.13:** the limit escape hatches are audited commands rather than hand edits to `state.json` (improvement item 6).
+- Each verification failure sets `status = "failed"` and increments the retry
+  counter *before* comparing it with the limit. There is no phase advance.
+- `skip with warning` only sets `pending_confirm_action: "skip"`.
+- `confirm skip` writes an audit entry reading `⚠️ SKIPPED WITH WARNING…`,
+  nulls `current_artifact`, and advances along the bound flow's next phase.
+- A later successful verification resets `attempt_counts.<phase>.retries` to 0.
+  Remediation counts are unaffected.
+
+## Negative cases
+
+| Attempt | Result | State afterwards |
+|---|---|---|
+| `skip` when the phase has not failed | Refused | Unchanged |
+| `confirm skip` after an intervening command | Refused — nothing pending | Unchanged |
+| `retry` at the limit | Refused `rate_limit_exceeded` | Unchanged |
+
+## Cleanup
+
+`rm -rf dr01`.
+
+## Executable coverage
+
+| Claim | Test |
+|---|---|
+| Verification failure freezes and counts | `tests/test_integration_02_to_05.py::test_03_verification_failure_freezes_and_counts` |
+| At the limit `retry` is no longer offered | `tests/test_integration_02_to_05.py::test_03_retry_limit_stops_offering_retry` |
+| Success resets the retry counter | `tests/test_integration_02_to_05.py::test_03_successful_verification_resets_the_retry_counter` |
+| Skip needs a failed status | `tests/test_integration_02_to_05.py::test_03_skip_requires_a_failed_status` |
+| Skip is two-step | `tests/test_integration_02_to_05.py::test_03_skip_is_two_step` |
+| Stale confirmation is cancelled | `tests/test_integration_02_to_05.py::test_03_stale_confirmation_guard_cancels_a_pending_skip` |
+| The skip is permanently logged | `tests/test_integration_02_to_05.py::test_03_skip_is_permanently_logged` |

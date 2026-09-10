@@ -13,8 +13,8 @@ checked against that constitution, so the first gate you meet is an approval of
 what the project is allowed to be.
 
 It is also the flow the [dry-run transcripts](../dry-runs/README.md) document.
-All nine of them are `GREENFIELD` runs, and they are byte-pinned by the test
-suite. **For what the conversation looks like — what SDLE prints at a gate,
+Nine of them are `GREENFIELD` runs, and every transcript's claims are checked
+against the engine by the test suite. **For what the conversation looks like — what SDLE prints at a gate,
 what you type to approve, how a rejection reads — read
 [`01-happy-path.md`](../dry-runs/01-happy-path.md) rather than this file.**
 This tutorial covers the layer underneath: the commands the orchestrator

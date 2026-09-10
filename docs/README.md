@@ -20,8 +20,8 @@ They are written for different readers and should not be confused:
 | **Reference** | "What exactly does this field do?" | Looking one thing up |
 
 The **specification** documents below are a fifth category, and a special one:
-they are not written for readers at all. They are frozen artifacts the test
-suite asserts against.
+they are not written for readers at all. They are checked artifacts: the test
+suite asserts every claim in them against the engine.
 
 ---
 
@@ -78,12 +78,13 @@ rather than the original being rewritten.
 | [ADR-006](architecture/ADR-006-risk-adaptive-gate-policy.md) | Risk-adaptive gates without weakening governance |
 | [ADR-007](architecture/ADR-007-progressive-capabilities-and-product-subagents.md) | Progressive capabilities and read-only product subagents |
 | [ADR-008](architecture/ADR-008-v1-convergence-and-legacy-removal.md) | V1 convergence and removal of the legacy runtime |
+| [ADR-009](architecture/ADR-009-gate-evidence-and-execution-identity.md) | Gate evidence, change selection and execution identity: the defect-stabilization contracts |
 
 ## Specification — not documentation
 
 | Document | For |
 |---|---|
-| [dry-runs/](dry-runs/README.md) | Thirteen conversation transcripts that are the **acceptance specification** for orchestrator behaviour, one per shipped flow plus nine guardrail scenarios. `tests/test_integration_01..09` and `test_integration_10_to_13` derive their assertions from them; two tests byte-pin the nine `GREENFIELD` ones. A deviation in a real run is a bug in the run or the skill files — not in the transcript |
+| [dry-runs/](dry-runs/README.md) | Sixteen conversation transcripts that are the **acceptance specification** for orchestrator behaviour: nine `GREENFIELD` guardrail scenarios, one per other shipped flow, and three focused defect scenarios. Each maps its claims to test nodes; `tests/test_dry_run_contracts.py` recomputes every fraction, gate number and refusal in them from the engine, and [dry-runs/verification-matrix.md](dry-runs/verification-matrix.md) records what ran and what it returned. A deviation in a real run is a bug in the run, the skill files or the transcript — and a transcript that disagrees with the engine fails the build |
 
 ## Migration record
 
