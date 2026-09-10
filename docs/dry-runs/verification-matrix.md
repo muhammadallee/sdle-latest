@@ -1,7 +1,10 @@
 # Dry-Run Verification Matrix
 
 Which executable checks back each transcript, the command that runs them, and
-the result they actually produced, on which commit and platform. A result is
+the result they actually produced, on which commit and platform. Every
+scenario row's tests are part of all three runs, so R1 · R2 · R3 below means
+they passed in each. CI test counts are not readable without a token; the CI
+results are step conclusions. A result is
 recorded only from a run that happened. A run that was not executed says
 **NOT RUN**, never PASS.
 
@@ -13,9 +16,9 @@ red-before-green evidence, is
 
 | Run | Commit | Platform | Command | Result |
 |---|---|---|---|---|
-| R1 | _recorded at T07_ | Windows 10, Python 3.13.0 | `python -m pytest -q` | _pending_ |
-| R2 | _recorded at T07_ | GitHub Actions `ubuntu-latest`, Python 3.11 | CI `pytest -q` + `lint-skill` + `sh scripts/sdle.sh lint-skill` | _pending_ |
-| R3 | _recorded at T07_ | GitHub Actions `windows-latest`, Python 3.11 | CI `pytest -q` + `lint-skill` + `./scripts/sdle.ps1 lint-skill` | _pending_ |
+| R1 | `7561a68` | Windows 10, Python 3.13.0 | `python -m pytest -q` | **PASS** — 2246 passed, 0 failed, 0 errors, 0 skipped (38m56s) |
+| R2 | `7561a68` | GitHub Actions `ubuntu-latest`, Python 3.11 | CI `pytest -q` + `lint-skill` + `sh scripts/sdle.sh lint-skill` | **PASS** — every step `success` ([job](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629/job/103038213266)) |
+| R3 | `7561a68` | GitHub Actions `windows-latest`, Python 3.11 | CI `pytest -q` + `lint-skill` + `./scripts/sdle.ps1 lint-skill` | **PASS** — every step `success` ([job](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629/job/103038213547)) |
 
 ## Scenarios
 

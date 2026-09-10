@@ -17,7 +17,7 @@ changed since it was recorded.
 | Plan | `sdle-defect-stabilization-plan.md`, supplied by the maintainer; deliberately not committed on this branch |
 | Branch | `fix/defect-stabilization` |
 | Starting commit | `e14c4024a8aa459a9acf389f765e29471c706d06` (`main`). Newer than the plan's reviewed commit `17adae4`: transcripts 10–13 and `tests/test_integration_10_to_13.py` already existed |
-| Verified final commit | _recorded at T07_ |
+| Verified final commit | `7561a68` — all behaviour; later commits are record-only |
 | Local OS | Windows 10 Home 10.0.19045 |
 | Local Python | 3.13.0. CI pins 3.11; no 3.11 interpreter is installed locally (`py -3.11` → "No suitable Python runtime found") |
 | SpecKit exercised | **v1.0.6**, fetched with `uvx --from git+https://github.com/github/spec-kit.git@v1.0.6` into disposable projects. The machine's installed `specify-cli 0.15.0` was never modified |
@@ -40,13 +40,17 @@ maintainer and answered before any code changed.
 | Task | Status | Commit | Notes |
 |---|---|---|---|
 | T00 Baseline | PASS | `9b00bc4` | Baseline suite and lint green; D01–D04 reproduced |
-| T01 D04 execution identity | PASS | `2da5394` | Affected modules 545 passed; full suite at T02 (below) |
+| T01 D04 execution identity | PASS | `2da5394` | Affected modules 545 passed; full suite at `e778c2e` |
 | T02 D01 artifact preconditions | PASS | `e778c2e` | Full suite 1800 passed (includes T01) |
-| T03 D02 verification enforcement | PASS (focused) | `c6a4f77` | Focused 137 passed; full suite at this commit: see T03 |
-| T04 D03 change selection | PASS (focused) | `cc072d9` | Focused 216 passed; full suite pending |
-| T05 D05 SpecKit and instructions | PASS (focused) | the T05 commit | Runtime verified for v1.0.6; instructions corrected; two further position/order defects found and fixed |
-| T06 D06 dry runs | NOT STARTED | | |
-| T07 Delivery | NOT STARTED | | |
+| T03 D02 verification enforcement | PASS | `c6a4f77`, `9c10186` | Full suite at `c6a4f77` found one pin broken by the refactor; fixed in `9c10186` |
+| T04 D03 change selection | PASS | `cc072d9` | Full suite at `9c10186`: only the two record self-quotes failed, fixed in T06 |
+| T05 D05 SpecKit and instructions | PASS | `65b2850` | Runtime verified for v1.0.6 (Git Bash + PowerShell); native Linux Bash NOT RUN |
+| T06 D06 dry runs | PASS | `7561a68` | Full suite R1 at `7561a68`: 2246 passed |
+| T07 Delivery | PASS | this record | R1 local, R2 ubuntu-latest and R3 windows-latest all PASS at `7561a68` |
+
+**Verified behavioural commit: `7561a68`.** The commits after it change only
+this record and the verification matrix. They change no engine, prompt, test
+or transcript, and so do not invalidate the runs recorded against `7561a68`.
 
 "PASS (focused)" means the task's own and directly affected tests passed at
 that commit. The full suite is run per commit in a detached verification
@@ -199,3 +203,139 @@ Regression tests are in `tests/test_units_documented_commands.py`:
 | Git Bash on Windows (`--script sh`) | **PASS** — install, skills, preflight, feature bind → create → resolve, ambiguity refusal |
 | PowerShell 7 on Windows (`--script ps`) | **PASS** — same checks |
 | Native Linux Bash | **NOT RUN** — no local Linux; CI runs the suite and launchers on ubuntu-latest but does not install SpecKit |
+
+## T06 — D06 dry runs
+
+| | |
+|---|---|
+| Starting condition | At `e14c402`, `docs/dry-runs/` already held transcripts 10–13, one per non-GREENFIELD flow, pinned by claims. 01–09 were byte-pinned and stale: `.specify/specs/` paths, uppercase fingerprints, no WorkItem or governance bootstrap, preflight before identity, a Gate 7 with no test requirement. 10 cited `tests/test_integration_10_brownfield_discovery.py`, which does not exist |
+| Changes | 01–09 rewritten against the engine; 10–13 given the missing parts; 11 now continues from 10 (brownfield discovery → iterative reuse, `baseline_present`, invalid vs stale baselines); 13 shows urgency refused at Gate 7; 14–16 added (D01/D02, D03, D04) quoting captured engine output; index and `verification-matrix.md` rewritten |
+| Existing equivalents reused | `11-iterative.md` kept its name as the plan's `11-iterative-baseline-reuse`. Brownfield → iterative was already driven end-to-end by `tests/test_units_baseline.py::test_n24_the_second_workitem_does_not_rediscover_the_repository`; the new `tests/test_integration_10_to_13.py::test_11_brownfield_then_iterative_reuses_the_baseline_without_rewriting_it` adds what it did not assert (baseline, discovery record and constitution byte-identical after reuse) |
+| Pin decision | Byte pins on 01–09 released (Q1) and replaced by `tests/test_dry_run_contracts.py`: required parts and labels, every `SDLE_STATE` / status header / gate prompt recomputed from the bound flow, every `Refused:` reason checked against the engine, every cited test node checked to exist, lowercase fingerprints, no retired `.workflow/` literal. `test_n20_…` and `test_n27_…_declared_substitution` keep their count guard (13 → 16) and the no-regression half, with the release recorded in their docstrings |
+| Harness | Engine output for 14–16 and 11 was captured by a temporary pytest file driving the real CLI through the suite's fixtures; the file was deleted, never committed |
+| Green | Doc-sensitive modules (`test_lint_skill`, `capabilities`, `gate_policy`, `documented_commands`, `dry_run_contracts`, `10_to_13`): 1033 passed. Contract tests alone: 416 passed |
+| Full suite at `9c10186` (T04+T05) | 2066 passed, 2 failed — both `test_no_documented_invocation_puts_a_global_option_after_its_command` on this record's own quotations of the wrong forms. Fixed in T06 by excluding the verification record from that scan, as the transition record already was |
+
+## T07 — Final regression and delivery
+
+### Full-suite runs, in order
+
+Each run is the whole suite (`python -m pytest -q`) at one commit, in a
+detached verification worktree so that the development tree could keep
+moving. Nothing was re-run to turn a result green; every failure below was
+fixed in a later commit and the fix is named.
+
+| Commit | Contains | Platform | Result | Follow-up |
+|---|---|---|---|---|
+| `e14c402` | starting point | Windows 10, Python 3.13.0 | **PASS** — 1773 passed | — |
+| `e778c2e` | T01 + T02 | Windows 10, Python 3.13.0 | **PASS** — 1800 passed | — |
+| `c6a4f77` | + T03 | Windows 10, Python 3.13.0 | **FAIL** — 1819 passed, 1 failed: `test_units_artifact_review.py::test_the_engine_invokes_no_agent` (the `--test-command` refactor moved the test spawn into a helper; the pin allows only `git` and `run_tests`) | Fixed in `9c10186` |
+| `9c10186` | + T04, T05, the spawn fix | Windows 10, Python 3.13.0 | **FAIL** — 2066 passed, 2 failed: the new position check flagged this record's own quotations of the wrong CLI forms | Fixed in `7561a68` (the record is excluded, as the transition record is) |
+| `7561a68` | + T06 | Windows 10, Python 3.13.0 (R1) | **PASS** — 2246 passed, 0 failed, 0 errors, 0 skipped, in 38m56s | — |
+| `7561a68` | + T06 | GitHub Actions `ubuntu-latest`, Python 3.11 (R2) | **PASS** — lint, test suite and POSIX launcher steps all `success` ([run 34526996629](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629), [job](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629/job/103038213266)) | — |
+| `7561a68` | + T06 | GitHub Actions `windows-latest`, Python 3.11 (R3) | **PASS** — lint, test suite and PowerShell launcher steps all `success` ([run 34526996629](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629), [job](https://github.com/muhammadallee/sdle-latest/actions/runs/34526996629/job/103038213547)) | — |
+
+Job logs, and with them the exact CI test counts, are not readable without a
+token. The CI results above are the step conclusions from the public jobs API.
+
+### Other checks
+
+| Check | Result |
+|---|---|
+| `python scripts/sdle.py lint-skill` at `7561a68` | **PASS** — 45 checks, none failed |
+| `sh scripts/sdle.sh lint-skill` (Git Bash, Windows) | **PASS** — exit 0 |
+| `pwsh ./scripts/sdle.ps1 lint-skill` (Windows) | **PASS** — exit 0 |
+| POSIX launcher on Linux | **PASS** in CI (R2) |
+| Local Python 3.11 | **NOT RUN** — no 3.11 interpreter installed; covered by CI R2/R3 |
+| Native Linux Bash with a real SpecKit install | **NOT RUN** — CI does not install SpecKit |
+| Diff review, `e14c402..7561a68` | Every removed engine line maps to a D0x change; no consumer parses the manifest's file rows (the new `A path` form changes no machine reader) |
+
+## Release notes — SDLE-DEFECT-STABILIZATION-01
+
+No state-schema change and no version bump: SDLE stays at v1.17. Every fix
+below is a refusal that did not exist before, or a document that now matches
+the runtime.
+
+**D01 — gates approve specific content or nothing.** `gate approve`, drift
+re-approval and `gate omit` refuse an artifact that cannot be resolved
+(`artifact_unresolved`, naming the binding and its recovery), is ambiguous
+(`feature_ambiguous`), is missing (`artifact_missing`), or cannot be read
+(`artifact_unreadable`). Previously the first case approved with `sha: null`.
+An unnamed security review let every flow run to `complete`.
+
+**D02 — Gate 7 enforces the test result.** `manifest build` writes a
+structured evidence record bound to the manifest's SHA-256, the pinned base
+and the WorkItem. Gate 7 refuses anything but a run that exited 0:
+`tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`,
+`test_evidence_malformed`. There is no exception path. The new
+`--test-command` lets a project whose runner is not auto-detected supply its
+real command.
+*Compatibility:* a manifest built by an earlier SDLE has no evidence record
+and must be rebuilt before Gate 7. `--skip-tests` still builds, but that
+manifest can no longer be approved.
+
+**D03 — the implementation change set is measured from the pinned base.**
+The manifest, the secrets scan and the security-review evidence all read one
+selection:
+- committed, staged, unstaged and untracked changes since
+  `implement preflight`;
+- renames, deletions and binary files represented explicitly.
+
+A missing or invalid base refuses (`implementation_base_missing`,
+`implementation_base_invalid`) instead of falling back to `HEAD` or `HEAD~1`.
+Also fixed: a leading-whitespace strip in `git()` that raised false
+`dirty_tree` refusals.
+
+**D04 — execution ids are collision-resistant.**
+`<prefix>-<UTC second>-<8 hex>`. Every evidence file is claimed with an
+exclusive create, and none is ever replaced. An unallocatable id refuses with
+exit 3 and nothing recorded.
+*Compatibility:* historical ids are read unchanged. The format deliberately
+diverges from the transition contract (ADR-009).
+
+**D05 — instructions match the runtime.** The SpecKit install command is the
+one actually run against **v1.0.6**, pinned `@v1.0.6`, in README and in both
+preflight messages. The bootstrap order is now identity, then preflight.
+Global options go before the subcommand, which fixes
+`lock acquire --session` and `init --session`, both usage errors. The spec
+phase no longer describes newest-mtime selection.
+
+**D06 — dry runs for all five flows.** Sixteen transcripts:
+- 01–09 rewritten;
+- 10–13 completed, with brownfield → iterative in 11;
+- 14–16 added.
+
+Each is pinned by its claims (`tests/test_dry_run_contracts.py`) and mapped
+to its tests in `docs/dry-runs/verification-matrix.md`.
+
+## Definition of done (plan §8)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| D01 blocks unresolved or invalid required artifacts without partial mutation | **Met** | T02; `tests/test_units_gate_artifacts.py`, including frozen-state assertions |
+| D02 blocks failed, missing, malformed, unrelated or unauthorised-skipped verification | **Met** | T03; `tests/test_units_implementation_evidence.py`, plan cases 1–8 |
+| D03 includes committed and working-tree changes from the base, consistently across consumers | **Met** | T04; `tests/test_units_manifest_changes.py` |
+| D04 keeps distinct evidence and ledger entries under one clock value; a forced collision is safe | **Met** | T01; `tests/test_units_execution_identity.py`, with a frozen clock and no sleeps |
+| D05 instructions match the tested runtime | **Met, with one environment NOT RUN** | T05. Git Bash and PowerShell verified against SpecKit v1.0.6; native Linux Bash with a real SpecKit install NOT RUN |
+| D06 current dry runs for all five flows | **Met** | T06; 16 transcripts, `tests/test_dry_run_contracts.py` |
+| Brownfield → iterative documented and executable-tested | **Met** | DR-11; `test_n24_…`, `test_11_brownfield_then_iterative_…` |
+| Focused defect scenarios linked to passing assertions | **Met** | DR-14..16; the verification matrix |
+| Existing flow behaviour, guardrails and historical readability intact | **Met** | R1–R3 full suites; frozen files changed only as declared; historical execution ids test |
+| Linux/Windows tests and launcher checks pass | **Met** | R2, R3 (CI run 34526996629), local launchers |
+| Skill lint and full suite pass | **Met** | R1: 2246 passed; lint 45/45 |
+| Record, index, matrix and release notes agree with `7561a68` | **Met** | this record; `docs/dry-runs/README.md`; `docs/dry-runs/verification-matrix.md` |
+
+## Remaining limitations
+
+- **Native Linux Bash with a real SpecKit install: NOT RUN.** The SpecKit
+  checks ran on Windows, in Git Bash and in PowerShell 7. CI runs the suite
+  and the POSIX launcher on Linux, but it does not install SpecKit.
+- **Local Python 3.11: NOT RUN.** It is covered by CI (R2, R3), which pins 3.11.
+- **CI test counts** are not readable without a token. The CI result is each
+  job's step conclusions, all `success`.
+- **An existing SpecKit install older than v1.0.6** is detected, not upgraded.
+  Whether it behaves the same is not tested. The documentation says so.
+- **A pre-existing cosmetic issue, not fixed** because it is outside the D-list:
+  the `baseline_required` message for an INVALID baseline prints a doubled
+  period (`…supports '1'.. Complete…`).
+
