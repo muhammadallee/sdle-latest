@@ -91,6 +91,12 @@ rather than the original being rewritten.
 |---|---|
 | [transition/](transition/) | The twelve-phase migration from the repository-global runtime to WorkItem-scoped V1. Plans, handoffs, checkpoints and independent verification artifacts for T00–T11. Historical: read it to understand how the engine reached its current shape, not to operate it |
 
+## Verification records
+
+| Document | For |
+|---|---|
+| [verification/defect-stabilization-01.md](verification/defect-stabilization-01.md) | The execution record of the D01–D06 defect-stabilization iteration: every reproduction, command, result and remaining limitation, with the verified commit. Read it to see what was actually proven, and on which platform |
+
 ---
 
 ## Contributing to these documents
