@@ -714,10 +714,15 @@ def test_t11_n15_a_fresh_session_resumes_from_durable_state_alone(started_git):
 # The contract's "Execution identity" section, transcribed as a pattern:
 # `<3-letter-git-user-prefix>-<UTC-datetime>`, example `muh-20260816T171501Z`.
 # The prefix is 1-3 characters because the documented fallback chain can yield
-# a shorter slug. Second resolution is the contract's, not an accident, and is
-# why two executions can legitimately share a label — see the note in the N1
-# test below.
-EXECUTION_ID_FORMAT = re.compile(r"^[a-z0-9]{1,3}-\d{8}T\d{6}Z$")
+# a shorter slug.
+#
+# **SDLE-DEFECT-STABILIZATION-01 D04** appends `-<8 hex>`. Second resolution
+# alone let two executions share an id, and the id names evidence files and
+# keys the governance ledger's de-duplication, so a shared id overwrote
+# evidence and dropped a ledger entry. Old value:
+# `^[a-z0-9]{1,3}-\d{8}T\d{6}Z$`. The suffix is required on every new id;
+# historical ids keep being read because nothing parses one. See ADR-009.
+EXECUTION_ID_FORMAT = re.compile(r"^[a-z0-9]{1,3}-\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 
 def worktree_pair(bare_project, tmp_path):
@@ -773,6 +778,17 @@ def test_t11_n1_two_worktrees_each_complete_a_run_with_independent_ledgers(
     # widening the format to force uniqueness would violate the contract to
     # satisfy a test. `execution_identity` is byte-identical to its form at the
     # product baseline; nothing regressed.
+    #
+    # **Superseded by SDLE-DEFECT-STABILIZATION-01 D04.** The paragraph above
+    # was right that the old format could not promise distinct labels, and
+    # wrong that this was harmless: the id is not only a label, it names the
+    # evidence file and keys ledger de-duplication, so a shared id destroyed
+    # evidence. The maintainer's stabilization plan requires the widening this
+    # paragraph declined, and ADR-009 records it as a deliberate divergence
+    # from the contract's format. Distinct ids are now a property the engine
+    # provides — the collision-resistant suffix — so the inequality is
+    # asserted, and without depending on the clock.
+    assert a_execution != b_execution
     #
     # What is asserted instead is the property N1 actually exists to prove, and
     # it is strictly stronger than string inequality: the two execution

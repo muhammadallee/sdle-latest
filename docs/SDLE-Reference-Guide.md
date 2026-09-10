@@ -162,7 +162,7 @@ SDLE Orchestrator (Claude Code Skill)
 | `workitems/<id>/.sdle/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `workitems/<id>/.sdle/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `workitems/<id>/.sdle/completion-summary.json` | Gate 8 approval | Final, signed closure record |
-| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
+| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>-<8 hex>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
 | `workitems/<id>/.sdle/evidence/migration-*.json` | `migrate-workflow` | Legacy state/audit SHAs and Git HEAD captured at migration |
 | `workitems/index.md`, `workitems/<id>/workitem.json` | `workitem create` | Append-only registry and immutable WorkItem identity |
 | `workitems/.active-context.json` | `init`, `migrate-workflow`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
@@ -293,12 +293,25 @@ deleted, so recovery is simply deleting `workitems/<id>/.sdle/`.
 ### Execution identity
 
 Each `init` and each migration stamps `workitems/<id>/.sdle/execution.json`
-with an execution id of the form `<3-letter-git-user-prefix>-<UTC datetime>`,
-for example `muh-20260816T171501Z`. The prefix is `git config user.name`,
+with an execution id of the form
+`<3-letter-git-user-prefix>-<UTC datetime>-<8 hex>`, for example
+`muh-20260816T171501Z-1a2b3c4d`. The prefix is `git config user.name`,
 lowercased with non-alphanumeric characters removed, truncated to three
 characters, falling back to the email local part and finally to `usr`. It is
 execution and audit metadata: nothing resolves a WorkItem from it, and it is
 never the WorkItem name.
+
+The trailing eight hex digits are random. The timestamp has one-second
+resolution, and an id is also a key: it names every evidence file
+(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`,
+`migration-<id>.json`) and de-duplicates the governance ledger entry. Without
+the suffix, two executions in the same second shared both, so the second
+overwrote the first one's evidence and never reached the ledger. Each evidence
+file is also claimed with an exclusive create before it is written, so an
+existing evidence file is never replaced; if no unused id can be found, the
+command refuses `execution_id_collision` (exit 3) and records nothing. Ids
+written before the suffix existed are read unchanged, because nothing parses
+an id. See ADR-009.
 
 The same file carries a `git` object — the branch, the starting SHA and the
 worktree path the run began on. Missing Git and a detached HEAD are never a

@@ -471,7 +471,7 @@ belong to the Claude Code runtime, and which are convention only.
         ├── workitem.json              ← Immutable WorkItem identity + migration record
         └── .sdle/                     ← This WorkItem's runtime — nothing here is repository-global
             ├── state.json             ← SDLE orchestration state (canonical source of truth)
-            ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>)
+            ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>-<8 hex>)
             ├── audit.md               ← Append-only event log (hash-chained via state.json → audit_sha)
             ├── lock                   ← Session lock (concurrent-session detection; the only ignored file)
             ├── evidence/              ← Migration evidence

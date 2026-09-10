@@ -18,7 +18,6 @@ import ast
 import copy
 import inspect
 import json
-import time
 import re
 import shutil
 from pathlib import Path
@@ -1716,9 +1715,16 @@ def test_the_governance_entry_is_written_once_per_assessment(project):
     # calls actually collide to surface it. Wait for the boundary rather than
     # racing it: the property under test is de-duplication by execution, not
     # the width of the clock.
-    while record_of(project)["executionId"] == first_execution:
-        time.sleep(0.2)
-        assert assess(project).exit_code == EXIT_OK
+    #
+    # **Superseded by SDLE-DEFECT-STABILIZATION-01 D04.** The collision this
+    # paragraph worked around was the defect, not the contract: a shared id
+    # also made the second assessment overwrite the first one's evidence.
+    # Execution ids now carry a collision-resistant suffix, so one re-assessment
+    # is a distinct execution whatever the clock says, and the wait loop is
+    # gone. `tests/test_units_execution_identity.py` asserts the same property
+    # with the clock *frozen*, which is the stronger form.
+    assert assess(project).exit_code == EXIT_OK
+    assert record_of(project)["executionId"] != first_execution
     project.write_artifact(f"workitems/{project.workitem}/specs/001-x/spec.md")
     project.ok("advance", "--to", "gate_spec")
 

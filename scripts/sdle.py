@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -3185,6 +3186,27 @@ def workitem_metadata(paths: Paths) -> dict | None:
 # Contract §8: `<3-letter-git-user-prefix>-<UTC-datetime>`, e.g.
 # `muh-20260816T171501Z`. This is execution/audit metadata — it is never the
 # WorkItem name, and nothing resolves a WorkItem from it.
+#
+# **D04 (SDLE-DEFECT-STABILIZATION-01)** appends a collision-resistant suffix,
+# `muh-20260816T171501Z-1a2b3c4d`. The readable prefix is unchanged. At second
+# resolution alone, two executions in one second shared an id, and the id is a
+# key: it names every evidence file (`governance-<id>.json`, …) and it is the
+# governance ledger's de-duplication marker. The second execution therefore
+# overwrote the first one's evidence and never reached the ledger at all. A
+# historical id without the suffix is still read everywhere, because nothing
+# parses an id — each one is compared whole, as an opaque key. See ADR-009.
+
+
+# How many fresh ids an evidence writer tries before refusing. A collision needs
+# the same user, the same second and the same 32 random bits, so a second
+# attempt is already vanishingly rare; the bound exists so a broken random
+# source refuses instead of looping forever.
+EXECUTION_ID_ATTEMPTS = 3
+
+
+def execution_suffix() -> str:
+    """The collision-resistant half of an execution id: 32 random bits."""
+    return secrets.token_hex(4)
 
 
 def execution_prefix(paths: Paths) -> str:
@@ -3202,7 +3224,45 @@ def execution_prefix(paths: Paths) -> str:
 
 def execution_identity(paths: Paths, stamp: str | None = None) -> str:
     compact = (stamp or now_iso()).replace("-", "").replace(":", "")
-    return f"{execution_prefix(paths)}-{compact}"
+    return f"{execution_prefix(paths)}-{compact}-{execution_suffix()}"
+
+
+def reserve_evidence(paths: Paths, directory: Path, stamp: str,
+                     name: "Callable[[str], str]") -> tuple[str, Path]:
+    """Allocate an execution id whose evidence file does not exist yet.
+
+    The file is claimed with an exclusive create before anything is written
+    into it, so no evidence file is ever replaced: an id whose file is already
+    taken is abandoned for a fresh one. The caller then fills the claimed file
+    through the usual atomic writer, which replaces only this empty
+    placeholder.
+    ``name`` maps an id to the file name, since each kind of evidence names
+    its file differently.
+
+    A crash between the claim and the fill leaves an empty file. That is the
+    fail-safe direction: an empty evidence file is never mistaken for
+    evidence, and a reader that needs it refuses it as malformed.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    tried = []
+    for _ in range(EXECUTION_ID_ATTEMPTS):
+        execution_id = execution_identity(paths, stamp)
+        target = directory / name(execution_id)
+        try:
+            with open(target, "x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            tried.append(execution_id)
+            continue
+        return execution_id, target
+    raise IntegrityError(
+        "execution_id_collision",
+        f"Could not allocate an unused execution id after {len(tried)} "
+        f"attempts ({', '.join(tried)}): each one's evidence file already "
+        "exists. Nothing was recorded and no existing evidence was touched. "
+        "This means the random source is not random; re-run the command.",
+        {"tried": tried, "directory": str(directory)},
+    )
 
 
 def write_execution_file(paths: Paths, execution_id: str, stamp: str) -> dict:
@@ -5203,7 +5263,11 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     downgrade = governance_downgrade(superseded, risk)
 
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    # D04: claimed before `governance.json` is touched, so an id that cannot
+    # be allocated refuses with nothing recorded.
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"governance-{eid}.json")
     sources, digest = requirements_sources(paths)
     proposed_requirements = gate_requirements(
         consts, consts.flow(classification.get("flow")), classification,
@@ -5235,7 +5299,6 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # `cmd_artifact_record` already uses: a blocked assessment must be
     # inspectable and remediable, not invisible.
     write_atomic(paths.governance_file, json.dumps(record, indent=2) + "\n")
-    evidence = paths.evidence_dir / f"governance-{execution_id}.json"
     write_atomic(evidence, json.dumps({
         "kind": "governance",
         "executionId": execution_id,
@@ -5794,7 +5857,9 @@ def cmd_discovery_assess(args, paths: Paths) -> int:
     evaluation = evaluate_discovery(document, paths, relative)
 
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"discovery-{eid}.json")
     record = {
         "discoveryVersion": DISCOVERY_RECORD_VERSION,
         "workitem": paths.workitem,
@@ -5806,7 +5871,6 @@ def cmd_discovery_assess(args, paths: Paths) -> int:
         "findings": evaluation["findings"],
     }
     write_atomic(paths.discovery_file, json.dumps(record, indent=2) + "\n")
-    evidence = paths.evidence_dir / f"discovery-{execution_id}.json"
     write_atomic(evidence, json.dumps({
         "kind": "discovery",
         "executionId": execution_id,
@@ -6502,7 +6566,9 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
 
     # Step 6 — capture the source facts that become migration evidence.
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    execution_id, evidence_file = reserve_evidence(
+        paths, target.evidence_dir, stamp,
+        lambda eid: f"migration-{eid}.json")
     facts = {
         "migratedFrom": legacy.runtime_relative,
         "at": stamp,
@@ -6525,7 +6591,6 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
     ):
         if source.is_file():
             write_atomic(destination, source.read_text(encoding="utf-8"))
-    evidence_file = target.evidence_dir / f"migration-{execution_id}.json"
     write_atomic(evidence_file, json.dumps(facts, indent=2) + "\n")
     write_execution_file(target, execution_id, stamp)
 
@@ -7097,8 +7162,9 @@ def cmd_artifact_review(args, paths: Paths) -> int:
 
     reviews = read_reviews(paths)
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
-    evidence = paths.evidence_dir / f"review-{execution_id}-{len(reviews) + 1}.json"
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"review-{eid}-{len(reviews) + 1}.json")
     evidence_id = evidence.relative_to(paths.project_root).as_posix()
 
     record = {

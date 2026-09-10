@@ -953,9 +953,23 @@ def test_n24_a18_the_engine_gained_no_writer_and_no_state_field():
     # because the permitted movement is named and quantified and everything
     # else must still be identical.
     for needle in WRITE_PRIMITIVES:
-        expected = before.count(needle) + T11_WRITE_DELTA.get(needle, 0)
+        expected = (before.count(needle) + T11_WRITE_DELTA.get(needle, 0)
+                    + STABILIZATION_01_WRITE_DELTA.get(needle, 0))
         assert after.count(needle) == expected, (
             needle, before.count(needle), after.count(needle), expected)
+
+    # The exclusive-create writer D04 declares above: exactly one, and it
+    # lives where the declaration says it does.
+    exclusive = [node for node in ast.walk(ast.parse(after))
+                 if isinstance(node, ast.FunctionDef)
+                 and any(isinstance(call, ast.Call)
+                         and isinstance(call.func, ast.Name)
+                         and call.func.id == "open"
+                         and any(isinstance(arg, ast.Constant)
+                                 and arg.value == "x" for arg in call.args)
+                         for call in ast.walk(node))]
+    assert [fn.name for fn in exclusive] == ["reserve_evidence"], [
+        fn.name for fn in exclusive]
 
     was = set(ADD_PARSER.findall(before))
     now = set(ADD_PARSER.findall(after))
@@ -985,6 +999,19 @@ WRITE_PRIMITIVES = ("write_atomic", "save_state", "append_audit",
 # `state.json`, and `write_atomic` the only thing that writes a file —
 # unchanged at 30. Invariant 6 is about who may write, and it is untouched.
 T11_WRITE_DELTA = {"append_audit": 2, "save_state": 1}
+
+# SDLE-DEFECT-STABILIZATION-01 declares its own call sites the same way: a
+# signed delta per needle, each one named, so every other movement still
+# fails. Recorded in `docs/verification/defect-stabilization-01.md`.
+#
+#   `.mkdir(` +1 (D04): `reserve_evidence` creates the evidence directory
+#       before it claims a file name in it.
+#
+# D04 also adds the engine's one *exclusive-create* writer — `open(path,
+# "x")` in `reserve_evidence`, which claims an evidence file name so no
+# evidence is ever replaced. It is not a needle above (a bare `open(` would
+# match every reader), so it is pinned by name in the test below instead.
+STABILIZATION_01_WRITE_DELTA = {".mkdir(": 1}
 
 ADD_PARSER = re.compile(r'add_parser[(]' + r"\s*" + r'"([a-z][a-z-]*)"')
 

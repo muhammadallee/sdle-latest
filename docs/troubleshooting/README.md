@@ -244,3 +244,19 @@ tripwire; the engine's refusal at the choke point is the actual guarantee.
 append`, `gate`, `limit set`, `workitem create`). If you believe the fence is
 denying a path SDLE does not own, that is a defect in the fence — report it
 rather than writing the file another way.
+
+---
+
+## 12. `execution_id_collision` — exit 3
+
+Every evidence file is named after an execution id,
+`<prefix>-<UTC second>-<8 random hex>`, and is claimed with an exclusive create
+before it is written, so existing evidence is never replaced. If three freshly
+drawn ids in a row all name files that already exist, the command refuses with
+exit 3. **Nothing is recorded** — no governance record, no review, no discovery
+record — and no existing evidence is touched.
+
+This does not happen by chance. It means the random source is not random, or
+someone is creating files under `workitems/<id>/.sdle/evidence/` by hand. Check
+for the second, then re-run the command. Do not delete evidence files to make
+room. They are the record of what happened.
