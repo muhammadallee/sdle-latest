@@ -6733,6 +6733,109 @@ def resolve_artifact_path(
     return resolved, None
 
 
+# What resolves each ARTIFACT_OWNERSHIP binding, named in the D01 refusal so
+# the recovery is actionable rather than "something is missing".
+ARTIFACT_BINDING_RECOVERY = {
+    "speckit_feature_directory":
+        "run `feature resolve` so this WorkItem's feature directory is "
+        "recorded",
+    "security_review_artifact":
+        "run `security-review begin`, which names the review file, and write "
+        "the review there",
+}
+
+# The last sentence of each `artifact_missing` refusal, by the command that
+# raised it. Approval and omission keep their pre-D01 wording verbatim.
+ARTIFACT_MISSING_CONSEQUENCE = {
+    "approve": "A gate is an approval of specific content.",
+    "omit": "An omission is still a decision about specific content — the "
+            "artifact is generated, registered and reviewed whether or not a "
+            "human has to approve it.",
+    "re-approve": "Drift re-approval re-baselines the gate onto specific "
+                  "content, and there is none. Restore the artifact, or "
+                  "`restart` the phase that produces it.",
+}
+
+
+def required_gate_artifact(paths: Paths, state: dict, consts: Constants,
+                           gate_key: str, action: str
+                           ) -> tuple[str | None, str | None]:
+    """**D01 (SDLE-DEFECT-STABILIZATION-01).** Resolve the artifact a gate
+    decision is about, and fingerprint it, or refuse.
+
+    Returns ``(resolved_path, sha)``. Both are ``None`` only for a gate that
+    registers no artifact at all (an ARTIFACT_OWNERSHIP template of
+    ``(none)``) — the one legitimate artifact-free gate.
+
+    Before D01 every caller treated an *unresolved* template the same way:
+    ``resolve_artifact_path`` answered ``(None, reason)`` and the gate was
+    decided with ``sha: null``. That approved a Spec Kit gate whose feature
+    directory had never been resolved, and completed a whole flow on a
+    security gate whose review file had never been named. A registered
+    artifact that cannot be resolved, found or read is now a refusal, raised
+    by a pure reader ahead of every write, so the refusal leaves the phase, the
+    approvals and the ledger exactly as they were.
+
+    One place, three callers: `gate approve`, drift re-approval and `gate
+    omit` are the three decisions that fingerprint an artifact.
+    """
+    template = consts.artifact_ownership.get(gate_key)
+    if not template or template == "(none)":
+        return None, None
+
+    resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+    if not resolved:
+        binding = next(
+            (label for label in ARTIFACT_BINDING_RECOVERY
+             if "{" + label + "}" in template), None)
+        data = {"gate": gate_key, "template": template, "binding": binding}
+        if binding == "speckit_feature_directory":
+            searched, tier, found = feature_candidate_tier(paths)
+            names = sorted(p.name for p in found)
+            data.update(candidates=names, searched=searched, tier=tier)
+            if len(names) > 1:
+                raise Refused(
+                    "feature_ambiguous",
+                    f"Cannot {action} {gate_key}: no feature directory is "
+                    f"recorded for '{paths.workitem}', and {len(names)} "
+                    f"candidates exist under {tier}/: {', '.join(names)}. SDLE "
+                    "will not choose between them. Move the one this WorkItem "
+                    f"owns into {paths.speckit_specs_relative}/ and run "
+                    "`feature resolve`.",
+                    data,
+                )
+        raise Refused(
+            "artifact_unresolved",
+            f"Cannot {action} {gate_key}: its artifact ({template}) cannot be "
+            f"resolved because {binding or 'a binding'} is not recorded. A "
+            "gate decision is about specific content, and there is none to "
+            f"fingerprint. To recover, "
+            f"{ARTIFACT_BINDING_RECOVERY.get(binding, 'resolve the binding')}"
+            ", then try again.",
+            data,
+        )
+
+    full = paths.project_root / resolved
+    if not full.is_file():
+        raise Refused(
+            "artifact_missing",
+            f"Cannot {action} {gate_key}: {resolved} does not exist. "
+            + ARTIFACT_MISSING_CONSEQUENCE[action],
+            {"gate": gate_key, "path": resolved},
+        )
+    try:
+        sha = sha256_file(full)
+    except OSError as exc:
+        raise Refused(
+            "artifact_unreadable",
+            f"Cannot {action} {gate_key}: {resolved} exists but cannot be "
+            f"read ({exc.strerror or exc}), so it cannot be fingerprinted. "
+            "Fix its permissions or whatever holds it open, then try again.",
+            {"gate": gate_key, "path": resolved, "error": str(exc)},
+        ) from None
+    return resolved, sha
+
+
 def cmd_artifact_path(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
@@ -7646,18 +7749,9 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             {"gate": args.gate, "current_phase": state.get("current_phase")},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
-    sha = None
-    if resolved:
-        full = paths.project_root / resolved
-        if not full.is_file():
-            raise Refused(
-                "artifact_missing",
-                f"Cannot approve {args.gate}: {resolved} does not exist. "
-                "A gate is an approval of specific content.",
-                {"gate": args.gate, "path": resolved},
-            )
-        sha = sha256_file(full)
+    resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
+                                           "approve")
+    if sha:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
@@ -7770,11 +7864,10 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             {"expected": gate_key, "requested": args.gate, "queue": queue},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+    resolved, sha = required_gate_artifact(paths, state, consts, gate_key,
+                                           "re-approve")
     review_precondition(paths, state, gate_key, resolved)
-    sha = None
-    if resolved and (paths.project_root / resolved).is_file():
-        sha = sha256_file(paths.project_root / resolved)
+    if sha:
         state.setdefault("artifact_shas", {})[gate_key] = sha
 
     state.setdefault("approvals", {})[gate_key] = {
@@ -7918,20 +8011,9 @@ def cmd_gate_omit(args, paths: Paths) -> int:
              "policy": (model or {}).get("policy")},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
-    sha = None
-    if resolved:
-        full = paths.project_root / resolved
-        if not full.is_file():
-            raise Refused(
-                "artifact_missing",
-                f"Cannot omit {args.gate}: {resolved} does not exist. An "
-                "omission is still a decision about specific content — the "
-                "artifact is generated, registered and reviewed whether or "
-                "not a human has to approve it.",
-                {"gate": args.gate, "path": resolved},
-            )
-        sha = sha256_file(full)
+    resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
+                                           "omit")
+    if sha:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
@@ -8407,6 +8489,28 @@ def _feature_candidates(directory: Path) -> list[Path]:
                   key=lambda p: p.name)
 
 
+def feature_candidate_tier(paths: Paths) -> tuple[list[str], str | None,
+                                                  list[Path]]:
+    """The first tier that holds any feature directory, in precedence order.
+
+    Returns ``(searched, chosen_tier, candidates)``. A pure reader, shared by
+    `feature resolve` and by the gate precondition that refuses an unresolved
+    feature (D01), so both give the same answer and there is one tier list.
+    """
+    tiers = [
+        (paths.speckit_specs_relative, paths.speckit_specs_root),
+        ("specs", paths.project_root / "specs"),
+        (".specify/specs", paths.project_root / ".specify" / "specs"),
+    ]
+    searched: list[str] = []
+    for label, directory in tiers:
+        searched.append(label)
+        found = _feature_candidates(directory)
+        if found:
+            return searched, label, found
+    return searched, None, []
+
+
 def _adopt_feature_directory(paths: Paths, source: Path, target: Path) -> dict:
     """Move a natively-created feature directory into this WorkItem.
 
@@ -8491,21 +8595,7 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     """
     state = read_state(paths)
     specs_root = paths.speckit_specs_root
-    tiers = [
-        (paths.speckit_specs_relative, specs_root),
-        ("specs", paths.project_root / "specs"),
-        (".specify/specs", paths.project_root / ".specify" / "specs"),
-    ]
-
-    searched: list[str] = []
-    chosen_tier: str | None = None
-    candidates: list[Path] = []
-    for label, directory in tiers:
-        searched.append(label)
-        found = _feature_candidates(directory)
-        if found:
-            chosen_tier, candidates = label, found
-            break
+    searched, chosen_tier, candidates = feature_candidate_tier(paths)
 
     if not candidates:
         raise Refused(
@@ -8633,9 +8723,17 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     if gate_key != "gate_implement" or not resolved:
         return None
 
-    body = (paths.project_root / resolved).read_text(
-        encoding="utf-8", errors="replace"
-    )
+    try:
+        body = (paths.project_root / resolved).read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError as exc:
+        raise Refused(
+            "artifact_unreadable",
+            f"Cannot approve {gate_key}: {resolved} exists but cannot be read "
+            f"({exc.strerror or exc}).",
+            {"gate": gate_key, "path": resolved, "error": str(exc)},
+        ) from None
     missing = [s for s in REQUIRED_MANIFEST_SECTIONS if s not in body]
     if missing:
         raise Refused(

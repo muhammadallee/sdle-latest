@@ -260,3 +260,23 @@ This does not happen by chance. It means the random source is not random, or
 someone is creating files under `workitems/<id>/.sdle/evidence/` by hand. Check
 for the second, then re-run the command. Do not delete evidence files to make
 room. They are the record of what happened.
+
+---
+
+## 13. A gate refuses its artifact: `artifact_unresolved`, `artifact_missing`, `artifact_unreadable`, `feature_ambiguous`
+
+`gate approve`, drift re-approval and `gate omit` are decisions about
+**specific content**, so each one fingerprints the gate's artifact first. If it
+can't, the decision is refused before anything is written: the phase, every
+earlier approval and `audit.md` stay byte-for-byte as they were.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `artifact_unresolved` | The gate's artifact path depends on a binding that was never recorded. `data.binding` names it | `speckit_feature_directory`: run `feature resolve`. `security_review_artifact`: run `security-review begin` and write the review to the file it names. Then decide the gate again |
+| `feature_ambiguous` (at a gate) | No feature directory is recorded and more than one candidate exists. `data.candidates` lists them | Move the directory this WorkItem owns into `workitems/<id>/specs/`, run `feature resolve`, then decide the gate again. SDLE never picks one |
+| `artifact_missing` | The path resolves but no file is there | Regenerate or restore the artifact. For drift re-approval of a deleted artifact, restore it or `restart` the phase that produces it |
+| `artifact_unreadable` | The file exists but cannot be read, so it cannot be hashed | Fix its permissions, or close whatever holds it open, then retry |
+
+A flow that does not contain a gate, like `gate_constitution` under
+`ITERATIVE`, never asks for that gate's artifact. Nothing here makes you
+fabricate one.
