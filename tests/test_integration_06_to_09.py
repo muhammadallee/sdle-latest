@@ -104,6 +104,7 @@ def test_06_preflight_pins_the_implementation_base_ref(git_project):
 
 def test_06_manifest_flags_a_hardcoded_key_masked(git_project):
     at_implement(git_project)
+    git_project.ok("implement", "preflight")
     git_project.write_artifact(
         "src/config.py",
         'import os\n\napi_key = "sk-proj-abcdefghijklmnopqrstuvwxyz012345"\n'
@@ -120,6 +121,7 @@ def test_06_manifest_flags_a_hardcoded_key_masked(git_project):
 
 def test_06_manifest_always_has_the_mandatory_sections(git_project):
     at_implement(git_project)
+    git_project.ok("implement", "preflight")
     git_project.ok("manifest", "build", "--skip-tests")
 
     body = (git_project.runtime / "implementation-manifest.md").read_text("utf-8")
@@ -181,6 +183,7 @@ def test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped(
 def test_06_test_evidence_records_a_real_failing_run(git_project):
     """Item 11: an implementation whose tests fail must say so in the manifest."""
     at_implement(git_project)
+    git_project.ok("implement", "preflight")
     tests_dir = git_project.root / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "test_generated.py").write_text(
@@ -209,11 +212,18 @@ def test_06_security_review_diffs_against_the_pinned_ref(git_project):
     assert result.data["pinned"] is True
 
 
-def test_06_security_review_falls_back_when_no_ref_pinned(git_project):
+def test_06_security_review_refuses_when_no_ref_pinned(git_project):
+    """D03 (SDLE-DEFECT-STABILIZATION-01). This replaces
+    `test_06_security_review_falls_back_when_no_ref_pinned`, which required
+    the evidence to fall back to `HEAD~1` -- a range nobody chose, and not
+    the one Gate 7's manifest listed. With no pinned base there is nothing
+    to measure the implementation from, so the command refuses and names
+    the step that pins one."""
     at_implement(git_project)
-    result = git_project.ok("security-review", "evidence")
-    assert result.data["pinned"] is False
-    assert result.data["base_ref"] == "HEAD~1"
+    result = git_project.run("security-review", "evidence")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "implementation_base_missing"
+    assert "implement preflight" in result.envelope["message"]
 
 
 # ===========================================================================

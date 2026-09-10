@@ -298,3 +298,23 @@ manifest does not change what the manifest reports.
 | `test_evidence_missing` | The manifest names no evidence (hand-written, or built by an older SDLE), or the named file is gone | Rebuild with `manifest build`. An old-format manifest cannot establish that tests passed |
 | `test_evidence_stale` | The evidence belongs to other content. `data.mismatch` names what differs: `manifestSha256` (the manifest was edited after it was built), `baseRef` (`implement preflight` re-pinned the base since), `workitem`, or `location` | Rebuild with `manifest build`. Never edit the manifest by hand |
 | `test_evidence_malformed` | The evidence file is empty, not JSON, or contradicts itself (for example `passed` with a non-zero exit code) | Rebuild with `manifest build`. An empty file means a build was interrupted |
+
+---
+
+## 15. `implementation_base_missing`, `implementation_base_invalid`
+
+The Gate 7 manifest and the security-review evidence both measure the
+implementation **from the commit `implement preflight` pinned** before any
+code was written: committed, staged, unstaged and untracked changes since
+then. Measuring from anywhere else, such as the current `HEAD` or `HEAD~1`,
+would silently drop work committed during implementation, so neither command
+guesses.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `implementation_base_missing` | `implement preflight` never ran for this WorkItem, so no base is pinned | Run `implement preflight` (it is the first step of the implement phase), then build again |
+| `implementation_base_invalid` | The pinned base is not a commit in this repository, usually because history was rewritten | If the rewrite was deliberate, re-run `implement preflight` to pin a new base. Changes made before the new base will no longer be listed, so review them some other way first |
+
+Deletions are listed and never read. Binary files are listed as `(binary)`
+and not scanned. Untracked files appear in the manifest and in the
+security-review evidence's `untracked` list, because no diff shows them.

@@ -14,7 +14,7 @@
    - `{state.specKit.featureDirectory}/spec.md`
    - `{state.specKit.featureDirectory}/plan.md`
    - `{state.specKit.featureDirectory}/tasks.md`
-2. Run `sdle.sh security-review evidence`. It diffs against `implementation_base_ref` — the HEAD recorded when Phase 15 started — rather than `HEAD~1`, which is only correct when the implementation happened to be exactly one commit. The response carries `stat`, `diff`, the resolved `base_ref`, and whether it was `pinned`. If git is unavailable it says so; note that explicitly rather than skipping the review.
+2. Run `sdle.sh security-review evidence`. It diffs against `implementation_base_ref` — the HEAD recorded when Phase 15 started — and covers exactly the change set the Gate 7 manifest listed: the same selection, the same exclusions, committed and uncommitted work alike. The response carries `stat`, `diff`, the resolved `base_ref`, the `changes` list and `untracked` — files new since the base that no diff shows. **Read every `untracked` file directly**; a review of the diff alone would miss them. If no base was pinned it refuses `implementation_base_missing` instead of guessing a range: show the message and halt. If git is unavailable it says so; note that explicitly rather than skipping the review.
 4. Extract the tech stack from `plan.md` (look for frameworks, languages, databases, auth libraries).
 
 **Step 8b — Generate the review file:**
@@ -32,7 +32,8 @@ It is NOT a substitute for SAST/DAST tools, dependency scanners, or a profession
 
 ## What We Reviewed
 - Artifacts read: <list each .specify/ file that was read>
-- Git diff range: <base_ref>..HEAD (or "git not available")
+- Git diff range: <base_ref>..working tree (or "git not available")
+- Untracked files read directly: <each entry of `untracked`, or "none">
 - Diff summary:
   <paste output of git diff --stat, or "git unavailable">
 

@@ -1151,7 +1151,13 @@ def git(paths: Paths, *args: str) -> tuple[int, str]:
         )
     except (OSError, ValueError):
         return 127, ""
-    return completed.returncode, (completed.stdout or "").strip()
+    # Trailing whitespace only. A leading space is data in git's status
+    # formats (` M path` is an unstaged change), and stripping it shifted the
+    # first line by one character: `line[3:]` then cut the first letter of
+    # the path, so an SDLE-owned file sorting first escaped the dirty-tree
+    # filter as a false `dirty_tree` (found reproducing D03,
+    # SDLE-DEFECT-STABILIZATION-01).
+    return completed.returncode, (completed.stdout or "").rstrip()
 
 
 def git_available(paths: Paths) -> bool:
@@ -9787,37 +9793,18 @@ def _run_test_command(paths: Paths, timeout: int, name: str,
     }
 
 
-def cmd_manifest_build(args, paths: Paths) -> int:
-    state = read_state(paths)
-    branch_guard(args, paths, state)
-    relative = str(
-        paths.manifest_file.relative_to(paths.project_root)
-    ).replace(os.sep, "/")
+def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
+    """Path prefixes that are engine bookkeeping, never implementation.
 
-    if git_available(paths):
-        # -uall: without it git collapses an untracked directory to "?? src/",
-        # and every file inside it escapes the secrets scan entirely.
-        _, status = git(paths, "status", "--short", "-uall")
-        _, tracked = git(paths, "diff", "--name-only", "HEAD")
-        files = {line[3:].strip() for line in status.splitlines() if line.strip()}
-        files |= {line.strip() for line in tracked.splitlines() if line.strip()}
-        note = None
-    else:
-        files = {
-            str(p.relative_to(paths.project_root)).replace(os.sep, "/")
-            for p in paths.project_root.rglob("*")
-            if p.is_file() and p.suffix in TEXT_SUFFIXES
-            and not str(p.relative_to(paths.project_root)).startswith(".")
-        }
-        note = "git not initialized — file list is approximate."
-
-    # Engine-owned bookkeeping is never implementation. The exclusion stays an
-    # explicit, narrow list and is deliberately **not** SDLE_OWNED_PREFIXES:
-    # that would silently drop requirements/ and design/ edits from the
-    # manifest. T11 D6 (T04 N-7) gives this the same relocation/ownership
-    # exclusion its sibling `cmd_security_review_evidence` already had, so the
-    # Gate 7 manifest stops reporting this WorkItem's governed Spec Kit input
-    # and SDLE's own configuration root as implementation changes.
+    One list for both consumers of the implementation change set — Gate 7's
+    manifest and the security-review evidence — so they cannot disagree about
+    what the implementation is (D03). It stays an explicit, narrow list and is
+    deliberately **not** SDLE_OWNED_PREFIXES: that would silently drop
+    requirements/ and design/ edits from the manifest. T11 D6 (T04 N-7) gave
+    the manifest this relocation/ownership exclusion; before D03 the
+    security-review evidence carried a narrower copy that missed the
+    repository-global configuration root.
+    """
     excluded = [
         paths.runtime_relative + "/",       # this WorkItem's runtime
         paths.config_root_relative + "/",   # repository-global `.sdle/`
@@ -9826,14 +9813,168 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     feature_directory = speckit_ref(state)["featureDirectory"]
     if feature_directory:
         excluded.append(feature_directory.rstrip("/") + "/")
-    changed = sorted(
-        f for f in files
-        if not any(f.replace("\\", "/").startswith(prefix)
-                   for prefix in excluded)
-    )
+    return excluded
+
+
+def _nul_fields(text: str) -> list[str]:
+    return [field for field in text.split("\0") if field != ""]
+
+
+def implementation_changes(paths: Paths, state: dict) -> list[dict]:
+    """**D03.** The implementation change set, measured from the pinned base.
+
+    ``implementation_base_ref`` is the commit `implement preflight` pinned
+    before any implementation was written. Everything the implementation did
+    since is the diff from that commit to the *working tree* — which covers
+    changes committed after the base, staged changes and unstaged changes in
+    one comparison — plus untracked files, which no diff reports. Before D03
+    the manifest compared against the current ``HEAD``, so a change committed
+    during implementation vanished from Gate 7 and from the secrets scan.
+
+    Each entry is ``{path, status, old_path, binary, untracked}``; ``status``
+    is git's letter (A, M, D, R, T). Paths are POSIX, de-duplicated, sorted,
+    and filtered through ``implementation_exclusions``. A missing or invalid
+    base is a refusal: silently measuring from somewhere else would produce a
+    wrong-but-plausible change set, which is worse than none.
+    """
+    base = state.get("implementation_base_ref")
+    if not base:
+        raise Refused(
+            "implementation_base_missing",
+            "No implementation base is pinned for this WorkItem, so the "
+            "implementation change set has nothing to be measured from. Run "
+            "`implement preflight` before implementing — it pins the commit "
+            "the change set is measured against — then build again.",
+            {"workitem": paths.workitem},
+        )
+    code, _ = git(paths, "cat-file", "-e", f"{base}^{{commit}}")
+    if code != 0:
+        raise Refused(
+            "implementation_base_invalid",
+            f"The pinned implementation base {base} is not a commit in this "
+            "repository (was history rewritten, or the repository replaced?). "
+            "SDLE will not measure from a different commit instead. If the "
+            "rewrite was deliberate, re-run `implement preflight` to pin a new "
+            "base, knowing that changes before it will no longer be listed.",
+            {"workitem": paths.workitem, "base_ref": base},
+        )
+
+    changes: dict[str, dict] = {}
+    _, status = git(paths, "diff", "--name-status", "-z", "-M", base)
+    fields = _nul_fields(status)
+    index = 0
+    while index < len(fields):
+        letter = fields[index][:1]
+        if letter in ("R", "C"):
+            old, new = fields[index + 1], fields[index + 2]
+            index += 3
+            if letter == "C":
+                changes[new] = {"path": new, "status": "A", "old_path": None}
+            else:
+                changes[new] = {"path": new, "status": "R", "old_path": old}
+            continue
+        path = fields[index + 1]
+        index += 2
+        changes[path] = {"path": path, "status": letter, "old_path": None}
+
+    binary: set[str] = set()
+    _, numstat = git(paths, "diff", "--numstat", "-z", "-M", base)
+    records = numstat.split("\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        if not record:
+            index += 1
+            continue
+        added, deleted, *rest = record.split("\t", 2)
+        if rest and rest[0]:
+            path = rest[0]
+            index += 1
+        else:  # a rename: the two paths follow as their own fields
+            path = records[index + 2] if index + 2 < len(records) else ""
+            index += 3
+        if added == "-" and deleted == "-":
+            binary.add(path)
+
+    _, untracked = git(paths, "ls-files", "--others", "--exclude-standard", "-z")
+    for path in _nul_fields(untracked):
+        changes.setdefault(path, {"path": path, "status": "A",
+                                  "old_path": None, "untracked": True})
+
+    excluded = implementation_exclusions(paths, state)
+    result = []
+    for path in sorted(changes):
+        entry = changes[path]
+        normal = path.replace("\\", "/")
+        if any(normal.startswith(prefix) for prefix in excluded):
+            continue
+        entry["path"] = normal
+        entry.setdefault("untracked", False)
+        if entry.get("untracked"):
+            entry["binary"] = _looks_binary(paths.project_root / normal)
+        else:
+            entry["binary"] = path in binary
+        result.append(entry)
+    return result
+
+
+def _manifest_line(entry: dict) -> str:
+    """One manifest row: git's status letter, the path, and what a reviewer
+    needs to read it correctly (where a rename came from; that a file is
+    binary and was therefore not scanned)."""
+    path = entry["path"]
+    if entry["status"] == "R" and entry.get("old_path"):
+        path = f"{entry['old_path']} -> {path}"
+    return f"{entry['status']} {path}" + (" (binary)" if entry["binary"]
+                                          else "")
+
+
+def _looks_binary(path: Path) -> bool:
+    """Git's own heuristic for an untracked file: a NUL in the first 8000
+    bytes. Untracked files appear in no diff, so git cannot say."""
+    try:
+        with path.open("rb") as handle:
+            return b"\0" in handle.read(8000)
+    except OSError:
+        return False
+
+
+def cmd_manifest_build(args, paths: Paths) -> int:
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    relative = str(
+        paths.manifest_file.relative_to(paths.project_root)
+    ).replace(os.sep, "/")
+
+    if git_available(paths):
+        # D03: measured from the pinned base, committed + staged + unstaged
+        # + untracked, through the one selector the security review also
+        # reads. A missing or invalid base refuses rather than falling back.
+        changes = implementation_changes(paths, state)
+        note = None
+    else:
+        excluded = implementation_exclusions(paths, state)
+        changes = [
+            {"path": relative_path, "status": "A", "old_path": None,
+             "binary": False, "untracked": True}
+            for relative_path in sorted(
+                str(p.relative_to(paths.project_root)).replace(os.sep, "/")
+                for p in paths.project_root.rglob("*")
+                if p.is_file() and p.suffix in TEXT_SUFFIXES
+                and not str(p.relative_to(paths.project_root)).startswith("."))
+            if not any(relative_path.startswith(prefix)
+                       for prefix in excluded)
+        ]
+        note = "git not initialized — file list is approximate."
+    changed = [entry["path"] for entry in changes]
 
     findings = []
-    for name in changed:
+    for entry in changes:
+        # A deletion has no current content to scan, and a binary file has no
+        # text to decode: both are listed, neither is read.
+        if entry["status"] == "D" or entry["binary"]:
+            continue
+        name = entry["path"]
         candidate = paths.project_root / name
         if not candidate.is_file() or candidate.suffix not in TEXT_SUFFIXES:
             continue
@@ -9886,7 +10027,8 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         f"Phase: implement ({state.get('progress', '15/18')})\n"
         + (f"\n> {note}\n" if note else "")
         + "\n## Changed/Added Files\n"
-        + ("\n".join(changed) if changed else "(none)")
+        + ("\n".join(_manifest_line(entry) for entry in changes)
+           if changes else "(none)")
         + "\n\n## Potential Secrets Detected\n"
         + secrets_block
         + "\n\n## Test Evidence\n"
@@ -9906,6 +10048,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         "baseRef": state.get("implementation_base_ref"),
         "head": _git_value(paths, "rev-parse", "HEAD"),
         "files": changed,
+        "changes": changes,
         "secrets": findings,
         "tests": {key: tests.get(key) for key in
                   ("runner", "command", "exit_code", "status", "output")},
@@ -9927,8 +10070,8 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     save_state(paths, state, args.session)
 
     emit("manifest build", {
-        "path": relative, "files": changed, "secrets": findings, "tests": tests,
-        "evidence": evidence_relative,
+        "path": relative, "files": changed, "changes": changes,
+        "secrets": findings, "tests": tests, "evidence": evidence_relative,
         # Advisory, so the orchestrator can say *now* that Gate 7 will refuse
         # rather than letting the user discover it at the gate. Gate 7 itself
         # re-derives this from the evidence file; it never reads this flag.
@@ -9947,17 +10090,24 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
               "note": "Git not available — diff analysis skipped."})
         return EXIT_OK
 
-    ref = base or "HEAD~1"
-    _, stat = git(paths, "diff", "--stat", ref)
-    # The feature directory is governed input to the review, not part of the
-    # implementation diff. It moved under the WorkItem in v1.15, so excluding
-    # `.specify` alone is no longer enough.
-    excludes = [":(exclude).specify", f":(exclude){paths.runtime_relative}"]
-    feature_directory = speckit_ref(state)["featureDirectory"]
-    if feature_directory:
-        excludes.append(f":(exclude){feature_directory}")
-    _, diff = git(paths, "diff", ref, "--", ".", *excludes)
+    # D03: the same change set Gate 7's manifest lists, from the same pinned
+    # base. Before D03 an unpinned base silently became `HEAD~1` — a range
+    # nobody chose — and this command carried its own, narrower exclusion
+    # list. A missing or invalid base now refuses, exactly as the manifest
+    # does, because a review of the wrong range is worse than no review.
+    changes = implementation_changes(paths, state)
+    # The diff is taken with the selector's own exclusions as a pathspec, so
+    # it covers exactly the tracked entries of `changes` without passing every
+    # path on the command line.
+    excludes = [f":(exclude){prefix.rstrip('/')}"
+                for prefix in implementation_exclusions(paths, state)]
+    _, stat = git(paths, "diff", "--stat", "-M", base, "--", ".", *excludes)
+    _, diff = git(paths, "diff", "-M", base, "--", ".", *excludes)
+    # No diff shows an untracked file. They are listed so the review reads
+    # them directly rather than silently missing them.
+    untracked = [entry["path"] for entry in changes if entry["untracked"]]
 
+    feature_directory = speckit_ref(state)["featureDirectory"]
     candidates = [".specify/memory/constitution.md"]
     if feature_directory:
         candidates += [
@@ -9967,10 +10117,14 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
     present = [c for c in candidates if (paths.project_root / c).is_file()]
 
     emit("security-review evidence", {
-        "base_ref": ref,
-        "pinned": bool(base),
+        "base_ref": base,
+        # Always true since D03: an unpinned base is a refusal now, never a
+        # fallback. Kept so a caller reading the field still reads the truth.
+        "pinned": True,
         "stat": stat or None,
         "diff": diff or None,
+        "changes": changes,
+        "untracked": untracked,
         "artifacts": present,
     })
     return EXIT_OK

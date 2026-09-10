@@ -1888,11 +1888,14 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
     # `.sdle/`, `.specify/` and this WorkItem's resolved feature directory no
     # longer reach it as implementation changes. Still asserted on the parsed
     # source of the one function that builds the exclusion, so a comment
-    # mentioning a name is not what makes this pass or fail.
+    # mentioning a name is not what makes this pass or fail. D03
+    # (SDLE-DEFECT-STABILIZATION-01) moved the list, unchanged, out of
+    # `cmd_manifest_build` into `implementation_exclusions`, which the
+    # manifest and the security-review evidence now both read.
     builder = next(
         node for node in ast.walk(ast.parse(inspect.getsource(sdle)))
         if isinstance(node, ast.FunctionDef)
-        and node.name == "cmd_manifest_build")
+        and node.name == "implementation_exclusions")
     names = {node.id for node in ast.walk(builder) if isinstance(node, ast.Name)}
     attrs = {node.attr for node in ast.walk(builder)
              if isinstance(node, ast.Attribute)}

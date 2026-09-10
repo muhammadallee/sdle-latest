@@ -936,16 +936,21 @@ CONFIG_REFERENCE_SITES = {
     "baseline_precondition",
     "cmd_baseline_show",
     "cmd_baseline_validate",
-    # T11 D6 (T04 N-7). `cmd_manifest_build` names ONE boundary member,
-    # `config_root_relative`, and uses it as a path prefix to **exclude** the
-    # repository `.sdle/` from the Gate 7 implementation diff. It reads no
-    # configuration value and calls no boundary reader — pinned immediately
-    # below, so this entry cannot later grow into a genuine lifecycle read.
-    # Deriving the prefix beats writing `".sdle/"` by hand: the literal would
-    # be a second source of truth for a path `Paths` already owns
-    # (invariant 7), and it would silently stop matching if the boundary
-    # directory were ever renamed.
-    "cmd_manifest_build",
+    # T11 D6 (T04 N-7). The Gate 7 implementation diff names ONE boundary
+    # member, `config_root_relative`, and uses it as a path prefix to
+    # **exclude** the repository `.sdle/`. It reads no configuration value and
+    # calls no boundary reader — pinned immediately below, so this entry
+    # cannot later grow into a genuine lifecycle read. Deriving the prefix
+    # beats writing `".sdle/"` by hand: the literal would be a second source of
+    # truth for a path `Paths` already owns (invariant 7), and it would
+    # silently stop matching if the boundary directory were ever renamed.
+    #
+    # SDLE-DEFECT-STABILIZATION-01 D03 moved that exclusion list, unchanged,
+    # into `implementation_exclusions`, so the manifest and the
+    # security-review evidence read ONE list instead of two that disagreed.
+    # Old value: `"cmd_manifest_build"`. New value: the helper that now holds
+    # the reference. Still exactly one entry for it, still exact equality.
+    "implementation_exclusions",
 }
 
 RUNTIME_WRITERS = {
@@ -981,11 +986,12 @@ def test_the_repository_configuration_members_have_a_closed_reference_set():
             sites.add(fn.name)
     assert sites == CONFIG_REFERENCE_SITES
 
-    # T11 D6: the one lifecycle command in the set names the boundary's PATH
+    # T11 D6: the one lifecycle site in the set names the boundary's PATH
     # and never its CONTENT. Asserted, not asserted-in-a-comment: it must call
     # no boundary reader and reference no member other than the path prefix.
+    # (D03 moved it from `cmd_manifest_build` into `implementation_exclusions`.)
     builder = next(fn for fn in functions_outside_paths(tree)
-                   if fn.name == "cmd_manifest_build")
+                   if fn.name == "implementation_exclusions")
     assert names_referenced(builder) & set(CONFIG_MEMBERS) == {
         "config_root_relative"}, names_referenced(builder) & set(CONFIG_MEMBERS)
     called = {node.func.id for node in ast.walk(builder)

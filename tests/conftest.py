@@ -604,6 +604,16 @@ STABILIZATION_01_TEST_EDITS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = 
                 '                   PASSING_TEST_COMMAND)',
             ),
         },
+        # D03: the change set is measured from the base `implement preflight`
+        # pins, and building without one is refused rather than measured from
+        # HEAD. These three built a manifest without ever pinning it.
+        **{name: {"removed": (),
+                  "added": ('    git_project.ok("implement", "preflight")',)}
+           for name in (
+               "test_06_manifest_flags_a_hardcoded_key_masked",
+               "test_06_manifest_always_has_the_mandatory_sections",
+               "test_06_test_evidence_records_a_real_failing_run",
+           )},
     },
 }
 
@@ -614,6 +624,7 @@ STABILIZATION_01_TEST_ADDITIONS: dict[str, tuple[str, ...]] = {
     "tests/test_integration_06_to_09.py": (
         "import:from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND",
         "test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped",
+        "test_06_security_review_refuses_when_no_ref_pinned",
     ),
 }
 
@@ -624,6 +635,9 @@ STABILIZATION_01_TEST_REMOVALS: dict[str, dict[str, str]] = {
         "import:from conftest import FIXTURE_WORKITEM_ID":
             "import:from conftest import FIXTURE_WORKITEM_ID, "
             "PASSING_TEST_COMMAND",
+        # D03: required the silent `HEAD~1` fallback the fix removes.
+        "test_06_security_review_falls_back_when_no_ref_pinned":
+            "test_06_security_review_refuses_when_no_ref_pinned",
     },
 }
 
