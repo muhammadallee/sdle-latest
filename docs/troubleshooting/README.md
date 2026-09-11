@@ -244,3 +244,77 @@ tripwire; the engine's refusal at the choke point is the actual guarantee.
 append`, `gate`, `limit set`, `workitem create`). If you believe the fence is
 denying a path SDLE does not own, that is a defect in the fence — report it
 rather than writing the file another way.
+
+---
+
+## 12. `execution_id_collision` — exit 3
+
+Every evidence file is named after an execution id,
+`<prefix>-<UTC second>-<8 random hex>`, and is claimed with an exclusive create
+before it is written, so existing evidence is never replaced. If three freshly
+drawn ids in a row all name files that already exist, the command refuses with
+exit 3. **Nothing is recorded** — no governance record, no review, no discovery
+record — and no existing evidence is touched.
+
+This does not happen by chance. It means the random source is not random, or
+someone is creating files under `workitems/<id>/.sdle/evidence/` by hand. Check
+for the second, then re-run the command. Do not delete evidence files to make
+room. They are the record of what happened.
+
+---
+
+## 13. A gate refuses its artifact: `artifact_unresolved`, `artifact_missing`, `artifact_unreadable`, `feature_ambiguous`
+
+`gate approve`, drift re-approval and `gate omit` are decisions about
+**specific content**, so each one fingerprints the gate's artifact first. If it
+can't, the decision is refused before anything is written: the phase, every
+earlier approval and `audit.md` stay byte-for-byte as they were.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `artifact_unresolved` | The gate's artifact path depends on a binding that was never recorded. `data.binding` names it | `speckit_feature_directory`: run `feature resolve`. `security_review_artifact`: run `security-review begin` and write the review to the file it names. Then decide the gate again |
+| `feature_ambiguous` (at a gate) | No feature directory is recorded and more than one candidate exists. `data.candidates` lists them | Move the directory this WorkItem owns into `workitems/<id>/specs/`, run `feature resolve`, then decide the gate again. SDLE never picks one |
+| `artifact_missing` | The path resolves but no file is there | Regenerate or restore the artifact. For drift re-approval of a deleted artifact, restore it or `restart` the phase that produces it |
+| `artifact_unreadable` | The file exists but cannot be read, so it cannot be hashed | Fix its permissions, or close whatever holds it open, then retry |
+
+A flow that does not contain a gate, like `gate_constitution` under
+`ITERATIVE`, never asks for that gate's artifact. Nothing here makes you
+fabricate one.
+
+---
+
+## 14. Gate 7 refuses the test evidence: `tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`
+
+Gate 7 approves an implementation only on evidence that its tests **ran and
+passed**. `manifest build` writes that evidence as a structured record and
+names it on the manifest's `Evidence:` line. The gate reads it back and checks
+that it belongs to *this* manifest, *this* implementation base and *this*
+WorkItem. There is no exception or waiver path, and a PASS review of the
+manifest does not change what the manifest reports.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `tests_not_passed` | The recorded run is `FAILED`, `skipped by caller`, `no runner detected`, `runner not installed` or `timed out after Ns`. `data.status` says which | Fix the failures and rebuild. If the runner was not detected or not installed, rebuild with the project's real test command: `manifest build --test-command "<command>"`. `--skip-tests` can never pass Gate 7 |
+| `test_evidence_missing` | The manifest names no evidence (hand-written, or built by an older SDLE), or the named file is gone | Rebuild with `manifest build`. An old-format manifest cannot establish that tests passed |
+| `test_evidence_stale` | The evidence belongs to other content. `data.mismatch` names what differs: `manifestSha256` (the manifest was edited after it was built), `baseRef` (`implement preflight` re-pinned the base since), `workitem`, or `location` | Rebuild with `manifest build`. Never edit the manifest by hand |
+| `test_evidence_malformed` | The evidence file is empty, not JSON, or contradicts itself (for example `passed` with a non-zero exit code) | Rebuild with `manifest build`. An empty file means a build was interrupted |
+
+---
+
+## 15. `implementation_base_missing`, `implementation_base_invalid`
+
+The Gate 7 manifest and the security-review evidence both measure the
+implementation **from the commit `implement preflight` pinned** before any
+code was written: committed, staged, unstaged and untracked changes since
+then. Measuring from anywhere else, such as the current `HEAD` or `HEAD~1`,
+would silently drop work committed during implementation, so neither command
+guesses.
+
+| Reason | Meaning | Remedy |
+|---|---|---|
+| `implementation_base_missing` | `implement preflight` never ran for this WorkItem, so no base is pinned | Run `implement preflight` (it is the first step of the implement phase), then build again |
+| `implementation_base_invalid` | The pinned base is not a commit in this repository, usually because history was rewritten | If the rewrite was deliberate, re-run `implement preflight` to pin a new base. Changes made before the new base will no longer be listed, so review them some other way first |
+
+Deletions are listed and never read. Binary files are listed as `(binary)`
+and not scanned. Untracked files appear in the manifest and in the
+security-review evidence's `untracked` list, because no diff shows them.

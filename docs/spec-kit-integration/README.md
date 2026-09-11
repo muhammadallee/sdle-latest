@@ -23,8 +23,15 @@ all of them.
 
 ## 2. Capability detection — refuse, never assume
 
-Spec Kit is not version-pinned. SDLE therefore **detects** what the installed
-copy supports rather than assuming it:
+SDLE does not pin or install Spec Kit; it **detects** what the installed copy
+supports rather than assuming it. The release it is *verified* against is
+**v1.0.6**, installed with the exact command in the README's Quick Start. That
+verification ran it in disposable projects through both script flavours,
+confirming the `speckit-*` skill names SDLE probes for and the
+`SPECIFY_INIT_DIR` / `SPECIFY_FEATURE_DIRECTORY` behaviour through the installed
+scripts themselves. The results are recorded in
+[`docs/verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
+Other releases may work, but they are not what was tested.
 
 | Command | Behaviour |
 |---|---|
@@ -71,8 +78,9 @@ Since v1.17 the carve-out is matched against a **normalised** path, so
 first tier that yields anything:
 
 1. `workitems/<id>/specs/*` — already contained;
-2. `<project-root>/specs/*` — where Spec Kit 0.15.0 actually creates a feature,
-   since it hardcodes `repo_root/specs` for creation;
+2. `<project-root>/specs/*` — where Spec Kit actually creates a feature, since
+   its `create-new-feature` script builds `<repo root>/specs/<branch>`
+   (observed in 0.15.0, and again in v1.0.6 with `SPECIFY_INIT_DIR` set);
 3. `.specify/specs/*` — where pre-v1.15 SDLE assumed it was.
 
 That is **precedence, not a tie-break between peers**. No tier ever reaches into

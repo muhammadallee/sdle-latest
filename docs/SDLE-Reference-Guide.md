@@ -162,7 +162,7 @@ SDLE Orchestrator (Claude Code Skill)
 | `workitems/<id>/.sdle/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `workitems/<id>/.sdle/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `workitems/<id>/.sdle/completion-summary.json` | Gate 8 approval | Final, signed closure record |
-| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
+| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>-<8 hex>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
 | `workitems/<id>/.sdle/evidence/migration-*.json` | `migrate-workflow` | Legacy state/audit SHAs and Git HEAD captured at migration |
 | `workitems/index.md`, `workitems/<id>/workitem.json` | `workitem create` | Append-only registry and immutable WorkItem identity |
 | `workitems/.active-context.json` | `init`, `migrate-workflow`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
@@ -293,12 +293,25 @@ deleted, so recovery is simply deleting `workitems/<id>/.sdle/`.
 ### Execution identity
 
 Each `init` and each migration stamps `workitems/<id>/.sdle/execution.json`
-with an execution id of the form `<3-letter-git-user-prefix>-<UTC datetime>`,
-for example `muh-20260816T171501Z`. The prefix is `git config user.name`,
+with an execution id of the form
+`<3-letter-git-user-prefix>-<UTC datetime>-<8 hex>`, for example
+`muh-20260816T171501Z-1a2b3c4d`. The prefix is `git config user.name`,
 lowercased with non-alphanumeric characters removed, truncated to three
 characters, falling back to the email local part and finally to `usr`. It is
 execution and audit metadata: nothing resolves a WorkItem from it, and it is
 never the WorkItem name.
+
+The trailing eight hex digits are random. The timestamp has one-second
+resolution, and an id is also a key: it names every evidence file
+(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`,
+`migration-<id>.json`) and de-duplicates the governance ledger entry. Without
+the suffix, two executions in the same second shared both, so the second
+overwrote the first one's evidence and never reached the ledger. Each evidence
+file is also claimed with an exclusive create before it is written, so an
+existing evidence file is never replaced; if no unused id can be found, the
+command refuses `execution_id_collision` (exit 3) and records nothing. Ids
+written before the suffix existed are read unchanged, because nothing parses
+an id. See ADR-009.
 
 The same file carries a `git` object — the branch, the starting SHA and the
 worktree path the run began on. Missing Git and a detached HEAD are never a
@@ -705,7 +718,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 15 — Implement (`implement`)
 
-**What it does:** First runs a **dirty-tree guard**: if the working tree has uncommitted changes (outside SDLE's own artifact directories), the phase halts and requires an explicit `confirm implement` — otherwise the user's own edits would be mixed into, or overwritten by, the generated implementation and misattributed in the manifest. It then invokes SpecKit's implementation generator against `tasks.md`, explicitly informed by the Phase 13 design documents. Afterward, SDLE captures `git status --short` and `git diff --name-only HEAD` (combined and deduplicated, so untracked new files are not missed), runs a **secrets scan** over the changed files (AWS keys, private key material, GitHub/API tokens, hardcoded credential assignments, bearer tokens — findings masked and audited), and writes `workitems/<id>/.sdle/implementation-manifest.md` — a complete, reviewable list of every changed or added file, a mandatory `Potential Secrets Detected` section, and a summary of what was implemented.
+**What it does:** First runs a **dirty-tree guard**: if the working tree has uncommitted changes (outside SDLE's own artifact directories), the phase halts and requires an explicit `confirm implement` — otherwise the user's own edits would be mixed into, or overwritten by, the generated implementation and misattributed in the manifest. It then invokes SpecKit's implementation generator against `tasks.md`, explicitly informed by the Phase 13 design documents. Afterward, SDLE measures the change set from `implementation_base_ref` — the commit the dirty-tree guard pinned before any code was written — to the working tree, plus every untracked file, so work committed during implementation, staged work and unstaged work are all listed, each with its git status letter (renames as `R old -> new`, binary files marked and never decoded). It refuses `implementation_base_missing` or `implementation_base_invalid` rather than measuring from any other commit. It then runs a **secrets scan** over the changed files that still exist as text (AWS keys, private key material, GitHub/API tokens, hardcoded credential assignments, bearer tokens — findings masked and audited), runs the project's tests — a detected runner (npm, pytest, cargo, maven, gradle), or the command given with `manifest build --test-command "<command>"` for any other — and writes `workitems/<id>/.sdle/implementation-manifest.md`: a complete, reviewable list of every changed or added file, a mandatory `Potential Secrets Detected` section, the `Test Evidence` section, and a summary of what was implemented. Beside it goes a structured evidence record, `evidence/implementation-<execution-id>.json`, which the manifest names on its `Evidence:` line and which carries the manifest's own SHA-256, the pinned implementation base and the test result.
 
 **Why it matters:** This is the only phase that produces the actual deliverable. The implementation manifest exists because asking a reviewer to manually inspect an entire repository for "what changed" does not scale and is error-prone — a single consolidated, generated list is the reviewable surface instead.
 
@@ -718,6 +731,8 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 ### Phase 16 — Gate 7: Implementation Approval (`gate_implement`)
 
 **What is being approved:** The actual generated code, as summarized in the implementation manifest — the first and only gate at which real code, rather than a planning document, is under review. Because the manifest is the gate artifact and is displayed in full, any secrets-scan findings from Phase 15 are necessarily in front of the reviewer at the moment of decision; approving the gate is the explicit acknowledgement of those findings.
+
+**What the engine requires before a human is even asked:** a test run that actually ran and passed. The gate reads the evidence record the manifest names and refuses `tests_not_passed` for any other result — `FAILED`, `skipped by caller`, `no runner detected`, `runner not installed`, a timeout. It refuses `test_evidence_stale` when the record belongs to other content (the manifest was edited after it was built, the base was re-pinned, or it is another WorkItem's), and `test_evidence_missing` or `test_evidence_malformed` when there is no usable record at all. There is no exception path, and a `PASS` review of the manifest does not override the result the manifest reports — the review judges the presentation, the evidence judges the tests.
 
 **Why this is high-leverage:** This is the mandatory human-in-the-loop checkpoint before AI-generated code is treated as a candidate for security review and delivery. It catches functional and quality issues outside the scope of the dedicated security review that follows.
 

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 
+from conftest import PASSING_TEST_COMMAND
+
 # T06/D9: TP-011 requires a PASS review of a governed artifact's exact current
 # content before its gate may approve it. The helper lives with the review
 # regime's own tests, imported the same way this module's `run_happy_path` is.
@@ -111,7 +113,8 @@ def run_happy_path(project) -> list[str]:
     # Phase 15 -> Gate 7. The manifest is built, not faked: Gate 7 refuses a
     # manifest without a secrets scan and test evidence.
     project.ok("implement", "preflight", "--bypass")
-    project.ok("manifest", "build", "--summary", "Implemented the Todo REST API.")
+    project.ok("manifest", "build", "--summary", "Implemented the Todo REST API.",
+               "--test-command", PASSING_TEST_COMMAND)
     project.ok("advance", "--to", "gate_implement")
     note()
     review_for_gate(project, "gate_implement")

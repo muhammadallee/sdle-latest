@@ -42,7 +42,7 @@ from conftest import (
     DRY_RUN_SUBSTITUTIONS,
     SDLE_PY,
     Project,
-    apply_dry_run_substitutions,
+    assert_frozen_module,
     sdle,
 )
 from test_units_artifact_review import audit_entries, review_for_gate
@@ -1339,10 +1339,18 @@ def test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point(
         relative):
     """N27/N28/A10/A11/F6: the design exists precisely so these need not
     change. `run_happy_path` approves every gate, which is always permitted,
-    so the frozen driver is a valid run at every risk level."""
+    so the frozen driver is a valid run at every risk level.
+
+    SDLE-DEFECT-STABILIZATION-01: the happy-path driver now supplies a passing
+    test command at Gate 7 (D02), so the Python file is compared unit by unit
+    against the edits declared once in `conftest.py`. Every other unit, and
+    the two non-Python files, are still byte-identical."""
     original = at_rollback(relative)
     assert original is not None, relative
-    assert here(relative) == original, relative
+    if relative.endswith(".py"):
+        assert_frozen_module(relative, original, here(relative))
+    else:
+        assert here(relative) == original, relative
 
 
 def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
@@ -1371,24 +1379,25 @@ def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
     them -- and its replacement guarantee is
     `test_the_dry_run_index_lists_every_transcript_beside_it`, which checks
     that it lists what is actually in the directory. That is the property an
-    index needs; a byte-pin only ever said the file had not changed."""
+    index needs; a byte-pin only ever said the file had not changed.
+
+    **Released by SDLE-DEFECT-STABILIZATION-01 (D06), and replaced** — the
+    same decision, recorded on the twin pin
+    `test_units_capabilities.py::test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution`.
+    The nine transcripts were rewritten to the engine as it is, and are now
+    pinned by their claims in `tests/test_dry_run_contracts.py`. The count
+    guard and the no-regression half of the substitution list stay here."""
     directory = REPO_ROOT / "docs" / "dry-runs"
     every = sorted(directory.glob("*.md"))
     numbered = [p for p in every if p.name[:2].isdigit()]
-    pinned = [p for p in numbered if int(p.name[:2]) <= 9]
-    assert len(pinned) == 9, [p.name for p in every]
-    assert len(numbered) == 13, [p.name for p in every]
-
-    used: set[str] = set()
-    for path in pinned:
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        original = at_rollback(relative)
-        assert original is not None, relative
-        assert here(relative) == apply_dry_run_substitutions(
-            original, used), relative
-
-    assert used == {old for old, _ in DRY_RUN_SUBSTITUTIONS}, sorted(
-        {old for old, _ in DRY_RUN_SUBSTITUTIONS} - used)
+    greenfield = [p for p in numbered if int(p.name[:2]) <= 9]
+    assert len(greenfield) == 9, [p.name for p in every]
+    # Old value: 13. New value: 16 — DR-14..16 were added by D06.
+    assert len(numbered) == 16, [p.name for p in every]
+    for path in greenfield:
+        text = here(path.relative_to(REPO_ROOT).as_posix())
+        for old, _ in DRY_RUN_SUBSTITUTIONS:
+            assert old not in text, (path.name, old)
 
 
 HOOKS_FILE = ".claude/hooks/hooks.py"

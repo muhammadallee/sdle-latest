@@ -12,10 +12,13 @@ Two rules hold everywhere in this suite:
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib.util
 import io
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -499,6 +502,13 @@ DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
      'and the `workitems/todo-api/.sdle/lock` session lock are deleted'),
     ('independent fresh project (no `.workflow/`)',
      'independent fresh project (no WorkItem runtime)'),
+    # SDLE-DEFECT-STABILIZATION-01 D05: SpecKit v1.0.6 rejects `--skills`.
+    # The replacement is the command actually run against it, copied from
+    # `SPECKIT_INIT_COMMAND` in the engine, which a unit test holds equal.
+    ('  uvx --from git+https://github.com/github/spec-kit.git specify init . '
+     '--skills --here',
+     '  uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify '
+     'init --here --force --non-interactive --integration claude --script sh'),
 )
 
 
@@ -514,3 +524,196 @@ def apply_dry_run_substitutions(text: str, used: set | None = None) -> str:
                 used.add(old)
             text = text.replace(old, new)
     return text
+
+
+# ---------------------------------------------------------------------------
+# SDLE-DEFECT-STABILIZATION-01 -- verification commands for Gate 7 (D02)
+# ---------------------------------------------------------------------------
+#
+# Gate 7 now refuses anything but a test run that actually ran and exited 0.
+# A driver that crosses Gate 7 therefore supplies a real command through
+# `manifest build --test-command`: the engine runs it and records its exit code
+# exactly as it would a detected runner. The interpreter is used rather than a
+# generated pytest suite, because a nested pytest start-up per traversal would
+# add minutes to a suite that crosses Gate 7 dozens of times, and the property
+# under test is the engine's handling of the outcome, not pytest. Real pytest
+# runs, passing and failing, are covered separately.
+#
+# Quoted the way the engine splits it: the raw string on Windows (where the
+# C runtime parses the command line), `shlex` on POSIX.
+
+
+def _command_line(argv: list[str]) -> str:
+    return (subprocess.list2cmdline(argv) if os.name == "nt"
+            else shlex.join(argv))
+
+
+PASSING_TEST_COMMAND = _command_line(
+    [sys.executable, "-c", "raise SystemExit(0)"])
+FAILING_TEST_COMMAND = _command_line(
+    [sys.executable, "-c", "raise SystemExit(1)"])
+
+
+# ---------------------------------------------------------------------------
+# SDLE-DEFECT-STABILIZATION-01 -- declared edits to the frozen test files
+# ---------------------------------------------------------------------------
+#
+# Three integration files are pinned byte-identical to historical commits,
+# because they are the behavioural contract. Two of their assertions encoded
+# defects this iteration fixes: `test_06_gate_seven_accepts_a_built_manifest`
+# approved Gate 7 on a `--skip-tests` manifest (D02), and
+# `test_06_security_review_falls_back_when_no_ref_pinned` required the silent
+# `HEAD~1` fallback (D03). A byte pin cannot survive either fix.
+#
+# The pin is not re-baselined, which would discard what it proves. It becomes
+# a **unit-level declared comparison**, the shape T11 used for `hooks.py`:
+#
+#   * every top-level unit at the baseline (the docstring, each import, each
+#     function, each assignment) is still present and byte-identical --
+#     unless it is named in `STABILIZATION_01_TEST_EDITS` or
+#     `STABILIZATION_01_TEST_REMOVALS`;
+#   * an edited unit must equal its baseline once the declared removed lines
+#     are taken out of the baseline and the declared added lines out of the
+#     current version, compared as ordered sequences -- so the only change that
+#     passes is exactly the declared one;
+#   * a removed unit must name the unit that replaces it, and that unit must
+#     exist;
+#   * a current unit absent at the baseline must be named in
+#     `STABILIZATION_01_TEST_ADDITIONS`, and every name there must exist.
+#
+# Each entry is recorded in `docs/verification/defect-stabilization-01.md`.
+
+STABILIZATION_01_TEST_EDITS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
+    "tests/test_integration_01_happy_path.py": {
+        # D02: Gate 7 needs a test run that passed. The fixture project has no
+        # runner to detect, so the driver supplies one.
+        "run_happy_path": {
+            "removed": (
+                '    project.ok("manifest", "build", "--summary", '
+                '"Implemented the Todo REST API.")',
+            ),
+            "added": (
+                '    project.ok("manifest", "build", "--summary", '
+                '"Implemented the Todo REST API.",',
+                '               "--test-command", PASSING_TEST_COMMAND)',
+            ),
+        },
+    },
+    "tests/test_integration_06_to_09.py": {
+        # D02: the acceptance case now builds with a passing command; its
+        # `--skip-tests` half moved to the refusal test declared below.
+        "test_06_gate_seven_accepts_a_built_manifest": {
+            "removed": (
+                '    git_project.ok("manifest", "build", "--skip-tests")',
+            ),
+            "added": (
+                '    git_project.ok("manifest", "build", "--test-command",',
+                '                   PASSING_TEST_COMMAND)',
+            ),
+        },
+        # D03: the change set is measured from the base `implement preflight`
+        # pins, and building without one is refused rather than measured from
+        # HEAD. These three built a manifest without ever pinning it.
+        **{name: {"removed": (),
+                  "added": ('    git_project.ok("implement", "preflight")',)}
+           for name in (
+               "test_06_manifest_flags_a_hardcoded_key_masked",
+               "test_06_manifest_always_has_the_mandatory_sections",
+               "test_06_test_evidence_records_a_real_failing_run",
+           )},
+    },
+}
+
+STABILIZATION_01_TEST_ADDITIONS: dict[str, tuple[str, ...]] = {
+    "tests/test_integration_01_happy_path.py": (
+        "import:from conftest import PASSING_TEST_COMMAND",
+    ),
+    "tests/test_integration_06_to_09.py": (
+        "import:from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND",
+        "test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped",
+        "test_06_security_review_refuses_when_no_ref_pinned",
+    ),
+}
+
+# Units removed outright, each mapped to the unit that replaces it.
+STABILIZATION_01_TEST_REMOVALS: dict[str, dict[str, str]] = {
+    "tests/test_integration_06_to_09.py": {
+        # The original import, widened to carry the D02 command.
+        "import:from conftest import FIXTURE_WORKITEM_ID":
+            "import:from conftest import FIXTURE_WORKITEM_ID, "
+            "PASSING_TEST_COMMAND",
+        # D03: required the silent `HEAD~1` fallback the fix removes.
+        "test_06_security_review_falls_back_when_no_ref_pinned":
+            "test_06_security_review_refuses_when_no_ref_pinned",
+    },
+}
+
+
+def module_units(source: str) -> dict[str, str]:
+    """Every top-level unit of a module, keyed, with its exact source."""
+    tree = ast.parse(source)
+    units: dict[str, str] = {}
+    docstring = ast.get_docstring(tree, clean=False)
+    if docstring is not None:
+        units["__doc__"] = docstring
+    for node in tree.body:
+        segment = ast.get_source_segment(source, node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            units[node.name] = segment
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = (node.targets if isinstance(node, ast.Assign)
+                       else [node.target])
+            for target in targets:
+                for name in ast.walk(target):
+                    if isinstance(name, ast.Name):
+                        units[name.id] = segment
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            units["import:" + segment] = segment
+    return units
+
+
+def assert_frozen_module(relative: str, baseline: str, current: str) -> None:
+    """The unit-level declared comparison described above."""
+    before, after = module_units(baseline), module_units(current)
+    edits = STABILIZATION_01_TEST_EDITS.get(relative, {})
+    additions = set(STABILIZATION_01_TEST_ADDITIONS.get(relative, ()))
+    removals = STABILIZATION_01_TEST_REMOVALS.get(relative, {})
+
+    for name, replacement in removals.items():
+        assert name in before, (
+            f"{relative}: declared removal {name!r} never existed")
+        assert name not in after, f"{relative}: {name!r} was declared removed"
+        assert replacement in after, (
+            f"{relative}: {name!r} removed without its replacement "
+            f"{replacement!r}")
+
+    for name in edits:
+        assert name in before and name in after, (
+            f"{relative}: declared edit {name!r} names no unit")
+
+    for name, source in before.items():
+        if name in removals:
+            continue
+        assert name in after, f"{relative}: {name!r} disappeared undeclared"
+        if name not in edits:
+            assert after[name] == source, (
+                f"{relative}::{name} changed undeclared")
+            continue
+        declared = edits[name]
+        was = [line for line in source.splitlines() if line.strip()]
+        now = [line for line in after[name].splitlines() if line.strip()]
+        for line in declared["removed"]:
+            assert line in was, (f"{relative}::{name}: declared removed line "
+                                 f"is not in the baseline: {line!r}")
+        for line in declared["added"]:
+            assert line in now, (f"{relative}::{name}: declared added line "
+                                 f"is missing: {line!r}")
+        assert ([line for line in was if line not in declared["removed"]]
+                == [line for line in now if line not in declared["added"]]), (
+            f"{relative}::{name} changed beyond its declaration")
+
+    extra = set(after) - set(before)
+    assert extra == additions, (
+        f"{relative}: undeclared additions {sorted(extra - additions)}, "
+        f"declared but absent {sorted(additions - extra)}")

@@ -174,6 +174,35 @@ def test_11_an_iterative_run_leaves_the_baseline_untouched(git_project):
     assert sdle.sha256_file(baseline) == before
 
 
+def test_11_brownfield_then_iterative_reuses_the_baseline_without_rewriting_it(
+        git_project):
+    """DR-11's continuation (SDLE-DEFECT-STABILIZATION-01 D06). The first
+    WorkItem discovers the repository; the second works against what it
+    established. Reuse is *reading*: the baseline, the discovery record it
+    references and the inherited constitution are byte-identical after the
+    second WorkItem completes, and it never ran discovery or regenerated the
+    constitution. `test_units_baseline.py::test_n24_the_second_workitem_does_not_rediscover_the_repository`
+    pins the `baseline_present` refusal on the way; this pins what reuse
+    leaves untouched."""
+    drive(git_project, "BROWNFIELD_DISCOVERY")
+    baseline = git_project.root / ".sdle" / "baseline.json"
+    constitution = git_project.root / ".specify" / "memory" / "constitution.md"
+    discovery = git_project.runtime / "discovery.json"
+    before = {path: sdle.sha256_file(path)
+              for path in (baseline, constitution, discovery)}
+
+    git_project.ok("workitem", "create", "--name", "Export CSV")
+    second = git_project.as_workitem("export-csv")
+    seen = drive(second, "ITERATIVE")
+
+    assert seen[-1] == "complete"
+    assert "discovery" not in seen and "constitution_draft" not in seen
+    assert second.state()["approvals"]["gate_constitution"] is None
+    after = {path: sdle.sha256_file(path) for path in before}
+    assert after == before, "reusing the baseline must not rewrite anything"
+    assert git_project.ok("baseline", "show").data["status"] == "VALID"
+
+
 # --------------------------------------------------------------------------
 # 12 — DEFECT_FIX
 # --------------------------------------------------------------------------

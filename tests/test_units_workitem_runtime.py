@@ -31,7 +31,9 @@ from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
-EXECUTION_ID = re.compile(r"^[a-z0-9]{1,3}-\d{8}T\d{6}Z$")
+# D04 (SDLE-DEFECT-STABILIZATION-01) appended the collision-resistant suffix.
+# Old value: `^[a-z0-9]{1,3}-\d{8}T\d{6}Z$`.
+EXECUTION_ID = re.compile(r"^[a-z0-9]{1,3}-\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 RUNTIME_FILES = (
     "state.json", "execution.json", "audit.md", "lock",

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, Project, sdle
+from conftest import PASSING_TEST_COMMAND, REPO_ROOT, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL
 from test_units_artifact_review import review_for_gate
 
@@ -1070,7 +1070,10 @@ def prepare(project: Project, phase: str, feature_dir: str) -> None:
         project.write_artifact("design/db/db-design.md")
     elif phase == "implement":
         project.ok("implement", "preflight", "--bypass")
-        project.ok("manifest", "build", "--summary", "Implemented the change.")
+        # D02: Gate 7 needs a test run that actually passed. The fixture has
+        # no runner to detect, so the driver supplies one.
+        project.ok("manifest", "build", "--summary", "Implemented the change.",
+                   "--test-command", PASSING_TEST_COMMAND)
     elif phase == "security_review":
         begun = project.ok("security-review", "begin")
         project.write_artifact(begun.data["review_filename"])
@@ -1885,11 +1888,14 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
     # `.sdle/`, `.specify/` and this WorkItem's resolved feature directory no
     # longer reach it as implementation changes. Still asserted on the parsed
     # source of the one function that builds the exclusion, so a comment
-    # mentioning a name is not what makes this pass or fail.
+    # mentioning a name is not what makes this pass or fail. D03
+    # (SDLE-DEFECT-STABILIZATION-01) moved the list, unchanged, out of
+    # `cmd_manifest_build` into `implementation_exclusions`, which the
+    # manifest and the security-review evidence now both read.
     builder = next(
         node for node in ast.walk(ast.parse(inspect.getsource(sdle)))
         if isinstance(node, ast.FunctionDef)
-        and node.name == "cmd_manifest_build")
+        and node.name == "implementation_exclusions")
     names = {node.id for node in ast.walk(builder) if isinstance(node, ast.Name)}
     attrs = {node.attr for node in ast.walk(builder)
              if isinstance(node, ast.Attribute)}

@@ -3,8 +3,12 @@ description: Start or resume the SDLE workflow.
 argument-hint: "[--verbose]"
 ---
 
-1. `scripts/sdle.sh preflight`. On exit 1, print `message` and stop — the
-   prerequisite is missing and nothing should be initialised.
+1. `scripts/sdle.sh preflight`. It resolves a WorkItem first, like every
+   runtime command. On exit 1 `workitem_required` in a repository that has
+   no WorkItem and no legacy `.workflow/`, this is a brand-new workflow: go
+   to step 3, which creates the identity and runs preflight then. On any
+   other exit 1, print `message` and stop — the prerequisite is missing and
+   nothing should be initialised.
 2. If a workflow already exists for the resolved WorkItem
    (`workitems/<id>/.sdle/state.json`), this is a resume: run
    `sdle.sh migrate`, then `sdle.sh header`, then `sdle.sh resume` — which
@@ -41,6 +45,10 @@ argument-hint: "[--verbose]"
    - On exit 1 `workitem_name_invalid`, print `message` and ask again.
    - On exit 3 `index_malformed`, print `message` and stop. The registry is
      repaired by hand; SDLE never rewrites it.
+   Then run `sdle.sh --workitem <id> preflight`, naming the id just
+   returned — the global `--workitem` goes before the subcommand. On exit 1
+   print `message` and stop: SpecKit, its skills or the requirements are
+   missing, and nothing has been initialised.
 4. Then assess governance for that WorkItem: write the structured
    proposal the skill describes and run
    `sdle.sh --workitem <id> governance assess --input <path>`.
@@ -48,7 +56,7 @@ argument-hint: "[--verbose]"
    is scored against; it needs no WorkItem. This is required before the first
    `advance`, not before `init` — on exit 1 print `message` and stop.
 5. Then run
-   `sdle.sh --workitem <id> init --session <8-hex token for this conversation>`,
+   `sdle.sh --workitem <id> --session <8-hex token for this conversation> init`,
    naming the id step 3 returned. The WorkItem is the durable identity *and*
    the runtime scope: `init` writes `workitems/<id>/.sdle/state.json`, records
    the branch and starting SHA in `execution.json`, and refuses

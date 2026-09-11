@@ -16,9 +16,10 @@ user has just been shown the artifact content and asked for it.
    when arguments were given.
 4. On exit 1, print `message` and stop. A refusal here is the guardrail
    working: it means the workflow is not at that gate, the artifact is
-   missing, the Gate 7 manifest is incomplete, the WorkItem's governance record
-   is missing, blocked or stale, or the artifact's review is missing, stale or
-   failed. Do not work around it.
+   missing, unresolved or unreadable, the Gate 7 manifest is incomplete or its
+   test evidence is missing, stale or not a passing run, the WorkItem's
+   governance record is missing, blocked or stale, or the artifact's review is
+   missing, stale or failed. Do not work around it.
 5. On success, print the header and propose the next phase.
 
 If `sdle.sh gate show --gate <gate_key>` reports `required: false`, this gate

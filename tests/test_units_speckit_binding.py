@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FEATURE_ID, FIXTURE_WORKITEM_ID, REPO_ROOT, Project, sdle
+from conftest import (FEATURE_ID, FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND,
+                      REPO_ROOT, Project, sdle)
 from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -166,7 +167,8 @@ def drive_full_workflow(view: Project, feature: str) -> None:
 
     view.ok("feature", "bind", "--require-feature")
     view.ok("implement", "preflight", "--bypass")
-    view.ok("manifest", "build", "--skip-tests")
+    # D02: Gate 7 needs a passing run, and `--skip-tests` is now refused.
+    view.ok("manifest", "build", "--test-command", PASSING_TEST_COMMAND)
     view.ok("advance", "--to", "gate_implement")
     review_for_gate(view, "gate_implement")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_implement")

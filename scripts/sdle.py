@@ -24,6 +24,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1149,7 +1151,13 @@ def git(paths: Paths, *args: str) -> tuple[int, str]:
         )
     except (OSError, ValueError):
         return 127, ""
-    return completed.returncode, (completed.stdout or "").strip()
+    # Trailing whitespace only. A leading space is data in git's status
+    # formats (` M path` is an unstaged change), and stripping it shifted the
+    # first line by one character: `line[3:]` then cut the first letter of
+    # the path, so an SDLE-owned file sorting first escaped the dirty-tree
+    # filter as a false `dirty_tree` (found reproducing D03,
+    # SDLE-DEFECT-STABILIZATION-01).
+    return completed.returncode, (completed.stdout or "").rstrip()
 
 
 def git_available(paths: Paths) -> bool:
@@ -3185,6 +3193,27 @@ def workitem_metadata(paths: Paths) -> dict | None:
 # Contract §8: `<3-letter-git-user-prefix>-<UTC-datetime>`, e.g.
 # `muh-20260816T171501Z`. This is execution/audit metadata — it is never the
 # WorkItem name, and nothing resolves a WorkItem from it.
+#
+# **D04 (SDLE-DEFECT-STABILIZATION-01)** appends a collision-resistant suffix,
+# `muh-20260816T171501Z-1a2b3c4d`. The readable prefix is unchanged. At second
+# resolution alone, two executions in one second shared an id, and the id is a
+# key: it names every evidence file (`governance-<id>.json`, …) and it is the
+# governance ledger's de-duplication marker. The second execution therefore
+# overwrote the first one's evidence and never reached the ledger at all. A
+# historical id without the suffix is still read everywhere, because nothing
+# parses an id — each one is compared whole, as an opaque key. See ADR-009.
+
+
+# How many fresh ids an evidence writer tries before refusing. A collision needs
+# the same user, the same second and the same 32 random bits, so a second
+# attempt is already vanishingly rare; the bound exists so a broken random
+# source refuses instead of looping forever.
+EXECUTION_ID_ATTEMPTS = 3
+
+
+def execution_suffix() -> str:
+    """The collision-resistant half of an execution id: 32 random bits."""
+    return secrets.token_hex(4)
 
 
 def execution_prefix(paths: Paths) -> str:
@@ -3202,7 +3231,45 @@ def execution_prefix(paths: Paths) -> str:
 
 def execution_identity(paths: Paths, stamp: str | None = None) -> str:
     compact = (stamp or now_iso()).replace("-", "").replace(":", "")
-    return f"{execution_prefix(paths)}-{compact}"
+    return f"{execution_prefix(paths)}-{compact}-{execution_suffix()}"
+
+
+def reserve_evidence(paths: Paths, directory: Path, stamp: str,
+                     name: "Callable[[str], str]") -> tuple[str, Path]:
+    """Allocate an execution id whose evidence file does not exist yet.
+
+    The file is claimed with an exclusive create before anything is written
+    into it, so no evidence file is ever replaced: an id whose file is already
+    taken is abandoned for a fresh one. The caller then fills the claimed file
+    through the usual atomic writer, which replaces only this empty
+    placeholder.
+    ``name`` maps an id to the file name, since each kind of evidence names
+    its file differently.
+
+    A crash between the claim and the fill leaves an empty file. That is the
+    fail-safe direction: an empty evidence file is never mistaken for
+    evidence, and a reader that needs it refuses it as malformed.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    tried = []
+    for _ in range(EXECUTION_ID_ATTEMPTS):
+        execution_id = execution_identity(paths, stamp)
+        target = directory / name(execution_id)
+        try:
+            with open(target, "x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            tried.append(execution_id)
+            continue
+        return execution_id, target
+    raise IntegrityError(
+        "execution_id_collision",
+        f"Could not allocate an unused execution id after {len(tried)} "
+        f"attempts ({', '.join(tried)}): each one's evidence file already "
+        "exists. Nothing was recorded and no existing evidence was touched. "
+        "This means the random source is not random; re-run the command.",
+        {"tried": tried, "directory": str(directory)},
+    )
 
 
 def write_execution_file(paths: Paths, execution_id: str, stamp: str) -> dict:
@@ -5203,7 +5270,11 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     downgrade = governance_downgrade(superseded, risk)
 
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    # D04: claimed before `governance.json` is touched, so an id that cannot
+    # be allocated refuses with nothing recorded.
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"governance-{eid}.json")
     sources, digest = requirements_sources(paths)
     proposed_requirements = gate_requirements(
         consts, consts.flow(classification.get("flow")), classification,
@@ -5235,7 +5306,6 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # `cmd_artifact_record` already uses: a blocked assessment must be
     # inspectable and remediable, not invisible.
     write_atomic(paths.governance_file, json.dumps(record, indent=2) + "\n")
-    evidence = paths.evidence_dir / f"governance-{execution_id}.json"
     write_atomic(evidence, json.dumps({
         "kind": "governance",
         "executionId": execution_id,
@@ -5794,7 +5864,9 @@ def cmd_discovery_assess(args, paths: Paths) -> int:
     evaluation = evaluate_discovery(document, paths, relative)
 
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"discovery-{eid}.json")
     record = {
         "discoveryVersion": DISCOVERY_RECORD_VERSION,
         "workitem": paths.workitem,
@@ -5806,7 +5878,6 @@ def cmd_discovery_assess(args, paths: Paths) -> int:
         "findings": evaluation["findings"],
     }
     write_atomic(paths.discovery_file, json.dumps(record, indent=2) + "\n")
-    evidence = paths.evidence_dir / f"discovery-{execution_id}.json"
     write_atomic(evidence, json.dumps({
         "kind": "discovery",
         "executionId": execution_id,
@@ -6502,7 +6573,9 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
 
     # Step 6 — capture the source facts that become migration evidence.
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
+    execution_id, evidence_file = reserve_evidence(
+        paths, target.evidence_dir, stamp,
+        lambda eid: f"migration-{eid}.json")
     facts = {
         "migratedFrom": legacy.runtime_relative,
         "at": stamp,
@@ -6525,7 +6598,6 @@ def cmd_migrate_workflow(args, paths: Paths) -> int:
     ):
         if source.is_file():
             write_atomic(destination, source.read_text(encoding="utf-8"))
-    evidence_file = target.evidence_dir / f"migration-{execution_id}.json"
     write_atomic(evidence_file, json.dumps(facts, indent=2) + "\n")
     write_execution_file(target, execution_id, stamp)
 
@@ -6666,6 +6738,109 @@ def resolve_artifact_path(
                 return None, f"{label} is not resolved yet"
             resolved = resolved.replace(placeholder, str(value))
     return resolved, None
+
+
+# What resolves each ARTIFACT_OWNERSHIP binding, named in the D01 refusal so
+# the recovery is actionable rather than "something is missing".
+ARTIFACT_BINDING_RECOVERY = {
+    "speckit_feature_directory":
+        "run `feature resolve` so this WorkItem's feature directory is "
+        "recorded",
+    "security_review_artifact":
+        "run `security-review begin`, which names the review file, and write "
+        "the review there",
+}
+
+# The last sentence of each `artifact_missing` refusal, by the command that
+# raised it. Approval and omission keep their pre-D01 wording verbatim.
+ARTIFACT_MISSING_CONSEQUENCE = {
+    "approve": "A gate is an approval of specific content.",
+    "omit": "An omission is still a decision about specific content — the "
+            "artifact is generated, registered and reviewed whether or not a "
+            "human has to approve it.",
+    "re-approve": "Drift re-approval re-baselines the gate onto specific "
+                  "content, and there is none. Restore the artifact, or "
+                  "`restart` the phase that produces it.",
+}
+
+
+def required_gate_artifact(paths: Paths, state: dict, consts: Constants,
+                           gate_key: str, action: str
+                           ) -> tuple[str | None, str | None]:
+    """**D01 (SDLE-DEFECT-STABILIZATION-01).** Resolve the artifact a gate
+    decision is about, and fingerprint it, or refuse.
+
+    Returns ``(resolved_path, sha)``. Both are ``None`` only for a gate that
+    registers no artifact at all (an ARTIFACT_OWNERSHIP template of
+    ``(none)``) — the one legitimate artifact-free gate.
+
+    Before D01 every caller treated an *unresolved* template the same way:
+    ``resolve_artifact_path`` answered ``(None, reason)`` and the gate was
+    decided with ``sha: null``. That approved a Spec Kit gate whose feature
+    directory had never been resolved, and completed a whole flow on a
+    security gate whose review file had never been named. A registered
+    artifact that cannot be resolved, found or read is now a refusal, raised
+    by a pure reader ahead of every write, so the refusal leaves the phase, the
+    approvals and the ledger exactly as they were.
+
+    One place, three callers: `gate approve`, drift re-approval and `gate
+    omit` are the three decisions that fingerprint an artifact.
+    """
+    template = consts.artifact_ownership.get(gate_key)
+    if not template or template == "(none)":
+        return None, None
+
+    resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+    if not resolved:
+        binding = next(
+            (label for label in ARTIFACT_BINDING_RECOVERY
+             if "{" + label + "}" in template), None)
+        data = {"gate": gate_key, "template": template, "binding": binding}
+        if binding == "speckit_feature_directory":
+            searched, tier, found = feature_candidate_tier(paths)
+            names = sorted(p.name for p in found)
+            data.update(candidates=names, searched=searched, tier=tier)
+            if len(names) > 1:
+                raise Refused(
+                    "feature_ambiguous",
+                    f"Cannot {action} {gate_key}: no feature directory is "
+                    f"recorded for '{paths.workitem}', and {len(names)} "
+                    f"candidates exist under {tier}/: {', '.join(names)}. SDLE "
+                    "will not choose between them. Move the one this WorkItem "
+                    f"owns into {paths.speckit_specs_relative}/ and run "
+                    "`feature resolve`.",
+                    data,
+                )
+        raise Refused(
+            "artifact_unresolved",
+            f"Cannot {action} {gate_key}: its artifact ({template}) cannot be "
+            f"resolved because {binding or 'a binding'} is not recorded. A "
+            "gate decision is about specific content, and there is none to "
+            f"fingerprint. To recover, "
+            f"{ARTIFACT_BINDING_RECOVERY.get(binding, 'resolve the binding')}"
+            ", then try again.",
+            data,
+        )
+
+    full = paths.project_root / resolved
+    if not full.is_file():
+        raise Refused(
+            "artifact_missing",
+            f"Cannot {action} {gate_key}: {resolved} does not exist. "
+            + ARTIFACT_MISSING_CONSEQUENCE[action],
+            {"gate": gate_key, "path": resolved},
+        )
+    try:
+        sha = sha256_file(full)
+    except OSError as exc:
+        raise Refused(
+            "artifact_unreadable",
+            f"Cannot {action} {gate_key}: {resolved} exists but cannot be "
+            f"read ({exc.strerror or exc}), so it cannot be fingerprinted. "
+            "Fix its permissions or whatever holds it open, then try again.",
+            {"gate": gate_key, "path": resolved, "error": str(exc)},
+        ) from None
+    return resolved, sha
 
 
 def cmd_artifact_path(args, paths: Paths) -> int:
@@ -7097,8 +7272,9 @@ def cmd_artifact_review(args, paths: Paths) -> int:
 
     reviews = read_reviews(paths)
     stamp = now_iso()
-    execution_id = execution_identity(paths, stamp)
-    evidence = paths.evidence_dir / f"review-{execution_id}-{len(reviews) + 1}.json"
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"review-{eid}-{len(reviews) + 1}.json")
     evidence_id = evidence.relative_to(paths.project_root).as_posix()
 
     record = {
@@ -7580,18 +7756,9 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             {"gate": args.gate, "current_phase": state.get("current_phase")},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
-    sha = None
-    if resolved:
-        full = paths.project_root / resolved
-        if not full.is_file():
-            raise Refused(
-                "artifact_missing",
-                f"Cannot approve {args.gate}: {resolved} does not exist. "
-                "A gate is an approval of specific content.",
-                {"gate": args.gate, "path": resolved},
-            )
-        sha = sha256_file(full)
+    resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
+                                           "approve")
+    if sha:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
@@ -7704,11 +7871,10 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             {"expected": gate_key, "requested": args.gate, "queue": queue},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+    resolved, sha = required_gate_artifact(paths, state, consts, gate_key,
+                                           "re-approve")
     review_precondition(paths, state, gate_key, resolved)
-    sha = None
-    if resolved and (paths.project_root / resolved).is_file():
-        sha = sha256_file(paths.project_root / resolved)
+    if sha:
         state.setdefault("artifact_shas", {})[gate_key] = sha
 
     state.setdefault("approvals", {})[gate_key] = {
@@ -7852,20 +8018,9 @@ def cmd_gate_omit(args, paths: Paths) -> int:
              "policy": (model or {}).get("policy")},
         )
 
-    resolved, _ = resolve_artifact_path(state, consts, args.gate, paths)
-    sha = None
-    if resolved:
-        full = paths.project_root / resolved
-        if not full.is_file():
-            raise Refused(
-                "artifact_missing",
-                f"Cannot omit {args.gate}: {resolved} does not exist. An "
-                "omission is still a decision about specific content — the "
-                "artifact is generated, registered and reviewed whether or "
-                "not a human has to approve it.",
-                {"gate": args.gate, "path": resolved},
-            )
-        sha = sha256_file(full)
+    resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
+                                           "omit")
+    if sha:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
@@ -8233,10 +8388,26 @@ def detect_speckit_capabilities(paths: Paths) -> dict:
     }
 
 
+# D05 (SDLE-DEFECT-STABILIZATION-01). The SpecKit release SDLE is verified
+# against, and the init command as it was actually run against it — in a
+# disposable project, through both script flavours — for the record in
+# `docs/verification/defect-stabilization-01.md`. The earlier
+# `specify init . --skills --here` is rejected by this release (`No such
+# option: --skills`): the Claude integration installs skills by default.
+# Pinned with `@v<version>` so a user reproduces what was tested rather than
+# whatever the default branch is today; an existing installation is never
+# upgraded by SDLE. README's Quick Start states the same command, and a unit
+# test holds the two together.
+SPECKIT_SUPPORTED_VERSION = "1.0.6"
+SPECKIT_INIT_COMMAND = (
+    "uvx --from git+https://github.com/github/spec-kit.git"
+    f"@v{SPECKIT_SUPPORTED_VERSION} specify init --here --force "
+    "--non-interactive --integration claude --script sh"
+)
+
 SPECKIT_MISSING_MESSAGE = (
     "SDLE requires SpecKit to be initialized in this project. Run: "
-    "uvx --from git+https://github.com/github/spec-kit.git specify init . "
-    "--skills --here"
+    f"{SPECKIT_INIT_COMMAND} (use `--script ps` for PowerShell scripts)."
 )
 
 
@@ -8341,6 +8512,28 @@ def _feature_candidates(directory: Path) -> list[Path]:
                   key=lambda p: p.name)
 
 
+def feature_candidate_tier(paths: Paths) -> tuple[list[str], str | None,
+                                                  list[Path]]:
+    """The first tier that holds any feature directory, in precedence order.
+
+    Returns ``(searched, chosen_tier, candidates)``. A pure reader, shared by
+    `feature resolve` and by the gate precondition that refuses an unresolved
+    feature (D01), so both give the same answer and there is one tier list.
+    """
+    tiers = [
+        (paths.speckit_specs_relative, paths.speckit_specs_root),
+        ("specs", paths.project_root / "specs"),
+        (".specify/specs", paths.project_root / ".specify" / "specs"),
+    ]
+    searched: list[str] = []
+    for label, directory in tiers:
+        searched.append(label)
+        found = _feature_candidates(directory)
+        if found:
+            return searched, label, found
+    return searched, None, []
+
+
 def _adopt_feature_directory(paths: Paths, source: Path, target: Path) -> dict:
     """Move a natively-created feature directory into this WorkItem.
 
@@ -8425,21 +8618,7 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     """
     state = read_state(paths)
     specs_root = paths.speckit_specs_root
-    tiers = [
-        (paths.speckit_specs_relative, specs_root),
-        ("specs", paths.project_root / "specs"),
-        (".specify/specs", paths.project_root / ".specify" / "specs"),
-    ]
-
-    searched: list[str] = []
-    chosen_tier: str | None = None
-    candidates: list[Path] = []
-    for label, directory in tiers:
-        searched.append(label)
-        found = _feature_candidates(directory)
-        if found:
-            chosen_tier, candidates = label, found
-            break
+    searched, chosen_tier, candidates = feature_candidate_tier(paths)
 
     if not candidates:
         raise Refused(
@@ -8527,6 +8706,140 @@ REQUIRED_MANIFEST_SECTIONS = (
 )
 
 
+# **D02 (SDLE-DEFECT-STABILIZATION-01).** Gate 7's verification evidence.
+#
+# `manifest build` writes one structured record per build beside the manifest
+# and names it from a line in the manifest. Gate 7 reads it back and binds it
+# to the exact manifest bytes, the pinned implementation base and the bound
+# WorkItem, then requires a runner that actually ran and exited 0. The prose
+# statuses are unchanged; what changed is that one of them is now required.
+IMPLEMENTATION_EVIDENCE_KIND = "implementation"
+MANIFEST_EVIDENCE_LINE = re.compile(r"^Evidence: (\S+)\s*$", re.MULTILINE)
+TEST_STATUS_PASSED = "passed"
+TEST_STATUS_FAILED = "FAILED"
+TEST_STATUSES = (TEST_STATUS_PASSED, TEST_STATUS_FAILED, "no runner detected",
+                 "runner not installed", "skipped by caller")
+REBUILD_HINT = (
+    "Rebuild it with `manifest build`, adding `--test-command \"<command>\"` "
+    "when the project's test runner is not auto-detected."
+)
+
+
+def _implementation_evidence_shape(document: object) -> str | None:
+    """Why ``document`` cannot be read as implementation evidence, or None."""
+    if not isinstance(document, dict):
+        return "the evidence is not a JSON object"
+    if document.get("kind") != IMPLEMENTATION_EVIDENCE_KIND:
+        return f"kind is {document.get('kind')!r}, not implementation evidence"
+    for field_name in ("workitem", "manifestSha256", "executionId"):
+        if not isinstance(document.get(field_name), str):
+            return f"{field_name} is missing or not a string"
+    if "baseRef" not in document or not (
+            document["baseRef"] is None or isinstance(document["baseRef"], str)):
+        return "baseRef is missing or not a string"
+    tests = document.get("tests")
+    if not isinstance(tests, dict):
+        return "the tests block is missing"
+    status, code = tests.get("status"), tests.get("exit_code")
+    if not isinstance(status, str) or not (
+            status in TEST_STATUSES or status.startswith("timed out after ")):
+        return f"test status {status!r} is not one SDLE records"
+    if code is not None and (isinstance(code, bool) or not isinstance(code, int)):
+        return f"exit_code {code!r} is not an integer"
+    if status == TEST_STATUS_PASSED and code != 0:
+        return f"status says passed but the exit code is {code!r}"
+    if status == TEST_STATUS_FAILED and code in (0, None):
+        return f"status says FAILED but the exit code is {code!r}"
+    return None
+
+
+def implementation_evidence_precondition(paths: Paths, state: dict,
+                                         gate_key: str, resolved: str,
+                                         body: str) -> None:
+    """Gate 7 requires evidence of a passing test run for *this* manifest."""
+    match = MANIFEST_EVIDENCE_LINE.search(body)
+    if not match:
+        raise Refused(
+            "test_evidence_missing",
+            f"Cannot approve {gate_key}: {resolved} names no verification "
+            "evidence. A manifest in this form — written by hand, or built "
+            "before SDLE recorded evidence — cannot establish that the tests "
+            f"ran, let alone passed. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved},
+        )
+    relative = match.group(1)
+    target = paths.project_root / relative
+    try:
+        target.resolve().relative_to(paths.evidence_dir.resolve())
+    except ValueError:
+        raise Refused(
+            "test_evidence_stale",
+            f"Cannot approve {gate_key}: {resolved} points at {relative}, "
+            "which is not this WorkItem's evidence. Evidence from another "
+            f"WorkItem or location never approves this one. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved, "evidence": relative,
+             "mismatch": "location"},
+        ) from None
+    if not target.is_file():
+        raise Refused(
+            "test_evidence_missing",
+            f"Cannot approve {gate_key}: the evidence {resolved} names, "
+            f"{relative}, does not exist. {REBUILD_HINT}",
+            {"gate": gate_key, "path": resolved, "evidence": relative},
+        )
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        document, problem = None, f"it cannot be read as JSON ({exc})"
+    else:
+        problem = _implementation_evidence_shape(document)
+    if problem:
+        raise Refused(
+            "test_evidence_malformed",
+            f"Cannot approve {gate_key}: {relative} is not usable evidence: "
+            f"{problem}. {REBUILD_HINT}",
+            {"gate": gate_key, "evidence": relative, "problem": problem},
+        )
+
+    for field_name, expected in (
+        ("workitem", paths.workitem),
+        ("manifestSha256", sha256_file(paths.project_root / resolved)),
+        ("baseRef", state.get("implementation_base_ref")),
+    ):
+        if document.get(field_name) != expected:
+            raise Refused(
+                "test_evidence_stale",
+                f"Cannot approve {gate_key}: {relative} does not belong to "
+                f"the manifest being approved ({field_name} is "
+                f"{document.get(field_name)!r}, expected {expected!r}). A "
+                "result for other content, another implementation base or "
+                f"another WorkItem proves nothing about this one. "
+                f"{REBUILD_HINT}",
+                {"gate": gate_key, "evidence": relative,
+                 "mismatch": field_name,
+                 "recorded": document.get(field_name), "expected": expected},
+            )
+
+    tests = document["tests"]
+    if tests["status"] != TEST_STATUS_PASSED or tests["exit_code"] != 0:
+        raise Refused(
+            "tests_not_passed",
+            f"Cannot approve {gate_key}: the recorded verification result is "
+            f"'{tests['status']}'"
+            + (f" (exit {tests['exit_code']})"
+               if tests["exit_code"] is not None else "")
+            + ". Gate 7 needs a test run that actually ran and passed, and "
+            "there is no exception path: a PASS review of the manifest does "
+            "not change the result it reports. Fix the failures, or — if the "
+            "runner was not detected or not installed — supply the project's "
+            "real test command with `manifest build --test-command "
+            "\"<command>\"`, then rebuild.",
+            {"gate": gate_key, "evidence": relative,
+             "status": tests["status"], "exit_code": tests["exit_code"],
+             "runner": tests.get("runner"), "command": tests.get("command")},
+        )
+
+
 SPECKIT_GATE_KEYS = ("gate_spec", "gate_plan", "gate_tasks", "gate_analyze")
 
 
@@ -8567,9 +8880,17 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     if gate_key != "gate_implement" or not resolved:
         return None
 
-    body = (paths.project_root / resolved).read_text(
-        encoding="utf-8", errors="replace"
-    )
+    try:
+        body = (paths.project_root / resolved).read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError as exc:
+        raise Refused(
+            "artifact_unreadable",
+            f"Cannot approve {gate_key}: {resolved} exists but cannot be read "
+            f"({exc.strerror or exc}).",
+            {"gate": gate_key, "path": resolved, "error": str(exc)},
+        ) from None
     missing = [s for s in REQUIRED_MANIFEST_SECTIONS if s not in body]
     if missing:
         raise Refused(
@@ -8580,6 +8901,10 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
             "the moment of decision.",
             {"path": resolved, "missing": missing},
         )
+    # D02: the headings prove the sections exist; this proves what the test
+    # section reports is a passing run of *this* implementation.
+    implementation_evidence_precondition(paths, state, gate_key, resolved,
+                                         body)
     return None
 
 
@@ -9434,31 +9759,197 @@ def detect_test_runner(paths: Paths) -> tuple[str, list[str]] | None:
     return None
 
 
-def run_tests(paths: Paths, timeout: int) -> dict:
-    detected = detect_test_runner(paths)
-    if not detected:
-        return {"runner": None, "exit_code": None, "output": None,
-                "status": "no runner detected"}
-    name, command = detected
+def run_tests(paths: Paths, timeout: int,
+              command_text: str | None = None) -> dict:
+    """Run the project's tests and report the outcome honestly.
+
+    ``command_text`` is `manifest build --test-command`: the project's own
+    test command, for a runner `detect_test_runner` does not know. It is run
+    exactly like a detected runner — never through a shell, split with
+    ``shlex`` on POSIX and handed to the C runtime's own parser on Windows —
+    and its exit code is recorded the same way. It supplies evidence; it
+    cannot waive the need for it (D02).
+    """
+    if command_text:
+        name = "custom command"
+        command = command_text if os.name == "nt" else shlex.split(command_text)
+        display = command_text
+    else:
+        detected = detect_test_runner(paths)
+        if not detected:
+            return {"runner": None, "command": None, "exit_code": None,
+                    "output": None, "status": "no runner detected"}
+        name, command = detected
+        display = " ".join(command)
+    # `run_tests` stays one of exactly two places the engine starts a process
+    # (`test_the_engine_invokes_no_agent` pins that set), so the spawn is here
+    # rather than in a helper.
     try:
         completed = subprocess.run(
             command, cwd=str(paths.project_root), capture_output=True,
             text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except FileNotFoundError:
-        return {"runner": name, "exit_code": None, "output": None,
-                "status": "runner not installed"}
+        return {"runner": name, "command": display, "exit_code": None,
+                "output": None, "status": "runner not installed"}
     except subprocess.TimeoutExpired:
-        return {"runner": name, "exit_code": None, "output": None,
-                "status": f"timed out after {timeout}s"}
+        return {"runner": name, "command": display, "exit_code": None,
+                "output": None, "status": f"timed out after {timeout}s"}
     output = ((completed.stdout or "") + (completed.stderr or "")).strip()
     tail = "\n".join(output.splitlines()[-40:])
     return {
         "runner": name,
+        "command": display,
         "exit_code": completed.returncode,
         "output": tail,
         "status": "passed" if completed.returncode == 0 else "FAILED",
     }
+
+
+def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
+    """Path prefixes that are engine bookkeeping, never implementation.
+
+    One list for both consumers of the implementation change set — Gate 7's
+    manifest and the security-review evidence — so they cannot disagree about
+    what the implementation is (D03). It stays an explicit, narrow list and is
+    deliberately **not** SDLE_OWNED_PREFIXES: that would silently drop
+    requirements/ and design/ edits from the manifest. T11 D6 (T04 N-7) gave
+    the manifest this relocation/ownership exclusion; before D03 the
+    security-review evidence carried a narrower copy that missed the
+    repository-global configuration root.
+    """
+    excluded = [
+        paths.runtime_relative + "/",       # this WorkItem's runtime
+        paths.config_root_relative + "/",   # repository-global `.sdle/`
+        ".specify/",                        # Spec Kit's own tree
+    ]
+    feature_directory = speckit_ref(state)["featureDirectory"]
+    if feature_directory:
+        excluded.append(feature_directory.rstrip("/") + "/")
+    return excluded
+
+
+def _nul_fields(text: str) -> list[str]:
+    return [field for field in text.split("\0") if field != ""]
+
+
+def implementation_changes(paths: Paths, state: dict) -> list[dict]:
+    """**D03.** The implementation change set, measured from the pinned base.
+
+    ``implementation_base_ref`` is the commit `implement preflight` pinned
+    before any implementation was written. Everything the implementation did
+    since is the diff from that commit to the *working tree* — which covers
+    changes committed after the base, staged changes and unstaged changes in
+    one comparison — plus untracked files, which no diff reports. Before D03
+    the manifest compared against the current ``HEAD``, so a change committed
+    during implementation vanished from Gate 7 and from the secrets scan.
+
+    Each entry is ``{path, status, old_path, binary, untracked}``; ``status``
+    is git's letter (A, M, D, R, T). Paths are POSIX, de-duplicated, sorted,
+    and filtered through ``implementation_exclusions``. A missing or invalid
+    base is a refusal: silently measuring from somewhere else would produce a
+    wrong-but-plausible change set, which is worse than none.
+    """
+    base = state.get("implementation_base_ref")
+    if not base:
+        raise Refused(
+            "implementation_base_missing",
+            "No implementation base is pinned for this WorkItem, so the "
+            "implementation change set has nothing to be measured from. Run "
+            "`implement preflight` before implementing — it pins the commit "
+            "the change set is measured against — then build again.",
+            {"workitem": paths.workitem},
+        )
+    code, _ = git(paths, "cat-file", "-e", f"{base}^{{commit}}")
+    if code != 0:
+        raise Refused(
+            "implementation_base_invalid",
+            f"The pinned implementation base {base} is not a commit in this "
+            "repository (was history rewritten, or the repository replaced?). "
+            "SDLE will not measure from a different commit instead. If the "
+            "rewrite was deliberate, re-run `implement preflight` to pin a new "
+            "base, knowing that changes before it will no longer be listed.",
+            {"workitem": paths.workitem, "base_ref": base},
+        )
+
+    changes: dict[str, dict] = {}
+    _, status = git(paths, "diff", "--name-status", "-z", "-M", base)
+    fields = _nul_fields(status)
+    index = 0
+    while index < len(fields):
+        letter = fields[index][:1]
+        if letter in ("R", "C"):
+            old, new = fields[index + 1], fields[index + 2]
+            index += 3
+            if letter == "C":
+                changes[new] = {"path": new, "status": "A", "old_path": None}
+            else:
+                changes[new] = {"path": new, "status": "R", "old_path": old}
+            continue
+        path = fields[index + 1]
+        index += 2
+        changes[path] = {"path": path, "status": letter, "old_path": None}
+
+    binary: set[str] = set()
+    _, numstat = git(paths, "diff", "--numstat", "-z", "-M", base)
+    records = numstat.split("\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        if not record:
+            index += 1
+            continue
+        added, deleted, *rest = record.split("\t", 2)
+        if rest and rest[0]:
+            path = rest[0]
+            index += 1
+        else:  # a rename: the two paths follow as their own fields
+            path = records[index + 2] if index + 2 < len(records) else ""
+            index += 3
+        if added == "-" and deleted == "-":
+            binary.add(path)
+
+    _, untracked = git(paths, "ls-files", "--others", "--exclude-standard", "-z")
+    for path in _nul_fields(untracked):
+        changes.setdefault(path, {"path": path, "status": "A",
+                                  "old_path": None, "untracked": True})
+
+    excluded = implementation_exclusions(paths, state)
+    result = []
+    for path in sorted(changes):
+        entry = changes[path]
+        normal = path.replace("\\", "/")
+        if any(normal.startswith(prefix) for prefix in excluded):
+            continue
+        entry["path"] = normal
+        entry.setdefault("untracked", False)
+        if entry.get("untracked"):
+            entry["binary"] = _looks_binary(paths.project_root / normal)
+        else:
+            entry["binary"] = path in binary
+        result.append(entry)
+    return result
+
+
+def _manifest_line(entry: dict) -> str:
+    """One manifest row: git's status letter, the path, and what a reviewer
+    needs to read it correctly (where a rename came from; that a file is
+    binary and was therefore not scanned)."""
+    path = entry["path"]
+    if entry["status"] == "R" and entry.get("old_path"):
+        path = f"{entry['old_path']} -> {path}"
+    return f"{entry['status']} {path}" + (" (binary)" if entry["binary"]
+                                          else "")
+
+
+def _looks_binary(path: Path) -> bool:
+    """Git's own heuristic for an untracked file: a NUL in the first 8000
+    bytes. Untracked files appear in no diff, so git cannot say."""
+    try:
+        with path.open("rb") as handle:
+            return b"\0" in handle.read(8000)
+    except OSError:
+        return False
 
 
 def cmd_manifest_build(args, paths: Paths) -> int:
@@ -9469,45 +9960,34 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     ).replace(os.sep, "/")
 
     if git_available(paths):
-        # -uall: without it git collapses an untracked directory to "?? src/",
-        # and every file inside it escapes the secrets scan entirely.
-        _, status = git(paths, "status", "--short", "-uall")
-        _, tracked = git(paths, "diff", "--name-only", "HEAD")
-        files = {line[3:].strip() for line in status.splitlines() if line.strip()}
-        files |= {line.strip() for line in tracked.splitlines() if line.strip()}
+        # D03: measured from the pinned base, committed + staged + unstaged
+        # + untracked, through the one selector the security review also
+        # reads. A missing or invalid base refuses rather than falling back.
+        changes = implementation_changes(paths, state)
         note = None
     else:
-        files = {
-            str(p.relative_to(paths.project_root)).replace(os.sep, "/")
-            for p in paths.project_root.rglob("*")
-            if p.is_file() and p.suffix in TEXT_SUFFIXES
-            and not str(p.relative_to(paths.project_root)).startswith(".")
-        }
+        excluded = implementation_exclusions(paths, state)
+        changes = [
+            {"path": relative_path, "status": "A", "old_path": None,
+             "binary": False, "untracked": True}
+            for relative_path in sorted(
+                str(p.relative_to(paths.project_root)).replace(os.sep, "/")
+                for p in paths.project_root.rglob("*")
+                if p.is_file() and p.suffix in TEXT_SUFFIXES
+                and not str(p.relative_to(paths.project_root)).startswith("."))
+            if not any(relative_path.startswith(prefix)
+                       for prefix in excluded)
+        ]
         note = "git not initialized — file list is approximate."
-
-    # Engine-owned bookkeeping is never implementation. The exclusion stays an
-    # explicit, narrow list and is deliberately **not** SDLE_OWNED_PREFIXES:
-    # that would silently drop requirements/ and design/ edits from the
-    # manifest. T11 D6 (T04 N-7) gives this the same relocation/ownership
-    # exclusion its sibling `cmd_security_review_evidence` already had, so the
-    # Gate 7 manifest stops reporting this WorkItem's governed Spec Kit input
-    # and SDLE's own configuration root as implementation changes.
-    excluded = [
-        paths.runtime_relative + "/",       # this WorkItem's runtime
-        paths.config_root_relative + "/",   # repository-global `.sdle/`
-        ".specify/",                        # Spec Kit's own tree
-    ]
-    feature_directory = speckit_ref(state)["featureDirectory"]
-    if feature_directory:
-        excluded.append(feature_directory.rstrip("/") + "/")
-    changed = sorted(
-        f for f in files
-        if not any(f.replace("\\", "/").startswith(prefix)
-                   for prefix in excluded)
-    )
+    changed = [entry["path"] for entry in changes]
 
     findings = []
-    for name in changed:
+    for entry in changes:
+        # A deletion has no current content to scan, and a binary file has no
+        # text to decode: both are listed, neither is read.
+        if entry["status"] == "D" or entry["binary"]:
+            continue
+        name = entry["path"]
         candidate = paths.project_root / name
         if not candidate.is_file() or candidate.suffix not in TEXT_SUFFIXES:
             continue
@@ -9523,10 +10003,13 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                     findings.append(f"{name}:{number} — {label} — {masked}")
                     break
 
-    tests = run_tests(paths, args.test_timeout) if not args.skip_tests else {
-        "runner": None, "exit_code": None, "output": None,
-        "status": "skipped by caller",
-    }
+    if args.skip_tests:
+        # Kept, and recorded as exactly what it is. Since D02 it can no longer
+        # carry Gate 7: the gate refuses any result but a run that passed.
+        tests = {"runner": None, "command": None, "exit_code": None,
+                 "output": None, "status": "skipped by caller"}
+    else:
+        tests = run_tests(paths, args.test_timeout, args.test_command)
 
     secrets_block = "\n".join(findings) if findings else "None detected."
     if tests["runner"] is None:
@@ -9534,19 +10017,31 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     else:
         tests_block = (
             f"Runner: {tests['runner']}\n"
-            f"Result: {tests['status']}"
+            + (f"Command: {tests['command']}\n" if tests.get("command") else "")
+            + f"Result: {tests['status']}"
             + (f" (exit {tests['exit_code']})" if tests["exit_code"] is not None
                else "")
             + (f"\n\n```\n{tests['output']}\n```" if tests["output"] else "")
         )
 
+    # D02: the structured record Gate 7 reads. Claimed before the manifest is
+    # written so the manifest can name it; filled after, so it can carry the
+    # manifest's own fingerprint and nothing can be edited in between unseen.
+    stamp = now_iso()
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"{IMPLEMENTATION_EVIDENCE_KIND}-{eid}.json")
+    evidence_relative = evidence.relative_to(paths.project_root).as_posix()
+
     body = (
         "# Implementation Manifest\n"
-        f"Generated: {now_iso()}\n"
+        f"Generated: {stamp}\n"
+        f"Evidence: {evidence_relative}\n"
         f"Phase: implement ({state.get('progress', '15/18')})\n"
         + (f"\n> {note}\n" if note else "")
         + "\n## Changed/Added Files\n"
-        + ("\n".join(changed) if changed else "(none)")
+        + ("\n".join(_manifest_line(entry) for entry in changes)
+           if changes else "(none)")
         + "\n\n## Potential Secrets Detected\n"
         + secrets_block
         + "\n\n## Test Evidence\n"
@@ -9556,6 +10051,21 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         + "\n"
     )
     write_atomic(paths.manifest_file, body)
+    write_atomic(evidence, json.dumps({
+        "kind": IMPLEMENTATION_EVIDENCE_KIND,
+        "executionId": execution_id,
+        "recordedAt": stamp,
+        "workitem": paths.workitem,
+        "manifest": relative,
+        "manifestSha256": sha256_file(paths.manifest_file),
+        "baseRef": state.get("implementation_base_ref"),
+        "head": _git_value(paths, "rev-parse", "HEAD"),
+        "files": changed,
+        "changes": changes,
+        "secrets": findings,
+        "tests": {key: tests.get(key) for key in
+                  ("runner", "command", "exit_code", "status", "output")},
+    }, indent=2) + "\n")
 
     if findings:
         append_audit(
@@ -9573,7 +10083,13 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     save_state(paths, state, args.session)
 
     emit("manifest build", {
-        "path": relative, "files": changed, "secrets": findings, "tests": tests,
+        "path": relative, "files": changed, "changes": changes,
+        "secrets": findings, "tests": tests, "evidence": evidence_relative,
+        # Advisory, so the orchestrator can say *now* that Gate 7 will refuse
+        # rather than letting the user discover it at the gate. Gate 7 itself
+        # re-derives this from the evidence file; it never reads this flag.
+        "tests_passed": (tests["status"] == TEST_STATUS_PASSED
+                         and tests["exit_code"] == 0),
     })
     return EXIT_OK
 
@@ -9587,17 +10103,24 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
               "note": "Git not available — diff analysis skipped."})
         return EXIT_OK
 
-    ref = base or "HEAD~1"
-    _, stat = git(paths, "diff", "--stat", ref)
-    # The feature directory is governed input to the review, not part of the
-    # implementation diff. It moved under the WorkItem in v1.15, so excluding
-    # `.specify` alone is no longer enough.
-    excludes = [":(exclude).specify", f":(exclude){paths.runtime_relative}"]
-    feature_directory = speckit_ref(state)["featureDirectory"]
-    if feature_directory:
-        excludes.append(f":(exclude){feature_directory}")
-    _, diff = git(paths, "diff", ref, "--", ".", *excludes)
+    # D03: the same change set Gate 7's manifest lists, from the same pinned
+    # base. Before D03 an unpinned base silently became `HEAD~1` — a range
+    # nobody chose — and this command carried its own, narrower exclusion
+    # list. A missing or invalid base now refuses, exactly as the manifest
+    # does, because a review of the wrong range is worse than no review.
+    changes = implementation_changes(paths, state)
+    # The diff is taken with the selector's own exclusions as a pathspec, so
+    # it covers exactly the tracked entries of `changes` without passing every
+    # path on the command line.
+    excludes = [f":(exclude){prefix.rstrip('/')}"
+                for prefix in implementation_exclusions(paths, state)]
+    _, stat = git(paths, "diff", "--stat", "-M", base, "--", ".", *excludes)
+    _, diff = git(paths, "diff", "-M", base, "--", ".", *excludes)
+    # No diff shows an untracked file. They are listed so the review reads
+    # them directly rather than silently missing them.
+    untracked = [entry["path"] for entry in changes if entry["untracked"]]
 
+    feature_directory = speckit_ref(state)["featureDirectory"]
     candidates = [".specify/memory/constitution.md"]
     if feature_directory:
         candidates += [
@@ -9607,10 +10130,14 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
     present = [c for c in candidates if (paths.project_root / c).is_file()]
 
     emit("security-review evidence", {
-        "base_ref": ref,
-        "pinned": bool(base),
+        "base_ref": base,
+        # Always true since D03: an unpinned base is a refusal now, never a
+        # fallback. Kept so a caller reading the field still reads the truth.
+        "pinned": True,
         "stat": stat or None,
         "diff": diff or None,
+        "changes": changes,
+        "untracked": untracked,
         "artifacts": present,
     })
     return EXIT_OK
@@ -9686,8 +10213,10 @@ def cmd_preflight(args, paths: Paths) -> int:
     if problems:
         messages = {
             "speckit_missing": SPECKIT_MISSING_MESSAGE,
-            "speckit_skills_missing": "SDLE cannot locate SpecKit skills. "
-            "Re-initialize SpecKit with --skills.",
+            "speckit_skills_missing": "SDLE cannot locate SpecKit skills "
+            "(looked for .claude/skills/speckit-constitution/ here and in "
+            "your home directory). SpecKit's Claude integration installs "
+            f"them; re-run its init: {SPECKIT_INIT_COMMAND}",
             "requirements_missing": "I need requirements before starting the "
             "workflow. Create a `requirements/` folder and add at least one "
             "document.",
@@ -11395,6 +11924,10 @@ def build_parser() -> argparse.ArgumentParser:
     mbuild.add_argument("--summary")
     mbuild.add_argument("--skip-tests", action="store_true")
     mbuild.add_argument("--test-timeout", type=int, default=600)
+    mbuild.add_argument(
+        "--test-command",
+        help="The project's own test command, for a runner SDLE does not "
+             "detect. Run without a shell; its exit code is the evidence.")
     mbuild.set_defaults(handler=cmd_manifest_build)
 
     lock_p = subparsers.add_parser("lock", help="Session lock.")

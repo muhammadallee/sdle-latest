@@ -108,7 +108,7 @@ python -m pytest -q                # units, 9 transcript integrations, hooks
 python scripts/sdle.py lint-skill  # cross-file sync rules
 ```
 
-`docs/dry-runs/01..13` are the behavioural specification: one integration test per transcript. `01..09` are `GREENFIELD` and are byte-pinned against the T10 rollback point through an enumerated substitution list; `10..13` cover the other four flows and are pinned by their claims (`tests/test_integration_10_to_13.py`) rather than their bytes, because they postdate that rollback point. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
+`docs/dry-runs/01..16` are the behavioural specification. `01..09` are `GREENFIELD` guardrail scenarios, `10..13` cover the other four flows, and `14..16` are the focused D01–D04 defect scenarios of SDLE-DEFECT-STABILIZATION-01. All sixteen are pinned by their **claims**, not their bytes: `tests/test_dry_run_contracts.py` recomputes every progress fraction, gate number, label and refusal in them from the engine and requires every cited test node to exist, and `docs/dry-runs/verification-matrix.md` maps each scenario to its tests and recorded results. The byte pins on `01..09` were released deliberately by that iteration, because the files had to change to match the engine. Three integration files remain frozen at the unit level against the T10/T08 rollback points, and each permitted change is declared in `STABILIZATION_01_TEST_EDITS` in `tests/conftest.py`. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
 
 ## Platform Note
 
@@ -122,7 +122,7 @@ The engine is cross-platform. Embedded commands in prompt files must be too — 
 |---|---|
 | `README.md` | The product, end to end |
 | `CLAUDE.md` | This file — how to work on the repository |
-| `docs/architecture/` | ADRs. Numbered, immutable once merged; the next number is ADR-009 |
+| `docs/architecture/` | ADRs. Numbered, immutable once merged; the next number is ADR-010 |
 | `docs/workitems/` | WorkItem identity, the registry, the resolution ladder, the legacy migration path |
 | `docs/lifecycle/` | The phase registry, the five flows, gates and gate discipline |
 | `docs/risk-and-gates/` | How the required gate set is derived from governance, and the floors |
