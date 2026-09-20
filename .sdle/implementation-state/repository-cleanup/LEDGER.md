@@ -482,6 +482,19 @@ Tally: 25 findings; 18 accepted and fixed, 2 partly accepted, 5 duplicates of an
 
 Fix commits, in order: `498001b` (hooks), `86abcec` (state boundary and dead helper), `745aa86` (prompts), `2b766e4` (docs), `40b4d10` (carve-out), `88c03ca` (gitignore, ADR-002), `0ef7207` (command scan), `e097183` (narration).
 
+### Round 2 (bounded follow-up over the fix diff only)
+
+Reviewer: the same Codex CLI, same sandbox and schema, over `413d38d..57bd413` (26 changed non-evidence files); prompt `runs/p08-packets/followup.prompt.md`; run `20260920T174949-p08-codex-followup`, PASS on the first attempt, `areas_not_reviewed` empty, 4 findings (none high or critical). Its own caveat: it could not execute pytest in its sandbox (no writable temp directory). This is the last round the plan allows.
+
+| ID | Sev | Disposition | Evidence and outcome |
+|---|---|---|---|
+| F-CX-001 | med | **ACCEPTED**, fixed `3572f6b` | Reproduced before the change: `C:workitems\x\.sdle\state.json` and `Z:workitems\x\a.md` were both ALLOWED (a drive-relative path was appended to `cwd` verbatim). On Windows a same-drive form now resolves against `cwd` and is fenced like any other; another drive's current directory cannot be known, so that form is a `PayloadError` (the fence fails closed, a scanner says so). Windows-only tests, failing on the parent |
+| F-CX-002 | med | **ACCEPTED**, fixed `3572f6b` | Reproduced: two `security-review begin` calls in one minute returned the same path. Pre-existing in the base; it makes the prompt's "names a new review file" untrue for an in-minute remediation and lets two WorkItems sharing `reviews/` overwrite each other. `begin` now takes the first unused name (`-2`, `-3`); the prompt says so; two tests, one failing on the parent |
+| F-CX-003 | low | **ACCEPTED**, fixed `3572f6b` | True: the scan checked option position only and silently passed an unknown command, while `docs/README.md` says commands are checked against the parser. A parametrised existence check now runs over all 433 documented invocations (placeholders exempt); it found none unknown, and a fixture shows it reports `nonexistent` |
+| F-CX-004 | low | **ACCEPTED**, fixed `3572f6b` | `README.md` still called the lock "the only ignored file"; now "ignored by Git" |
+
+Tally, both rounds: 29 findings; 22 accepted and fixed, 2 partly accepted, 5 duplicates, 0 rejected, 0 deferred; 1 high (accepted, fixed), 0 critical. Round 2's fixes touched engine, hook and test code; the plan allows two rounds in total, so there is no third. The round 2 fixes themselves are covered only by my own tests and the P09 full run, not by a further independent review, and the final report says so.
+
 ## Owner decisions
 
 Recorded 2026-09-20. The owner answered none of the §12 questions (their only instructions were to continue and to note reasons), so each default applies from the phase that needs it; a later answer supersedes.
