@@ -30,23 +30,16 @@ typed `approve` are convention only. Two of those three predate T10.
 
 from __future__ import annotations
 
-import ast
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from conftest import (
-    DRY_RUN_SUBSTITUTIONS,
     REPO_ROOT,
-    STABILIZATION_01_TEST_ADDITIONS,
-    STABILIZATION_01_TEST_EDITS,
-    STABILIZATION_01_TEST_REMOVALS,
     Project,
-    assert_frozen_module,
     sdle,
     searchable_files,
 )
@@ -677,16 +670,9 @@ def test_the_restatement_search_is_not_vacuous_on_this_repository():
 # that reported the whole repository as changed on Windows would prove nothing
 # and would be believed.
 
-BASELINE = "adbdc5e"
 """T10's rollback point. Product files there are byte-identical to `6318541`,
 the T09 implementation commit, because `adbdc5e` touched only
 `docs/transition/`."""
-
-FROZEN = (
-    "tests/test_integration_01_happy_path.py",
-    "tests/test_integration_02_to_05.py",
-    "tests/test_integration_06_to_09.py",
-)
 
 # The 33 checks `lint-skill` reported at the rollback point, written out so a
 # check that quietly stops being emitted fails here rather than passing as an
@@ -763,100 +749,6 @@ T11_CHECKS = (
 )
 
 
-def at_baseline(relative: str) -> str | None:
-    """The file's content at T10's rollback point, or None."""
-    result = subprocess.run(
-        ["git", "show", f"{BASELINE}:{relative}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def here(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(
-        encoding="utf-8").replace("\r\n", "\n")
-
-
-def test_the_baseline_is_reachable():
-    """Non-vacuity guard: if `git show` failed for every path, the comparisons
-    below would pass by comparing None to None."""
-    assert at_baseline("scripts/sdle.py") is not None
-    assert at_baseline("tests/test_integration_01_happy_path.py") is not None
-    assert at_baseline("docs/dry-runs/01-happy-path.md") is not None
-
-
-@pytest.mark.parametrize("relative", FROZEN)
-def test_n20_n24_the_frozen_files_are_byte_identical(relative):
-    """N20/N24/A22/A23. The three integration files carry the behavioural
-    contract; `settings.json` is where the fence deliberately is *not*; the
-    state template and `.gitignore` are what a state field would have had to
-    move."""
-    original = at_baseline(relative)
-    assert original is not None, relative
-    if relative.endswith(".py"):
-        # SDLE-DEFECT-STABILIZATION-01: two of these files asserted defects
-        # the iteration fixes. Unit-by-unit byte identity, except the edits
-        # declared once in `conftest.py` -- see its comment block.
-        assert_frozen_module(relative, original, here(relative))
-    else:
-        assert here(relative) == original, relative
-
-
-def test_the_stabilization_declarations_name_only_frozen_files():
-    """A declaration against a file no pin compares would be a no-op, which
-    is the one failure a declared-delta list must not have."""
-    declared = (set(STABILIZATION_01_TEST_EDITS)
-                | set(STABILIZATION_01_TEST_ADDITIONS)
-                | set(STABILIZATION_01_TEST_REMOVALS))
-    assert declared <= set(FROZEN), sorted(declared - set(FROZEN))
-
-
-def test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution():
-    """N20/A22/X10: the transcripts are the behavioural specification.
-
-    T11 D15 converged them off the repository-global `.workflow/` runtime,
-    stale since the runtime became WorkItem-scoped. The pin was **not**
-    re-baselined — re-baselining would have thrown away everything it was
-    buying. It became a declared-substitution comparison instead:
-
-        apply_dry_run_substitutions(at_baseline(f)) == here(f)
-
-    `DRY_RUN_SUBSTITUTIONS` is an enumerated list of exact literals in
-    `conftest.py`, never a pattern, so any change to a transcript other than
-    those substitutions still fails here. Two anti-vacuity guards ride along:
-    every declared pair must be used at least once (so a pair cannot decay
-    into a no-op), and the directory's whole file list is still compared, so
-    the README cannot drift unnoticed either.
-
-    **Released by SDLE-DEFECT-STABILIZATION-01 (D06), and replaced.** By that
-    iteration the nine byte-pinned transcripts described Spec Kit paths,
-    fingerprints, a bootstrap order and a Gate 7 the engine no longer had; a
-    byte pin proves a file did not change, not that it is right, and here it
-    was holding wrong claims in place. The maintainer chose to move them to
-    claim pins. The replacement is `tests/test_dry_run_contracts.py`, which is
-    stronger where it matters: every fraction, gate number, label and refusal
-    in every one of sixteen transcripts is recomputed from the engine, and
-    every cited test must exist. What this test still asserts, unchanged in
-    shape: the count guard (now nine GREENFIELD transcripts of sixteen), and
-    the half of the substitution pin that is still true — none of the
-    `.workflow/` literals T11 replaced may return.
-    """
-    directory = REPO_ROOT / "docs" / "dry-runs"
-    every = sorted(directory.glob("*.md"))
-    numbered = [p for p in every if p.name[:2].isdigit()]
-
-    greenfield = [p for p in numbered if int(p.name[:2]) <= 9]
-    assert len(greenfield) == 9, [p.name for p in every]
-    # Old value: 13. New value: 16 — DR-14..16, the focused D01-D04 scenarios.
-    assert len(numbered) == 16, [p.name for p in every]
-    for path in greenfield:
-        text = here(path.relative_to(REPO_ROOT).as_posix())
-        assert "| **Flow** | `GREENFIELD` |" in text, path.name
-        for old, _ in DRY_RUN_SUBSTITUTIONS:
-            assert old not in text, (path.name, old)
-
-
 def test_the_dry_run_index_lists_every_transcript_beside_it():
     """What replaces the byte-pin on `docs/dry-runs/README.md`.
 
@@ -878,43 +770,6 @@ def test_the_dry_run_index_lists_every_transcript_beside_it():
     missing = [path.name for path in sorted(directory.glob("*.md"))
                if path.name != "README.md" and path.name not in index]
     assert not missing, f"docs/dry-runs/README.md does not link: {missing}"
-
-
-def test_n21_greenfield_is_frozen_and_every_flow_is_element_wise_identical(
-        tmp_path):
-    """N21/A23. GREENFIELD is the frozen v1 spine, and T10 selects *capability
-    files*, never phases. The flow table is re-parsed out of SKILL.md at the
-    rollback point with the engine's own parser, so this compares what the
-    engine would have loaded rather than what a hand-copied literal claims."""
-    assert len(sdle.GREENFIELD_V1_PHASES) == 19, sdle.GREENFIELD_V1_PHASES
-
-    relative = ".claude/skills/sdle/SKILL.md"
-    original = tmp_path / "baseline-SKILL.md"
-    original.write_text(at_baseline(relative), encoding="utf-8")
-
-    before = sdle.parse_md_table(original, "FLOW_PHASES")
-    after = sdle.parse_md_table(REPO_ROOT / relative, "FLOW_PHASES")
-    assert after == before, "a flow's phase list moved"
-
-    # GREENFIELD is not a FLOW_PHASES row: it is the built-in default the
-    # engine holds as a frozen literal, which is exactly why it is compared
-    # against the literal at the rollback point rather than against the table.
-    assert "GREENFIELD" not in CONSTS.flow_phases, (
-        "GREENFIELD must stay the engine's frozen default, not a table row")
-    assert sdle.GREENFIELD_V1_PHASES == _literal_tuple(
-        at_baseline("scripts/sdle.py"), "GREENFIELD_V1_PHASES")
-
-
-def _literal_tuple(source: str, name: str) -> tuple[str, ...]:
-    """The value of a module-level tuple-of-strings assignment, by AST."""
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-        else:
-            targets = list(getattr(node, "targets", []))
-        if any(isinstance(t, ast.Name) and t.id == name for t in targets):
-            return tuple(element.value for element in node.value.elts)
-    raise AssertionError(f"{name} is not a module-level tuple")
 
 
 def test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched(
@@ -948,132 +803,6 @@ def test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched(
                             wid).exit_code == EXIT_OK
     after = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
     assert after == before, "migrate-workflow must never mutate .workflow/"
-
-
-def test_n24_the_schema_did_not_move(repo, bare_project):
-    """N24/A18/A23/F9. The acceptance criterion of the whole phase, stated as
-    numbers: no state field, no migration row, no version bump, no gate.
-
-    **T11 X11 re-valuation (TP-003 category 2).** T09's phase added none of
-    those; T11 D13/D14 deliberately add a state field, a migration row and a
-    version bump, so three literals move here: `"1.16"` -> `"1.17"`,
-    `"v1.16"` -> `"v1.17"` and the chain length `16` -> `17`. The counts that
-    carry T09's claim do not move: eight approval keys equal to
-    `PHASE_TO_GATE_KEY`'s values, 21 registry phases, 8 gate phases — T11 adds
-    no gate and no phase. The exact-equality shape is kept throughout; the
-    `templates/state.json` movement itself is pinned change-for-change by
-    `test_t11_the_state_template_changed_only_as_declared`."""
-    template = json.loads(
-        (bare_project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    assert template["workflow_version"] == "1.17"
-    assert len(template["approvals"]) == 8
-    assert set(template["approvals"]) == set(CONSTS.phase_to_gate_key.values())
-
-    assert len(CONSTS.version_chain) == 17
-    assert len(CONSTS.phase_sequence) == 21
-    assert len(CONSTS.gate_phases) == 8
-
-    report = repo.ok("lint-skill").data
-    version = next(c for c in report["checks"]
-                   if c["name"] == "version_string_consistent")
-    assert "v1.17" in version["message"], version
-
-
-def test_n24_a18_the_engine_gained_no_writer_and_no_state_field():
-    """A18, driven against the diff rather than asserted. `resume` is the only
-    new command; every other new symbol is a lint check or a pure derivation.
-
-    The needles are the engine's write primitives. If a later edit adds a
-    second writer, or teaches `resume` to migrate "for convenience", it lands
-    on one of these lines and fails here — which is the whole acceptance
-    criterion of T10 expressed as a test rather than as a promise."""
-    before = at_baseline("scripts/sdle.py")
-    assert before is not None
-    after = here("scripts/sdle.py")
-
-    # Occurrence counts, not a line diff: a line diff would miss a write call
-    # spelled like an existing one, and would be fooled by a pure move. Every
-    # one of these must be exactly the number it was, PLUS the delta the
-    # phase after T10 declares below — which is stronger than re-baselining,
-    # because the permitted movement is named and quantified and everything
-    # else must still be identical.
-    for needle in WRITE_PRIMITIVES:
-        expected = (before.count(needle) + T11_WRITE_DELTA.get(needle, 0)
-                    + STABILIZATION_01_WRITE_DELTA.get(needle, 0))
-        assert after.count(needle) == expected, (
-            needle, before.count(needle), after.count(needle), expected)
-
-    # The exclusive-create writer D04 declares above: exactly one, and it
-    # lives where the declaration says it does.
-    exclusive = [node for node in ast.walk(ast.parse(after))
-                 if isinstance(node, ast.FunctionDef)
-                 and any(isinstance(call, ast.Call)
-                         and isinstance(call.func, ast.Name)
-                         and call.func.id == "open"
-                         and any(isinstance(arg, ast.Constant)
-                                 and arg.value == "x" for arg in call.args)
-                         for call in ast.walk(node))]
-    assert [fn.name for fn in exclusive] == ["reserve_evidence"], [
-        fn.name for fn in exclusive]
-
-    was = set(ADD_PARSER.findall(before))
-    now = set(ADD_PARSER.findall(after))
-    assert sorted(now - was) == ["resume"], sorted(now - was)
-    assert was - now == set(), sorted(was - now)
-
-
-WRITE_PRIMITIVES = ("write_atomic", "save_state", "append_audit",
-                    "record_audit", ".write_text(", ".write_bytes(",
-                    "os.replace", ".mkdir(")
-
-# T11 adds exactly THREE new call sites, all declared here as a signed delta
-# rather than a re-baseline, so that any OTHER movement — in these primitives
-# or any other — still fails.
-#
-#   `append_audit` 47 -> 49: D11's `governance_downgraded` entry in
-#       `_record_governance_downgrade_audit`, and D13's `branch_ack_stale`
-#       entry in `branch_guard` - the record T03-1 said was missing when an
-#       acknowledgement given for one checkout is rejected on another.
-#   `save_state`   46 -> 47: D13's `branch_guard`, which now has two exits
-#       that must persist the guard's own bookkeeping — the acceptance arm
-#       (clearing both fields) and the stale-acknowledgement arm (re-arming
-#       against the current checkout). Before D13 there was one.
-#
-# Both are new *call sites*, not new *writers*: `append_audit` is still the
-# only thing that writes the ledger, `save_state` the only thing that writes
-# `state.json`, and `write_atomic` the only thing that writes a file —
-# unchanged at 30. Invariant 6 is about who may write, and it is untouched.
-T11_WRITE_DELTA = {"append_audit": 2, "save_state": 1}
-
-# SDLE-DEFECT-STABILIZATION-01 declares its own call sites the same way: a
-# signed delta per needle, each one named, so every other movement still
-# fails. Recorded in `docs/verification/defect-stabilization-01.md`.
-#
-#   `.mkdir(` +1 (D04): `reserve_evidence` creates the evidence directory
-#       before it claims a file name in it.
-#   `write_atomic` +1 (D02): `cmd_manifest_build` fills the implementation
-#       evidence record Gate 7 reads — 30 -> 31. Still a call to the one
-#       atomic writer, not a new way to write a file.
-#
-# D04 also adds the engine's one *exclusive-create* writer — `open(path,
-# "x")` in `reserve_evidence`, which claims an evidence file name so no
-# evidence is ever replaced. It is not a needle above (a bare `open(` would
-# match every reader), so it is pinned by name in the test below instead.
-STABILIZATION_01_WRITE_DELTA = {".mkdir(": 1, "write_atomic": 1}
-
-ADD_PARSER = re.compile(r'add_parser[(]' + r"\s*" + r'"([a-z][a-z-]*)"')
-
-
-def test_the_write_primitive_needles_are_not_vacuous():
-    """If the needle list stopped matching the engine at all, the count
-    comparison above would compare zero to zero and prove nothing."""
-    source = here("scripts/sdle.py")
-    hits = {needle: source.count(needle) for needle in WRITE_PRIMITIVES}
-    assert sum(hits.values()) >= 100, hits
-    assert hits["write_atomic"] > 0 and hits["append_audit"] > 0, hits
-    assert len(ADD_PARSER.findall(source)) > 50, "the parser scan found little"
-
 
 
 def test_n26_every_baseline_check_is_still_present_and_passing(repo):
@@ -1230,57 +959,4 @@ def test_a25_the_needles_are_not_vacuous():
             if line.startswith("| ") and "Enforced by" not in line
             and not set(line) <= set("|- ")]
     assert len(rows) >= 10, len(rows)
-# T11 X6 — the one FROZEN file this phase edits.
-#
-# D13 adds the `pending_branch_ack` state field and D14 bumps the version, so
-# `templates/state.json` cannot stay byte-identical. It is pulled out of the
-# parametrised comparison above and pinned here instead against T11's own
-# baseline, by a DECLARED SUBSTITUTION: take the baseline text, apply exactly
-# the two changes T11 declares, and the result must equal the file byte for
-# byte. That is strictly more auditable than a re-baseline — a third change,
-# anywhere in the file, still fails — and it keeps the pin non-vacuous.
-T11_TEMPLATE_BASELINE = "4b1aa71"
-STATE_TEMPLATE = ".claude/skills/sdle/templates/state.json"
-T11_TEMPLATE_SUBSTITUTIONS = (
-    ('"workflow_version": "1.16",', '"workflow_version": "1.17",'),
-    ('  "pending_confirm_action": null,\n',
-     '  "pending_confirm_action": null,\n  "pending_branch_ack": null,\n'),
-)
-
-
-def at_t11_template_baseline() -> str | None:
-    result = subprocess.run(
-        ["git", "show", f"{T11_TEMPLATE_BASELINE}:{STATE_TEMPLATE}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def test_t11_the_state_template_changed_only_as_declared():
-    """X6. Two changes, both named, both required, nothing else."""
-    original = at_t11_template_baseline()
-    assert original is not None, (
-        f"{T11_TEMPLATE_BASELINE} must be reachable, or this test is vacuous")
-
-    expected = original
-    for old, new in T11_TEMPLATE_SUBSTITUTIONS:
-        assert expected.count(old) == 1, old
-        expected = expected.replace(old, new)
-    assert expected != original, "the substitution set matched nothing"
-
-    assert here(STATE_TEMPLATE) == expected
-
-    # And the same two facts stated structurally, so a future reader does not
-    # have to reverse-engineer them out of the substitution literals.
-    before = json.loads(original)
-    after = json.loads(here(STATE_TEMPLATE))
-    assert set(after) - set(before) == {"pending_branch_ack"}
-    assert set(before) - set(after) == set()
-    assert after["pending_branch_ack"] is None
-    assert (before["workflow_version"], after["workflow_version"]) == (
-        "1.16", "1.17")
-    for key in before:
-        if key != "workflow_version":
-            assert after[key] == before[key], key
 

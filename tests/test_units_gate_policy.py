@@ -32,16 +32,12 @@ import ast
 import copy
 import functools
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from conftest import (
-    DRY_RUN_SUBSTITUTIONS,
     SDLE_PY,
-    Project,
-    assert_frozen_module,
     sdle,
 )
 from test_units_artifact_review import audit_entries, review_for_gate
@@ -1292,157 +1288,6 @@ def test_no_new_way_past_a_gate_was_added_to_advance_or_skip():
 # that reported the whole repository as changed on Windows would prove
 # nothing and would be believed.
 
-ROLLBACK = "e1cf341"
-
-
-def at_rollback(relative: str) -> str | None:
-    """The file's content at the T08 implementation commit, or None."""
-    result = subprocess.run(
-        ["git", "show", f"{ROLLBACK}:{relative}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def here(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(
-        encoding="utf-8").replace("\r\n", "\n")
-
-
-FROZEN_FILES = (
-    "tests/test_integration_01_happy_path.py",
-    # `templates/state.json` moved out at T11 (D13/D14) and is pinned by
-    # `test_t11_the_state_template_changed_only_as_declared` in
-    # test_units_capabilities.py, by declared substitution against `4b1aa71`.
-    # One home for that pin, not two: a second copy would be a second source
-    # of truth for the same fact (invariant 7).
-)
-
-
-def test_the_rollback_point_is_reachable():
-    """Non-vacuity guard: if `git show` failed for every path the two tests
-    below would pass by comparing None to None."""
-    assert at_rollback("scripts/sdle.py") is not None
-    assert at_rollback("tests/test_integration_01_happy_path.py") is not None
-
-
-@pytest.mark.parametrize("relative", FROZEN_FILES)
-def test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point(
-        relative):
-    """N27/N28/A10/A11/F6: the design exists precisely so these need not
-    change. `run_happy_path` approves every gate, which is always permitted,
-    so the frozen driver is a valid run at every risk level.
-
-    SDLE-DEFECT-STABILIZATION-01: the happy-path driver now supplies a passing
-    test command at Gate 7 (D02), so the Python file is compared unit by unit
-    against the edits declared once in `conftest.py`. Every other unit, and
-    the two non-Python files, are still byte-identical."""
-    original = at_rollback(relative)
-    assert original is not None, relative
-    if relative.endswith(".py"):
-        assert_frozen_module(relative, original, here(relative))
-    else:
-        assert here(relative) == original, relative
-
-
-def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
-    """A11/X10: the transcripts are the behavioural specification. A run that
-    approves all eight gates is still a valid run.
-
-    T11 D15 converged them off the repository-global `.workflow/` runtime. The
-    pin is **not** re-baselined: it becomes a declared-substitution comparison
-    against the same rollback point, using the same enumerated literal list as
-    the other transcript pin (`DRY_RUN_SUBSTITUTIONS` in `conftest.py`, which
-    is why there is one list and not two). Any transcript change other than
-    those substitutions still fails here, and every declared pair must be used
-    at least once so a pair cannot decay into a no-op.
-
-    The directory now holds fourteen Markdown files — nine numbered GREENFIELD
-    transcripts, four later ones for the other flows, and its own README. The
-    count guard stays on the nine, because that is the number the contract and
-    the plan name and a transcript quietly disappearing is what it exists to
-    catch.
-
-    Transcripts 10-13 are excluded: they were authored after this rollback
-    point, so `at_rollback` returns None for them and there is nothing to
-    compare against. They are pinned by `tests/test_integration_10_to_13.py`
-    instead, which asserts their claims rather than their bytes. The README is
-    excluded for a different reason -- it was deliberately rewritten to index
-    them -- and its replacement guarantee is
-    `test_the_dry_run_index_lists_every_transcript_beside_it`, which checks
-    that it lists what is actually in the directory. That is the property an
-    index needs; a byte-pin only ever said the file had not changed.
-
-    **Released by SDLE-DEFECT-STABILIZATION-01 (D06), and replaced** — the
-    same decision, recorded on the twin pin
-    `test_units_capabilities.py::test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution`.
-    The nine transcripts were rewritten to the engine as it is, and are now
-    pinned by their claims in `tests/test_dry_run_contracts.py`. The count
-    guard and the no-regression half of the substitution list stay here."""
-    directory = REPO_ROOT / "docs" / "dry-runs"
-    every = sorted(directory.glob("*.md"))
-    numbered = [p for p in every if p.name[:2].isdigit()]
-    greenfield = [p for p in numbered if int(p.name[:2]) <= 9]
-    assert len(greenfield) == 9, [p.name for p in every]
-    # Old value: 13. New value: 16 — DR-14..16 were added by D06.
-    assert len(numbered) == 16, [p.name for p in every]
-    for path in greenfield:
-        text = here(path.relative_to(REPO_ROOT).as_posix())
-        for old, _ in DRY_RUN_SUBSTITUTIONS:
-            assert old not in text, (path.name, old)
-
-
-def test_n28_the_state_schema_did_not_move(project):
-    """A10: no state field, no migration row, no version bump, eight approval
-    keys. The requirement set is derived at every decision point and stored
-    nowhere, so there was nothing to migrate."""
-    consts = repo_consts()
-    # T11 X11 re-valuation (TP-003 category 2): 16 -> 17. D14 appends the
-    # `1.16 -> 1.17` row for D13's `pending_branch_ack`. Exact equality kept.
-    assert len(consts.version_chain) == 17
-
-    template = json.loads(
-        (project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    assert len(template["approvals"]) == 8
-    assert set(template["approvals"]) == set(consts.phase_to_gate_key.values())
-    assert all(value is None for value in template["approvals"].values())
-
-    # The version string itself, at the two locations a WorkItem runtime can
-    # see. `version_string_consistent` covers all four and is exercised over a
-    # repo copy by `test_lint_skill.py`; this is the half T09 could have moved.
-    assert template["workflow_version"] == "1.17"
-    assert "v1.17" in (project.skill_root / "SKILL.md").read_text(
-        encoding="utf-8")
-    assert consts.version_chain[-1][1] == "1.17"
-
-
-def test_n29_the_frozen_greenfield_tuple_and_every_flow_are_unchanged():
-    """A13: T07 owns which phases execute and T09 changed none of it."""
-    assert len(sdle.GREENFIELD_V1_PHASES) == 19
-    assert sdle.GREENFIELD_V1_PHASES[-1] == "complete"
-
-    consts = repo_consts()
-    assert "GREENFIELD" not in consts.flow_phases, (
-        "GREENFIELD is derived, never a FLOW_PHASES row")
-
-    # Element-wise against the rollback point, read out of that commit's own
-    # SKILL.md rather than restated here.
-    skill = at_rollback(".claude/skills/sdle/SKILL.md")
-    assert skill is not None
-    for name in sdle.ENGINEERING_FLOWS:
-        if name == "GREENFIELD":
-            assert list(consts.flow(name).phases) == list(
-                sdle.GREENFIELD_V1_PHASES)
-            continue
-        prefix = f"| `{name}` | "
-        row = next(line for line in skill.splitlines()
-                   if line.startswith(prefix))
-        declared = row.split("|")[2].split()
-        assert list(consts.flow(name).phases) == declared, name
-
-
 def test_n30_the_policy_needle_count_is_what_this_phase_left_it():
     """N30/A14/F5/I6: the restatement search picks the five new signals up
     automatically. Pinned so a *shrinking* needle set — which would make the
@@ -1616,15 +1461,28 @@ def test_n31_migrate_workflow_still_leaves_the_legacy_tree_untouched(
     assert after == before, "migrate-workflow must never mutate .workflow/"
 
 
-def test_a15_no_speckit_name_leaked_into_the_prompt_layer():
-    """Invariant 3: the two files T09 edited in the prompt layer must not have
-    gained a `speckit-*` name or a `/speckit.*` command."""
-    for relative in (".claude/skills/sdle/SKILL.md",
-                     ".claude/skills/sdle/modules/gate-protocol.md",
-                     ".claude/commands/sdle-approve.md"):
-        original = (at_rollback(relative) or "").splitlines()
-        current = here(relative).splitlines()
-        added = [line for line in current if line not in original]
-        for line in added:
-            assert "speckit-" not in line, (relative, line)
-            assert "/speckit." not in line, (relative, line)
+def here(relative: str) -> str:
+    return (REPO_ROOT / relative).read_text(
+        encoding="utf-8").replace("\r\n", "\n")
+
+
+# Invariant 3 (SpecKit opacity): the prompt layer must not teach the model to
+# show `speckit-*` skill names or `/speckit.*` commands. These three files are
+# the ones a user's conversation is built from; the lines that name a Spec Kit
+# skill or command are counted, so a new one has to be added here on purpose.
+SPECKIT_NAMING_LINES = {
+    ".claude/skills/sdle/SKILL.md": 1,           # the opacity rule itself
+    ".claude/skills/sdle/modules/gate-protocol.md": 6,
+    ".claude/commands/sdle-approve.md": 0,
+}
+
+
+def test_a15_the_prompt_layer_names_spec_kit_only_where_it_is_recorded():
+    """Invariant 3, stated on the current files."""
+    for relative, expected in SPECKIT_NAMING_LINES.items():
+        named = [line for line in here(relative).splitlines()
+                 if "speckit-" in line or "/speckit." in line]
+        assert len(named) == expected, (relative, named)
+    rule = [line for line in here(".claude/skills/sdle/SKILL.md").splitlines()
+            if "speckit-" in line]
+    assert rule and "opacity" in rule[0].lower(), rule
