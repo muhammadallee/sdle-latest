@@ -2,20 +2,20 @@
   "schema_version": 1,
   "repository_root": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
   "branch": "maintenance/repository-cleanup",
-  "head": "06a3ec797505de154c041edad5fae0522503f6b1",
-  "current_content_fingerprint": "cebddf62de4b500689275a78125bcd1401688d73f7d30542c6a4d8d05df374cd",
+  "head": "37d67b86c213456407b10d9e0011170edca2b3c7",
+  "current_content_fingerprint": "b1618b3e6f1a37fa4d5b385a59a7a7d400148d7bff4b7c4ea378f782dc4c80c7",
   "changed_paths": [],
   "plan_path": "plan-claude-codex-defectfix.md",
   "plan_sha256": "0438fae84edbbb03f69ccce5d0699a200df322c47765f1e8bdc264afa8aad277",
-  "phase": "P09",
-  "phase_status": "complete",
-  "task_id": "P09-T10",
-  "task_status": "complete",
-  "next_action": "Owner: decide F-024 (D-04); push the branch and run CI on ubuntu/windows, Python 3.11 and 3.13; consider a LICENSE (D-03)",
+  "phase": "P10",
+  "phase_status": "planning",
+  "task_id": "P10-T01",
+  "task_status": "in_progress",
+  "next_action": "P10-T01: write the failing F-024 regression tests",
   "handoff": {
-    "last_completed_action": "Final report written; status VERIFICATION_BLOCKED",
-    "verification_status": "blocked",
-    "note": "Acceptance candidate 9f41f8f (3024 passed); final commit 06a3ec7 adds only the matrix and records",
+    "last_completed_action": "P10 plan written; owner chose D-04 option 1",
+    "verification_status": "not_started",
+    "note": "Pin the merged policy in governance.json as pinnedPolicy; AND inside gate_requirements_for_state; carry forward across re-assess",
     "unfinished_paths": [
       ".sdle/implementation-state/repository-cleanup"
     ]
@@ -101,8 +101,8 @@
   "attempt": 1,
   "in_flight_operation": null,
   "last_verified_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
-  "ledger_sha256": "1a6923cfa919faab45a6ef1711502205cc5a4fde4cd2db59bb3238a33e8ec624",
-  "updated_at_utc": "2026-09-20T19:43:32Z",
+  "ledger_sha256": "4ae64759a0b36dae0fba2c0c0e3b4c45881d930072e4078109ba7fbd70e1136e",
+  "updated_at_utc": "2026-09-20T21:15:27Z",
   "blockers": [],
   "last_verified_content_fingerprint": "ac66c6b284b8b539942e65288dabdd94e36dca26e692c67aae721789870babef"
 }

@@ -263,6 +263,117 @@ tool list has `Write`, `Edit`, `NotebookEdit`, `Bash`, `PowerShell` and **no `Mu
 
 **Defects found by R-06 in the real records, fixed the same day:** (1) `completed_phases` stopped at P03 while P04-P06 were done; (2) an inline `## Findings` mention inside the P02 plan had been taken for the heading, splitting that plan line and pushing its Verification/Risk paragraphs past later blocks: repaired, and `runctl` insertions now key on the heading line only; (3) no P07 plan existed (this section). **Not run:** an actual quota exhaustion (never simulated by design), a Linux/macOS drill, and a session drill with the interactive UI (headless only).
 
+### CI, run once the branch was pushed (2026-09-21)
+
+The owner authorised the push at the end of P09, which closed the gate P09 had to report as
+`NOT RUN`. GitHub Actions run
+[35534663419](https://github.com/muhammadallee/sdle-latest/actions/runs/35534663419) on
+`37d67b8` (the P09 final commit): **success on all four jobs** — `ubuntu-latest` and
+`windows-latest`, Python 3.11 and 3.13. Read through the public API; `gh` is not installed on
+this host. This is the first executed evidence for Linux and for Python 3.11 in this run, and it
+supersedes P09's `VERIFICATION_BLOCKED` reason for AC-09. P09's own report is left as written:
+it was true of the evidence that existed when it was written, and rewriting a closed acceptance
+record to claim a gate it did not have would be the exact dishonesty this ledger is built to
+avoid. The matrix rows are filled once, against the post-P10 commit.
+
+### P10 — F-024: pin the governance policy a WorkItem started under (owner decision D-04, option 1)
+
+**Objective.** Close the channel F-024 found: a repository policy that required a gate when the WorkItem
+started can be relaxed mid-flight, and the gate then becomes omittable. AC-01. Source: `37d67b8`
+(P09 acceptance candidate `9f41f8f` plus the P09 records), suite green, branch pushed.
+
+**Owner decision.** D-04 answered by the owner on 2026-09-21: **option 1, pin at start**. Options 2
+(fence `.sdle/policies/`) and 3 (document only) are declined and stay recorded above.
+
+**The defect, restated from the evidence.** `gate_requirements_for_state` reads the policy from disk at
+every decision and compares it with nothing. `required_gate_set`'s own comment says the requirement set
+is "DERIVED at every decision point and never stored", and the governance record's `requiredGates` is
+explicitly "recorded as evidence ... never read back for a decision". That design is sound against the
+threat it names — a stored set that *authorises* an omission the live policy forbids — and it is the
+reason the hole exists in the other direction.
+
+**Intended behaviour.** A gate is omittable only if it is omittable under **both** the policy in force now
+and the policy this WorkItem started under. The pin is an **AND**: it can only ever refuse more, never
+permit more, so it is not the second source of truth invariant 7 forbids. Stated in a new ADR-011,
+because it is a deliberate exception to an explicit written rule, and the rule's comment is corrected in
+the same commit.
+
+**Scope, and what deliberately stays open.** This closes the **policy** channel only. A *risk downgrade*
+can still make a gate omittable, which `gate-protocol.md` documents as legitimate ("a real re-scope is
+legitimate", never refused, always audited through `governance_downgraded` and the omission evidence).
+Pinning the derived gate *list* would have closed that too, as a side effect, and would have contradicted
+a documented behaviour that no finding reports as a defect. So the pin is the **merged policy document**,
+re-derived at decision time against the **live** risk level and classification.
+
+**Design.**
+
+1. Pin lives in `governance.json` as `pinnedPolicy` = `{policy (merged), source, sha256, pinnedAt}`.
+   Not in `state.json`: a state field means a `CURRENT_VERSION` bump, and under ADR-010 that refuses every
+   in-flight WorkItem's state — a heavy price for a fix whose whole point is to protect in-flight WorkItems.
+2. Established at the **first** governance record, not at `init`: governance is deliberately not an `init`
+   precondition, so the first moment a policy can be pinned is the first `governance assess`. (The D-04
+   wording said "at `init`"; this is the same intent at the only point where it is expressible.)
+3. **Carried forward verbatim** by every later `governance assess`. Without this the attack simply becomes
+   relax -> re-assess -> omit, and the fix is worthless. `cmd_governance_assess` already reads the
+   superseded record for the downgrade evidence; the pin is taken from there when present.
+4. The AND is applied inside `gate_requirements_for_state`, the single place every consumer already goes
+   through (`gate omit`, `apply_advance`'s omission re-derivation, `revalidate_recorded_omissions`,
+   `gate_disposition` -> `gate show` and `resume`). One home for the rule; no surface can disagree, and an
+   omission taken before the pin existed is retro-caught at the terminal gate once the WorkItem re-assesses.
+5. Only flow-scoped `omittable` -> `required` promotions. A gate the pinned policy names but the bound flow
+   does not contain stays `not_in_flow`.
+6. Reasons carry their origin: a promotion appends `pinned:<rule>` (`pinned:always`, `pinned:risk:HIGH`,
+   `pinned:type:<t>`), so `gate show --gate <key>`'s `requirement_reasons`, which gate-protocol.md tells
+   the orchestrator to display, names why the user cannot omit. The refusal names both SHAs.
+7. `GOVERNANCE_RECORD_VERSION` -> `"3"`; `"1"` and `"2"` stay readable and carry **no** pin, so they derive
+   from the live policy exactly as today. Fail-open for old records is deliberate and tested: failing
+   closed would freeze every in-flight WorkItem written before this change, and those records are not
+   evidence of a *tighter* policy, merely of an older schema.
+
+**Tasks.** P10-T01 failing tests; P10-T02 engine (pin, carry-forward, AND, reasons, version); P10-T03
+evidence and audit text (both SHAs); P10-T04 docs (ADR-011, ADR-006 pointer, `docs/risk-and-gates/`,
+Reference Guide record schema, troubleshooting entry); P10-T05 full suite + lint through three launchers;
+P10-T06 ledger, matrix and CI.
+
+**Verification.** `runs/f024-repro.py.txt` promoted to a regression test; plus (a) re-assess after relaxing
+does not move the pin, (b) a risk downgrade with an unchanged policy still permits the omission, (c) a
+policy tightened mid-flight still applies, (d) a record with no pin derives live-only, (e) `gate show` and
+the model agree (already pinned at `test_units_gate_policy.py:559`). Targeted modules first, then the whole
+suite in a depth-1 clone, then `lint-skill` through all three launchers.
+
+**Risk and rollback.** The change can only *add* refusals, so the failure mode is a gate that cannot be
+omitted when policy says it could — visible, diagnosable from `requirement_reasons`, and recoverable by
+approving the gate. Rollback is the revert of one commit; no on-disk format is destroyed, since a record
+without `pinnedPolicy` is still read.
+
+**Bookkeeping.** P09's final report is **not** retro-edited: its acceptance candidate (`9f41f8f`) and its
+`VERIFICATION_BLOCKED` status are the identity of that run. P10 carries its own candidate, its own
+evidence and its own status, and marks the F-024/D-04 row resolved there. The CI run for `37d67b8` is
+recorded below as evidence; the matrix's R3/R4 rows are filled once, against the post-P10 commit, rather
+than written twice.
+
+
+**Verification (P10).**
+
+| Attempt | Source | Result |
+|---|---|---|
+| `p10-full-suite` | `c963c67` | **INTERRUPTED, by me, on purpose.** While it ran I found that `cmd_governance_gates` derived the requirement model with a bare `gate_requirements` call and so bypassed the pin: with a pin in force it reported a gate `omittable` that `gate show` reported `required`. `c963c67` was therefore not the candidate, and finishing a 38-minute run against it would have produced evidence for a commit nothing would ship. Confirmed the pid was my own runner before stopping it; `runctl reconcile` marked the record and the reason is recorded in it |
+| `p10-full-suite-2` | `f2db495` | see the final status below |
+
+Targeted, before the full run: `test_units_gate_policy` + `test_units_governance` + `test_units_shipped_surface` 605 passed; `test_units_gate_artifacts` + `test_units_flow_model` + `test_units_invariants` + `test_lint_skill` 252 passed; the documentation checks 1143 passed; `lint-skill` 44 checks, none failed.
+
+**What the fix cost elsewhere.** Two existing tests failed on purpose and were updated in the same
+commit, which is the rule for a deliberate contract change:
+`test_the_record_declares_version_two_and_carries_both_gate_lists` pinned `governanceVersion == "2"`
+(now `"3"`, and it asserts the pin), and `test_n25_an_unreadable_record_version_is_an_integrity_failure`
+parametrised `"3"` as an *unreadable* version, which it no longer is (now `"4"`).
+
+**The mistake in this phase, recorded.** The pin went into `gate_requirements_for_state` first, which
+looked like the single home because every *decision* path goes through it. `governance gates` is a
+*reporting* path that must answer before `init`, so it had its own derivation, and for one commit the two
+surfaces disagreed. Caught by reading the callers rather than by a test, which is why a cross-surface test
+now exists and why `requirement_model` takes the flow as an argument instead of resolving it.
+
 ## Findings
 
 _One entry per F-nnn; appended and updated in place. Seed findings F-001..F-024 are revalidated in P01; below are only findings established so far._
@@ -322,7 +433,7 @@ Legend: severity H/M/L; status CONFIRMED (reproduced/observed here), HYPOTHESIS,
 | F-028 | M | CONFIRMED live (limitation) | Claude Code does not load project hooks from a parent directory: launched from a subdirectory, no SDLE hook runs (see P02 live results, probe D and C). Guard hooks are active only for sessions launched at the directory holding `.claude/settings.json`; engine choke points still apply | P04 docs + guide readiness check + troubleshooting (not fixable in product) | AC-15 AC-17 |
 | F-029 | L | CONFIRMED + FIXED | The engine's secret-key pattern `sk-[A-Za-z0-9_-]{20,}` had no left boundary, so any hyphenated word containing `sk-` plus 20+ characters matched (`ri`**`sk-adaptive-gate-policy`**`.md`, `ta`**`sk-management-…`**), producing the secrets tripwire and Gate 7 manifest false positives; seen live on my own docs edit. Fix: `(?<![A-Za-z0-9])` lookbehind; tests both ways (3 negative words, 5 real-key contexts), mutation-checked | done in the P04 commit | AC-01 |
 | L-001 | — | KNOWN LIMITATION | `design/app/app-design.md` (and `design/db/`) are shared across WorkItems in one repository; `design_generation` rewrites them (ADR-008 TR25, ADR-005 D7). Out of scope to relocate (would change supported layout); document plainly in the Reference Guide and getting-started | P04 | AC-05 AC-13 |
-| F-024 | M | **CONFIRMED defect — OPEN, owner decision D-04 required** | Behavioural reproduction (run `p02-t07-f024-repro`, script `runs/f024-repro.py.txt`): a repository policy that tightens `gate_design` to required at LOW is in force when the WorkItem starts; `gate omit --gate gate_design` is refused `gate_required` (policy sha `928e4d3a…`). The policy file is then deleted (relaxed to the built-in floor) and the identical `gate omit` succeeds `omitted_by_policy`; the omission evidence records `policy_sha256: null`. Cause: `cmd_gate_omit` re-derives requirements from the live policy (`gate_requirements_for_state`) and only *records* the policy hash; nothing compares it with the policy the WorkItem started under, and `.sdle/policies/` is outside the hook write-fence. Not fixed here: D-04 says to ask the owner before choosing between pinning and fencing | OWNER → then P02-style fix | AC-01 |
+| F-024 | M | **CONFIRMED defect — OPEN, owner decision D-04 required** | Behavioural reproduction (run `p02-t07-f024-repro`, script `runs/f024-repro.py.txt`): a repository policy that tightens `gate_design` to required at LOW is in force when the WorkItem starts; `gate omit --gate gate_design` is refused `gate_required` (policy sha `928e4d3a…`). The policy file is then deleted (relaxed to the built-in floor) and the identical `gate omit` succeeds `omitted_by_policy`; the omission evidence records `policy_sha256: null`. Cause: `cmd_gate_omit` re-derives requirements from the live policy (`gate_requirements_for_state`) and only *records* the policy hash; nothing compares it with the policy the WorkItem started under, and `.sdle/policies/` is outside the hook write-fence. Not fixed here: D-04 says to ask the owner before choosing between pinning and fencing | **RESOLVED in P10** (`c963c67`, `f2db495`): the policy in force at the first governance record is pinned in `governance.json` as `pinnedPolicy` and carried forward verbatim by every later assess; every decision derives the requirement set from the live policy AND the pinned one and takes the stricter answer. ADR-011. The reproduction is a regression test, and three more tests pin what must NOT change: a tightening still applies, a genuine risk downgrade is still permitted and audited, and a record written before the pin derives live-only | AC-01 |
 | F-001 | L | CONFIRMED | `README.md:697` "Version History"; `docs/SDLE-Reference-Guide.md:1253` "Document Revision History" (TOC entry 21) | P04 (after F-008's check is rewritten) | AC-03 |
 | F-002 | L | CONFIRMED | `docs/transition/README.md` self-labels "historical record … not part of the SDLE product"; `control-plane.sha256` records hashes of removed tooling; 119 files | P04 (DEL-004) | AC-03 |
 | F-006 | L | CONFIRMED | `scripts/sdle.py:8321` "The repository pins no Spec Kit version and installs from a moving Git HEAD" contradicts `SPECKIT_SUPPORTED_VERSION = "1.0.6"` (8401) and the README pin; the comment at 8394 also cites `docs/verification/defect-stabilization-01.md` and the stabilisation iteration name | P03/P04 (comments are docs) | AC-03 |
@@ -504,7 +615,7 @@ Recorded 2026-09-20. The owner answered none of the §12 questions (their only i
 | D-01 | Hook failure posture per guard (F-014) | **Default:** `write-fence` and `product-agent-fence` fail closed when the hook runs but cannot evaluate the payload; `untrusted-read`, `dirty-tree`, `secrets-scan` stay fail-open but announce the degraded state through JSON `systemMessage` (user) and `additionalContext` (Claude) — stderr alone is not acceptable; visibility verified in a live session. A hook that cannot start is F-013 + the post-launch smoke | P02 | default applied when P02 starts |
 | D-02 | Supported Python matrix (F-021) | **Applied (default):** CI matrix Python `[3.11, 3.13]` on ubuntu + windows, test dependencies pinned in `requirements-dev.txt` and installed from it; README and the guide say "3.11 or newer (tested on 3.11 and 3.13)". Local evidence: 3.13.0 on Windows only; 3.11, and Linux, are exercised only by CI, which has **not** run | P06 | applied; CI result unverified |
 | D-03 | License (F-023) | **Default:** add none; report the absence as an owner action | P09 report | applied; **owner action outstanding**: no LICENSE exists |
-| D-04 | Active WorkItem and policy change (F-024) | The behavioural test **did** show a mid-flight relaxation dropping a gate required at start (see F-024), so the default's exception applies: **reported as a confirmed defect; no code change made; the owner is asked.** Options — **(1) pin at start (recommended):** record the required-gate set (or policy sha) in the governance record at `init` and treat a gate as omittable only if it is omittable under both the pinned and the live policy, so a tightened policy still applies and a relaxed one cannot weaken an in-flight WorkItem; engine + tests, `.sdle/implementation-state/` unaffected. **(2) fence `.sdle/policies/`** in the write-fence hook: a tripwire only (Bash and a human editor are unaffected) and it blocks the model from legitimate policy edits. **(3) document only:** keep live derivation and state that a policy edit governs the next decision. | P02 | **OPEN — awaiting owner**; carried to the final report as an unresolved item |
+| D-04 | Active WorkItem and policy change (F-024) | The behavioural test **did** show a mid-flight relaxation dropping a gate required at start (see F-024), so the default's exception applies: **reported as a confirmed defect; no code change made; the owner is asked.** Options — **(1) pin at start (recommended):** record the required-gate set (or policy sha) in the governance record at `init` and treat a gate as omittable only if it is omittable under both the pinned and the live policy, so a tightened policy still applies and a relaxed one cannot weaken an in-flight WorkItem; engine + tests, `.sdle/implementation-state/` unaffected. **(2) fence `.sdle/policies/`** in the write-fence hook: a tripwire only (Bash and a human editor are unaffected) and it blocks the model from legitimate policy edits. **(3) document only:** keep live derivation and state that a policy edit governs the next decision. | P02 | **ANSWERED 2026-09-21: option 1**, implemented in P10 (ADR-011). Options 2 and 3 declined; ADR-011 §8 records why fencing `.sdle/policies/` was not taken |
 | D-05 | Primary beginner entry point (F-018) | **Applied (default):** `start workflow` is primary, `/sdle-start` the verified equivalent (SKILL.md routes `start workflow` and `begin` to `/sdle-start`); the skill description was narrowed so it no longer auto-triggers on a bare `requirements/` folder | P04 | applied |
 | D-06 | Purging `settings.local.json` paths from history | **Out of scope** (no history rewriting); report only that the paths remain in Git history | — | applied |
 | D-07 | Codex unavailable/unauthenticated for P08 | **Not triggered:** codex-cli 0.151.0 installed, "Logged in using ChatGPT", required flags present (P00-T05). Not installed or logged in on the owner's behalf | P08 | applied |
