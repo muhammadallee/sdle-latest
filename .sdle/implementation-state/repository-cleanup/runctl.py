@@ -287,10 +287,128 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def pid_alive(pid) -> bool:
+    """Is a recorded runner still running? (`os.kill(pid, 0)` is not safe on
+    Windows, where signal 0 is a console control event.)"""
+    if not pid:
+        return False
+    if sys.platform == "win32":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True).stdout
+        return f'"{pid}"' in out
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+REQUIRED_STATE = ("phase", "phase_status", "task_id", "next_action", "branch", "base_commit",
+                  "head", "plan_sha256", "current_content_fingerprint", "completed_phases", "handoff")
+REQUIRED_HANDOFF = ("last_completed_action", "verification_status", "note")
+
+
+def reconstruct_candidate() -> dict:
+    """A minimal STATE candidate from the journal and Git, for a missing or
+    corrupt STATE.json. Anything not proven by those sources is UNKNOWN."""
+    last = {}
+    if JOURNAL.exists():
+        for line in JOURNAL.read_text(encoding="utf-8").splitlines():
+            try:
+                last = json.loads(line)
+            except ValueError:
+                continue  # a torn final line is skipped, never trusted
+    return {
+        "reconstructed": True, "phase": last.get("phase", "UNKNOWN"), "task_id": last.get("task", "UNKNOWN"),
+        "phase_status": "UNKNOWN", "task_status": "UNKNOWN", "completed_phases": "UNKNOWN",
+        "branch": git("branch", "--show-current").strip(), "head": git("rev-parse", "HEAD").strip(),
+        "last_journal_event": last.get("event"), "last_journal_ts": last.get("ts"),
+        "note": "candidate only: re-verify before claiming any status",
+    }
+
+
+def verify_report() -> dict:
+    issues: list[dict] = []
+    state = None
+    try:
+        state = json.loads(STATE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        issues.append({"issue": "state_missing", "action": "reconstruct a candidate (verify --reconstruct)"})
+    except ValueError as exc:
+        issues.append({"issue": "state_corrupt", "detail": str(exc),
+                       "action": "do not trust it; reconstruct a candidate (verify --reconstruct)"})
+    stray = sorted(p.name for p in HERE.glob("*.tmp"))
+    if stray:
+        issues.append({"issue": "interrupted_write_leftover", "files": stray,
+                       "action": "an atomic write died before its rename; the target file is the last complete version"})
+    head, fp, _ = fingerprint()
+    if state is not None:
+        missing = [k for k in REQUIRED_STATE if k not in state]
+        missing += ["handoff." + k for k in REQUIRED_HANDOFF if k not in (state.get("handoff") or {})]
+        if missing:
+            issues.append({"issue": "state_incomplete", "missing": missing})
+        if LEDGER.exists() and state.get("ledger_sha256") != sha256_file(LEDGER):
+            issues.append({"issue": "ledger_changed_since_last_checkpoint",
+                           "action": "the last ledger write is unconfirmed: compare with git and the journal"})
+        if state.get("head") != head:
+            issues.append({"issue": "head_moved", "checkpoint": state.get("head"), "now": head,
+                           "action": "record the new source identity and re-plan the active phase"})
+        elif state.get("current_content_fingerprint") != fp:
+            issues.append({"issue": "content_changed_since_checkpoint",
+                           "action": "diff against changed_paths; finish or repair the slice, then re-verify"})
+        plan = Path(state.get("plan_path", "")) if state.get("plan_path") else None
+        if plan and (ROOT / plan).is_file() and state.get("plan_sha256") != sha256_file(ROOT / plan):
+            issues.append({"issue": "plan_changed", "action": "reopen only the affected tasks"})
+    dead, alive, stale = [], [], []
+    claimed = set((state or {}).get("verification_run_ids", []))
+    for record in sorted(RUNS.glob("*.json")) if RUNS.exists() else []:
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except ValueError:
+            issues.append({"issue": "run_record_corrupt", "file": record.name})
+            continue
+        if data.get("result") == "IN_PROGRESS":
+            (alive if pid_alive(data.get("runner_pid")) else dead).append(data["run_id"])
+        elif data.get("run_id") in claimed and data.get("result") == "PASS" and data.get("content_fingerprint") != fp:
+            stale.append(data["run_id"])
+    if dead:
+        issues.append({"issue": "run_in_progress_but_runner_gone", "runs": dead,
+                       "action": "run `reconcile` to mark them INTERRUPTED, then re-run the check"})
+    if stale:
+        issues.append({"issue": "claimed_evidence_bound_to_other_content", "runs": stale,
+                       "action": "re-run the affected checks; do not reuse these results"})
+    return {"ok": not issues, "issues": issues, "runs_still_running": alive, "head": head, "fingerprint": fp}
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    report = verify_report()
+    if args.reconstruct:
+        report["candidate"] = reconstruct_candidate()
+    print(json.dumps(report, indent=2))
+    return 0 if report["ok"] else 1
+
+
+def cmd_reconcile(_: argparse.Namespace) -> int:
+    changed = []
+    for record in sorted(RUNS.glob("*.json")) if RUNS.exists() else []:
+        data = json.loads(record.read_text(encoding="utf-8"))
+        if data.get("result") == "IN_PROGRESS" and not pid_alive(data.get("runner_pid")):
+            data.update({"result": "INTERRUPTED", "exit_code": None,
+                         "interrupted_reason": "runner process is gone (found by reconcile); no result is claimed"})
+            atomic_write(record, json.dumps(data, indent=2) + "\n")
+            changed.append(data["run_id"])
+    print(json.dumps({"marked_interrupted": changed}))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="verb", required=True)
     sub.add_parser("fingerprint").set_defaults(fn=cmd_fingerprint)
+    ver = sub.add_parser("verify")
+    ver.add_argument("--reconstruct", action="store_true")
+    ver.set_defaults(fn=cmd_verify)
+    sub.add_parser("reconcile").set_defaults(fn=cmd_reconcile)
 
     run = sub.add_parser("run")
     run.add_argument("label")
