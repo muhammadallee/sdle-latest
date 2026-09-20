@@ -1,0 +1,63 @@
+usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+            [--workitem WORKITEM] [--session SESSION]
+            {lint-skill,init,header,resume,migrate,migrate-workflow,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+
+SDLE deterministic core. JSON on stdout, text on stderr.
+
+positional arguments:
+  {lint-skill,init,header,resume,migrate,migrate-workflow,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants}
+    lint-skill          Verify cross-file sync rules.
+    init                Create the WorkItem runtime and initial state.
+    header              Render the status assertion header.
+    resume              Everything a fresh session needs to pick a WorkItem up
+                        (read-only).
+    migrate             Apply the version migration chain.
+    migrate-workflow    Move a legacy .workflow/ runtime under a WorkItem.
+    validate            Check the WorkItem registry and runtime placement.
+    config              Repository-level SDLE configuration.
+    governance          Requirements quality, classification and risk.
+    baseline            The repository baseline (contract §14). Read-only.
+    discovery           Brownfield repository discovery (contract §14).
+    flow                The bound lifecycle flow. Read-only.
+    workitem            WorkItem identity.
+    state               Read workflow state.
+    retry               Guarded retry: refuses while drift re-approval is
+                        pending.
+    audit               Append-only audit ledger.
+    advance             Move to the next phase.
+    gate                Approval gates.
+    drift               Artifact drift detection.
+    feature             SpecKit feature directory.
+    security-review     Phase 17 support.
+    artifact            Artifact bookkeeping.
+    limit               Rate limits and counters.
+    checkpoint          In-phase crash recovery.
+    confirm             Two-step confirmations.
+    remediate           Post-rejection re-run.
+    skip                Advance without a verified artifact.
+    restart             Roll back to an earlier phase.
+    reset               Delete all workflow state.
+    doctor              Recovery consistency check.
+    accept-state        Acknowledge a detected state jump.
+    accept-content      Acknowledge flagged file content.
+    repo-staleness      Commits newer than the newest approval.
+    preflight           Bootstrap prerequisites.
+    scan                Untrusted-content scan.
+    clarify             Clarification responses.
+    guidance            Per-phase steering files.
+    implement           Phase 15 support.
+    manifest            Gate 7 artifact.
+    lock                Session lock.
+    sha                 SHA-256 of a file (lowercase hex).
+    constants           Dump the parsed constant tables.
+
+options:
+  -h, --help            show this help message and exit
+  --project-root PROJECT_ROOT
+                        Target project (default: cwd).
+  --skill-root SKILL_ROOT
+                        Directory holding SKILL.md.
+  --workitem WORKITEM   Active WorkItem id. Required when more than one is
+                        registered.
+  --session SESSION     Conversation session token; refreshes the WorkItem
+                        lock on write.

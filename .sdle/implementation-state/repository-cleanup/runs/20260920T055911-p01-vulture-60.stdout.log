@@ -1,0 +1,4 @@
+scripts\sdle.py:338: unused property 'security_review_md' (60% confidence)
+scripts\sdle.py:4154: unused variable 'CLASSIFICATION_REQUIRED_KEYS' (60% confidence)
+scripts\sdle.py:5060: unused variable 'GATE_DISPOSITIONS' (60% confidence)
+scripts\sdle.py:6003: unused variable 'BASELINE_REFERENCE_KINDS' (60% confidence)

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "repository_root": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "branch": "maintenance/repository-cleanup",
+  "head": "adbe8e153d2dcdd78a1ec898c0064e5fb7a6f081",
+  "current_content_fingerprint": "372976a9c4eb7b28fb339bbe2306ce02e492d3674eacf0fd99acf5ab87dbcfdd",
+  "changed_paths": [
+    ".claude/settings.local.json"
+  ],
+  "plan_path": "plan-claude-codex-defectfix.md",
+  "plan_sha256": "0438fae84edbbb03f69ccce5d0699a200df322c47765f1e8bdc264afa8aad277",
+  "phase": "P01",
+  "phase_status": "planning",
+  "task_id": "P01-T01",
+  "task_status": "in_progress",
+  "next_action": "P01-T01: tracked-file inventory by group; then T02..T13 per the P01 plan in LEDGER.",
+  "handoff": {
+    "last_completed_action": "F-025 fixed and committed (adbe8e1); owner edits committed (4df2510); P01 plan written.",
+    "verification_status": "f025_pass",
+    "note": "settings.local.json owner edit still uncommitted by design (F-012). Records commit follows.",
+    "unfinished_paths": [
+      ".sdle/implementation-state/repository-cleanup"
+    ]
+  },
+  "completed_tasks": [
+    "P00-T01",
+    "P00-T02",
+    "P00-T03",
+    "P00-T04",
+    "P00-T05",
+    "P00-T06",
+    "P01-T00"
+  ],
+  "completed_phases": [
+    "P00"
+  ],
+  "verification_run_ids": [
+    "20260920T055510-p00-collect",
+    "20260920T055516-p00-help",
+    "20260920T055517-p00-constants",
+    "20260920T055519-p00-lint-skill",
+    "20260920T055553-p00-sh-lint",
+    "20260920T055556-p00-ps1-lint",
+    "20260920T055559-p00-validate",
+    "20260920T055546-p00-full-suite",
+    "20260920T062315-p00-two-tests-clean-head-plus-wip",
+    "20260920T123707-p00-full-suite-clean",
+    "20260920T131501-p01-f025-targeted",
+    "20260920T131634-p01-f025-modules"
+  ],
+  "open_finding_ids": [],
+  "run_id": "repository-cleanup-20260920",
+  "base_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
+  "attempt": 1,
+  "in_flight_operation": null,
+  "last_verified_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
+  "ledger_sha256": "74d77387bcae24439cb96fabb9e397e1fce192b4e15fad2002047dec4a6208da",
+  "updated_at_utc": "2026-09-20T13:22:11Z",
+  "blockers": [],
+  "last_verified_content_fingerprint": "ac66c6b284b8b539942e65288dabdd94e36dca26e692c67aae721789870babef"
+}

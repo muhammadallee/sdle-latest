@@ -1,0 +1,33 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+________ test_n14_no_discovery_vocabulary_is_restated_outside_sdle_py _________
+tests\test_units_discovery.py:726: in test_n14_no_discovery_vocabulary_is_restated_outside_sdle_py
+    assert offenders == {}, \
+E   AssertionError: discovery vocabulary restated outside sdle.py: {'.sdle/implementation-state/repository-cleanup/LEDGER.md': ['UNKNOWN'], '.sdle/implementation-state/repository-cleanup/runctl.py': ['UNKNOWN'], '.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.json': ['UNKNOWN'], '.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.stdout.log': ['repository_inventory', 'risks_debt']}
+E   assert {'.sdle/imple...'risks_debt']} == {}
+E     
+E     Left contains 4 more items:
+E     {'.sdle/implementation-state/repository-cleanup/LEDGER.md': ['UNKNOWN'],
+E      '.sdle/implementation-state/repository-cleanup/runctl.py': ['UNKNOWN'],
+E      '.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.json': ['UNKNOWN'],
+E      '.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.stdout.log': ['repository_inventory',
+E                                                                                                    'risks_debt']}
+E     Use -v to get more diff
+__________ test_no_policy_default_value_is_restated_outside_sdle_py ___________
+tests\test_units_governance.py:557: in test_no_policy_default_value_is_restated_outside_sdle_py
+    assert offenders == {}, f"policy defaults restated outside sdle.py: {offenders}"
+E   AssertionError: policy defaults restated outside sdle.py: {'.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.stdout.log': ['authentication_or_authorization', 'backward_incompatible_change', 'catastrophic_blast_radius', 'credential_or_key_exposure', 'cryptography_or_secrets', 'destructive_or_irreversible_migration', 'payment_or_financial', 'personal_or_sensitive_data', 'production_security_boundary', 'regulatory_or_compliance']}
+E   assert {'.sdle/imple...ration', ...]} == {}
+E     
+E     Left contains 1 more item:
+E     {'.sdle/implementation-state/repository-cleanup/runs/20260920T055510-p00-collect.stdout.log': ['authentication_or_authorization',
+E                                                                                                    'backward_incompatible_change',
+E                                                                                                    'catastrophic_blast_radius',
+E                                                                                                    'credential_or_key_exposure',
+E                                                                                                    'cryptography_or_secrets',...
+E     
+E     ...Full output truncated (6 lines hidden), use '-vv' to show
+=========================== short test summary info ===========================
+FAILED tests/test_units_discovery.py::test_n14_no_discovery_vocabulary_is_restated_outside_sdle_py
+FAILED tests/test_units_governance.py::test_no_policy_default_value_is_restated_outside_sdle_py
+2 failed in 39.88s
