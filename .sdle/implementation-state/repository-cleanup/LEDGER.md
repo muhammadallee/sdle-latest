@@ -358,7 +358,7 @@ than written twice.
 | Attempt | Source | Result |
 |---|---|---|
 | `p10-full-suite` | `c963c67` | **INTERRUPTED, by me, on purpose.** While it ran I found that `cmd_governance_gates` derived the requirement model with a bare `gate_requirements` call and so bypassed the pin: with a pin in force it reported a gate `omittable` that `gate show` reported `required`. `c963c67` was therefore not the candidate, and finishing a 38-minute run against it would have produced evidence for a commit nothing would ship. Confirmed the pid was my own runner before stopping it; `runctl reconcile` marked the record and the reason is recorded in it |
-| `p10-full-suite-2` | `f2db495` | see the final status below |
+| `p10-full-suite-2` | `f2db495` | **PASS**: 3033 passed, exit 0, 37m48s, in a depth-1 clone |
 
 Targeted, before the full run: `test_units_gate_policy` + `test_units_governance` + `test_units_shipped_surface` 605 passed; `test_units_gate_artifacts` + `test_units_flow_model` + `test_units_invariants` + `test_lint_skill` 252 passed; the documentation checks 1143 passed; `lint-skill` 44 checks, none failed.
 
@@ -373,6 +373,26 @@ looked like the single home because every *decision* path goes through it. `gove
 *reporting* path that must answer before `init`, so it had its own derivation, and for one commit the two
 surfaces disagreed. Caught by reading the callers rather than by a test, which is why a cross-surface test
 now exists and why `requirement_model` takes the flow as an argument instead of resolving it.
+
+**P10 status: `COMPLETE`.**
+
+| Gate | Evidence |
+|---|---|
+| Full suite | `p10-full-suite-2`, **3033 passed** on `f2db495` in a depth-1 clone (2246 at the P00 baseline, 3024 at P09; the 9 new tests are F-024's) |
+| Linter | 44 checks, none failed, through all three launchers |
+| CI, Linux + Windows, Python 3.11 + 3.13 | **success on all four jobs** ([run 35541739417](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) on `d384ceb`, whose product content is byte-identical to `f2db495` |
+| The defect itself | the reproduction is a regression test that fails on the parent; three more tests pin what must not change |
+| Cross-surface agreement | `gate show` and `governance gates` compared under a pin, after they disagreed for one commit |
+
+**Acceptance candidate: `f2db495`.** Every acceptance criterion P09 reported as met is unchanged;
+AC-01 is now met without exception, and AC-09's blocked half is closed by the CI run above.
+
+**What remains open, and it is not mine to close:** D-03, no LICENSE file exists. D-06 stands as
+recorded: `.claude/settings.local.json` is untracked, and its paths remain in Git history, which no
+one has asked to rewrite. macOS and Windows PowerShell 5.1 remain unexercised on every run.
+
+This block does not amend P09's final report. P09 is a closed acceptance with its own candidate
+(`9f41f8f`) and its own status, true of the evidence that existed when it was written.
 
 ## Findings
 

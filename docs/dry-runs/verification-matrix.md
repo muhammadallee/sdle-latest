@@ -10,12 +10,16 @@ run R1, so `R1` in the last column means those tests passed in it.
 
 | Run | Source | Platform | Command | Result |
 |---|---|---|---|---|
-| R1 | `9f41f8f` (depth-1 clone, so no test depends on Git history) | Windows 10, Python 3.13.0 | `python -m pytest -q` | **PASS**: 3024 passed, 0 failed, 0 errors, 0 skipped (37m47s) |
-| R2 | `9f41f8f` | Windows 10, Python 3.13.0 | `lint-skill` through `python scripts/sdle.py`, `sh scripts/sdle.sh` and `./scripts/sdle.ps1` | **PASS**: 44 checks through each launcher, none failed |
-| R3 | `9f41f8f` | GitHub Actions `ubuntu-latest`, Python 3.11 and 3.13 | the CI workflow | **NOT RUN**: nothing has been pushed |
-| R4 | `9f41f8f` | GitHub Actions `windows-latest`, Python 3.11 and 3.13 | the CI workflow | **NOT RUN**: nothing has been pushed |
+| R1 | `f2db495` (depth-1 clone, so no test depends on Git history) | Windows 10, Python 3.13.0 | `python -m pytest -q` | **PASS**: 3033 passed, 0 failed, 0 errors, 0 skipped (37m48s) |
+| R2 | `f2db495` | Windows 10, Python 3.13.0 | `lint-skill` through `python scripts/sdle.py`, `sh scripts/sdle.sh` and `./scripts/sdle.ps1` | **PASS**: 44 checks through each launcher, none failed |
+| R3 | `d384ceb` | GitHub Actions `ubuntu-latest`, Python 3.11 and 3.13 | the CI workflow | **PASS**: both jobs `success` ([run](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) |
+| R4 | `d384ceb` | GitHub Actions `windows-latest`, Python 3.11 and 3.13 | the CI workflow | **PASS**: both jobs `success` ([run](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) |
 
-Local results say nothing about Linux, macOS, Python 3.11 or Windows PowerShell 5.1; the two CI rows are the gates for them. The engine is standard-library only and cross-platform by design, which is a reason to expect them to pass and is not evidence that they do.
+`d384ceb` is `f2db495` plus this run's own records; the two are byte-identical in
+every product path, so R3 and R4 test the same engine, prompts and documentation
+that R1 and R2 did. A run that was not executed says **NOT RUN**, never PASS.
+
+R3 and R4 are the executed evidence for Linux and for Python 3.11. Still unexercised, on any run: macOS, and Windows PowerShell 5.1.
 
 The transcripts are simulated conversations. What the suite recomputes from them is the progress fractions, gate numbers and labels, the refusal names, the cited test nodes and a few literals; it does not run the conversations. The executed evidence for the setup they start from is in `docs/GETTING-STARTED.md` (what was replayed, and where).
 
