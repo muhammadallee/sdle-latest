@@ -736,7 +736,6 @@ class Constants:
     phase_label_template: dict[str, str] = field(default_factory=dict)
     progress: dict[str, str] = field(default_factory=dict)
     gate_to_execution_phase: dict[str, str] = field(default_factory=dict)
-    version_chain: list[tuple[str, str]] = field(default_factory=list)
     flow_phases: dict[str, list[str]] = field(default_factory=dict)
     # Which capability files each phase requires. Parsed, never inferred: the
     # engine decides what the prompt layer loads, so "load only the relevant
@@ -1034,12 +1033,6 @@ def load_constants(paths: Paths) -> Constants:
         if key:
             consts.gate_to_execution_phase[key] = _column(row, "execution_phase") or ""
 
-    for row in parse_md_table(skill, "VERSION_MIGRATION"):
-        frm = _column(row, "from_version", "workflow_version")
-        to = _column(row, "to_version")
-        if frm:
-            consts.version_chain.append((frm, to or frm))
-
     return consts
 
 
@@ -1197,7 +1190,16 @@ STATUS_DISPLAY = {
 }
 
 
-def read_state(paths: Paths) -> dict:
+def read_state(paths: Paths, *, any_version: bool = False) -> dict:
+    """The WorkItem's state, parsed.
+
+    Refuses `unsupported_state_version` when the file was written under a state
+    schema other than `CURRENT_VERSION`. SDLE never reinterprets, upgrades or
+    resets such a file: it is left exactly as found and the remedy is a new
+    WorkItem. The read-only inspection commands (`state dump`, `state get`,
+    `doctor`, `audit verify`) pass `any_version=True` so a file of another
+    version can still be looked at.
+    """
     relative = paths.runtime_relative
     if not paths.state_file.is_file():
         raise IntegrityError(
@@ -1207,7 +1209,7 @@ def read_state(paths: Paths) -> dict:
             {"path": str(paths.state_file)},
         )
     try:
-        return json.loads(paths.state_file.read_text(encoding="utf-8"))
+        state = json.loads(paths.state_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise IntegrityError(
             "state_unreadable",
@@ -1215,6 +1217,19 @@ def read_state(paths: Paths) -> dict:
             "Options: 'reset workflow' to start fresh, or inspect the file.",
             {"path": str(paths.state_file), "error": str(exc)},
         ) from None
+    version = state.get("workflow_version") if isinstance(state, dict) else None
+    if not any_version and version != CURRENT_VERSION:
+        raise Refused(
+            "unsupported_state_version",
+            f"{relative}/state.json uses state schema {version!r}, and this "
+            f"SDLE reads only {CURRENT_VERSION!r}. It never rewrites another "
+            "version; the file is left exactly as it is. Start a current "
+            "WorkItem with `workitem create --name <name>`, or inspect this "
+            "one with `state dump`.",
+            {"workflow_version": version, "supported": CURRENT_VERSION,
+             "path": str(paths.state_file)},
+        )
+    return state
 
 
 def save_state(paths: Paths, state: dict, session: str | None = None) -> None:
@@ -1460,7 +1475,7 @@ def verify_audit_chain(entries: list[str]) -> tuple[bool, int | None]:
 
 
 def cmd_audit_verify(args, paths: Paths) -> int:
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     expected = state.get("audit_sha")
 
     if expected is None:
@@ -1560,290 +1575,6 @@ def cmd_audit_rebaseline(args, paths: Paths) -> int:
     save_state(paths, state, args.session)
     emit("audit rebaseline",
          {"audit_sha": state["audit_sha"], "rechained": repaired})
-    return EXIT_OK
-
-
-# --------------------------------------------------------------------------
-# Migration
-# --------------------------------------------------------------------------
-
-
-def _add_missing(state: dict, **defaults) -> None:
-    for key, value in defaults.items():
-        state.setdefault(key, value)
-
-
-def _mig_1_0(state, paths, consts):
-    _add_missing(
-        state,
-        speckit_skill_prefix=None,
-        current_artifact_sha=None,
-        current_feature_id=None,
-    )
-
-
-def _mig_1_1(state, paths, consts):
-    _add_missing(state, current_feature_id=None)
-
-
-def _mig_1_2(state, paths, consts):
-    pass
-
-
-def _mig_1_3(state, paths, consts):
-    state.setdefault("approvals", {}).setdefault("gate_design", None)
-
-
-def _mig_1_4(state, paths, consts):
-    _add_missing(
-        state,
-        rate_limits={"max_remediation_attempts": 3, "max_retry_attempts": 3},
-        attempt_counts={},
-    )
-
-
-def _mig_1_5(state, paths, consts):
-    _add_missing(state, verbose=False)
-
-
-def _mig_1_6(state, paths, consts):
-    _add_missing(state, clarification_phase=None)
-
-
-def _mig_1_7(state, paths, consts):
-    _add_missing(state, artifact_shas={}, drift_queue=[], pending_phase=None)
-
-
-def _mig_1_8(state, paths, consts):
-    _add_missing(
-        state,
-        phase_checkpoint=None,
-        security_review_artifact=None,
-        pending_confirm_action=None,
-    )
-    approvals = state.setdefault("approvals", {})
-    approvals.setdefault("gate_tasks", None)
-    approvals.setdefault("gate_security", None)
-    phase = state.get("current_phase")
-    if phase in consts.progress:
-        state["progress"] = consts.progress[phase]
-    if phase in {"implement", "gate_implement", "security_review", "complete"}:
-        state.setdefault("_migration_warnings", []).append(
-            "This workflow was created under SDLE v1.8, which had a different "
-            "phase order. Phases gate_tasks (Gate 4), design_generation "
-            "(Phase 13), and gate_design (Gate 6) were not part of the "
-            "original run. You may continue from your current position or "
-            "`restart phase 13` to generate design documents before the "
-            "implementation review."
-        )
-
-
-def _mig_1_9(state, paths, consts):
-    _add_missing(state, pending_confirm_action=None)
-
-
-def _mig_1_10(state, paths, consts):
-    _add_missing(state, last_updated=None)
-
-
-def _mig_1_11(state, paths, consts):
-    _add_missing(state, audit_sha=None)
-
-
-def _mig_1_12(state, paths, consts):
-    """v1.13: pin the security diff range, and normalise SHA case.
-
-    v1.12 recorded PowerShell's uppercase Get-FileHash output. hashlib emits
-    lowercase. Without normalising, every approved gate false-drifts on the
-    first v1.13 run.
-    """
-    _add_missing(state, implementation_base_ref=None)
-
-    normalised = 0
-    shas = state.get("artifact_shas") or {}
-    for key, value in list(shas.items()):
-        if isinstance(value, str) and value != value.lower():
-            shas[key] = value.lower()
-            normalised += 1
-    for key in ("current_artifact_sha", "audit_sha"):
-        value = state.get(key)
-        if isinstance(value, str) and value != value.lower():
-            state[key] = value.lower()
-            normalised += 1
-    if normalised:
-        state.setdefault("_migration_notes", []).append(
-            f"Normalised {normalised} SHA value(s) to lowercase hex."
-        )
-
-
-def _mig_1_13(state, paths, consts):
-    """Add ``workitem``, bound from where the state file actually lives.
-
-    The state file becomes self-describing, so a file copied to the wrong
-    WorkItem is detectable. Derivation is deterministic, never a guess: a state
-    under ``workitems/<id>/.sdle/`` records ``<id>``; a state still at the
-    legacy ``.workflow/`` location keeps ``null`` until `migrate-workflow`
-    binds it.
-    """
-    _add_missing(state, workitem=None)
-    if state.get("workitem") is None:
-        parent = paths.state_file.parent
-        if parent.name == ".sdle":
-            state["workitem"] = parent.parent.name
-
-
-def _mig_1_14(state, paths, consts):
-    """Replace the flat `current_feature_id` with the `specKit` object.
-
-    Contract §10 makes Spec Kit context an object owned by the WorkItem. The
-    old value is *moved*, not mirrored: two fields for one fact would break
-    invariant 7. `featureDirectory` is read off the tree in a fixed order,
-    first hit wins, so it is a fact about disk rather than an inference:
-
-      1. `workitems/<workitem>/specs/<featureId>` when that directory exists;
-      2. `.specify/specs/<featureId>` when that one does — where a pre-v1.15
-         run's artifacts genuinely are, so an in-flight workflow keeps
-         resolving its gates instead of breaking at the next one;
-      3. otherwise null.
-
-    Nothing moves on disk here. Migration reports; `feature resolve` relocates.
-    """
-    feature = state.pop("current_feature_id", None)
-    if not isinstance(feature, str) or not feature:
-        feature = None
-
-    directory = None
-    if feature:
-        candidates = []
-        workitem = state.get("workitem")
-        if isinstance(workitem, str) and workitem:
-            candidates.append(f"workitems/{workitem}/specs/{feature}")
-        candidates.append(f".specify/specs/{feature}")
-        for candidate in candidates:
-            if (paths.project_root / candidate).is_dir():
-                directory = candidate
-                break
-
-    speckit_set(state, featureId=feature, featureDirectory=directory,
-                workflowId=None, runId=None)
-
-
-def _mig_1_15(state, paths, consts):
-    """Name the lifecycle a pre-flow workflow has been traversing all along.
-
-    Every workflow created before the flow model traversed exactly one phase
-    list — the pre-flow PHASE_SEQUENCE — and that list is GREENFIELD. The value
-    is therefore unconditional, and this migration deliberately does **not**
-    consult the governance record: a migration records what a workflow *has
-    been doing*, and re-deriving traversal from a classification assessed later
-    would silently reshape an in-flight run. A workflow whose record now
-    proposes a different flow is refused `flow_mismatch` at its next advance,
-    with a named remedy — which is correct, and is not this function's job.
-    """
-    if not isinstance(state.get("flow"), str) or not state["flow"]:
-        state["flow"] = DEFAULT_FLOW
-
-
-def _mig_1_16(state, paths, consts):
-    """Introduce ``pending_branch_ack`` (T11 D13).
-
-    ``None`` unconditionally, and that is the safe value rather than a
-    convenient one: a migrated workflow with an outstanding
-    ``pending_confirm_action == "branch_mismatch"`` has an acknowledgement
-    whose branch nobody recorded, so the guard must ask again on the next
-    critical command instead of honouring an acknowledgement it cannot
-    attribute. Guessing ``current_branch()`` here would manufacture consent
-    the user never gave.
-    """
-    _add_missing(state, pending_branch_ack=None)
-
-
-MIGRATIONS: list[tuple[str, str, object]] = [
-    ("1.0", "1.1", _mig_1_0),
-    ("1.1", "1.2", _mig_1_1),
-    ("1.2", "1.3", _mig_1_2),
-    ("1.3", "1.4", _mig_1_3),
-    ("1.4", "1.5", _mig_1_4),
-    ("1.5", "1.6", _mig_1_5),
-    ("1.6", "1.7", _mig_1_6),
-    ("1.7", "1.8", _mig_1_7),
-    ("1.8", "1.9", _mig_1_8),
-    ("1.9", "1.10", _mig_1_9),
-    ("1.10", "1.11", _mig_1_10),
-    ("1.11", "1.12", _mig_1_11),
-    ("1.12", "1.13", _mig_1_12),
-    ("1.13", "1.14", _mig_1_13),
-    ("1.14", "1.15", _mig_1_14),
-    ("1.15", "1.16", _mig_1_15),
-    ("1.16", "1.17", _mig_1_16),
-]
-
-
-def migrate_state(state: dict, paths: Paths, consts: Constants) -> list[str]:
-    version = state.get("workflow_version")
-    known = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
-    if version not in known:
-        raise Refused(
-            "unknown_version",
-            f"Unrecognized workflow_version: {version}. Options: "
-            "'reset workflow' to start fresh, or 'show state' to inspect.",
-            {"workflow_version": version, "known": sorted(known)},
-        )
-
-    steps: list[str] = []
-    guard = 0
-    while state.get("workflow_version") != CURRENT_VERSION:
-        guard += 1
-        if guard > len(MIGRATIONS) + 1:
-            raise IntegrityError(
-                "migration_loop",
-                "Migration chain did not terminate.",
-                {"workflow_version": state.get("workflow_version")},
-            )
-        current = state.get("workflow_version")
-        for frm, to, func in MIGRATIONS:
-            if frm == current:
-                func(state, paths, consts)
-                state["workflow_version"] = to
-                steps.append(f"{frm}->{to}")
-                break
-        else:
-            raise Refused(
-                "unknown_version",
-                f"No migration path from {current}.",
-                {"workflow_version": current},
-            )
-    return steps
-
-
-def cmd_migrate(args, paths: Paths) -> int:
-    consts = load_constants(paths)
-    state = read_state(paths)
-    before = state.get("workflow_version")
-    steps = migrate_state(state, paths, consts)
-    warnings = state.pop("_migration_warnings", [])
-    notes = state.pop("_migration_notes", [])
-    if steps:
-        append_audit(
-            paths,
-            state,
-            phase=state.get("current_phase", "unknown"),
-            event="migration",
-            message=f"State migrated {before} -> {CURRENT_VERSION} ({', '.join(steps)}).",
-        )
-        save_state(paths, state, args.session)
-    for text in warnings + notes:
-        print(text, file=sys.stderr)
-    emit(
-        "migrate",
-        {
-            "from": before,
-            "to": state.get("workflow_version"),
-            "steps": steps,
-            "warnings": warnings,
-            "notes": notes,
-        },
-    )
     return EXIT_OK
 
 
@@ -2009,7 +1740,7 @@ def cmd_init(args, paths: Paths) -> int:
 
 
 def cmd_state_get(args, paths: Paths) -> int:
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     if args.field:
         if args.field not in state:
             raise Refused(
@@ -2223,7 +1954,7 @@ def cmd_resume(args, paths: Paths) -> int:
 
 def cmd_state_dump(args, paths: Paths) -> int:
     consts = load_constants(paths)
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     phase = state.get("current_phase", "unknown")
 
     lines = [
@@ -2629,7 +2360,7 @@ def cmd_workitem_list(args, paths: Paths) -> int:
 # `migrate-workflow` is here because it does its own explicit binding from a
 # mandatory --workitem.
 RUNTIME_FREE_COMMANDS = frozenset({
-    "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
+    "lint-skill", "sha", "constants", "workitem",
     # `validate` exists to diagnose repositories that are too broken to
     # resolve, so it must never be gated on resolution succeeding. It runs the
     # ladder itself, speculatively, and turns a refusal into a finding.
@@ -2676,7 +2407,7 @@ def registered_workitem_ids(paths: Paths) -> list[str]:
 # second writer (CLAUDE.md invariant 6).
 
 ACTIVE_CONTEXT_NAME = ".active-context.json"
-ACTIVE_CONTEXT_SETTERS = ("init", "use", "migrate-workflow")
+ACTIVE_CONTEXT_SETTERS = ("init", "use")
 
 
 def active_context_file(paths: Paths) -> Path:
@@ -3093,10 +2824,11 @@ def bind_workitem(
     if decision.reason == "legacy_present":
         raise Refused(
             "legacy_workflow_present",
-            "A repository-global workflow still exists at "
-            f"{paths.legacy_workflow.name}/state.json. Move it under a "
-            "WorkItem first: `migrate-workflow --workitem <id>`. SDLE will "
-            "not run two runtimes side by side.",
+            "A repository-global workflow from a retired runtime exists at "
+            f"{paths.legacy_workflow.name}/state.json. SDLE does not run or "
+            "migrate it, and will not run two runtimes side by side. It is "
+            "left exactly as it is: remove or move it aside, then create a "
+            "current WorkItem with `workitem create --name <name>`.",
             {"legacy_state": str(paths.legacy_workflow / "state.json")},
         )
 
@@ -3135,14 +2867,11 @@ def bind_workitem(
             legacy = paths.legacy_workflow / "state.json"
             raise Refused(
                 "workitem_required",
-                "No WorkItem is registered, but a pre-v1.14 workflow still "
-                f"exists at {paths.legacy_workflow.name}/state.json. SDLE no "
-                "longer runs a repository-global runtime. Recover it in two "
-                "steps, in this order:\n"
-                "  1. `workitem create --name <name>`\n"
-                "  2. `migrate-workflow --workitem <id>`\n"
-                f"The migration never modifies {paths.legacy_workflow.name}/ "
-                "— it is left in place as an archive.",
+                "No WorkItem is registered, and a workflow from a retired "
+                f"runtime exists at {paths.legacy_workflow.name}/state.json. "
+                "SDLE does not run or migrate it and leaves it exactly as it "
+                "is. Start a current WorkItem instead: "
+                "`workitem create --name <name>`.",
                 {"workitems": [], "legacy_state": str(legacy)},
             )
         raise Refused(
@@ -3910,8 +3639,8 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
             "runtime_state_outside_workitem", VALIDATE_WARNING,
             f"a legacy repository-global runtime still exists at "
             f"{paths.legacy_workflow.name}/state.json while "
-            f"{len(indexed)} WorkItem(s) are registered; move it with "
-            "`migrate-workflow --workitem <id>`",
+            f"{len(indexed)} WorkItem(s) are registered; SDLE does not run it "
+            "and leaves it untouched, so remove it when it is no longer needed",
             path=paths.legacy_workflow / "state.json",
         ))
 
@@ -6470,229 +6199,6 @@ MIGRATION_VERIFIED_FIELDS = (
     "current_phase", "status", "progress", "approvals", "artifact_shas",
     "rate_limits", "attempt_counts", "implementation_base_ref", "phase_history",
 )
-
-
-def cmd_migrate_workflow(args, paths: Paths) -> int:
-    consts = load_constants(paths)
-
-    # Step 2 — an explicitly resolved, already-registered WorkItem. §20 says
-    # "resolve/create"; this narrows it to *resolve* so WorkItem creation keeps
-    # exactly one entry point, `workitem create`.
-    requested = getattr(args, "migrate_workitem", None) or args.workitem
-    if not requested:
-        # T11 D8: a missing flag is a *usage* error (exit 2) and must not
-        # share `workitem_required`, which is the resolution refusal (exit 1).
-        raise UsageError(
-            "workitem_flag_required",
-            "migrate-workflow needs a target: --workitem <id>.",
-            {},
-        )
-    known = registered_workitem_ids(paths)
-    if requested not in known:
-        raise Refused(
-            "workitem_unknown",
-            f"No WorkItem '{requested}' in workitems/index.md. Create it "
-            "first with `workitem create --name <name>`.",
-            {"requested": requested, "workitems": known},
-        )
-
-    legacy = dataclass_replace(paths, workitem=None)
-    target = dataclass_replace(paths, workitem=requested)
-
-    # Step 3 — re-run safety. No --force: that would be the fail-open option.
-    if target.state_file.is_file():
-        raise Refused(
-            "target_exists",
-            f"{target.runtime_relative}/state.json already exists. SDLE will "
-            "not overwrite a WorkItem's runtime; pick another WorkItem, or "
-            "remove that runtime deliberately first.",
-            {"path": str(target.state_file)},
-        )
-
-    # Step 4 — validate legacy state.
-    if not legacy.state_file.is_file():
-        raise IntegrityError(
-            "legacy_state_missing",
-            f"There is no {legacy.runtime_relative}/state.json to migrate.",
-            {"path": str(legacy.state_file)},
-        )
-    try:
-        state = json.loads(legacy.state_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise IntegrityError(
-            "legacy_state_invalid",
-            f"{legacy.runtime_relative}/state.json is not valid JSON: {exc}. "
-            "Nothing was written; repair or remove it and re-run.",
-            {"path": str(legacy.state_file), "error": str(exc)},
-        ) from None
-    known_versions = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
-    if not isinstance(state, dict) or state.get("workflow_version") not in known_versions:
-        raise IntegrityError(
-            "legacy_state_invalid",
-            f"{legacy.runtime_relative}/state.json does not carry a known "
-            "workflow_version. Nothing was written.",
-            {
-                "path": str(legacy.state_file),
-                "workflow_version": (
-                    state.get("workflow_version") if isinstance(state, dict) else None
-                ),
-                "known": sorted(known_versions),
-            },
-        )
-
-    # Step 5 — legacy audit integrity, using the same verifier `audit verify`
-    # uses. A broken chain must not be laundered by copying it somewhere new.
-    expected_audit = state.get("audit_sha")
-    audit_text = (
-        legacy.audit_file.read_text(encoding="utf-8")
-        if legacy.audit_file.is_file() else None
-    )
-    if expected_audit is not None:
-        broken = None
-        if audit_text is None:
-            broken = f"{legacy.runtime_relative}/audit.md is missing"
-        else:
-            chain_ok, broken_at = verify_audit_chain(split_audit_entries(audit_text))
-            if not chain_ok:
-                broken = f"entry {broken_at} breaks the prev-hash chain"
-            elif sha256_file(legacy.audit_file) != expected_audit:
-                broken = "audit_sha does not match the ledger on disk"
-        if broken:
-            raise Refused(
-                "legacy_audit_broken",
-                f"The legacy audit ledger is not intact ({broken}). Migrating "
-                "it would carry the break into the WorkItem. Resolve it with "
-                "`audit rebaseline` first; nothing was written.",
-                {"detail": broken, "path": str(legacy.audit_file)},
-            )
-
-    # Step 6 — capture the source facts that become migration evidence.
-    stamp = now_iso()
-    execution_id, evidence_file = reserve_evidence(
-        paths, target.evidence_dir, stamp,
-        lambda eid: f"migration-{eid}.json")
-    facts = {
-        "migratedFrom": legacy.runtime_relative,
-        "at": stamp,
-        "executionId": execution_id,
-        "workitem": requested,
-        "legacyStateSha": sha256_file(legacy.state_file),
-        "legacyAuditSha": (
-            sha256_file(legacy.audit_file) if legacy.audit_file.is_file() else None
-        ),
-        "gitHead": _git_value(paths, "rev-parse", "HEAD"),
-        "sdleVersion": CURRENT_VERSION,
-    }
-
-    # Step 7 — copy, each via write_atomic, state.json deliberately excluded.
-    if audit_text is not None:
-        write_atomic(target.audit_file, audit_text)
-    for source, destination in (
-        (legacy.manifest_file, target.manifest_file),
-        (legacy.completion_file, target.completion_file),
-    ):
-        if source.is_file():
-            write_atomic(destination, source.read_text(encoding="utf-8"))
-    write_atomic(evidence_file, json.dumps(facts, indent=2) + "\n")
-    write_execution_file(target, execution_id, stamp)
-
-    # Step 8 — verify the copied ledger *at the new location* before anything
-    # commits, then migrate in memory, then append the migration entry, then
-    # write the target state.json LAST.
-    if audit_text is not None and expected_audit is not None:
-        copied_ok, _ = verify_audit_chain(
-            split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
-        )
-        if not copied_ok or sha256_file(target.audit_file) != expected_audit:
-            raise IntegrityError(
-                "migration_verify_failed",
-                "The audit ledger did not survive the copy intact. Nothing "
-                f"was committed; {legacy.runtime_relative}/ remains "
-                "authoritative.",
-                {"path": str(target.audit_file)},
-            )
-
-    migrated = json.loads(json.dumps(state))
-    steps = migrate_state(migrated, target, consts)
-    migrated.pop("_migration_warnings", None)
-    migrated.pop("_migration_notes", None)
-    migrated["workitem"] = requested
-
-    append_audit(
-        target, migrated,
-        phase=migrated.get("current_phase") or "unknown",
-        event="workflow_migrated",
-        message=f"Workflow migrated from {legacy.runtime_relative}/ to "
-                f"{target.runtime_relative}/ (execution {execution_id}). "
-                f"Legacy runtime left untouched.",
-    )
-    write_atomic(target.state_file, json.dumps(migrated, indent=2) + "\n")  # COMMIT
-
-    # Step 9 — verify the target. The anchor is the in-memory migrated state:
-    # when the version chain runs no steps it is byte-equal to the legacy
-    # values, which is the comparison contract §20.11 asks for; when the chain
-    # does run, the chain's own effect is not a migration defect.
-    reread = json.loads(target.state_file.read_text(encoding="utf-8"))
-    mismatch = [f for f in MIGRATION_VERIFIED_FIELDS
-                if reread.get(f) != migrated.get(f)]
-    if reread.get("workitem") != requested:
-        mismatch.append("workitem")
-    target_chain_ok, _ = verify_audit_chain(
-        split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
-    )
-    if not target_chain_ok or sha256_file(target.audit_file) != reread.get("audit_sha"):
-        mismatch.append("audit")
-    if mismatch:
-        # Undo the commit marker: without state.json the target does not
-        # resolve, and the legacy runtime stays the only authority.
-        target.state_file.unlink(missing_ok=True)
-        raise IntegrityError(
-            "migration_verify_failed",
-            f"The migrated state did not verify ({', '.join(mismatch)}). The "
-            f"target was rolled back; {legacy.runtime_relative}/ remains "
-            "authoritative.",
-            {"fields": mismatch},
-        )
-
-    # Step 10 — record the migration on the WorkItem's identity metadata.
-    metadata_file = workitem_metadata_file(target)
-    metadata = workitem_metadata(target) or {}
-    metadata["migration"] = {
-        "migratedFrom": facts["migratedFrom"],
-        "at": stamp,
-        "executionId": execution_id,
-        "legacyStateSha": facts["legacyStateSha"],
-    }
-    write_atomic(metadata_file, json.dumps(metadata, indent=2) + "\n")
-
-    # Step 11 — point this working directory at the migrated WorkItem.
-    # Strictly after the commit write and its verification, so a crash can
-    # never leave a context naming a runtime that is not authoritative. Like
-    # `init`, a failure here is not allowed to fail an already-committed
-    # migration.
-    try:
-        write_active_context(target, requested, "migrate-workflow")
-    except OSError:
-        pass
-
-    def relative(path: Path) -> str:
-        return str(path.relative_to(paths.project_root)).replace(os.sep, "/")
-
-    # Step 12 — the legacy runtime is archival, never deleted by SDLE.
-    emit("migrate-workflow", {
-        "workitem": requested,
-        "from": legacy.runtime_relative,
-        "to": target.runtime_relative,
-        "execution_id": execution_id,
-        "migration_steps": steps,
-        "state_file": relative(target.state_file),
-        "evidence": relative(evidence_file),
-        "legacy_state_sha": facts["legacyStateSha"],
-        "legacy_audit_sha": facts["legacyAuditSha"],
-        "legacy_archive": legacy.runtime_relative,
-        "legacy_preserved": True,
-    })
-    return EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -9391,7 +8897,7 @@ def cmd_reset(args, paths: Paths) -> int:
 
 def cmd_doctor(args, paths: Paths) -> int:
     consts = load_constants(paths)
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     current = state.get("current_phase")
     history = state.get("phase_history") or []
     flow = flow_for_state(state, consts)
@@ -10267,8 +9773,7 @@ def check_tables_wellformed(paths: Paths) -> tuple[list[Check], Constants | None
                 "tables_wellformed",
                 True,
                 f"Parsed {len(consts.phase_sequence)} phases, "
-                f"{len(consts.phase_to_gate_key)} gates, "
-                f"{len(consts.version_chain)} migration rows.",
+                f"{len(consts.phase_to_gate_key)} gates.",
             )
         ],
         consts,
@@ -10461,7 +9966,6 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.extend(_check_discovery(paths, consts))
     checks.append(_check_single_state_template(paths))
     checks.append(_check_version_consistency(paths))
-    checks.append(_check_migration_covers_state_fields(paths, consts))
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
@@ -11056,33 +10560,6 @@ def _check_version_consistency(paths: Paths) -> Check:
     )
 
 
-def _check_migration_covers_state_fields(paths: Paths, consts: Constants) -> Check:
-    """Every field in the template is introduced by the chain.
-
-    Without this, a new state field ships with no upgrade path and older
-    state.json files break on load.
-    """
-    template = json.loads(paths.state_template.read_text(encoding="utf-8"))
-    rows = parse_md_table(paths.skill_md, "VERSION_MIGRATION")
-    actions = " ".join((_column(r, "action") or "") for r in rows)
-
-    base = {
-        "workflow_version", "project_name", "current_phase", "status",
-        "progress", "current_artifact", "speckit_initialized", "phase_history",
-        "approvals",
-    }
-    missing = [
-        key for key in template
-        if key not in base and key not in actions
-    ]
-    return Check(
-        "migration_covers_every_state_field",
-        not missing,
-        "every field has a migration row" if not missing
-        else f"no migration row introduces {missing}",
-    )
-
-
 POWERSHELL_ONLY = (
     "Get-FileHash", "New-Item -ItemType", "Get-ChildItem", "Set-Content",
     "Out-File", "%USERPROFILE%", "Get-Content",
@@ -11510,7 +10987,6 @@ def cmd_constants(args, paths: Paths) -> int:
             # inspectable. `Constants.flow()` is what refuses.
             "flows": {name: built.as_dict()
                       for name, built in sorted(consts.flows.items())},
-            "version_chain": [list(pair) for pair in consts.version_chain],
             "skill_root": str(paths.skill_root),
             "project_root": str(paths.project_root),
         },
@@ -11558,19 +11034,6 @@ def build_parser() -> argparse.ArgumentParser:
              "(read-only).",
     )
     sub.set_defaults(handler=cmd_resume)
-
-    sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
-    sub.set_defaults(handler=cmd_migrate)
-
-    sub = subparsers.add_parser(
-        "migrate-workflow",
-        help="Move a legacy .workflow/ runtime under a WorkItem.",
-    )
-    # Distinct dest so `--workitem` works on either side of the subcommand:
-    # argparse would otherwise clobber the global value with this one's default.
-    sub.add_argument("--workitem", dest="migrate_workitem",
-                     help="Target WorkItem id (required, must be registered).")
-    sub.set_defaults(handler=cmd_migrate_workflow)
 
     sub = subparsers.add_parser(
         "validate", help="Check the WorkItem registry and runtime placement."

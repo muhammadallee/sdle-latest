@@ -11,7 +11,7 @@ argument-hint: "[--verbose]"
    nothing should be initialised.
 2. If a workflow already exists for the resolved WorkItem
    (`workitems/<id>/.sdle/state.json`), this is a resume: run
-   `sdle.sh migrate`, then `sdle.sh header`, then `sdle.sh resume` — which
+   `sdle.sh header`, then `sdle.sh resume` — which
    reports position, pending work and the `capabilities` this phase requires,
    from disk alone. Load exactly those capability files and follow them. A
    resume never asks for a WorkItem name. Resolution handles the
@@ -27,13 +27,12 @@ argument-hint: "[--verbose]"
    inside an unindexed `workitems/<x>/` — register it or move.
    If the registry itself looks wrong, `sdle.sh validate` diagnoses it and
    still runs when resolution cannot.
-   If a repository-global `.workflow/state.json` exists, it is a legacy
-   workflow and it does **not** run: every runtime command refuses exit 1
-   `workitem_required` and the refusal names the recovery. Do exactly what
-   it names, in order — `sdle.sh workitem create --name "<name>"`, then
-   `sdle.sh migrate-workflow --workitem <id>` once. The migration leaves
-   `.workflow/` byte-for-byte untouched as an archive. `init` refuses
-   `legacy_workflow_present` while it is there.
+   If a repository-global `.workflow/state.json` exists, it is a workflow from a retired runtime and it
+   does **not** run: every runtime command refuses exit 1 `workitem_required`, and the refusal says SDLE
+   does not run or migrate it and leaves it untouched. Do not try to move it: start a current WorkItem with
+   `sdle.sh workitem create --name "<name>"`. `init` refuses `legacy_workflow_present` while it is there.
+   A WorkItem whose `state.json` uses another state schema is refused `unsupported_state_version`; show the
+   message and stop.
 3. Otherwise this is a new workflow, and identity comes before initialisation.
    Ask `WorkItem name?` and run
    `sdle.sh workitem create --name "<what the user typed>"`.

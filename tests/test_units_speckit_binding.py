@@ -102,16 +102,6 @@ def plant_legacy_workflow(bare_project: Project) -> None:
     )
 
 
-def as_v114(project: Project, **extra) -> dict:
-    """The project's state, wound back to the v1.14 shape."""
-    state = project.state()
-    state["workflow_version"] = "1.14"
-    state.pop("specKit", None)
-    state["current_feature_id"] = None
-    state.update(extra)
-    return state
-
-
 def drive_full_workflow(view: Project, feature: str) -> None:
     """All 18 phases, with `feature bind` at every generation phase.
 
@@ -769,80 +759,14 @@ def test_n7_the_legacy_binding_no_longer_resolves_a_feature(bare_project):
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "workitem_required", result
-    assert "migrate-workflow" in result.envelope["message"]
+    assert "workitem create" in result.envelope["message"]
+    assert "migrate-workflow" not in result.envelope["message"]
     assert (bare_project.root / ".specify" / "specs" / "001-legacy").is_dir()
     assert (bare_project.root / "specs" / "002-native").is_dir()
     assert sorted(
         p.name for p in (bare_project.root / ".workflow").iterdir()
     ) == ["state.json"]
 
-
-# ==========================================================================
-# N8 — migration 1.14 -> 1.15
-# ==========================================================================
-
-
-@pytest.mark.parametrize(
-    "layout,expected",
-    [
-        ("workitem", f"workitems/{FIXTURE_WORKITEM_ID}/specs/{FEATURE_ID}"),
-        ("legacy", f".specify/specs/{FEATURE_ID}"),
-        ("both", f"workitems/{FIXTURE_WORKITEM_ID}/specs/{FEATURE_ID}"),
-        ("neither", None),
-    ],
-)
-def test_n8_the_feature_directory_is_derived_from_disk(project, layout, expected):
-    project.ok("init")
-    if layout in ("workitem", "both"):
-        project.write_artifact(f"{project.feature_dir(FEATURE_ID)}/spec.md")
-    if layout in ("legacy", "both"):
-        project.write_artifact(f".specify/specs/{FEATURE_ID}/spec.md")
-    project.write_state(as_v114(project, current_feature_id=FEATURE_ID))
-
-    result = project.ok("migrate")
-
-    state = project.state()
-    assert result.data["steps"] == ["1.14->1.15", "1.15->1.16",
-                                    "1.16->1.17"]
-    assert "current_feature_id" not in state
-    assert state["specKit"]["featureId"] == FEATURE_ID
-    assert state["specKit"]["featureDirectory"] == expected
-    assert state["specKit"]["workflowId"] is None
-    assert state["specKit"]["runId"] is None
-
-
-def test_n8_a_null_feature_id_migrates_to_an_all_null_object(project):
-    project.ok("init")
-    project.write_state(as_v114(project))
-
-    project.ok("migrate")
-
-    assert project.state()["specKit"] == {
-        "featureId": None, "featureDirectory": None,
-        "workflowId": None, "runId": None,
-    }
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        ("state", "dump"),
-        ("header",),
-        ("gate", "show", "--gate", "gate_spec"),
-        ("artifact", "path", "--gate", "gate_spec"),
-    ],
-)
-def test_n8_a_state_with_no_speckit_key_is_readable(project, args):
-    """F1: no reader may index `specKit` or `current_feature_id` directly."""
-    project.ok("init")
-    state = as_v114(project)
-    state.pop("current_feature_id", None)
-    project.write_state(state)
-
-    result = project.run(*args)
-
-    assert result.exit_code == EXIT_OK, result
-    assert "Traceback" not in result.stderr
 
 
 # ==========================================================================
@@ -1024,68 +948,3 @@ def test_n13_a_contained_feature_directory_is_not_a_finding(bare_project):
 # nothing drove migrate -> approve, so the interaction was unpinned. These two
 # cases pin both halves: the refusal, and the documented recovery.
 
-
-def test_migrated_in_flight_workflow_refuses_its_next_speckit_gate(bare_project):
-    """Step (b) buys resolution, not approval — and the refusal names the cure.
-
-    A v1.14 workflow whose artifacts still sit at the repository-global
-    `.specify/specs/<id>` migrates to a `featureDirectory` outside the WorkItem.
-    Approving there would let a WorkItem's gate bless an artifact that is not
-    attributable to it, so the gate refuses rather than warns.
-    """
-    view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
-    view.record_governance()  # T06: E1.
-    view.ok("init")
-    bare_project.write_artifact(".specify/memory/constitution.md")
-    view.ok("advance", "--to", "gate_constitution")
-    review_for_gate(view, "gate_constitution")  # T06: E2.
-    view.ok("gate", "approve", "--gate", "gate_constitution")
-    bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
-    view.write_state(as_v114(view, current_feature_id="001-alpha"))
-
-    migrated = view.ok("migrate")
-    assert migrated.data["steps"][-1] == "1.16->1.17"
-    assert view.state()["specKit"]["featureDirectory"] == ".specify/specs/001-alpha"
-
-    view.ok("advance", "--to", "gate_spec")
-    result = view.run("gate", "approve", "--gate", "gate_spec")
-
-    assert result.exit_code == EXIT_REFUSED
-    assert result.reason == "feature_outside_workitem"
-    assert result.data["expected_prefix"] == "workitems/wi-a/specs/"
-    assert view.state()["approvals"]["gate_spec"] is None
-    assert "feature resolve" in result.stderr
-
-
-def test_feature_resolve_recovers_a_migrated_workflow_without_drift(bare_project):
-    """The remedy the refusal names actually works, and preserves content SHAs.
-
-    Relocation must not look like tampering: the artifact's bytes are unchanged,
-    so an earlier gate's `artifact_shas` baseline still matches and no false
-    drift fires on the way through.
-    """
-    view = bare_project.as_workitem(create_wi(bare_project, "Wi A"))
-    view.record_governance()  # T06: E1.
-    view.ok("init")
-    bare_project.write_artifact(".specify/memory/constitution.md")
-    view.ok("advance", "--to", "gate_constitution")
-    review_for_gate(view, "gate_constitution")  # T06: E2.
-    view.ok("gate", "approve", "--gate", "gate_constitution")
-    bare_project.write_artifact(".specify/specs/001-alpha/spec.md")
-    before = sha_map(bare_project.root / ".specify" / "specs" / "001-alpha")
-    view.write_state(as_v114(view, current_feature_id="001-alpha"))
-    view.ok("migrate")
-    view.ok("advance", "--to", "gate_spec")
-
-    view.ok("feature", "resolve")
-
-    assert view.state()["specKit"]["featureDirectory"] == (
-        "workitems/wi-a/specs/001-alpha"
-    )
-    moved = sha_map(bare_project.root / "workitems" / "wi-a" / "specs" / "001-alpha")
-    assert moved == before, "relocation changed content; drift would fire falsely"
-
-    review_for_gate(view, "gate_spec")  # T06: E2.
-    approved = view.ok("gate", "approve", "--gate", "gate_spec")
-    assert approved.exit_code == EXIT_OK
-    assert view.state()["approvals"]["gate_spec"] is not None

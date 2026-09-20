@@ -204,14 +204,6 @@ def test_a_documentation_readme_at_the_right_version_is_clean(repo):
     assert checks["version_string_consistent"] is True, checks
 
 
-def test_a_state_field_without_a_migration_row_fires(repo):
-    path = repo.skill_root / "templates" / "state.json"
-    template = json.loads(path.read_text(encoding="utf-8"))
-    template["brand_new_field"] = None
-    path.write_text(json.dumps(template, indent=2), encoding="utf-8")
-    assert_only_failure(repo, "migration_covers_every_state_field")
-
-
 def test_a_reintroduced_powershell_cmdlet_fires(repo):
     path = repo.skill_root / "modules" / "phase-execution.md"
     path.write_text(

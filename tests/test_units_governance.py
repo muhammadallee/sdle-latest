@@ -836,7 +836,8 @@ def test_governance_refuses_when_a_legacy_runtime_is_all_there_is(bare_project):
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "workitem_required", result
-    assert "migrate-workflow" in result.envelope["message"]
+    assert "workitem create" in result.envelope["message"]
+    assert "migrate-workflow" not in result.envelope["message"]
     assert not (legacy / "governance.json").exists()
     assert sorted(p.name for p in legacy.iterdir()) == before
 

@@ -30,7 +30,6 @@ typed `approve` are convention only. Two of those three predate T10.
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 from pathlib import Path
@@ -194,8 +193,7 @@ def test_n8_constants_exposes_the_map(repo):
     result = repo.ok("constants")
     assert "capability_map" in result.data
     # Nothing that was there before was dropped to make room for it.
-    for key in ("phase_sequence", "flows", "gate_to_execution_phase",
-                "version_chain"):
+    for key in ("phase_sequence", "flows", "gate_to_execution_phase"):
         assert key in result.data
 
 
@@ -432,26 +430,23 @@ def test_n11_resume_composes_and_never_re_derives(started):
     assert resumed["branch_mismatch"] == header["branch_mismatch"]
 
 
-def test_n12_resume_writes_nothing_and_migrates_nothing(started_git):
-    """N12/A9/F6. Read-only means read-only — no state, no audit line, no
-    lock touch, and above all no silent migration."""
+def test_n12_resume_refuses_an_unsupported_state_and_writes_nothing(started_git):
+    """N12/A9/F6. Read-only means read-only: no state, no audit line, no lock
+    touch. A state written under another schema is refused, never upgraded."""
     state = started_git.state()
     state["workflow_version"] = "1.15"
-    state.pop("flow", None)
     started_git.write_state(state)
 
     before = tree_map(started_git.root)
     audit_before = started_git.audit_file.read_bytes()
 
-    result = started_git.ok("resume")
+    result = started_git.run("resume")
 
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "unsupported_state_version", result
     assert tree_map(started_git.root) == before
     assert started_git.audit_file.read_bytes() == audit_before
     assert started_git.state()["workflow_version"] == "1.15"
-    assert "flow" not in started_git.state()
-    # A pre-v1.16 state still *reports* a flow, because every workflow that
-    # predates the field traversed GREENFIELD. Reporting is not migrating.
-    assert result.data["flow"] == "GREENFIELD"
     assert started_git.ok("audit", "verify").exit_code == EXIT_OK
 
 
@@ -705,7 +700,6 @@ BASELINE_CHECKS = (
     "discovery_vocabulary_is_not_restated_in_prompt_files",
     "single_state_template",
     "version_string_consistent",
-    "migration_covers_every_state_field",
     "no_powershell_only_cmdlets",
     "no_hardcoded_progress_outside_progress_map",
     "doc_lists_every_phase_README",
@@ -770,39 +764,6 @@ def test_the_dry_run_index_lists_every_transcript_beside_it():
     missing = [path.name for path in sorted(directory.glob("*.md"))
                if path.name != "README.md" and path.name not in index]
     assert not missing, f"docs/dry-runs/README.md does not link: {missing}"
-
-
-def test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched(
-    bare_project,
-):
-    """N22/A24, split by T11 X3.
-
-    T11 removed the dual-read rung it named as its owner, so the "the legacy
-    rung still binds" half is inverted here. `migrate-workflow`'s read-only
-    treatment of `.workflow/` is B9 and is kept verbatim.
-    """
-    template = json.loads(
-        (bare_project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    template["current_phase"] = "requirements_check"
-    legacy = bare_project.root / ".workflow"
-    legacy.mkdir()
-    (legacy / "state.json").write_text(json.dumps(template, indent=2) + "\n",
-                                       encoding="utf-8", newline="\n")
-    (legacy / "audit.md").write_text("# Audit\n", encoding="utf-8",
-                                     newline="\n")
-
-    before = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    refused = bare_project.run("state", "get", "--field", "current_phase")
-    assert refused.exit_code == EXIT_REFUSED, refused
-    assert refused.reason == "workitem_required", refused
-
-    bare_project.ok("workitem", "create", "--name", "migrated thing")
-    wid = bare_project.run("workitem", "list").data["workitems"][-1]["id"]
-    assert bare_project.run("migrate-workflow", "--workitem",
-                            wid).exit_code == EXIT_OK
-    after = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    assert after == before, "migrate-workflow must never mutate .workflow/"
 
 
 def test_n26_every_baseline_check_is_still_present_and_passing(repo):

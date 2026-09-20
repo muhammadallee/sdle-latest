@@ -123,7 +123,6 @@ def test_the_position_check_catches_the_forms_that_were_wrong():
     assert misplaced_globals(["--workitem", "x", "init", "--session", "y"]) \
         == ["--session"]
     assert misplaced_globals(["--session", "x", "lock", "acquire"]) == []
-    assert misplaced_globals(["migrate-workflow", "--workitem", "x"]) == []
     assert misplaced_globals(["workitem", "use", "--workitem", "x"]) == []
 
 

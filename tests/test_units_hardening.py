@@ -37,22 +37,6 @@ from test_units_workitem_runtime import legacy_workflow as plant_legacy_runtime
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
-# T11 N7 - the migration's write points, in order. Asserted by
-# `test_t11_n7_the_migration_write_sequence_is_exactly_this`.
-MIGRATION_WRITES: tuple[str, ...] = (
-    'audit.md',                      # 1 the copied ledger
-    'implementation-manifest.md',    # 2 T02 NB-5: never exercised before T11
-    'completion-summary.json',       # 3 T02 NB-5: never exercised before T11
-    'migration-evidence.json',       # 4 (name normalised: carries a stamp)
-    'execution.json',                # 5
-    'audit.md',                      # 6 the workflow_migrated entry
-    'state.json',                    # 7 THE COMMIT MARKER, written last
-    'workitem.json',                 # 8 post-commit metadata (T11 TR23)
-    '.active-context.json',          # 9 post-commit convenience
-)
-COMMIT_WRITE = 7  # 1-based index of the state.json commit write
-
-
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
@@ -402,7 +386,7 @@ def test_t11_n10_a_missing_capability_refuses_before_any_workitem_write(
 # ==========================================================================
 
 
-def test_t11_n8_zero_workitems_with_legacy_state_names_both_steps_in_order(
+def test_t11_n8_zero_workitems_with_legacy_state_names_the_recovery(
     bare_project,
 ):
     """The post-removal meaning of "ambiguous": with rung 6 gone, a repository
@@ -422,9 +406,7 @@ def test_t11_n8_zero_workitems_with_legacy_state_names_both_steps_in_order(
         assert result.reason == "workitem_required", (invocation, result)
         message = result.envelope["message"]
         assert "workitem create" in message, invocation
-        assert "migrate-workflow" in message, invocation
-        assert message.index("workitem create") < message.index(
-            "migrate-workflow"), (invocation, message)
+        assert "migrate-workflow" not in message, invocation
         assert result.data.get("legacy_state"), (invocation, result)
 
 
@@ -898,178 +880,6 @@ def test_t11_n2_a_full_run_moves_no_byte_of_another_workitems_sdle(
 # parameterises four write points; T02 NB-5 recorded that it never exercised
 # the manifest or completion-summary copies. This covers every write point,
 # with a legacy runtime that carries both.
-
-
-def legacy_with_every_artifact(bare_project) -> str:
-    """A legacy runtime that exercises every copy step of the migration."""
-    wid = plant_legacy_runtime(bare_project)
-    legacy = bare_project.root / ".workflow"
-    (legacy / "implementation-manifest.md").write_text(
-        "# Implementation Manifest\n\nA legacy manifest. " * 4,
-        encoding="utf-8", newline="\n")
-    (legacy / "completion-summary.json").write_text(
-        json.dumps({"legacy": True}, indent=2) + "\n",
-        encoding="utf-8", newline="\n")
-    return wid
-
-
-def migration_write_sequence(bare_project, wid, monkeypatch) -> list[str]:
-    seen: list[str] = []
-    real = sdle.write_atomic
-
-    def spy(path, text):
-        name = Path(path).name
-        # The evidence file carries the execution stamp; normalise it so the
-        # sequence below is a stable literal rather than a pattern.
-        if name.startswith('migration-') and name.endswith('.json'):
-            name = 'migration-evidence.json'
-        seen.append(name)
-        return real(path, text)
-
-    monkeypatch.setattr(sdle, "write_atomic", spy)
-    assert bare_project.ok("migrate-workflow", "--workitem",
-                           wid).exit_code == EXIT_OK
-    monkeypatch.undo()
-    return seen
-
-
-def test_t11_n7_the_migration_write_sequence_is_exactly_this(
-    bare_project, monkeypatch,
-):
-    """The constant the parameterisation below rests on, asserted rather than
-    assumed: if a write point is added or removed, this fails loudly instead
-    of the coverage silently narrowing."""
-    wid = legacy_with_every_artifact(bare_project)
-    assert migration_write_sequence(bare_project, wid,
-                                    monkeypatch) == list(MIGRATION_WRITES)
-    assert MIGRATION_WRITES[COMMIT_WRITE - 1] == 'state.json', (
-        'COMMIT_WRITE must index the commit marker')
-
-
-@pytest.mark.parametrize("fail_at", range(1, COMMIT_WRITE + 1))
-def test_t11_n7_an_interruption_at_any_write_point_is_recoverable(
-    bare_project, monkeypatch, fail_at,
-):
-    """At every write point up to and including the commit: `.workflow/` is
-    byte-identical, no resolvable target exists, and a re-run succeeds."""
-    wid = legacy_with_every_artifact(bare_project)
-    before = digests(bare_project.root / ".workflow")
-
-    real = sdle.write_atomic
-    calls = {"n": 0}
-
-    def flaky(path, text):
-        calls["n"] += 1
-        if calls["n"] >= fail_at:
-            raise OSError("simulated interruption")
-        return real(path, text)
-
-    monkeypatch.setattr(sdle, "write_atomic", flaky)
-    with pytest.raises(OSError):
-        bare_project.run("migrate-workflow", "--workitem", wid)
-    monkeypatch.undo()
-
-    target = bare_project.root / "workitems" / wid / ".sdle"
-    assert not (target / "state.json").exists(), fail_at
-    assert digests(bare_project.root / ".workflow") == before, fail_at
-
-    assert bare_project.ok("migrate-workflow", "--workitem",
-                           wid).exit_code == EXIT_OK
-    assert (target / "state.json").is_file()
-    assert (target / "implementation-manifest.md").is_file()
-    assert (target / "completion-summary.json").is_file()
-    assert digests(bare_project.root / ".workflow") == before
-
-
-@pytest.mark.parametrize(
-    "fail_at", range(COMMIT_WRITE + 1, len(MIGRATION_WRITES) + 1))
-def test_t11_n7_a_post_commit_interruption_leaves_a_correct_runtime(
-    bare_project, monkeypatch, fail_at,
-):
-    """T11 TR23 (T02 NB-4), pinned rather than argued.
-
-    Two writes happen *after* the commit marker - `workitem.json` and the
-    developer-local `.active-context.json`. T02's verifier recorded that they
-    sit outside the migration's commit window; T11's disposition is
-    **DEFERRED**, and this test is why that is safe: an interruption there
-    leaves a **correct, resolvable** WorkItem runtime whose ledger verifies,
-    with at most slightly stale convenience metadata that the next command
-    re-derives. `.workflow/` is still byte-identical, and the migration is not
-    re-run into a half state.
-    """
-    wid = legacy_with_every_artifact(bare_project)
-    before = digests(bare_project.root / ".workflow")
-
-    real = sdle.write_atomic
-    calls = {"n": 0}
-
-    def flaky(path, text):
-        calls["n"] += 1
-        if calls["n"] >= fail_at:
-            raise OSError("simulated interruption after the commit")
-        return real(path, text)
-
-    monkeypatch.setattr(sdle, "write_atomic", flaky)
-    try:
-        result = bare_project.run("migrate-workflow", "--workitem", wid)
-    except OSError:
-        result = None
-    monkeypatch.undo()
-
-    if MIGRATION_WRITES[fail_at - 1] == ".active-context.json":
-        # The last write is the developer-local active-context pointer, and
-        # its failure is deliberately swallowed: a completed migration must
-        # not be reported as failed because a convenience file could not be
-        # written. The pointer is simply absent, and the next command
-        # re-derives it.
-        assert result is not None and result.exit_code == EXIT_OK, result
-        assert not (bare_project.root / "workitems"
-                    / ".active-context.json").exists()
-    else:
-        assert result is None, "the interruption must surface"
-
-    target = bare_project.root / "workitems" / wid / ".sdle"
-    assert (target / "state.json").is_file(), fail_at
-    assert digests(bare_project.root / ".workflow") == before, fail_at
-
-    bound = bare_project.as_workitem(wid)
-    assert bound.ok("state", "get", "--field",
-                    "workitem").data["value"] == wid
-    assert bound.ok("audit", "verify").data["matches"] is True
-
-
-def test_t11_n7_a_legacy_only_repository_recovers_in_exactly_two_commands(
-    bare_project,
-):
-    """Plan §3.3 and acceptance criterion A4, end to end through the real CLI.
-
-    This is the test that says the removals did not brick anybody: a
-    repository carrying only a pre-v1.14 `.workflow/` reaches a working
-    WorkItem runtime with the two commands the refusal names, and nothing
-    else. Driven through `run_cli`, so argv parsing and the process boundary
-    are part of what is proven.
-    """
-    plant_legacy_runtime(bare_project)
-    shutil.rmtree(bare_project.root / "workitems")
-    before = digests(bare_project.root / ".workflow")
-
-    blocked = bare_project.run_cli("state", "get", session="a4")
-    assert blocked.exit_code == EXIT_REFUSED, blocked
-    assert blocked.reason == "workitem_required", blocked
-
-    created = bare_project.run_cli("workitem", "create", "--name", "Recovery")
-    assert created.exit_code == EXIT_OK, created
-    wid = created.data["id"]
-
-    migrated = bare_project.run_cli("migrate-workflow", "--workitem", wid)
-    assert migrated.exit_code == EXIT_OK, migrated
-
-    working = bare_project.run_cli("state", "get", "--field", "workitem",
-                                   session="a4")
-    assert working.exit_code == EXIT_OK, working
-    assert working.data["value"] == wid
-    assert bare_project.run_cli("audit", "verify").exit_code == EXIT_OK
-    assert digests(bare_project.root / ".workflow") == before
 
 
 # ==========================================================================

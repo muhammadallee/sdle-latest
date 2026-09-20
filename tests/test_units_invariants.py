@@ -75,9 +75,9 @@ STATE_FIELDS = (
 # lock have one writer, the engine (invariant 6); a new call site is a new
 # writer and must be justified where this number changes.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 31,
-    'save_state': 47,
-    'append_audit': 49,
+    'write_atomic': 25,
+    'save_state': 46,
+    'append_audit': 47,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,
@@ -129,8 +129,6 @@ COMMANDS = (
     'list',
     'lock',
     'manifest',
-    'migrate',
-    'migrate-workflow',
     'omit',
     'path',
     'policy',

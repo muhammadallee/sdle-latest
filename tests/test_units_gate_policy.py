@@ -47,7 +47,6 @@ from test_units_governance import (
     assess,
     governance_input,
     paths_for,
-    policy_file,
     record_of,
     sha_map,
     write_policy,
@@ -1424,41 +1423,6 @@ def test_t11_the_legacy_rung_is_gone():
     assert "legacy" not in {
         rung for rung in ("explicit", "cwd", "sole", "context", "branch")
     }
-
-
-def test_n31_migrate_workflow_still_leaves_the_legacy_tree_untouched(
-    bare_project,
-):
-    """A12, split by T11 X3.
-
-    The half that asserted the legacy rung *binds* is inverted (the rung is
-    gone; `state get` refuses `workitem_required`). The half that asserts
-    `migrate-workflow` leaves `.workflow/` byte-for-byte untouched is kept
-    verbatim — that is B9, the migration-discipline guarantee §17 preserves,
-    and it must never be lost.
-    """
-    template = json.loads(
-        (bare_project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    template["current_phase"] = "requirements_check"
-    legacy = bare_project.root / ".workflow"
-    legacy.mkdir()
-    (legacy / "state.json").write_text(json.dumps(template, indent=2) + "\n",
-                                       encoding="utf-8", newline="\n")
-    (legacy / "audit.md").write_text("# Audit\n", encoding="utf-8",
-                                     newline="\n")
-
-    before = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    refused = bare_project.run("state", "get", "--field", "current_phase")
-    assert refused.exit_code == EXIT_REFUSED, refused
-    assert refused.reason == "workitem_required", refused
-
-    bare_project.ok("workitem", "create", "--name", "migrated thing")
-    wid = bare_project.run("workitem", "list").data["workitems"][-1]["id"]
-    assert bare_project.run("migrate-workflow", "--workitem",
-                            wid).exit_code == EXIT_OK
-    after = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    assert after == before, "migrate-workflow must never mutate .workflow/"
 
 
 def here(relative: str) -> str:

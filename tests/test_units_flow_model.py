@@ -614,119 +614,6 @@ def test_the_registry_chain_and_the_greenfield_chain_now_differ(skill_copy):
 # -- N17: the migration names the lifecycle, it does not choose one ---------
 
 
-def as_version(project: Project, version: str, **over) -> dict:
-    state = project.state()
-    state["workflow_version"] = version
-    state.pop("flow", None)
-    state.update(over)
-    return state
-
-
-def test_a_v1_15_state_migrates_to_greenfield(project):
-    project.record_governance()
-    project.ok("init", session="s")
-    project.write_state(as_version(project, "1.15"))
-
-    result = project.ok("migrate", session="s")
-
-    assert result.data["steps"] == ["1.15->1.16", "1.16->1.17"]
-    assert result.data["to"] == "1.17"
-    assert project.state()["flow"] == "GREENFIELD"
-
-
-def test_the_flow_migration_is_idempotent(project):
-    project.record_governance()
-    project.ok("init", session="s")
-    project.write_state(as_version(project, "1.15"))
-    project.ok("migrate", session="s")
-    first = project.state()
-
-    second = project.run("migrate", session="s")
-
-    assert second.exit_code == EXIT_OK
-    assert project.state()["flow"] == first["flow"] == "GREENFIELD"
-
-
-def test_the_flow_migration_never_reads_the_governance_record(project):
-    """A migration records what a workflow has been doing, not what it should.
-
-    The record here proposes HOTFIX. The migrated state must still say
-    GREENFIELD, because GREENFIELD is what this workflow actually traversed.
-    """
-    project.record_governance(
-        classification={"type": "hotfix", "flow": "HOTFIX"})
-    project.ok("init", session="s")
-    project.write_state(as_version(project, "1.15"))
-
-    project.ok("migrate", session="s")
-
-    assert project.state()["flow"] == "GREENFIELD"
-
-
-def test_the_flow_migration_source_names_no_governance_symbol():
-    """Belt and braces for the test above, read off the function itself.
-
-    The comparison is over the parsed *code*, with the docstring and comments
-    dropped, so prose explaining that the record is not consulted cannot make
-    this assertion pass or fail.
-    """
-    import ast, inspect, textwrap
-    func = ast.parse(textwrap.dedent(inspect.getsource(sdle._mig_1_15))).body[0]
-    statements = func.body
-    if (isinstance(statements[0], ast.Expr)
-            and isinstance(statements[0].value, ast.Constant)):
-        statements = statements[1:]
-    code = chr(10).join(ast.unparse(node) for node in statements)
-    for forbidden in ("governance", "classification", "record"):
-        assert forbidden not in code, forbidden
-
-
-def test_the_flow_migration_preserves_every_verified_field(project):
-    project.record_governance()
-    project.ok("init", session="s")
-    before = project.state()
-    project.write_state(as_version(project, "1.15"))
-
-    project.ok("migrate", session="s")
-
-    after = project.state()
-    for field in sdle.MIGRATION_VERIFIED_FIELDS:
-        assert after[field] == before[field], field
-
-
-def test_a_v1_13_state_migrates_the_whole_chain_and_lands_on_greenfield(project):
-    project.record_governance()
-    project.ok("init", session="s")
-    state = as_version(project, "1.13")
-    del state["workitem"]
-    project.write_state(state)
-
-    result = project.ok("migrate", session="s")
-
-    assert result.data["steps"] == ["1.13->1.14", "1.14->1.15", "1.15->1.16",
-                                    "1.16->1.17"]
-    assert project.state()["workflow_version"] == "1.17"
-    assert project.state()["flow"] == "GREENFIELD"
-
-
-def test_the_version_chain_declares_the_flow_row(skill_copy):
-    """The table is the authority, and it must introduce the new field.
-
-    `migration_covers_every_state_field` matches action text by substring, and
-    `flow` is a substring of `workflow`, so that check cannot see this field on
-    its own. Asserted here directly instead.
-    """
-    consts = constants_of(skill_copy)
-    assert consts.version_chain[-1] == ("1.16", "1.17")
-    assert ("1.15", "1.16") in consts.version_chain, (
-        "T11 D14 appends a row; it never replaces one")
-    import re
-    text = (skill_copy.skill_root / "SKILL.md").read_text(encoding="utf-8")
-    row = re.search(r"^\| `1\.15` \| `1\.16` \| (.+)$", text, re.MULTILINE)
-    assert row, "no 1.15 -> 1.16 VERSION_MIGRATION row"
-    assert 'flow: "GREENFIELD"' in row.group(1)
-
-
 def test_the_state_template_carries_the_flow_field(skill_copy):
     import json
     template = json.loads(
@@ -974,44 +861,6 @@ def test_the_governance_refusals_are_not_masked_by_the_flow_check(project):
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "governance_stale", result
-    assert project.audit_file.read_bytes() == ledger_before
-
-
-def test_a_pre_v1_16_state_with_a_hotfix_record_refuses_flow_mismatch(project):
-    """N16 — D10's declared consequence, implemented rather than assumed away.
-
-    A workflow initialised before v1.16 was traversing GREENFIELD whatever its
-    T06 record proposed, because nothing routed on the record. The migration
-    says GREENFIELD, which is the truth about what it has been doing, and the
-    next advance then refuses rather than silently switching lifecycle
-    underneath it. One command is the remedy, and the message names it.
-    """
-    project.record_governance(
-        classification={"type": "hotfix", "flow": "HOTFIX"})
-    project.ok("init", session="s")
-    # Re-shape the state into its pre-v1.16 form: the field did not exist.
-    state = project.state()
-    state["workflow_version"] = "1.15"
-    state.pop("flow", None)
-    state["current_phase"] = "constitution_draft"
-    state["progress"] = "2/18"
-    project.write_state(state)
-
-    migrated = project.ok("migrate", session="s")
-
-    assert migrated.data["steps"] == ["1.15->1.16", "1.16->1.17"]
-    assert project.state()["flow"] == "GREENFIELD"
-
-    project.write_artifact(".specify/memory/constitution.md")
-    ledger_before = project.audit_file.read_bytes()
-
-    result = project.run("advance", "--to", "gate_constitution")
-
-    assert result.exit_code == EXIT_REFUSED, result
-    assert result.reason == "flow_mismatch", result
-    assert result.data == {"workitem": project.workitem,
-                           "bound": "GREENFIELD", "proposed": "HOTFIX"}
-    assert "reset workflow" in result.envelope["message"]
     assert project.audit_file.read_bytes() == ledger_before
 
 
@@ -1588,11 +1437,11 @@ def test_no_read_only_command_writes_the_flow(git_project):
     assert git_project.state()["flow"] == "DEFECT_FIX"
 
 
-def test_only_init_and_the_migration_write_the_flow_field():
+def test_only_init_writes_the_flow_field():
     """N13's structural half, and the sharper statement of it.
 
     Read off the AST: the set of functions in `scripts/sdle.py` that assign
-    `state["flow"]` is exactly `{cmd_init, _mig_1_15}`. A `flow set` command
+    `state["flow"]` is exactly `{cmd_init}`. A `flow set` command
     could not be added without appearing here, and neither could a quiet
     re-binding inside `apply_advance` or `gate approve`.
     """
@@ -1612,7 +1461,7 @@ def test_only_init_and_the_migration_write_the_flow_field():
                         and isinstance(target.slice, ast.Constant)
                         and target.slice.value == "flow"):
                     writers.add(fn.name)
-    assert writers == {"cmd_init", "_mig_1_15"}, sorted(writers)
+    assert writers == {"cmd_init"}, sorted(writers)
 
 
 def test_a_defect_fix_run_never_grows_a_ninth_approval_key(git_project):
@@ -1763,7 +1612,7 @@ def test_constants_reports_every_flow(skill_copy):
     for key in ("phase_sequence", "phase_count", "next_phase",
                 "phase_to_gate_key", "gate_number", "gate_phases",
                 "artifact_ownership", "phase_label", "progress",
-                "gate_to_execution_phase", "version_chain", "skill_root",
+                "gate_to_execution_phase", "skill_root",
                 "project_root"):
         assert key in shown, key
 # --------------------------------------------------------------------------
@@ -1820,40 +1669,6 @@ def test_brownfield_discovery_changed_by_exactly_one_inserted_element(
     assert len(brownfield) == len(GREENFIELD_GOLDEN) + 1
     assert [p for p in brownfield if p != "discovery"] == GREENFIELD_GOLDEN
     assert brownfield.count("discovery") == 1
-
-
-def test_the_state_schema_did_not_move(skill_copy):
-    """N32. T08 adds registry rows, files and commands — no state field.
-
-    A ninth approval key or a new field would force a `workflow_version` bump
-    and a VERSION_MIGRATION row, and T08 deliberately adds neither.
-
-    **T11 X11 re-valuation (TP-003 category 2).** T11 D13 *does* add a state
-    field, so the three version literals here move: `"1.16"` -> `"1.17"`,
-    `"v1.16"` -> `"v1.17"`, and the chain length `16` -> `17`. That is the
-    schema movement this test was watching for, arriving with its bump, its
-    VERSION_MIGRATION row and its migration step — which is what the test
-    demanded of anyone who moved it. Every other assertion is untouched and
-    still carries T08's claim: eight approval keys, no `discovery` and no
-    `baseline` field, and both lint checks still passing.
-    """
-    import json
-    template = json.loads(
-        (skill_copy.skill_root / "templates" / "state.json")
-        .read_text(encoding="utf-8"))
-
-    assert template["workflow_version"] == "1.17"
-    assert set(template["approvals"]) == PRE_T07_APPROVAL_KEYS
-    assert len(template["approvals"]) == 8
-    assert "discovery" not in template
-    assert "baseline" not in template
-    assert not any("discovery" in key or "baseline" in key for key in template)
-
-    checks = {c["name"]: c for c in skill_copy.run("lint-skill").data["checks"]}
-    assert checks["version_string_consistent"]["passed"] is True
-    assert "v1.17" in checks["version_string_consistent"]["message"]
-    assert checks["migration_covers_every_state_field"]["passed"] is True
-    assert len(constants_of(skill_copy).version_chain) == 17
 
 
 def test_the_two_guard_surfaces_were_adopted_by_t11():
