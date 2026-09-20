@@ -14,11 +14,9 @@ A **WorkItem** is one tracked piece of work with its own lifecycle state. It is
 the unit SDLE runs: a phase, a flow, a gate ledger and an audit chain all belong
 to a WorkItem, never to the repository.
 
-Before v1.14 the runtime was repository-global — one `.workflow/` directory, so
-one lifecycle at a time. As of v1.14 the runtime is **WorkItem-scoped**, and as
-of v1.17 that is the only runtime there is. A repository can carry as many
-WorkItems as you like, concurrently, on the same branch or on different ones,
-and they do not interact.
+The runtime is **WorkItem-scoped**, and that is the only runtime there is. A
+repository can carry as many WorkItems as you like, concurrently, on the same
+branch or on different ones, and they do not interact.
 
 ---
 
@@ -130,17 +128,15 @@ ambiguous. There is no tie-break, no ordering preference, and no "most recent".
 Rungs 4 and 5 are only reachable with two or more registered WorkItems, so the
 Git subprocess of rung 5 never runs in a single-WorkItem repository.
 
-### The rung that was removed
+### Legacy state never binds
 
-Up to v1.16 there was a sixth rung between 5 and "none": if nothing was
-registered but `.workflow/state.json` existed, the engine bound the legacy
-repository-global runtime. **v1.17 deleted it.** It was deleted, not replaced by
-an inference — with zero WorkItems the answer is `none` whether or not legacy
+No rung binds a legacy repository-global `.workflow/state.json`, and none infers
+one. With zero WorkItems registered the answer is `none` whether or not legacy
 state exists.
 
-Nothing is stranded by the removal. The refusal names the two-step recovery, and
-both steps are runtime-free (§6), so neither reaches this ladder and neither can
-be locked out by it:
+Nothing is stranded by that. The refusal names the two-step recovery, and both
+steps are runtime-free (§6), so neither reaches this ladder and neither can be
+locked out by it:
 
 ```bash
 sdle.sh workitem create --name "<name>"
@@ -169,15 +165,15 @@ not, and each is runtime-free for a stated reason:
 | `discovery schema` | Reports the closed §14 category vocabulary, which must be answerable before any workflow exists. `assess` and `show` bind explicitly |
 | `baseline` | The convergence invariant is a property of the repository, not of any WorkItem |
 
-For **every other** command, a successful bind returns a WorkItem. There is no
-longer any code path that runs a lifecycle command with no WorkItem bound.
+For **every other** command, a successful bind returns a WorkItem. No code path
+runs a lifecycle command with no WorkItem bound.
 
 ---
 
 ## 7. `.workflow/` — its two surviving roles
 
-`.workflow/` is **archival**, not transitional. It is no longer a runtime, and
-v1.17 is not going to make it one again. It survives as exactly two things:
+`.workflow/` is the legacy repository-global layout. It is **archival**: nothing
+runs against it. It survives as exactly two things:
 
 1. a **migration source**, read by `migrate-workflow` and never written; and
 2. a **project-root marker** — `PROJECT_ROOT_MARKERS` still carries

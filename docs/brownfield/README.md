@@ -100,7 +100,7 @@ design.
   rediscovery — the exact cost discovery-once exists to avoid.
 
 What a stale baseline can never do is be relied on *silently*: `baseline
-validate` refuses it, and since v1.17 both refusals name the **commit the
+validate` refuses it, and both refusals name the **commit the
 baseline was established at**, so a finding says which repository state its
 claims were ever true for.
 

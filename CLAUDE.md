@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the **source repository for SDLE (Spec Driven Lifecycle Engine)** — a Claude Code skill that orchestrates a gated SDLC workflow wrapping GitHub SpecKit.
 
-As of v1.16 the lifecycle is **selected, not fixed**. `PHASE_SEQUENCE` is a 21-entry phase
+The lifecycle is **selected, not fixed**. `PHASE_SEQUENCE` is a 21-entry phase
 *registry*; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one,
 bound once at `init` from its governance record. Five flows ship: `GREENFIELD`
-(18 phases, 8 gates — the pre-v1.16 lifecycle, frozen in `GREENFIELD_V1_PHASES` in
+(18 phases, 8 gates — the new-project lifecycle, frozen in `GREENFIELD_V1_PHASES` in
 `sdle.py` rather than declared in a table, so a new registry row can never silently
 join it), `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX`, the last four
 declared in SKILL.md's `FLOW_PHASES`. Every flow retains a mandatory ten-phase
@@ -24,7 +24,7 @@ WorkItems converge onto `ITERATIVE` against it, enforced at `init` by refusal ra
 than by convention. See
 `docs/architecture/ADR-005-brownfield-discovery-and-baseline.md`.
 
-As of v1.13 it is no longer prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
+It is not prompt files alone. The mechanical layer lives in `scripts/sdle.py`; the prompt files carry judgement, presentation and the constant tables the script parses.
 
 **Validation** is `pytest` plus `scripts/sdle.sh lint-skill`. The repo carries a test fixture (`requirements/todo-api.md`) so the workflow can also be exercised in place by saying `start workflow`. Runtime artifacts from such runs (`.specify/`, `design/`, `reviews/`, `clarifications/`, and the archival legacy `.workflow/`) are gitignored — never commit them. WorkItem records under `workitems/` are the exception: they are **versioned** by design, and only `workitems/*/.sdle/lock` and the developer-local `workitems/.active-context.json` are ignored.
 
@@ -56,7 +56,7 @@ Which capability files a phase requires is not a judgement the model makes each 
 
 **`.claude/hooks/`** + **`.claude/settings.json`** — five guardrail hooks. Hooks are *tripwires*; where they overlap the script, the script's refusal at the choke point is the guarantee. Four inspect the payload and stay silent when it does not concern them; the fifth, `product-agent-fence`, denies everything it is registered for and is registered in the four product agents' frontmatter rather than in `settings.json`, because it must bind those agents and not the parent session.
 
-Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The repository-global `.workflow/` is **archival**, not a runtime: as of v1.17 nothing binds it and nothing runs against it. It survives as exactly two things — a migration source for `migrate-workflow --workitem <id>`, which moves it under a WorkItem without ever mutating it, and a project-root marker, so a legacy-only repository can still be found. It stays write-fenced for that reason. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`.
+Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json` and `evidence/` beside it. The legacy repository-global `.workflow/` is **archival**, not a runtime: nothing binds it and nothing runs against it. It survives as exactly two things — a migration source for `migrate-workflow --workitem <id>`, which moves it under a WorkItem without ever mutating it, and a project-root marker, so a legacy-only repository can still be found. It stays write-fenced for that reason. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`.
 
 Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/`, `templates/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it; no lifecycle rule lives there and nothing in any lifecycle flow reads it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
@@ -79,7 +79,7 @@ Any edit must preserve these — they are the product:
 
 ## Cross-File Sync — run the linter, do not check by hand
 
-`scripts/sdle.sh lint-skill` verifies every rule that used to be a manual checklist:
+`scripts/sdle.sh lint-skill` verifies every cross-file rule, so none is a manual checklist:
 
 - NEXT_PHASE and PHASE_LABEL_MAP cover the registry's phase set exactly, and NEXT_PHASE chains PHASE_SEQUENCE in order
 - PROGRESS_MAP covers the **GREENFIELD flow's** phase set exactly — it is the GREENFIELD view, not the registry's

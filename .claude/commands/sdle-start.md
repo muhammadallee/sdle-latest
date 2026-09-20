@@ -27,7 +27,7 @@ argument-hint: "[--verbose]"
    inside an unindexed `workitems/<x>/` — register it or move.
    If the registry itself looks wrong, `sdle.sh validate` diagnoses it and
    still runs when resolution cannot.
-   If a repository-global `.workflow/state.json` exists, it is a pre-v1.14
+   If a repository-global `.workflow/state.json` exists, it is a legacy
    workflow and it does **not** run: every runtime command refuses exit 1
    `workitem_required` and the refusal names the recovery. Do exactly what
    it names, in order — `sdle.sh workitem create --name "<name>"`, then

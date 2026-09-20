@@ -5,11 +5,11 @@
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
 | **Covers software version** | SDLE v1.17 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
-| **Document version** | 1.5 |
+| **Document version** | 1.6 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
 | **Status** | Active |
-| **Last updated** | 2026-07-06 |
+| **Last updated** | 2026-09-11 |
 
 ---
 
@@ -172,11 +172,11 @@ SDLE Orchestrator (Claude Code Skill)
 ### WorkItem identity
 
 A **WorkItem** is the durable name for a piece of work. It is created *before*
-the workflow is initialised, and it never changes afterwards. Since v1.14 it is
-also the **runtime scope**: all workflow state lives under
-`workitems/<id>/.sdle/`, `state.json` records which WorkItem it belongs to, and
-independent WorkItems share no state, no audit ledger and no lock. Every phase
-and gate behaves exactly as it did before WorkItems existed.
+the workflow is initialised, and it never changes afterwards. It is also the
+**runtime scope**: all workflow state lives under `workitems/<id>/.sdle/`,
+`state.json` records which WorkItem it belongs to, and independent WorkItems
+share no state, no audit ledger and no lock. WorkItem scoping decides where
+state lives; it does not change how any phase or gate behaves.
 
 Two id shapes are accepted:
 
@@ -259,14 +259,12 @@ the only input the orchestrator gets for the ask-the-user rung. The engine
 never infers and never returns an inferred answer; the user's choice re-enters
 as an explicit `--workitem <id>`.
 
-Up to v1.16 a sixth rung bound a pre-v1.14 repository-global `.workflow/`
-runtime directly, so such a repository stayed readable long enough to be
-migrated. **v1.17 deleted that rung** — and deleted it rather than replacing it
-with an inference: with zero WorkItems the ladder answers `none` whether or not
-legacy state exists, so it still never guesses. `.workflow/` is now a migration
-source and a project-root marker, and nothing else.
+**No rung binds a legacy repository-global `.workflow/` runtime**, and none
+infers one: with zero WorkItems the ladder answers `none` whether or not legacy
+state exists, so it never guesses. `.workflow/` is a migration source and a
+project-root marker, and nothing else.
 
-Nothing is stranded by the removal. `workitem create` and `migrate-workflow`
+Nothing is stranded by that. `workitem create` and `migrate-workflow`
 are both runtime-free, so neither reaches the ladder, and every other command
 refuses `workitem_required` with a message naming those two steps in order.
 `init` refuses `legacy_workflow_present` while a repository-global
@@ -518,7 +516,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ## 7. The 18-Phase Workflow — Detailed Reference
 
-> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every workflow before v1.16 traversed. The heading keeps its wording so existing links still resolve.
+> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
 >
 > | Flow | Phases | Gates | What it is for |
 > |---|---:|---:|---|
@@ -892,7 +890,7 @@ Approved artifacts are ordinary files on disk. Nothing prevents a human from ope
 
 Every gate decision, phase completion, rejection, remediation, drift event, and rate-limit trip is appended (never edited) to `audit.md` with: a UTC timestamp, the acting identity (resolved from git username/email), the action taken, the artifact involved, its SHA-256 fingerprint, the gate decision (if any), and any comments. This is the record an enterprise audit, post-incident review, or compliance check would consult.
 
-Since v1.12 the ledger is **tamper-evident**: after every append, the SHA-256 of the entire file is recorded in `state.json → audit_sha`, and verified on every load. A mismatch (edit, truncation, deletion, or a write from another session) halts the workflow until the operator explicitly re-baselines with `accept audit` — an action that is itself logged. Note the precise guarantee: tamper-*evident*, not tamper-*proof* — an actor who edits both `audit.md` and `audit_sha` in `state.json` defeats the check. The defense target is accidental or casual modification, not a determined adversary with full filesystem access. Concurrent-session writes, one common source of accidental corruption, are additionally warned about via the `workitems/<id>/.sdle/lock` session lock.
+The ledger is **tamper-evident**: after every append, the SHA-256 of the entire file is recorded in `state.json → audit_sha`, and verified on every load. A mismatch (edit, truncation, deletion, or a write from another session) halts the workflow until the operator explicitly re-baselines with `accept audit` — an action that is itself logged. Note the precise guarantee: tamper-*evident*, not tamper-*proof* — an actor who edits both `audit.md` and `audit_sha` in `state.json` defeats the check. The defense target is accidental or casual modification, not a determined adversary with full filesystem access. Concurrent-session writes, one common source of accidental corruption, are additionally warned about via the `workitems/<id>/.sdle/lock` session lock.
 
 ### 12.3 `workitems/<id>/.sdle/completion-summary.json` — the closure record
 
@@ -1177,23 +1175,26 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 ## Appendix B — State Schema Reference
 
-`workitems/<id>/.sdle/state.json` (v1.15):
+`workitems/<id>/.sdle/state.json`:
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_version` | string | Schema version; auto-migrated forward on load. |
-| `workitem` | string \| null | The WorkItem this state belongs to. `null` only in an unmigrated pre-v1.14 `.workflow/state.json`, which since v1.17 is a migration input and never a runtime. Makes a state file self-describing and a misplaced one detectable. |
+| `workflow_version` | string | Schema version (`1.17`); an older state is auto-migrated forward on load. |
+| `workitem` | string \| null | The WorkItem this state belongs to. `null` only in an unmigrated legacy `.workflow/state.json`, which is a migration input and never a runtime. Makes a state file self-describing and a misplaced one detectable. |
+| `flow` | string | The flow this WorkItem traverses: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init` from the governance record and never re-bound. |
 | `project_name` | string \| null | Inferred from requirements, else the WorkItem title, else asked of the user. |
 | `current_phase` | string | Current phase ID (e.g., `gate_plan`). |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed`. |
-| `progress` | string | `"N/18"`, derived only from the Progress Map — never computed independently. |
+| `progress` | string | `"N/M"` — the phase's position in the bound flow over that flow's phase count (`M` is 18 for `GREENFIELD`). Derived by the engine from the flow — never computed independently. |
 | `last_updated` | string | ISO-8601 timestamp, updated on every write. |
 | `current_artifact` | string \| null | Path to the most recently generated artifact. |
 | `current_artifact_sha` | string \| null | SHA-256 of `current_artifact` at last verification. |
 | `specKit` | object | SpecKit context for this WorkItem: `featureId`, `featureDirectory` (repo-relative, under `workitems/<id>/specs/`; set after Phase 4), and `workflowId` / `runId`, extension points SDLE creates and never writes. |
 | `security_review_artifact` | string \| null | Path to the timestamped security review file. |
+| `implementation_base_ref` | string \| null | HEAD SHA pinned when the implementation phase starts. The implementation manifest and the security review both measure the change from it. |
 | `phase_checkpoint` | string \| null | Sub-step marker for crash-recovery idempotency. |
-| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`). |
+| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`, `branch_mismatch`). |
+| `pending_branch_ack` | string \| null | The branch an outstanding branch-mismatch acknowledgement was given for. The second step of a two-step command refuses `branch_mismatch` if the checkout has moved since. |
 | `speckit_initialized` | boolean | Whether `.specify/` exists. |
 | `speckit_skill_prefix` | string \| null | Discovered SpecKit invocation prefix (`speckit-` or `speckit.`). |
 | `verbose` | boolean | Display-only verbosity toggle. |
@@ -1253,6 +1254,7 @@ The engine commands behind the governance and review records, for operators read
 
 | Version | Date | Summary |
 |---|---|---|
+| 1.6 | 2026-09-11 | Present-tense pass against SDLE v1.17. Feature descriptions no longer carry "since vX" or "up to vX" language; the legacy `.workflow/` layout is described as legacy rather than by release. Appendix B brought level with `templates/state.json`: added `flow`, `implementation_base_ref` and `pending_branch_ack`, added `branch_mismatch` to the confirmations, and `progress` is described per bound flow. Header date corrected. |
 | 1.5 | 2026-09-07 | Updated for SDLE v1.17 — V1 convergence. The WorkItem runtime is the only runtime: the transitional sixth resolution rung is gone and `.workflow/` is now a migration source and project-root marker only, recovered with `workitem create` then `migrate-workflow --workitem <id>`. Spec Kit feature discovery fails closed on more than one candidate in a tier. A governance re-assessment that lowers a recorded level is audited as `governance_downgraded` and carried into later omission evidence. New `pending_branch_ack` state field closes the branch-guard fail-open. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`. |
 | 1.4 | 2026-08-24 | Updated for SDLE v1.15: SpecKit context is WorkItem-scoped. A WorkItem's feature directory moved from `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, while repository-wide SpecKit scaffolding — `.specify/`, including `memory/constitution.md` — stays at the repository root. New `specKit` state object replacing `current_feature_id`, `feature bind` and `feature capabilities`, SpecKit capability detection that refuses rather than assumes, tiered feature discovery with an audited move into the WorkItem, and a gate that refuses to approve another WorkItem's artifact. |
 | 1.3 | 2026-08-23 | Updated for SDLE v1.14: runtime state is WorkItem-scoped. `state.json`, `execution.json`, `audit.md`, `lock`, `evidence/`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`. New `workitem` state field, `--workitem` override and resolution ladder, `migrate-workflow` for a legacy runtime, and execution identity. |

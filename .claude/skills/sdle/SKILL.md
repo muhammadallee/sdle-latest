@@ -54,7 +54,7 @@ Toggle with `verbose on` / `verbose off`, or `--verbose` on `start workflow`; bo
 
 ## The GREENFIELD Flow — 18 Phases, 8 Gates
 
-A WorkItem traverses **one flow**: an ordered subset of `PHASE_SEQUENCE`, which is the *registry* of every phase SDLE knows how to execute. The flow below is `GREENFIELD`, the lifecycle a new project traverses and the one every workflow before v1.16 traversed. `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX` are shorter; their phases are declared in **FLOW_PHASES** below. **Never restate a phase number, a progress fraction or a gate number from this table** — they are GREENFIELD's. Ask the script: `sdle.sh flow show` reports the bound flow, its phases, its gates and the next phase from here, and `sdle.sh gate show --gate <key>` reports that gate's number and total in the bound flow.
+A WorkItem traverses **one flow**: an ordered subset of `PHASE_SEQUENCE`, which is the *registry* of every phase SDLE knows how to execute. The flow below is `GREENFIELD`, the lifecycle a new project traverses. `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX` are shorter; their phases are declared in **FLOW_PHASES** below. **Never restate a phase number, a progress fraction or a gate number from this table** — they are GREENFIELD's. Ask the script: `sdle.sh flow show` reports the bound flow, its phases, its gates and the next phase from here, and `sdle.sh gate show --gate <key>` reports that gate's number and total in the bound flow.
 
 **A phase the bound flow does not contain is never executed and never mentioned to the user.** It is not skipped — it is not in this lifecycle at all, and `advance --to` it refuses `forward_jump` with `in_flow: false`.
 

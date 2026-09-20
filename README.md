@@ -46,7 +46,7 @@ during that verification.
 
 ### 2. Install This Skill
 
-SDLE is no longer only a skill folder. The engine (`scripts/`), the commands
+SDLE is more than a skill folder. The engine (`scripts/`), the commands
 (`.claude/commands/`) and the guardrail hooks (`.claude/hooks/` plus their
 registration in `.claude/settings.json`) live outside `.claude/skills/sdle/`,
 so copying the skill folder alone installs a half-engine.
@@ -154,8 +154,8 @@ routes to the same place.
 ### WorkItem identity
 
 A **WorkItem** is the durable name for a piece of work. It is created *before*
-the workflow is initialised and never changes afterwards. As of v1.14 it is
-also the runtime scope: all workflow state lives in
+the workflow is initialised and never changes afterwards. It is also the
+runtime scope: all workflow state lives in
 `workitems/<id>/.sdle/`, so independent WorkItems share no state, no audit
 ledger and no lock.
 
@@ -178,9 +178,8 @@ Every runtime command resolves a WorkItem before it runs:
 6. otherwise `workitem_required` — and when a legacy repository-global
    `.workflow/state.json` is also on disk, that refusal names the two-step
    recovery, `workitem create` then `migrate-workflow --workitem <id>`, in that
-   order. There is no rung that binds a legacy runtime: since v1.17
-   `.workflow/` is a migration source and a project-root marker, never a
-   runtime;
+   order. There is no rung that binds a legacy runtime: `.workflow/` is a
+   migration source and a project-root marker, never a runtime;
 7. and when several are plausible and none is named, `workitem_ambiguous`,
    listing the candidates. SDLE never picks one for you.
 
@@ -207,9 +206,9 @@ is logged; everything else warns.
 `lint-skill`, `sha`, `constants`, `workitem`, `migrate-workflow`, `validate`
 and `config` touch no runtime state and need no resolution.
 
-A repository that already has a pre-v1.14 `.workflow/` moves it under a
-WorkItem once. Since v1.17 no command runs against a legacy runtime, so this is
-the whole recovery — two commands, in this order:
+A repository that still has a legacy repository-global `.workflow/` moves it
+under a WorkItem once. No command runs against a legacy runtime, so this is the
+whole recovery — two commands, in this order:
 
 ```
 scripts/sdle.sh workitem create --name "Customer Notification Service"
@@ -250,7 +249,7 @@ workitems/
   "createdAt": "2026-08-16T17:05:30Z",
   "createdBy": { "gitUserName": "...", "gitUserEmail": "..." },
   "git": { "initialBranch": "feature/customer-notification-service" },
-  "sdleVersion": "1.13"
+  "sdleVersion": "1.17"
 }
 ```
 
@@ -507,8 +506,8 @@ belong to the Claude Code runtime, and which are convention only.
             └── completion-summary.json    ← Written on final Gate 8 approval
 ```
 
-A pre-v1.14 repository also has a `.workflow/` directory with the same runtime
-files. Since v1.17 it is **archival**, not transitional: nothing runs against
+A repository that predates WorkItems may also have a legacy `.workflow/`
+directory with the same runtime files. It is **archival**: nothing runs against
 it, and `migrate-workflow --workitem <id>` moves its contents under a WorkItem
 without ever mutating it.
 
@@ -645,16 +644,17 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 
 ## State Schema Reference
 
-`workitems/<workitem-id>/.sdle/state.json` (v1.14) — key fields:
+`workitems/<workitem-id>/.sdle/state.json` — key fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_version` | string | Schema version; auto-migrated forward on load |
-| `workitem` | string\|null | The WorkItem this state belongs to; `null` only at the transitional legacy location. Makes a state file self-describing and a misplaced one detectable |
+| `workflow_version` | string | Schema version (`1.17`); an older state is auto-migrated forward on load |
+| `workitem` | string\|null | The WorkItem this state belongs to; `null` only in an unmigrated legacy `.workflow/state.json`. Makes a state file self-describing and a misplaced one detectable |
+| `flow` | string | The flow this WorkItem traverses — `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init`, never re-bound |
 | `project_name` | string\|null | Inferred from requirements |
 | `current_phase` | string | Phase ID (e.g., `gate_plan`) |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed` |
-| `progress` | string | `"N/18"` |
+| `progress` | string | `"N/M"` — position in the bound flow over that flow's phase count (`M` is 18 for `GREENFIELD`) |
 | `last_updated` | string | ISO-8601 timestamp, updated on every write |
 | `current_artifact` / `current_artifact_sha` | string\|null | Most recent artifact path and SHA-256 fingerprint |
 | `specKit` | object | SpecKit context for this WorkItem: `featureId`, `featureDirectory` (repo-relative, under `workitems/<id>/specs/`), and the `workflowId` / `runId` extension points, which SDLE creates and leaves null |
@@ -664,8 +664,9 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `audit_sha` | string\|null | SHA-256 of the WorkItem's `audit.md`, updated after every append — tamper-evidence baseline |
 | `drift_queue` / `pending_phase` | array / string\|null | Re-approval state when artifact drift is detected |
 | `rate_limits` / `attempt_counts` | object | Configurable remediation/retry caps and per-phase counters |
-| `implementation_base_ref` | string\|null | HEAD SHA pinned when Phase 15 starts; Phase 17 diffs against it |
-| `pending_confirm_action` | string\|null | Tracks a pending `restart`/`reset`/`accept_state_jump` confirmation |
+| `implementation_base_ref` | string\|null | HEAD SHA pinned when the implementation phase starts; the security review diffs against it |
+| `pending_confirm_action` | string\|null | Tracks a pending two-step confirmation (`restart`, `reset`, `skip`, `accept_state_jump`, `branch_mismatch`, …) |
+| `pending_branch_ack` | string\|null | The branch an outstanding branch-mismatch acknowledgement was given for; the second step refuses if the checkout moved |
 | `phase_history` | array | Ordered list of completed phases with outcomes |
 
 Each `approvals.<gate>` entry:
@@ -683,7 +684,7 @@ Full field-by-field reference: **[Appendix B of the Reference Guide](docs/SDLE-R
 
 ## Extending SDLE
 
-**Add a new phase:** Insert a row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP), name it in at least one FLOW_PHASES row, and add a block to `modules/phase-execution.md`. PROGRESS_MAP and the block's phase number are the **GREENFIELD view**: a phase GREENFIELD does not run takes neither, exactly as `discovery` and `impact_analysis` do not. Then run `scripts/sdle.sh lint-skill` — it checks every cross-file rule mechanically, so you no longer hand-verify them.
+**Add a new phase:** Insert a row in `SKILL.md`'s Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_LABEL_MAP), name it in at least one FLOW_PHASES row, and add a block to `modules/phase-execution.md`. PROGRESS_MAP and the block's phase number are the **GREENFIELD view**: a phase GREENFIELD does not run takes neither, exactly as `discovery` and `impact_analysis` do not. Then run `scripts/sdle.sh lint-skill` — it checks every cross-file rule mechanically, so none of them is verified by hand.
 
 **Add a new gate:** Add a `gate_<name>` phase between two execution phases, register it in GATE_PHASES / PHASE_TO_GATE_KEY / ARTIFACT_OWNERSHIP, and in `state.json`'s `approvals` object.
 
@@ -695,7 +696,7 @@ Full field-by-field reference: **[Appendix B of the Reference Guide](docs/SDLE-R
 
 ## Version History
 
-For full rationale behind each hardening pass, see the Reference Guide. Condensed changelog:
+Everything above this section describes the current release, v1.17. This table is the one place earlier releases are described. For full rationale behind each hardening pass, see the Reference Guide. Condensed changelog:
 
 | Version | Summary |
 |---|---|

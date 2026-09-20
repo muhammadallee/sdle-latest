@@ -30,11 +30,11 @@ do not pattern-match the prose.
 sdle.sh workitem create --name "<name>"
 ```
 
-### 1b. A repository still on the pre-v1.14 runtime
+### 1b. A repository with a legacy `.workflow/` runtime
 
-If `data` carries a `legacy_state` path, this repository has a repository-global
-`.workflow/state.json` from before v1.14. As of v1.17 that is **not a runtime**
-— SDLE no longer runs one. Recover in exactly two steps, **in this order**:
+If `data` carries a `legacy_state` path, this repository has a legacy
+repository-global `.workflow/state.json`. That is **not a runtime** — SDLE runs
+nothing against it. Recover in exactly two steps, **in this order**:
 
 ```bash
 sdle.sh workitem create --name "<name>"

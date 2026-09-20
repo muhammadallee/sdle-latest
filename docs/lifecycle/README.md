@@ -9,7 +9,7 @@ derived view; the engine is the source of truth.
 
 ## 1. A registry, not a fixed sequence
 
-Up to v1.15 SDLE assumed one universal 18-phase lifecycle. It no longer does.
+SDLE does not assume one universal lifecycle.
 
 - **`PHASE_SEQUENCE` is a 21-entry phase *registry*.** It says which phases
   exist, what each is called, which artifact each owns and which gate (if any)
@@ -34,8 +34,7 @@ itself: `PROGRESS_MAP` numbers `GREENFIELD` 1 through 18 and gives `complete`
 no number of its own (it shares `18/18` with `gate_security`). So `GREENFIELD`
 is 18 phases, and the header a user reads on every turn agrees. This table is
 checked against the engine by `lint-skill`'s `doc_flow_counts_match_engine`,
-so it cannot drift from it — an earlier version of this table counted
-`complete` and disagreed with every other document in the set.
+so it cannot drift from it.
 
 `GREENFIELD` is **frozen in the engine** rather than declared in `FLOW_PHASES`,
 so a new registry row can never silently join it.
@@ -109,12 +108,11 @@ advance the phase.
 call reports what will happen and records a pending confirmation, the second
 performs it.
 
-Since v1.17, an acknowledgement of a mismatched branch is **attributed to the
-branch it was given for**. The `pending_branch_ack` state field records that
-branch, and the second step refuses `branch_mismatch` if the checkout moved in
-between. Before v1.17 an acknowledgement was standing permission for whatever
-branch happened to be checked out at step two — a declared fail-open, now
-closed.
+An acknowledgement of a mismatched branch is **attributed to the branch it was
+given for**. The `pending_branch_ack` state field records that branch, and the
+second step refuses `branch_mismatch` if the checkout moved in between. An
+acknowledgement is never standing permission for whatever branch happens to be
+checked out at step two.
 
 ---
 
