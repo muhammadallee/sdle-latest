@@ -4,7 +4,7 @@ This is the one end-to-end setup guide. It takes you from a machine with the pre
 
 **What you are setting up.** SDLE is a set of files that lives *inside your application repository* (the "target project") and runs there under Claude Code. The downloaded SDLE source and your target project are two different directories: you copy files from the first into the second. Everything below runs in the **target project root** unless a step says otherwise.
 
-**What was verified, and where.** The Bash commands were replayed on Windows 10 in Git Bash, with Python 3.13, Git 2.46, uv 0.9.16 and Claude Code 2.1.278, into an empty directory, from this guide alone. The PowerShell forms differ only where marked and were not run. Linux and macOS were not run. The first conversation with Claude Code (section 9 onward) is described from the prompt files and from a fixture-driven run of the engine's start-up calls; a full live conversation was not captured. Where a step below has not been executed, it says so.
+**What was verified, and where.** The Bash blocks of sections 1 to 8 were replayed, unedited apart from the two path variables, into an empty directory on Windows 10 in Git Bash (Python 3.13, Git 2.46, uv 0.9.16, Claude Code 2.1.278). They ran to completion, the resulting tree equals the inventory in section 7, and the readiness checks gave the results described. The failure and location cases named in sections 3 and 13 were each tested: missing or empty `requirements/`, missing Spec Kit skills, the engine launched from a subdirectory, and a target nested in another repository without its own `.git`. The hook smoke check in section 10 was observed in real headless Claude Code sessions. **Not run:** the PowerShell forms, Linux, macOS, the interactive `/hooks` listing, and a full live `start workflow` conversation; section 11 is described from the prompt files and from a scripted run of the engine's start-up calls.
 
 ## 1. Choose the target project
 
@@ -78,6 +78,8 @@ This adds the `.specify/` tree (scripts, templates, memory, manifests) and the `
 test -f .claude/skills/speckit-constitution/SKILL.md && echo "spec kit skills: ok"
 test -d .specify/scripts/bash && echo "spec kit scripts: ok"
 ```
+
+Spec Kit ends its output with a note suggesting you add `.claude/` to `.gitignore`. Do not: SDLE's skill, commands, agents and hooks live there and must be shared with everyone who runs the workflow.
 
 You never type a Spec Kit command; SDLE drives it. If your project already has a Spec Kit installation, check its version with `specify version` before relying on it; SDLE never upgrades one.
 

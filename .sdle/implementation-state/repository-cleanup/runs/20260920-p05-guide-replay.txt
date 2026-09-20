@@ -1,0 +1,83 @@
+Guide-alone replay of docs/GETTING-STARTED.md sections 1-8 (bash blocks only), 2026-09-20, Windows 10, Git Bash.
+Harness: replay_guide.py (extracts the fenced bash blocks, substitutes only ~/src/sdle-latest and ~/work/todo-app, runs them in one Git Bash session, then compares the tree with the section 7 table).
+Result: 13 blocks, exit code 0; required/recommended paths missing: none; paths that must be absent but exist: none; workitems/ absent.
+Readiness results seen in the replay: `spec kit skills: ok`, `spec kit scripts: ok`, `constants` ok=true, `validate` errors=0, `preflight` ok=false reason=workitem_required (expected), direct write-fence hook check printed permissionDecision=deny.
+Final state: one commit "Add Spec Kit, SDLE and requirements", clean working tree.
+
+Failure and location cases exercised on the replayed target (each behaved as the guide states):
+ - requirements/ absent           -> preflight refuses requirements_missing
+ - requirements/ present but empty -> preflight refuses requirements_missing
+ - speckit-constitution skill removed -> preflight refuses speckit_skills_missing
+ - engine launched from requirements/deep/er -> project_root is the target root
+ - target with no .git of its own inside another repository -> project_root is the OUTER directory; after `git init` in the target -> project_root is the target
+
+Script (verbatim) follows.
+
+"""Replay docs/GETTING-STARTED.md sections 1-8 (bash blocks only) into an empty target,
+then compare the resulting tree with the section 7 inventory table.
+
+usage: replay_guide.py GUIDE SDLE_SRC TARGET LOG
+"""
+import os
+import re
+import subprocess
+import sys
+
+guide, sdle_src, target, log = sys.argv[1:5]
+text = open(guide, encoding="utf-8").read().replace("\r\n", "\n")
+
+blocks, section = [], 0
+for line_no, chunk in enumerate(re.split(r"(?m)^(?=## )", text)):
+    m = re.match(r"## (\d+)\.", chunk)
+    if m:
+        section = int(m.group(1))
+    if not 1 <= section <= 8:
+        continue
+    for lang, body in re.findall(r"(?ms)^```(\w+)\n(.*?)^```", chunk):
+        if lang == "bash":
+            blocks.append((section, body))
+
+script = []
+for section, body in blocks:
+    body = body.replace("~/src/sdle-latest", sdle_src).replace("~/work/todo-app", target)
+    script.append("# ---- section %d ----\n%s" % (section, body))
+script_text = "set -u\n" + "\n".join(script) + "\n"
+open(log + ".script.sh", "w", encoding="utf-8", newline="\n").write(script_text)
+
+if os.path.exists(target):
+    raise SystemExit("target must not exist: " + target)
+proc = subprocess.run(["C:/Program Files/Git/bin/bash.exe", log + ".script.sh"], capture_output=True, text=True, encoding="utf-8")
+open(log + ".stdout.txt", "w", encoding="utf-8").write(proc.stdout)
+open(log + ".stderr.txt", "w", encoding="utf-8").write(proc.stderr)
+print("blocks run:", len(blocks), "| exit code:", proc.returncode)
+
+# ---- compare with the section 7 inventory ----
+sec7 = re.search(r"(?s)## 7\..*?(?=\n## 8\.)", text).group(0)
+rows = [r for r in sec7.split("\n") if r.startswith("| `")]
+missing, unexpected_present = [], []
+for row in rows:
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    paths = re.findall(r"`([^`]+)`", cells[0])
+    status = cells[2].lower()
+    base = os.path.dirname(paths[0].rstrip("/")) if paths else ""
+    for index, p in enumerate(paths):
+        p = p.split(",")[0].strip()
+        if p in ("SKILL.md", "modules/", "templates/state.json"):
+            p = ".claude/skills/sdle/" + p
+        elif index and "/" not in p and base:
+            p = base + "/" + p
+        if any(ch in p for ch in "<>") or p.endswith("(two lines)"):
+            continue
+        clean = re.sub(r"^\.gitignore.*", ".gitignore", p)
+        full = os.path.join(target, clean.rstrip("/"))
+        import glob as _glob
+        exists = bool(_glob.glob(full)) if "*" in full else os.path.exists(full)
+        if status.startswith("**absent**") or status == "absent":
+            if exists:
+                unexpected_present.append(p)
+        elif status in ("required", "recommended") and not exists:
+            missing.append(p)
+print("inventory rows checked:", len(rows))
+print("required/recommended paths missing:", missing)
+print("paths that must be absent but exist:", unexpected_present)
+print("workitems exists:", os.path.exists(os.path.join(target, "workitems")))
