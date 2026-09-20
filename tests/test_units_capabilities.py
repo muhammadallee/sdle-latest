@@ -48,6 +48,7 @@ from conftest import (
     Project,
     assert_frozen_module,
     sdle,
+    searchable_files,
 )
 from test_units_flow_model import bind, tree_map
 
@@ -628,11 +629,43 @@ def test_a21_the_restatement_search_now_covers_the_product_agents():
     which is spelled exactly like §14's classifications. The post-migration
     cleanup deleted those files and the exclusion with them, so the search now
     covers every agent prompt on disk."""
-    from test_units_governance import _searchable_files
-
-    scanned = {p.name for p in _searchable_files()}
+    scanned = {p.name for p in searchable_files()}
     assert set(PRODUCT_AGENTS) <= scanned
     assert {p.name for p in AGENTS.glob("sdle-*.md")} <= scanned
+
+
+def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
+    """F-025. A maintenance run's ledger and run logs quote engine vocabulary by
+    design, so that one directory is outside the search. The exclusion must not
+    widen: a sibling under `.sdle/implementation-state/`, the policies and the
+    templates are product surface and stay searched."""
+    from conftest import MAINTENANCE_RECORDS
+
+    root = tmp_path
+    kept = [root / ".sdle" / "policies" / "policy.json",
+            root / ".sdle" / "templates" / "note.md",
+            root / ".sdle" / "implementation-state" / "release-notes.md",
+            root / ".sdle" / "implementation-state" / "repository-cleanup-old" / "x.md",
+            root / ".sdle" / "config.json"]
+    skipped = [root / MAINTENANCE_RECORDS / "LEDGER.md",
+               root / MAINTENANCE_RECORDS / "runs" / "one.stdout.log"]
+    for path in kept + skipped:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("body", encoding="utf-8")
+
+    scanned = set(searchable_files(root))
+    assert scanned == set(kept)
+    assert not scanned & set(skipped)
+
+
+def test_the_restatement_search_is_not_vacuous_on_this_repository():
+    """A search over nothing passes every restatement test. The real repository
+    must yield the governed prompt layer, the skill included."""
+    scanned = {p.relative_to(REPO_ROOT).as_posix() for p in searchable_files()}
+    assert ".claude/skills/sdle/SKILL.md" in scanned
+    assert ".claude/hooks/hooks.py" in scanned
+    assert "README.md" in scanned
+    assert len(scanned) >= 20
 
 
 # ==========================================================================

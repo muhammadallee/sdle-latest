@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, Project, sdle
+from conftest import REPO_ROOT, Project, sdle, searchable_files
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -645,40 +645,6 @@ def test_n13_baseline_json_under_a_workitem_is_still_an_error(started):
 # --------------------------------------------------------------------------
 # N14 — one home per fact (invariant 7, T05 NB-3's drift surface)
 # --------------------------------------------------------------------------
-
-
-def searchable_files() -> list[Path]:
-    """T06's `_searchable_files()` set, reused verbatim.
-
-    `docs/transition/` is the migration control plane rather than the product,
-    and this file legitimately quotes §14's own vocabulary.
-    """
-    roots = [REPO_ROOT / "README.md", REPO_ROOT / "CLAUDE.md",
-             REPO_ROOT / "docs" / "SDLE-Reference-Guide.md"]
-    files = [p for p in roots if p.is_file()]
-    for directory in (REPO_ROOT / ".claude" / "skills",
-                      REPO_ROOT / ".claude" / "commands",
-                      REPO_ROOT / ".claude" / "hooks",
-                      REPO_ROOT / ".sdle",
-                      REPO_ROOT / "docs" / "architecture"):
-        if directory.is_dir():
-            files.extend(p for p in sorted(directory.rglob("*")) if p.is_file())
-    # T10 (X3): product subagent prompts are part of the shipped prompt layer,
-    # so a restatement in one of them is exactly the drift this search exists
-    # to catch. Four `sdle-transition-*` files used to be excluded here: they
-    # were the migration control plane (contract §1.4), not the product, and
-    # `sdle-transition-planner.md` legitimately used the transition
-    # contract's own evidence vocabulary — OBSERVED / INFERRED / UNKNOWN —
-    # which happens to be spelled exactly like §14's classifications. The
-    # post-migration cleanup deleted those four files, so the carve-out went
-    # with them and every agent prompt on disk is scanned. `docs/transition/`
-    # stays outside the roots above for a different and still-live reason,
-    # given in the docstring.
-    agents = REPO_ROOT / ".claude" / "agents"
-    if agents.is_dir():
-        files.extend(path for path in sorted(agents.glob("sdle-*.md"))
-                     if path.is_file())
-    return files
 
 
 def discovery_identifiers() -> set[str]:

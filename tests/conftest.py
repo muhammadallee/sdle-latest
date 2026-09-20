@@ -717,3 +717,35 @@ def assert_frozen_module(relative: str, baseline: str, current: str) -> None:
     assert extra == additions, (
         f"{relative}: undeclared additions {sorted(extra - additions)}, "
         f"declared but absent {sorted(additions - extra)}")
+
+
+# --------------------------------------------------------------------------
+# Restatement search (invariant 7): which files must not repeat an engine fact
+# --------------------------------------------------------------------------
+
+MAINTENANCE_RECORDS = Path(".sdle") / "implementation-state" / "repository-cleanup"
+"""Execution records of a repository-maintenance run: ledgers, run logs and
+recorders whose whole job is to quote engine vocabulary (test names, result
+words). They are evidence, not a prompt or documentation surface. The
+exclusion is this one directory and nothing wider: every other file under
+`.sdle/` is still searched."""
+
+
+def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
+    """Every versioned prose/config file that must not restate a fact owned by
+    `scripts/sdle.py`: the README, `CLAUDE.md`, the Reference Guide, the skill,
+    command, hook and product-agent prompts, the architecture decisions and the
+    repository configuration under `.sdle/` (minus `MAINTENANCE_RECORDS`)."""
+    files = [p for p in (root / "README.md", root / "CLAUDE.md",
+                         root / "docs" / "SDLE-Reference-Guide.md") if p.is_file()]
+    skipped = root / MAINTENANCE_RECORDS
+    for directory in (root / ".claude" / "skills", root / ".claude" / "commands",
+                      root / ".claude" / "hooks", root / ".sdle",
+                      root / "docs" / "architecture"):
+        if directory.is_dir():
+            files.extend(p for p in sorted(directory.rglob("*"))
+                         if p.is_file() and skipped not in p.parents)
+    agents = root / ".claude" / "agents"
+    if agents.is_dir():
+        files.extend(p for p in sorted(agents.glob("sdle-*.md")) if p.is_file())
+    return files
