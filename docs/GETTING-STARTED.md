@@ -150,14 +150,14 @@ Running the merge again changes nothing: an entry that is already there is not a
 
 **Never copy** `.claude/settings.local.json` (it is per-developer and is not part of the product), the SDLE `docs/`, `tests/`, `.github/`, `scripts/README.md`, or the SDLE repository's own `.sdle/` directory.
 
-**Ignore two developer-local files.** SDLE writes a per-session lock and a per-developer "active WorkItem" file under `workitems/`. Everything else it writes there is meant to be committed. Add these to your `.gitignore`:
+**Ignore three developer-local files.** SDLE writes a per-session lock and a per-developer "active WorkItem" file under `workitems/`; everything else it writes there is meant to be committed. The third is Claude Code's own per-developer settings file, `.claude/settings.local.json`, which is not part of SDLE and must never be shared. Add these to your `.gitignore`:
 
 ```bash
-printf 'workitems/*/.sdle/lock\nworkitems/.active-context.json\n' >> .gitignore
+printf 'workitems/*/.sdle/lock\nworkitems/.active-context.json\n.claude/settings.local.json\n' >> .gitignore
 ```
 
 ```powershell
-Add-Content .gitignore "workitems/*/.sdle/lock", "workitems/.active-context.json"
+Add-Content .gitignore "workitems/*/.sdle/lock", "workitems/.active-context.json", ".claude/settings.local.json"
 ```
 
 ## 6. Create your requirements
@@ -306,7 +306,7 @@ Every **required** path in this table exists at this point; the optional rows ex
 | `.claude/hooks/hooks.py`, `run-hook.sh` | the guard hooks | required | section 5 | direct hook check below |
 | `.claude/settings.json` | the hook registrations (merged) | required | section 5 | `$PY -c "import json;json.load(open('.claude/settings.json'))"` |
 | `.specify/`, `.claude/skills/speckit-*` | Spec Kit scaffolding and skills | required | section 4 | skills check in section 4 |
-| `.gitignore` (two lines) | keep local files out of Git | recommended | section 5 | `git check-ignore workitems/.active-context.json` |
+| `.gitignore` (three lines) | keep local files out of Git | recommended | section 5 | `git check-ignore workitems/.active-context.json .claude/settings.local.json` |
 | `guidance/` | per-phase steering | optional | you | |
 | `.sdle/config.json` and its folders | repository configuration | optional | `sdle.sh config init` | |
 | `workitems/`, `workitems/<id>/.sdle/` | the WorkItem registry and its runtime | **absent** | `start workflow` | |

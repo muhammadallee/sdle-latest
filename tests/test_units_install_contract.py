@@ -306,3 +306,36 @@ def test_ci_installs_the_pinned_dependencies_and_declares_its_python_matrix():
     versions = re.findall(r'"([0-9.]+)"', matrix.group(1))
     assert "3.11" in versions, versions
     assert "fetch-depth" not in ci, "normal tests need no history"
+
+
+# -- the target's .gitignore lines are the ones this repository ignores --------
+
+TARGET_IGNORES = ("workitems/*/.sdle/lock", "workitems/.active-context.json",
+                  ".claude/settings.local.json")
+
+
+def guide_ignore_entries() -> list[str]:
+    """The lines the guide tells a target to append to its `.gitignore`, from
+    the Bash `printf` (whose separators are the two characters backslash-n)."""
+    section = re.search(r"(?s)## 5\..*?(?=\n## 6\.)",
+                        GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")).group(0)
+    printf = re.search(r"printf '([^']*)' >> \.gitignore", section).group(1)
+    return [line for line in printf.split(chr(92) + "n") if line]
+
+
+def test_the_guide_ignores_exactly_the_developer_local_files():
+    assert guide_ignore_entries() == list(TARGET_IGNORES)
+
+
+def test_the_powershell_form_appends_the_same_lines():
+    section = re.search(r"(?s)## 5\..*?(?=\n## 6\.)",
+                        GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")).group(0)
+    line = re.search(r"Add-Content \.gitignore (.*)", section).group(1)
+    assert re.findall(r'"([^"]+)"', line) == list(TARGET_IGNORES)
+
+
+def test_every_target_ignore_is_ignored_by_this_repository_too():
+    """One list of developer-local files: what a target is told to ignore is
+    what the source ignores, so the two cannot drift apart."""
+    own = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert [entry for entry in TARGET_IGNORES if entry not in own] == []
