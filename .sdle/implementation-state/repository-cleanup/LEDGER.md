@@ -503,13 +503,101 @@ Recorded 2026-09-20. The owner answered none of the §12 questions (their only i
 |---|---|---|---|---|
 | D-01 | Hook failure posture per guard (F-014) | **Default:** `write-fence` and `product-agent-fence` fail closed when the hook runs but cannot evaluate the payload; `untrusted-read`, `dirty-tree`, `secrets-scan` stay fail-open but announce the degraded state through JSON `systemMessage` (user) and `additionalContext` (Claude) — stderr alone is not acceptable; visibility verified in a live session. A hook that cannot start is F-013 + the post-launch smoke | P02 | default applied when P02 starts |
 | D-02 | Supported Python matrix (F-021) | **Applied (default):** CI matrix Python `[3.11, 3.13]` on ubuntu + windows, test dependencies pinned in `requirements-dev.txt` and installed from it; README and the guide say "3.11 or newer (tested on 3.11 and 3.13)". Local evidence: 3.13.0 on Windows only; 3.11, and Linux, are exercised only by CI, which has **not** run | P06 | applied; CI result unverified |
-| D-03 | License (F-023) | **Default:** add none; report the absence as an owner action | P09 report | pending |
+| D-03 | License (F-023) | **Default:** add none; report the absence as an owner action | P09 report | applied; **owner action outstanding**: no LICENSE exists |
 | D-04 | Active WorkItem and policy change (F-024) | The behavioural test **did** show a mid-flight relaxation dropping a gate required at start (see F-024), so the default's exception applies: **reported as a confirmed defect; no code change made; the owner is asked.** Options — **(1) pin at start (recommended):** record the required-gate set (or policy sha) in the governance record at `init` and treat a gate as omittable only if it is omittable under both the pinned and the live policy, so a tightened policy still applies and a relaxed one cannot weaken an in-flight WorkItem; engine + tests, `.sdle/implementation-state/` unaffected. **(2) fence `.sdle/policies/`** in the write-fence hook: a tripwire only (Bash and a human editor are unaffected) and it blocks the model from legitimate policy edits. **(3) document only:** keep live derivation and state that a policy edit governs the next decision. | P02 | **OPEN — awaiting owner**; carried to the final report as an unresolved item |
 | D-05 | Primary beginner entry point (F-018) | **Applied (default):** `start workflow` is primary, `/sdle-start` the verified equivalent (SKILL.md routes `start workflow` and `begin` to `/sdle-start`); the skill description was narrowed so it no longer auto-triggers on a bare `requirements/` folder | P04 | applied |
 | D-06 | Purging `settings.local.json` paths from history | **Out of scope** (no history rewriting); report only that the paths remain in Git history | — | applied |
 | D-07 | Codex unavailable/unauthenticated for P08 | **Not triggered:** codex-cli 0.151.0 installed, "Logged in using ChatGPT", required flags present (P00-T05). Not installed or logged in on the owner's behalf | P08 | applied |
-| D-08 (new) | May the `.sdle/templates/` slot (no reader) be removed? (DEL-003) | **Default:** yes, remove the slot; keep `policies/` and `implementation-state/`; tolerate an existing directory | P03 | pending |
+| D-08 (new) | May the `.sdle/templates/` slot (no reader) be removed? (DEL-003) | **Default:** yes, remove the slot; keep `policies/` and `implementation-state/`; tolerate an existing directory | P03 | applied (`1507cab`) |
 
 ## Final report
 
-_P09._
+**Overall status: `VERIFICATION_BLOCKED`.** All local work is finished and every local gate passed. Two required gates cannot be run without pushing, which this task forbids: the GitHub Actions matrix (Linux, and Python 3.11 on both operating systems). One confirmed defect (F-024) is open pending an owner decision. Details below; nothing is reported as passed that did not run.
+
+### Source identity
+
+- Starting point: `main` at `0377871fe944ad056dea1b3d61df3af2175fdd3d` plus the owner's 11 uncommitted edits (kept), measured at P00 (2246 passed).
+- Branch `maintenance/repository-cleanup`, **nothing pushed, merged, published or deployed**.
+- Review candidate (P08): `413d38d1c0b744fb82b630412a21828d3d30c396`.
+- **Acceptance candidate: `9f41f8f`** (the post-review commit). Product content at the final commit is identical to it: the commits after it contain only this report, the matrix run rows and run records, and the checks named at the end of this section were re-run on them.
+- Diff of the product (everything except the maintenance records), base to acceptance candidate: 191 files changed, 3928 insertions(+), 34911 deletions(-)
+
+### Test evidence
+
+| Run | Source | Result |
+|---|---|---|
+| Baseline, clean worktree at `main` plus the owner's edits | `0377871`+WIP | 2246 passed |
+| Round-1 review candidate, depth-1 clone (`p08-full-suite-candidate`) | `413d38d` | 2313 passed |
+| First final attempt (`p09-final-full-suite`) | `d4627da` | **stopped at collection** (1 error): my own P08 change left an unused import of a deleted helper. Fixed at `e27a3b2`; recorded at T-CX-005 |
+| Second final attempt (`p09-final-full-suite-2`) | `e27a3b2` | 3023 passed, **1 failed** in 38m34s: `test_t11_the_legacy_rung_is_gone` asserted `current_feature_id` appears in the engine, a pin that existed for the state migration rows; my P08 narration rewrite removed the last (comment) mention. The assertion was migration scaffolding and now asserts the reverse (`9f41f8f`); the module passes (354) |
+| **Final, depth-1 clone (`20260920T190224-p09-final-full-suite-3`)** | `9f41f8f` | **3024 passed**, 0 failed, 0 skipped, in 37m47s |
+
+The test count went from 2246 to 3024: the history-pinned scaffolding (DEL-009) and the migration tests went, and hook, invariant, install-contract, doc-link, retired-name, prompt-write, command-existence and state-boundary tests came in. The count is not a target.
+
+`lint-skill`: 44 checks, none failed, through `python scripts/sdle.py`, `sh scripts/sdle.sh` and `./scripts/sdle.ps1`.
+
+### What changed
+
+- **Hooks (F-013 to F-016, AC-17).** Registrations are `sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh" <guard>`, so they start from the project root whatever the session's directory, using the same interpreter search as the engine launchers. `write-fence` and `product-agent-fence` fail closed when they cannot evaluate a call; the three scanners fail open and say so through `systemMessage` and `additionalContext`. Matchers derive from one tool set per role (adds `NotebookEdit`, `MultiEdit`, `PowerShell`). Relative paths resolve against the payload's `cwd`. Windows case-folding, drive-relative paths, an anchored specs carve-out and pathless payloads were closed in review. Live: real headless Claude Code 2.1.278 denied a governed write and allowed a control write in a freshly installed target (`runs/20260920-p09-guide-replay-and-live-smoke.txt`).
+- **Skill frontmatter and shipped surface (F-012, F-018, F-026, AC-18).** `.claude/settings.local.json` untracked and ignored (`D-06` below); the SKILL.md description is 399 characters, leads with trigger phrases, no product version, and no longer fires on a bare `requirements/` folder; launchers carry their executable bit in the index; test dependencies pinned in `requirements-dev.txt` and CI installs from it.
+- **Engine.** F-029: the secrets pattern no longer matches inside hyphenated words such as `risk-adaptive-gate-policy`. State migration and `migrate-workflow` removed (F-011, ADR-010): a state of another schema is refused `unsupported_state_version`, the retired `.workflow/` is detected and never run. `security-review begin` never reuses a review path. 112 blocks of historical narration removed from the engine's comments (AST identical apart from docstrings).
+- **Documentation (AC-03, AC-05, AC-15).** One canonical `docs/GETTING-STARTED.md`; `docs/START-HERE.md`, `docs/transition/` (119 files) and `docs/verification/` retired; README, CLAUDE.md, the Reference Guide, troubleshooting, the WorkItems guide and ADRs brought to the current product; ADR-010 added.
+- **Prompts (P08 E-CX-001).** Phase 17, the gate steps and the phase steps no longer tell the model to hand-edit `state.json`, `audit.md` or `completion-summary.json`; each names the engine command that owns the step.
+
+### Removed, and what was kept
+
+Every removal in the table above is executed and the suite proves nothing reachable disappeared. Kept on purpose: `.workflow/` as a project-root marker, a write fence and a refusal; `GATE_DISPOSITIONS` and `BASELINE_REFERENCE_KINDS` (contract constants, referenced by tests); `policies/` and `implementation-state/` as `config init` output; the `design/`, `reviews/` and `clarifications/` repository-level outputs (ADR-008, known limitation L-001). Removed: the migration chain and command surface (DEL-001/002), the `.sdle/templates/` slot (DEL-003), `docs/transition/` (DEL-004), two unused symbols (DEL-005/006), `docs/verification/` (DEL-007), `docs/START-HERE.md` (DEL-008), the history-test scaffolding and CI `fetch-depth: 0` (DEL-009), the tracked developer-local settings (DEL-010), the version-history narration (DEL-011). Empty or placeholder-only directories: none are untracked; the `.gitkeep`-only `templates/` was removed with its slot, the other two are created on demand by `config init`.
+
+### Getting started
+
+`docs/GETTING-STARTED.md` (13 sections): prerequisites; the target as its own Git repository; the pinned Spec Kit v1.0.6 command; the exact SDLE files to install (with an inventory the tests tie to the tracked files); a sample requirements document embedded in full; readiness checks; launch from the project root; a hook check; the first `start workflow`; what exists afterwards; recovery. **Replayed from the guide alone**: the 13 Bash blocks into an empty target and into an existing project (its own settings, `CLAUDE.md`, `.gitignore` and source kept byte-for-byte, hook registrations merged), the resulting tree equal to the inventory; the PowerShell blocks (pwsh 7, earlier commit); a live hook smoke. **Not done**: a full live `start workflow` conversation, so section 11 is described from the prompt files and a scripted run of the start-up calls.
+
+### Drift checks and how they were shown able to fail
+
+Link and anchor checker (GitHub slugs, wrong-case links), install-contract and frontmatter checks, exact install-directory sets and the guide's counts, target `.gitignore` lines tied to this repository's, retired command and path names kept out of living documents, prompt hand-write scan, documented-command scan (433 invocations, fenced blocks, command existence), narration allowance of zero, single-writer call-site snapshot, `runctl verify`. Each has a recogniser or negative-fixture test; the ones added in review were run against the frozen candidate and failed there.
+
+### Independent review (AC-19)
+
+Codex `codex-cli 0.151.0` (the event stream does not report a model; the CLI's configured default is `gpt-5.6-sol` at high reasoning effort), `--sandbox read-only --ephemeral --json --output-schema`, detached worktrees. Round 1: four areas of the frozen candidate; round 2: the fix diff. Five runs, all PASS first attempt, 29 findings: 1 high, 21 medium, 7 low, none critical. Dispositions: 22 accepted and fixed, 2 partly accepted, 5 duplicates, 0 rejected, 0 deferred. The high finding (prompts hand-editing governed state) was accepted and fixed; no high or critical item was rejected. The round 2 fixes were not independently reviewed again (the plan allows two rounds), and one finding was a defect in a round 1 fix of mine, caught by the P09 full run. The review worktrees (`scratchpad/review-wt`, `scratchpad/review-wt2`) were removed.
+
+### Recovery drills (AC-10)
+
+R-00 to R-08 against a sandbox clone plus one genuine cold-session drill, `runctl verify` and `reconcile`; results in `runs/20260920-p07-*`. The cold-session drill found a real defect in my ledger insertion, which was repaired.
+
+### Acceptance-evidence table
+
+Derived from the tags in this ledger and in `runs/`. "Not proven" means what it says.
+
+| AC | Evidence | Result |
+|---|---|---|
+| AC-01 | Findings F-012..F-016, F-018, F-019, F-025, F-026, F-029, the round 1 and 2 findings; each with a reproduction and a regression test that failed before the fix | Met, **except F-024**: confirmed, reproduced (`runs/f024-repro.py.txt`), unresolved, awaiting owner decision D-04. It is reported here, not treated as complete |
+| AC-02 | Removals DEL-001..011 with caller and dynamic-use evidence; `p03-full-shallow`; Codex E-CX-\*/D-CX-\* verified nothing live went | Met |
+| AC-03 | Docs rewritten, ADR-010, retired-name scan, narration allowance zero, prompt hand-write scan | Met for living docs, shipped prompts and shipped source comments. Test-file comments still contain about 40 historical remarks; ADR bodies keep their history by design |
+| AC-04 | Version and schema identifiers, pins (`requirements-dev.txt`), the state template and `CURRENT_VERSION` agree under `lint-skill`; no LICENSE (D-03) | Met, with D-03: no licence file exists (owner action) |
+| AC-05 | One reference location per surface, `docs/README.md` index, link and anchor checker over all authored Markdown, command-existence check | Met |
+| AC-06 | Tutorials were edited for the removed surface and checked by the link, command and retired-name scans | **Not proven as executed**: the tutorials' steps were not re-run step by step in disposable fixtures |
+| AC-07 | All sixteen dry runs retained, `test_dry_run_contracts.py`, matrix rewritten with this run's results, simulated versus executed evidence labelled | Met for retention and labelling; the transcripts are simulated, and interruption/resumption is covered by the P07 drills, not by a transcript |
+| AC-08 | Each new check has a recogniser or negative fixture; scanned sets have non-vacuity assertions | Met |
+| AC-09 | Final full suite 3024 passed, lint-skill through three launchers, clean-install replay, live smoke | **Blocked in part**: Linux, Python 3.11 and CI are not run (R3, R4 in the matrix) |
+| AC-10 | P07 drills including a cold-session drill; `runctl verify`/`reconcile` | Met |
+| AC-11 | `test_units_invariants.py` replaces the history-pinned scaffolding; the whole suite passes in a depth-1 clone | Met |
+| AC-12 | This report, with the exact source identities above | Met |
+| AC-13 | Layout ownership in the guide and this ledger's directory inventory; F-013/F-015/F-026/F-027 fixed; launch-location limit F-028 documented | Met on Windows; other platforms unverified |
+| AC-14 | Directory inventory dispositions, `templates/` slot removed, fresh clone and install verified | Met |
+| AC-15 | `docs/GETTING-STARTED.md` is the sole onboarding guide; duplicate recipes removed and links repointed | Met |
+| AC-16 | Bash replay from the guide alone into an empty and an existing target; PowerShell replay; live hook smoke | **Partly met**: no full live `start workflow`; Windows PowerShell 5.1, Linux and macOS not run |
+| AC-17 | Hook tests (207) on Windows across cwd, path forms and failure posture; live smoke; docs say tripwire versus engine-enforced | Met on Windows and Git Bash; other interpreters and platforms unverified |
+| AC-18 | Frontmatter checks per artifact type; settings untracked; pins | Met |
+| AC-19 | Five Codex runs with recorded command, version, prompt, schema, outputs; every finding dispositioned with evidence; final acceptance on the post-review commit | Met |
+
+### Open items and required next actions
+
+1. **F-024 / D-04 (owner decision).** A repository policy that tightens gate requirements at start can be relaxed mid-flight, dropping a gate that was required at start (reproduced). Recommended: record the required-gate set (or the policy's SHA) at `init` and treat a gate as omittable only if it is omittable under both the pinned and the live policy. No code was changed.
+2. **CI gates.** Push the branch and run the workflow on `ubuntu-latest` and `windows-latest` for Python 3.11 and 3.13. Until then Linux, Python 3.11 and the CI `lint-skill` steps are unverified.
+3. **D-03.** There is no LICENSE file. Adding one is an owner action.
+4. **D-06.** `.claude/settings.local.json` is untracked, but its paths and allowances remain in Git history; no history was rewritten.
+5. **Not exercised:** a full live `start workflow` conversation; the interactive `/hooks` listing; macOS; Windows PowerShell 5.1; the PowerShell Spec Kit installer (`--script ps`); a step-by-step re-run of the tutorials.
+6. **Known limits, documented:** Claude Code loads project hooks only from the directory it was launched in (F-028); the hooks are tripwires and the engine's refusal is the guarantee; `design/`, `reviews/` and `clarifications/` are shared across WorkItems in one repository (L-001).
+7. Whether Claude Code already ignores `.claude/settings.local.json` by itself was not verified; the guide adds the ignore line either way.
+
+Housekeeping at close: the review worktrees `scratchpad/review-wt` (413d38d) and `scratchpad/review-wt2` (57bd413) were removed after their rounds. The P00 baseline worktree `scratchpad/wt-baseline-head-plus-wip` (detached at `0377871`, holding the owner's 11 uncommitted edits as working changes) and the disposable clones under `scratchpad/` were left in place; they are outside the repository and can be deleted with `git worktree remove --force`.
