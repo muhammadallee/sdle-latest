@@ -310,6 +310,8 @@ that phase is the impact analysis §13 asks for.**
 - **It does not remove the legacy fixed-sequence structures.** `NEXT_PHASE`,
   `PROGRESS_MAP`, `PHASE_TO_GATE_KEY`'s gate-number column, the legacy
   `.workflow/` dual-read rung and `migrate-workflow` all keep working.
+  (ADR-010 later removed the migration command; the retired runtime is now only
+  detected.)
 - **It does not build a workflow engine.** A flow is an ordered subset of a
   fixed registry and nothing more: no conditional branching, no parallel
   phases, no loops, no dynamic phase insertion, no policy DSL. If the

@@ -40,9 +40,9 @@
 
 ## 1. Executive Summary
 
-SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a fixed, auditable software delivery lifecycle*: requirements → constitution → specification → plan → checklist/tasks → analysis → design → implementation → security review, with eight mandatory human approval gates along the way.
+SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a governed, auditable software delivery lifecycle*. A WorkItem traverses exactly one of five flows, chosen from a 21-phase registry when it starts. The new-project flow, `GREENFIELD`, runs requirements → constitution → specification → plan → checklist/tasks → analysis → design → implementation → security review across 18 phases with eight human approval gates; the other four flows (`BROWNFIELD_DISCOVERY` 19 phases and 8 gates, `ITERATIVE` 16 and 7, `DEFECT_FIX` 14 and 6, `HOTFIX` 10 and 3) are shorter, never ungoverned, because each keeps the same ten-phase governance floor and ends at a required human decision.
 
-The problem SDLE solves is not "can an LLM write code" — it is **"can an organization trust, govern, and audit a workflow in which an LLM writes code."** Left unconstrained, an AI assistant will happily skip straight from a one-line prompt to a finished pull request, silently inventing scope, architecture, and security posture as it goes, with no record of what was decided, why, or who agreed to it. SDLE replaces that ad hoc path with a fixed sequence of small, reviewable, written artifacts, each one gated by an explicit human decision before the next is generated.
+The problem SDLE solves is not "can an LLM write code" — it is **"can an organization trust, govern, and audit a workflow in which an LLM writes code."** Left unconstrained, an AI assistant will happily skip straight from a one-line prompt to a finished pull request, silently inventing scope, architecture, and security posture as it goes, with no record of what was decided, why, or who agreed to it. SDLE replaces that ad hoc path with the bound flow's sequence of small, reviewable, written artifacts, each one gated by an explicit, recorded decision before the next is generated: a human approval or, where the governance policy permits it for that gate, an omission the audit records.
 
 Every phase exists to make a specific class of error cheap to catch. Every gate exists because at least one prior project — somewhere — shipped a defect that a five-minute review at that exact point would have caught. The phases are not ceremony; they are a deliberately ordered set of checkpoints, each placed where the cost of being wrong is lowest and the cost of skipping it is highest.
 
@@ -105,7 +105,7 @@ SDLE Orchestrator (Claude Code Skill)
 │
 ├── SKILL.md                         Always-loaded entry point
 │     • Core rules, the phase registry and FLOW_PHASES, internal constants (single source of truth)
-│     • State inspection, command dispatcher, state-file schema & migrations
+│     • State inspection, command dispatcher, state-file schema
 │
 ├── modules/phase-execution.md       Loaded when executing any non-gate phase
 │     • Per-phase generation logic, guidance injection, drift check,
@@ -267,7 +267,7 @@ SDLE never reads, migrates or writes the retired directory; remove it or move it
 
 ### Execution identity
 
-Each `init` and each migration stamps `workitems/<id>/.sdle/execution.json`
+Each `init` stamps `workitems/<id>/.sdle/execution.json`
 with an execution id of the form
 `<3-letter-git-user-prefix>-<UTC datetime>-<8 hex>`, for example
 `muh-20260816T171501Z-1a2b3c4d`. The prefix is `git config user.name`,
@@ -278,8 +278,8 @@ never the WorkItem name.
 
 The trailing eight hex digits are random. The timestamp has one-second
 resolution, and an id is also a key: it names every evidence file
-(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`,
-`migration-<id>.json`) and de-duplicates the governance ledger entry. Without
+(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`) and
+de-duplicates the governance ledger entry. Without
 the suffix, two executions in the same second shared both, so the second
 overwrote the first one's evidence and never reached the ledger. Each evidence
 file is also claimed with an exclusive create before it is written, so an
@@ -292,7 +292,7 @@ The same file carries a `git` object — the branch, the starting SHA and the
 worktree path the run began on. Missing Git and a detached HEAD are never a
 refusal; they simply record `null`. This lives on the execution record rather
 than in `state.json` because it describes *this run*, not the workflow, so it
-needs no schema version and no migration row.
+needs no schema version.
 
 ### Branch and worktree rules
 
@@ -363,8 +363,8 @@ a malformed file, an unsupported `configVersion`, or a `policyFormat` other than
 `json` is refused as `config_malformed`.
 
 Nothing in any lifecycle flow reads this file. `configVersion` is a separate
-namespace from `workflow_version`: it is not workflow state and has no migration
-chain. The reasoning behind the boundary and the JSON policy-format decision is
+namespace from `workflow_version`: it is not workflow state and has no state
+schema of its own to upgrade. The reasoning behind the boundary and the JSON policy-format decision is
 recorded in `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 ### 4.2.1 The repository baseline

@@ -232,6 +232,51 @@ def test_a_tracked_file_the_guide_omits_is_detected():
     assert covered(".claude/agents/sdle-code-review.md", patterns)
 
 
+# The install directories are copied whole, so a file added under one of them
+# ships to every target. These sets are the current product: adding or removing
+# a file is a decision, made here and in the guide's counts in the same commit.
+EXPECTED_COMMANDS = {
+    "sdle-approve.md", "sdle-continue.md", "sdle-reject.md", "sdle-reset.md",
+    "sdle-restart.md", "sdle-skip.md", "sdle-start.md", "sdle-status.md",
+    "sdle-verbose.md"}
+EXPECTED_AGENTS = {
+    "sdle-code-review.md", "sdle-design-review.md", "sdle-discovery.md",
+    "sdle-security-review.md"}
+EXPECTED_SKILL_FILES = {
+    "SKILL.md", "modules/code-review.md", "modules/design-review.md",
+    "modules/gate-protocol.md", "modules/phase-execution.md",
+    "modules/security-review.md", "templates/state.json"}
+EXPECTED_HOOK_FILES = {"hooks.py", "run-hook.sh"}
+
+
+def tracked_names(root: str) -> set[str]:
+    return {p[len(root) + 1:] for p in tracked(root)}
+
+
+def test_the_install_directories_hold_exactly_the_expected_files():
+    assert tracked_names(".claude/commands") == EXPECTED_COMMANDS
+    assert tracked_names(".claude/agents") == EXPECTED_AGENTS
+    assert tracked_names(".claude/skills/sdle") == EXPECTED_SKILL_FILES
+    assert tracked_names(".claude/hooks") == EXPECTED_HOOK_FILES
+
+
+def test_an_unexpected_file_in_an_install_directory_is_detected():
+    """Non-vacuity: the comparison is on exact sets, so one extra name fails."""
+    assert tracked_names(".claude/commands") | {"unintended.md"} != EXPECTED_COMMANDS
+    assert tracked_names(".claude/skills/sdle") - {"SKILL.md"} != EXPECTED_SKILL_FILES
+
+
+def test_the_guide_states_the_counts_of_the_install_directories():
+    guide = GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")
+    layout = re.search(r"(?s)## 7\..*?(?=\n## 8\.)", guide).group(0)
+    modules = sum(1 for name in EXPECTED_SKILL_FILES if name.startswith("modules/"))
+    words = {4: "four", 5: "five", 9: "nine"}
+    for phrase in (f"{words[len(EXPECTED_COMMANDS)]} command files",
+                   f"{words[len(EXPECTED_AGENTS)]} `sdle-*` agent files",
+                   f"{words[modules]} files under `modules/`"):
+        assert phrase in layout, (phrase, "the guide's counts have drifted from the shipped set")
+
+
 def test_the_files_that_must_never_be_installed_are_not_tracked():
     assert ".claude/settings.local.json" not in tracked(".claude")
 

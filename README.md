@@ -189,7 +189,7 @@ reasoning, and what was rejected, is in
 `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 `configVersion` is a separate namespace from `workflow_version` — it is not
-workflow state, and it has no migration chain. Nothing in any lifecycle flow
+workflow state, and it has no state schema of its own to upgrade. Nothing in any lifecycle flow
 reads this file.
 
 ### Governance inputs and artifact review
@@ -400,7 +400,7 @@ belong to the Claude Code runtime, and which are convention only.
 └── workitems/
     ├── index.md                       ← Append-only WorkItem registry (single source of truth)
     └── <workitem-id>/
-        ├── workitem.json              ← Immutable WorkItem identity + migration record
+        ├── workitem.json              ← Immutable WorkItem identity
         └── .sdle/                     ← This WorkItem's runtime — nothing here is repository-global
             ├── state.json             ← SDLE orchestration state (canonical source of truth)
             ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>-<8 hex>)

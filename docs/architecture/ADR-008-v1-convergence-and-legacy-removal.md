@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-09
 **Supersedes:** the transitional dual-path runtime introduced alongside ADR-001.
+**Superseded in part by:** ADR-010, which removes the migration path §3 and §3.1 describe. The retired `.workflow/` is now only detected and refused.
 **Extends:** ADR-002 … ADR-007.
 **Context:** transition contract §17 (primary), with §18, §19, §20, §26, §28.
 
@@ -47,6 +48,8 @@ never guesses* is a stronger statement after this change than before it.
 ---
 
 ## 3. What was deliberately preserved, and why removing it would have been wrong
+
+> **Superseded by ADR-010.** `migrate-workflow` and its refusals no longer exist; the rows and §3.1 record the decision as it stood when this ADR was accepted. P1 and P6 still hold.
 
 This is the half of the decision that is easy to get wrong, so it is written
 out. §28 forbids removing a safety control without providing the replacement

@@ -45,7 +45,6 @@ $ sdle.sh config show
     "members": {
       "config": ".sdle/config.json",
       "policies": ".sdle/policies",
-      "templates": ".sdle/templates",
       "baseline": ".sdle/baseline.json",
       "implementation_state": ".sdle/implementation-state"
     }

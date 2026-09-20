@@ -4,7 +4,7 @@ This is the one end-to-end setup guide. It takes you from a machine with the pre
 
 **What you are setting up.** SDLE is a set of files that lives *inside your application repository* (the "target project") and runs there under Claude Code. The downloaded SDLE source and your target project are two different directories: you copy files from the first into the second. Everything below runs in the **target project root** unless a step says otherwise.
 
-**What was verified, and where.** The Bash blocks of sections 1 to 8 were replayed, unedited apart from the two path variables, into an empty directory on Windows 10 in Git Bash (Python 3.13, Git 2.46, uv 0.9.16, Claude Code 2.1.278). They ran to completion, the resulting tree equals the inventory in section 7, and the readiness checks gave the results described. The failure and location cases named in sections 3 and 13 were each tested: missing or empty `requirements/`, missing Spec Kit skills, the engine launched from a subdirectory, and a target nested in another repository without its own `.git`. The hook smoke check in section 10 was observed in real headless Claude Code sessions. **Not run:** the PowerShell forms, Linux, macOS, the interactive `/hooks` listing, and a full live `start workflow` conversation; section 11 is described from the prompt files and from a scripted run of the engine's start-up calls.
+**What was verified, and where.** The Bash blocks of sections 1 to 8 were replayed, unedited apart from the two path variables, into an empty directory on Windows 10 in Git Bash (Python 3.13, Git 2.46, uv 0.9.16, Claude Code 2.1.278). They ran to completion, the resulting tree equals the inventory in section 7, and the readiness checks gave the results described. The failure and location cases named in sections 3 and 13 were each tested: missing or empty `requirements/`, missing Spec Kit skills, the engine launched from a subdirectory, and a target nested in another repository without its own `.git`. The hook smoke check in section 10 was observed in real headless Claude Code sessions. The PowerShell 7 forms of sections 1, 5 and 6 (copying the files, merging the hook registrations into an existing `.claude/settings.json` and running that merge a second time, the two `.gitignore` lines, the sample requirements) and the `sdle.ps1` commands of section 8 were run in a disposable target on the same machine. **Not run:** Windows PowerShell 5.1, the PowerShell form of the Spec Kit installer (`--script ps`), Linux, macOS, the interactive `/hooks` listing, and a full live `start workflow` conversation; section 11 is described from the prompt files and from a scripted run of the engine's start-up calls.
 
 ## 1. Choose the target project
 
@@ -128,12 +128,36 @@ json.dump(dst, open(".claude/settings.json", "w"), indent=2)
 EOF
 ```
 
+In PowerShell, the same two steps (the merge runs the same Python, so it needs Python 3.11 or newer as `py -3`, or `python` if you have no `py` launcher):
+
+```powershell
+if (-not (Test-Path .claude\settings.json)) {
+    Copy-Item "$SDLE_SRC\.claude\settings.json" .claude\settings.json
+} else {
+@'
+import json, sys
+src = json.load(open(sys.argv[1] + "/.claude/settings.json"))
+dst = json.load(open(".claude/settings.json"))
+for event, entries in src["hooks"].items():
+    have = dst.setdefault("hooks", {}).setdefault(event, [])
+    have.extend(e for e in entries if e not in have)
+json.dump(dst, open(".claude/settings.json", "w"), indent=2)
+'@ | py -3 - $SDLE_SRC
+}
+```
+
+Running the merge again changes nothing: an entry that is already there is not added twice.
+
 **Never copy** `.claude/settings.local.json` (it is per-developer and is not part of the product), the SDLE `docs/`, `tests/`, `.github/`, `scripts/README.md`, or the SDLE repository's own `.sdle/` directory.
 
 **Ignore two developer-local files.** SDLE writes a per-session lock and a per-developer "active WorkItem" file under `workitems/`. Everything else it writes there is meant to be committed. Add these to your `.gitignore`:
 
 ```bash
 printf 'workitems/*/.sdle/lock\nworkitems/.active-context.json\n' >> .gitignore
+```
+
+```powershell
+Add-Content .gitignore "workitems/*/.sdle/lock", "workitems/.active-context.json"
 ```
 
 ## 6. Create your requirements
@@ -143,6 +167,11 @@ printf 'workitems/*/.sdle/lock\nworkitems/.active-context.json\n' >> .gitignore
 ```bash
 mkdir -p requirements
 cp "$SDLE_SRC"/requirements/todo-api.md requirements/
+```
+
+```powershell
+New-Item -ItemType Directory -Force requirements | Out-Null
+Copy-Item "$SDLE_SRC\requirements\todo-api.md" requirements\
 ```
 
 The sample is a small REST API for personal todo items. This is its full text, identical to `requirements/todo-api.md` in the SDLE source (a check keeps the two equal):
@@ -264,7 +293,7 @@ Optional inputs, when you want them:
 
 ## 7. The layout before you launch Claude Code
 
-Every path in this table exists at this point. Nothing under `workitems/` exists yet: it is created by `start workflow`, never by hand.
+Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, four `sdle-*` agent files, and in the skill `SKILL.md`, five files under `modules/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
 
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|
@@ -296,6 +325,8 @@ printf '{"tool_name":"Write","tool_input":{"file_path":"%s/workitems/x"}}' "$PWD
 ```
 
 `preflight` is different from the checks above: like every runtime command it first needs a WorkItem, and a fresh project has none, so it correctly answers `workitem_required`. `start workflow` creates the WorkItem and *then* runs `preflight`, which checks Spec Kit, its skills and your requirements. Do not create runtime files by hand to make it pass.
+
+From PowerShell, the first three run as `.\scripts\sdle.ps1 constants`, `validate` and `preflight` with the same results. The hook check needs `sh`, which Claude Code finds on its own but a PowerShell prompt may not have on its path: run that one command from Git Bash, which Git for Windows provides.
 
 If `constants` reports `no_interpreter`, Python 3.11 or newer is not on the path. Now make the initial commit:
 

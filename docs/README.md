@@ -30,7 +30,7 @@ They are written for different readers and should not be confused:
 | **Runbook** | "It is broken — what do I type?" | Under pressure, need steps |
 | **Reference** | "What exactly does this field do?" | Looking one thing up |
 
-The **dry runs** are a fifth category: checked artifacts, not reading material. The test suite recomputes every claim in them from the engine.
+The **dry runs** are a fifth category: checked artifacts, not reading material. They are simulated transcripts; the test suite recomputes the progress fractions, gate numbers and labels, the refusal names and the cited test nodes in them from the engine, and does not execute the conversations.
 
 ## Start
 
@@ -84,6 +84,7 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-007](architecture/ADR-007-progressive-capabilities-and-product-subagents.md) | Progressive capabilities and read-only product subagents |
 | [ADR-008](architecture/ADR-008-v1-convergence-and-legacy-removal.md) | WorkItem-scoped runtime and the retired global runtime |
 | [ADR-009](architecture/ADR-009-gate-evidence-and-execution-identity.md) | Gate evidence, change selection and execution identity |
+| [ADR-010](architecture/ADR-010-no-state-migration.md) | No state migration: another schema is refused, the retired runtime is detected |
 
 ## Specification — not documentation
 

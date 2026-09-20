@@ -45,19 +45,6 @@ disk, because initialising beside it would create two competing records: remove
 the directory or move it aside first. `sdle.sh validate` reports it as
 `runtime_state_outside_workitem` while WorkItems exist.
 
----|---|
-| `target_exists` | The WorkItem already has a runtime. Migrating would overwrite it |
-| `legacy_state_missing` | There is no `.workflow/state.json` to migrate |
-| `legacy_state_invalid` | The legacy state will not parse. It is not safe to move |
-| `legacy_audit_broken` | The legacy audit chain does not verify. Migrating would import a tampered ledger |
-
-`init` refuses `legacy_workflow_present` while a legacy runtime is on disk.
-That is deliberate: initialising beside it would create a second runtime that
-`migrate-workflow` would then refuse to move.
-
-You can confirm a legacy runtime is still on disk at any time — `sdle.sh
-validate` reports it as `runtime_state_outside_workitem`.
-
 ---
 
 ## 2. `workitem_ambiguous` — several are plausible

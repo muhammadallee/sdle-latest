@@ -41,8 +41,10 @@ workitems/
       evidence/                gate evidence
 ```
 
-**Everything under `workitems/` is versioned by design** except
-`workitems/*/.sdle/lock`, which is the only ignored path. The record of what was
+**Everything under `workitems/` is versioned by design** except two
+developer-local paths that `.gitignore` excludes: `workitems/*/.sdle/lock`, the
+session lock, and `workitems/.active-context.json`, which records which WorkItem
+this working directory last selected. The record of what was
 decided, when, and on what evidence is meant to be reviewable in the same commit
 history as the code it governed.
 

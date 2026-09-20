@@ -422,7 +422,8 @@ both. The version bump belongs to the phase that owns V1 convergence.
   findings must be displayed in conversation before the first downstream gate
   (design invariant 8).
 - **It does not remove any legacy scaffolding.** The legacy `.workflow/`
-  dual-read rung and `migrate-workflow` keep working, and both new
+  dual-read rung and `migrate-workflow` keep working (ADR-010 later removed the
+  migration command), and both new
   preconditions skip the legacy binding for the same reason
   `governance_precondition` does: there is no WorkItem to hold a record.
 - **It does not define "significant existing source".** See D9.
