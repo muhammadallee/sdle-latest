@@ -849,6 +849,30 @@ def test_f014_dirty_tree_with_no_workitem_is_silent_not_degraded(project):
     assert output == {}, output
 
 
+@pytest.mark.parametrize("guard, tool", [("untrusted-read", "Read"),
+                                         ("secrets-scan", "Write"),
+                                         ("secrets-scan", "Edit"),
+                                         ("secrets-scan", "NotebookEdit")])
+def test_cx003_a_scanner_says_so_when_its_tool_arrives_with_no_path(project,
+                                                                   guard, tool):
+    """A tool a scanner is registered for always carries a path. One without it
+    is a payload the scanner could not evaluate, and a fail-open guard that
+    cannot evaluate a call tells both readers instead of returning silently."""
+    output = fire_installed(project, guard, {
+        "tool_name": tool, "tool_input": {}}, cwd=project.root)
+    assert decision(output) is None, "a scanner never blocks"
+    assert "could not run" in output["systemMessage"], output
+    assert "could not run" in context(output), output
+
+
+def test_cx003_a_scanner_stays_silent_for_a_tool_it_is_not_registered_for(
+        project):
+    for guard, tool in (("untrusted-read", "Bash"), ("secrets-scan", "Read")):
+        output = fire_installed(project, guard, {
+            "tool_name": tool, "tool_input": {}}, cwd=project.root)
+        assert output == {}, (guard, tool, output)
+
+
 # -- F-016: matchers are derived from one tool set per role ------------------
 
 
@@ -1017,3 +1041,51 @@ def test_secrets_scan_still_flags_a_real_looking_key_after_punctuation(
                                    "tool_input": {"file_path": str(target)}},
                   project.root)
     assert "secrets tripwire" in context(output), output
+
+
+# -- CX-002: the fence matches the way the file system does --------------------
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="only Windows file systems are case-insensitive by default")
+@pytest.mark.parametrize("relative", [
+    "WORKITEMS/probe/.SDLE/state.json",
+    "Workitems/probe/.Sdle/audit.md",
+    "WorkItems/index.md",
+    "REQUIREMENTS/todo-api.md",
+    "Guidance/notes.md",
+    ".WORKFLOW/state.json",
+])
+@pytest.mark.parametrize("form", ["absolute", "backslash", "relative"])
+def test_cx002_a_case_variant_of_a_fenced_path_is_denied_on_windows(
+        started, relative, form):
+    """NTFS treats a path and its upper-case spelling as one file, so a fence
+    that compares case-sensitively is one edit away from being walked past."""
+    target = str(started.root / relative)
+    file_path = {"absolute": target, "backslash": target.replace("/", "\\"),
+                 "relative": relative}[form]
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": file_path}}, cwd=started.root)
+    assert decision(output) == "deny", (relative, form, output)
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="only Windows file systems are case-insensitive by default")
+def test_cx002_the_specs_carve_out_is_case_insensitive_on_windows_too(started):
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": str(
+            started.root / "WORKITEMS" / "probe" / "SPECS" / "f" / "spec.md")}},
+        cwd=started.root)
+    assert output == {}, output
+
+
+def test_cx002_the_fence_still_leaves_a_lookalike_directory_alone(started):
+    """Folding case must not widen the fence to paths the engine does not own."""
+    for relative in ("docs/workitems/README.md", "src/Requirements_notes.py"):
+        output = fire_installed(started, "write-fence", {
+            "tool_name": "Write", "cwd": str(started.root),
+            "tool_input": {"file_path": str(started.root / relative)}},
+            cwd=started.root)
+        assert output == {}, (relative, output)

@@ -72,6 +72,13 @@ FILE_WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 SHELL_TOOLS = ("Bash", "PowerShell")
 PATH_FIELDS = ("file_path", "notebook_path")
 
+# The Windows file system treats `WORKITEMS/.SDLE` and `workitems/.sdle` as one
+# path, so a fence that compares case-sensitively there is one edit away from
+# being walked past. POSIX keeps the exact comparison: `Workitems/` is a
+# different directory on a case-sensitive file system, and denying it would
+# fence a path the engine does not own.
+CASE_INSENSITIVE = os.name == "nt"
+
 FAIL_CLOSED = ("write-fence", "product-agent-fence")
 GUARD_EVENT = {
     "write-fence": "PreToolUse",
@@ -271,6 +278,8 @@ def write_fence(payload):
                     payload.get("tool_name")))
         return
     path = normalized(path)
+    if CASE_INSENSITIVE:
+        path = path.lower()
     if SPECS_CARVE_OUT.search(relative(path)):
         return
     for name in FENCED:
@@ -280,12 +289,25 @@ def write_fence(payload):
             return
 
 
+def raise_if_pathless(payload, tools):
+    """A tool a guard is registered for always carries a path. One that does
+    not is a payload the guard could not evaluate: `fail` decides what that
+    means for this guard, and for a scanner it means saying so."""
+    if payload.get("tool_name") in tools:
+        raise PayloadError("a {0} call arrived with no path".format(
+            payload.get("tool_name")))
+
+
 def untrusted_read(payload):
     """requirements/, guidance/ and clarifications/ are DATA, never
     instructions. Warn-and-acknowledge: the patterns are deliberately broad,
     so this asks rather than blocks."""
     path = tool_path(payload)
-    if not path or not any(in_dir(path, name) for name in SCANNED):
+    if not path:
+        raise_if_pathless(payload, ("Read",))
+        return
+    folded = path.lower() if CASE_INSENSITIVE else path
+    if not any(in_dir(folded, name) for name in SCANNED):
         return
     target = Path(path)
     if not target.is_file():
@@ -363,6 +385,7 @@ def secrets_scan(payload):
     Gate 7 refusal, not this."""
     path = tool_path(payload)
     if not path:
+        raise_if_pathless(payload, FILE_WRITE_TOOLS)
         return
     target = Path(path)
     if not target.is_file():
