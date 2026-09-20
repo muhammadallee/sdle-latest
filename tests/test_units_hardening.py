@@ -33,7 +33,6 @@ from conftest import FIXTURE_WORKITEM_ID, REPO_ROOT, SDLE_PY, Project, sdle
 from test_units_artifact_review import review_for_gate
 from test_units_speckit_binding import install_speckit_scripts
 from test_units_workitem_runtime import legacy_state as plant_legacy
-from test_units_workitem_runtime import legacy_workflow as plant_legacy_runtime
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
