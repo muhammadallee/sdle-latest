@@ -986,3 +986,34 @@ def test_f013_a_missing_interpreter_is_visible_never_silent(started, tmp_path,
         assert "could not run" in output["systemMessage"], output
         assert output["hookSpecificOutput"]["hookEventName"] == event
         assert "could not run" in context(output)
+
+
+# ==========================================================================
+# The API-key pattern must not match the tail of an ordinary word
+# ==========================================================================
+
+
+@pytest.mark.parametrize("text", [
+    "ADR-006-risk-adaptive-gate-policy.md",
+    "see task-management-system-overview for details",
+    "disk-encryption-key-rotation-plan",
+])
+def test_secrets_scan_ignores_a_hyphenated_word_that_ends_in_sk(project, text):
+    target = project.root / "notes.md"
+    target.write_text(text + "\n", encoding="utf-8")
+    output = fire("secrets-scan", {"tool_name": "Write",
+                                   "tool_input": {"file_path": str(target)}},
+                  project.root)
+    assert output == {}, output
+
+
+@pytest.mark.parametrize("prefix", ['"', " ", "=", "'", "("])
+def test_secrets_scan_still_flags_a_real_looking_key_after_punctuation(
+        project, prefix):
+    target = project.root / "config.txt"
+    target.write_text("k" + prefix + "sk-proj-abcdefghijklmnopqrstuvwxyz012345\n",
+                      encoding="utf-8")
+    output = fire("secrets-scan", {"tool_name": "Write",
+                                   "tool_input": {"file_path": str(target)}},
+                  project.root)
+    assert "secrets tripwire" in context(output), output

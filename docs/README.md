@@ -1,14 +1,25 @@
 # SDLE documentation
 
-**Applies to:** SDLE v1.17
+Every document in this repository, and who it is for.
 
-Every document in this repository, and who it is for. If you are new,
-[**START-HERE.md**](START-HERE.md) explains what SDLE is in about two minutes
-and routes you from there.
+**New here?** Read [GETTING-STARTED.md](GETTING-STARTED.md). It is the one end-to-end setup guide: prerequisites, installing SDLE into your project, the first `start workflow`, and what to do when it does not start.
 
 ---
 
-## The four kinds of document
+## SDLE in four ideas
+
+Everything else in this set is detail on one of these.
+
+1. **A WorkItem is the unit of work.** One feature, one defect, one hotfix. Each has its own directory under `workitems/`, its own state, its own append-only audit ledger and its own lock. Two WorkItems in one repository cannot see or corrupt each other's runtime.
+2. **A flow decides which phases run.** A phase *registry* holds every phase SDLE can execute; a *flow* is an ordered subset of it. Five ship: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX`. The flow is chosen once, when the WorkItem starts, and never re-bound. A shorter flow is shorter, never ungoverned. Ask the engine for exact phase and gate counts (`sdle.sh constants`).
+3. **Gates are where a human decides.** A gate halts the workflow and shows you the artifact in the conversation; you approve, or reject with feedback and it remediates. Which gates are *required* depends on assessed risk, and some floors cannot be lowered by the model.
+4. **The engine refuses; it does not warn.** The mechanical layer is `scripts/sdle.py`: state transitions, gate enforcement, artifact fingerprints, the audit hash chain, drift detection and locking. When something is wrong it exits non-zero and does nothing. The prompts are presentation.
+
+SDLE is an orchestrator for Claude Code wrapping [GitHub Spec Kit](https://github.com/github/spec-kit). You never type a Spec Kit command. It is not a CI system, not a project tracker, and not autonomous: it stops at every gate the risk policy requires.
+
+---
+
+## The kinds of document
 
 They are written for different readers and should not be confused:
 
@@ -19,42 +30,38 @@ They are written for different readers and should not be confused:
 | **Runbook** | "It is broken — what do I type?" | Under pressure, need steps |
 | **Reference** | "What exactly does this field do?" | Looking one thing up |
 
-The **specification** documents below are a fifth category, and a special one:
-they are not written for readers at all. They are checked artifacts: the test
-suite asserts every claim in them against the engine.
-
----
+The **dry runs** are a fifth category: checked artifacts, not reading material. The test suite recomputes every claim in them from the engine.
 
 ## Start
 
 | Document | Kind | For |
 |---|---|---|
-| [START-HERE.md](START-HERE.md) | Concept | Anyone, first. What SDLE is, the four ideas, where to go next |
-| [../README.md](../README.md) | Reference | Installing it, and the command lookup table |
+| [GETTING-STARTED.md](GETTING-STARTED.md) | Tutorial | Setup from prerequisites to the first `start workflow` |
+| [../README.md](../README.md) | Concept | What SDLE is, the flows, the command lookup table |
 
 ## Learn
 
 | Document | Kind | For |
 |---|---|---|
-| [tutorials/](tutorials/README.md) | Tutorial | A walkthrough per flow, plus a GREENFIELD tour of every customization surface. Start with the flow-selection page if you are unsure which flow you need |
+| [tutorials/](tutorials/README.md) | Tutorial | One walkthrough per flow, plus a `GREENFIELD` tour of every customization surface. Start with the flow-selection page if you are unsure which flow you need |
 
 ## Understand a subject
 
-Each of these is a focused explanation of one part of the engine.
+Each is a focused explanation of one part of the engine.
 
 | Document | Kind | Covers |
 |---|---|---|
 | [workitems/](workitems/README.md) | Concept | The unit of work: identity, the registry, per-WorkItem runtime, resolution, isolation |
-| [lifecycle/](lifecycle/README.md) | Concept | The 21-phase registry, the five flows, gates, and how a flow is bound |
+| [lifecycle/](lifecycle/README.md) | Concept | The phase registry, the five flows, gates, and how a flow is bound |
 | [risk-and-gates/](risk-and-gates/README.md) | Concept | How risk is assessed, the hard floors Claude cannot lower, and how the required gate set is derived |
 | [brownfield/](brownfield/README.md) | Concept | Discovery over an existing codebase, the repository baseline, and convergence onto `ITERATIVE` |
-| [spec-kit-integration/](spec-kit-integration/README.md) | Concept | How SpecKit is bound to a WorkItem, capability detection, and why its commands never surface |
+| [spec-kit-integration/](spec-kit-integration/README.md) | Concept | How Spec Kit is bound to a WorkItem, capability detection, and why its commands never surface |
 
 ## Recover from a problem
 
 | Document | Kind | For |
 |---|---|---|
-| [troubleshooting/](troubleshooting/README.md) | **Runbook** | Refusals and what they mean, corrupt state, broken audit chains, stale baselines, lock conflicts, recovery from a legacy layout |
+| [troubleshooting/](troubleshooting/README.md) | **Runbook** | Refusals and what they mean, corrupt state, broken audit chains, stale baselines, lock conflicts, an unsupported state version |
 
 ## Look something up
 
@@ -64,9 +71,7 @@ Each of these is a focused explanation of one part of the engine.
 
 ## Understand the decisions
 
-Architecture Decision Records: what was decided, what was rejected, and why.
-Each is a dated record — where later work superseded one, a note says so
-rather than the original being rewritten.
+Architecture decision records: what was decided, what was rejected, and why.
 
 | ADR | Subject |
 |---|---|
@@ -77,37 +82,22 @@ rather than the original being rewritten.
 | [ADR-005](architecture/ADR-005-brownfield-discovery-and-baseline.md) | Brownfield discovery and the repository baseline |
 | [ADR-006](architecture/ADR-006-risk-adaptive-gate-policy.md) | Risk-adaptive gates without weakening governance |
 | [ADR-007](architecture/ADR-007-progressive-capabilities-and-product-subagents.md) | Progressive capabilities and read-only product subagents |
-| [ADR-008](architecture/ADR-008-v1-convergence-and-legacy-removal.md) | V1 convergence and removal of the legacy runtime |
-| [ADR-009](architecture/ADR-009-gate-evidence-and-execution-identity.md) | Gate evidence, change selection and execution identity: the defect-stabilization contracts |
+| [ADR-008](architecture/ADR-008-v1-convergence-and-legacy-removal.md) | WorkItem-scoped runtime and the retired global runtime |
+| [ADR-009](architecture/ADR-009-gate-evidence-and-execution-identity.md) | Gate evidence, change selection and execution identity |
 
 ## Specification — not documentation
 
 | Document | For |
 |---|---|
-| [dry-runs/](dry-runs/README.md) | Sixteen conversation transcripts that are the **acceptance specification** for orchestrator behaviour: nine `GREENFIELD` guardrail scenarios, one per other shipped flow, and three focused defect scenarios. Each maps its claims to test nodes; `tests/test_dry_run_contracts.py` recomputes every fraction, gate number and refusal in them from the engine, and [dry-runs/verification-matrix.md](dry-runs/verification-matrix.md) records what ran and what it returned. A deviation in a real run is a bug in the run, the skill files or the transcript — and a transcript that disagrees with the engine fails the build |
-
-## Migration record
-
-| Document | For |
-|---|---|
-| [transition/](transition/) | The twelve-phase migration from the repository-global runtime to WorkItem-scoped V1. Plans, handoffs, checkpoints and independent verification artifacts for T00–T11. Historical: read it to understand how the engine reached its current shape, not to operate it |
-
-## Verification records
-
-| Document | For |
-|---|---|
-| [verification/defect-stabilization-01.md](verification/defect-stabilization-01.md) | The execution record of the D01–D06 defect-stabilization iteration: every reproduction, command, result and remaining limitation, with the verified commit. Read it to see what was actually proven, and on which platform |
+| [dry-runs/](dry-runs/README.md) | Conversation transcripts that are the **acceptance specification** for orchestrator behaviour: guardrail scenarios for `GREENFIELD`, one per other shipped flow, and focused evidence, manifest and execution-identity cases. [`verification-matrix.md`](dry-runs/verification-matrix.md) maps each to the tests that back it and to the runs that were actually executed |
 
 ---
 
 ## Contributing to these documents
 
-Three rules the engine enforces mechanically, so a change that breaks one
-fails `lint-skill` rather than drifting silently:
+Rules the engine enforces mechanically, so a change that breaks one fails `lint-skill` rather than drifting silently:
 
-1. **Every subject directory must exist** — `documentation_set_is_present`.
-2. **Every subject directory must be linked from this index** — an unlinked
-   document is an invisible one.
-3. **One version string.** If a document states which version it applies to,
-   `version_string_consistent` checks it against the state template. Do not
-   restate a constant the engine already owns; link to it instead.
+1. **Every subject directory must exist and say something**: `documentation_set_is_present`.
+2. **Every flow size stated in a document must match the engine**: the phase count *excluding* the terminal `complete`, which is what the progress header shows.
+3. **A stated version must match the state schema.** A page need not state one; if it does, `version_string_consistent` checks it. Do not restate a constant the engine already owns; link to it instead.
+4. **Commands in these documents must be real**: the documented-commands test parses them and runs them against the parser.

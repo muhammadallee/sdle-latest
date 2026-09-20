@@ -7776,8 +7776,8 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 # Spec Kit capability detection (contract §10)
 #
-# The repository pins no Spec Kit version and installs from a moving Git HEAD,
-# so what a given installation supports cannot be known at design time. §10's
+# SDLE is verified against one pinned Spec Kit release, but an installation on
+# disk can differ from it, so what it supports cannot be assumed. §10's
 # rule is "capability-detect; do not hardcode undocumented internals": SDLE
 # probes the *target project's own* installation for the documented,
 # user-facing environment variables by name. It never executes Spec Kit and
@@ -7846,16 +7846,13 @@ def detect_speckit_capabilities(paths: Paths) -> dict:
     }
 
 
-# D05 (SDLE-DEFECT-STABILIZATION-01). The SpecKit release SDLE is verified
-# against, and the init command as it was actually run against it — in a
-# disposable project, through both script flavours — for the record in
-# `docs/verification/defect-stabilization-01.md`. The earlier
-# `specify init . --skills --here` is rejected by this release (`No such
-# option: --skills`): the Claude integration installs skills by default.
-# Pinned with `@v<version>` so a user reproduces what was tested rather than
-# whatever the default branch is today; an existing installation is never
-# upgraded by SDLE. README's Quick Start states the same command, and a unit
-# test holds the two together.
+# The Spec Kit release SDLE is verified against, and the init command that
+# installs it. The earlier `specify init . --skills --here` is rejected by
+# this release (`No such option: --skills`): the Claude integration installs
+# skills by default. Pinned with `@v<version>` so a user reproduces what was
+# tested rather than whatever the default branch is today; an existing
+# installation is never upgraded by SDLE. docs/GETTING-STARTED.md states the
+# same command, and a unit test holds the two together.
 SPECKIT_SUPPORTED_VERSION = "1.0.6"
 SPECKIT_INIT_COMMAND = (
     "uvx --from git+https://github.com/github/spec-kit.git"
@@ -9175,9 +9172,11 @@ SECRET_PATTERNS = [
     ("AWS access key", r"AKIA[0-9A-Z]{16}"),
     ("private key material", r"-----BEGIN [A-Z ]*PRIVATE KEY"),
     ("GitHub token", r"ghp_[A-Za-z0-9]{36}"),
-    # v1.12 used sk-[A-Za-z0-9]{20,}, which misses the current sk-proj-...
-    # format: the hyphen ends the character class four characters in.
-    ("secret API key", r"sk-[A-Za-z0-9_-]{20,}"),
+    # The character class includes `-` and `_` so the current sk-proj-... format
+    # is matched whole. The key must not continue a word, or any hyphenated
+    # word ending in "sk" (risk-adaptive-gate-policy, task-management-...) is
+    # reported as a credential.
+    ("secret API key", r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"),
     ("hardcoded credential assignment",
      r"(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}"),
     ("bearer token", r"Bearer [A-Za-z0-9\-_.]{20,}"),
@@ -10335,13 +10334,12 @@ REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
 # Every document that states a flow's phase or gate count in a table row or a
 # headline. The counts are a *derived view* of the engine and drifted once
 # already: `docs/lifecycle/README.md` counted the terminal `complete` while the
-# tutorials, START-HERE, README and the Reference Guide did not, so the
+# tutorials, README and the Reference Guide did not, so the
 # document named "the lifecycle" contradicted the other five. Listing the files
 # here and checking them is the repo's standing answer to that class of bug --
 # a checklist rots, a lint rule does not.
 FLOW_COUNT_DOCS = (
     "README.md",
-    "docs/START-HERE.md",
     "docs/SDLE-Reference-Guide.md",
     "docs/lifecycle/README.md",
     "docs/tutorials/README.md",
@@ -10458,12 +10456,15 @@ def _check_single_state_template(paths: Paths) -> Check:
 
 
 def _check_version_consistency(paths: Paths) -> Check:
-    """One version string, and every place that states it.
+    """The state schema version, and every display copy of it that exists.
 
-    ``sdle.py``'s own ``CURRENT_VERSION`` is one of them: it decides which state
-    schema the engine reads, and it must agree with the template.
-    Added here rather than checked by hand, so this rule stays the single
-    authority for the version string (invariant 7).
+    The operational fact is the state schema: the template's
+    `workflow_version` and `CURRENT_VERSION` must agree, and they are required.
+    A display copy of the version (the SKILL.md heading, the README title, the
+    Reference Guide header, a documentation page's `Applies to` line, the
+    optional frontmatter mention) is not required to exist, and a page that
+    states no version is not a mismatch. A copy that *is* present must equal
+    the schema version, so the number cannot drift where it is repeated.
     """
     template = json.loads(paths.state_template.read_text(encoding="utf-8"))
     version = template.get("workflow_version")
@@ -10477,22 +10478,23 @@ def _check_version_consistency(paths: Paths) -> Check:
     heading = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", skill, re.MULTILINE)
     if frontmatter:  # an optional display copy: absent is fine, wrong is not
         found["SKILL.md frontmatter"] = frontmatter.group(1)
-    found["SKILL.md heading"] = heading.group(1) if heading else None
+    if heading:
+        found["SKILL.md heading"] = heading.group(1)
 
     root = _repo_root(paths)
     readme = root / "README.md"
     if readme.is_file():
         text = readme.read_text(encoding="utf-8")
         title = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", text, re.MULTILINE)
-        row = re.search(r"\*\*v([0-9]+\.[0-9]+)\*\*", text)
-        found["README title"] = title.group(1) if title else None
-        found["README version table"] = row.group(1) if row else None
+        if title:
+            found["README title"] = title.group(1)
 
     guide = root / "docs" / "SDLE-Reference-Guide.md"
     if guide.is_file():
         header = re.search(r"SDLE v([0-9]+\.[0-9]+)",
                            guide.read_text(encoding="utf-8"))
-        found["Reference Guide header"] = header.group(1) if header else None
+        if header:
+            found["Reference Guide header"] = header.group(1)
 
     # T11 NB-1. The six documentation-set READMEs each open with an
     # `**Applies to:** SDLE vX.Y` line. They were written by the same phase

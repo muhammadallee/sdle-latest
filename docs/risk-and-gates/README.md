@@ -1,6 +1,5 @@
 # Risk and gates — how the required gate set is derived
 
-**Applies to:** SDLE v1.17
 **Authority:** `GOVERNANCE_POLICY_BUILTIN` in `scripts/sdle.py`. Every value
 below is quoted from it; where this document and the constant disagree, the
 constant is right. See also

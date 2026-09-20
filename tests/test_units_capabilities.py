@@ -667,7 +667,7 @@ def test_the_restatement_search_is_not_vacuous_on_this_repository():
 
 """T10's rollback point. Product files there are byte-identical to `6318541`,
 the T09 implementation commit, because `adbdc5e` touched only
-`docs/transition/`."""
+"""
 
 # The 33 checks `lint-skill` reported at the rollback point, written out so a
 # check that quietly stops being emitted fails here rather than passing as an
@@ -734,7 +734,7 @@ T11_CHECKS = (
     "documentation_index_links_every_directory",
     # Added with the flow transcripts. Being findable is not the same as being
     # right: `docs/lifecycle/README.md` counted the terminal `complete` and so
-    # published 19/20/17/15/11 while the tutorials, START-HERE, the root
+    # published 19/20/17/15/11 while the tutorials, the root
     # README and the Reference Guide published 18/19/16/14/10. Five documents
     # against one, all of them present, all of them linked, and the odd one
     # out was the document named "the lifecycle". Prose cannot be trusted to

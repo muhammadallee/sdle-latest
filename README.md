@@ -11,89 +11,11 @@ Users interact only with SDLE — SpecKit commands never surface directly.
 
 ---
 
-## Quick Start
+## Getting started
 
-### 1. Prerequisites
+**Start with [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).** It is the one end-to-end setup guide: prerequisites, installing Spec Kit and SDLE into your project, creating your requirements, the readiness check, launching Claude Code, the first `start workflow`, and what to do when it does not start.
 
-**Python 3.11+** must be on PATH. SDLE's guardrails run in `scripts/sdle.py`;
-the launcher resolves `py -3`, `python3`, `python`, then falls back to
-`uv run --python 3.11` (which SpecKit already requires) before giving up.
-
-Install SpecKit in your **target project** (not this folder). SDLE is verified
-against **SpecKit v1.0.6**. These are the exact commands that were run in a
-clean project for that verification:
-
-```bash
-# Bash (POSIX scripts), in your target project directory:
-uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script sh
-```
-
-```powershell
-# PowerShell scripts, in your target project directory:
-uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script ps
-```
-
-The Claude integration installs SpecKit's skills by default (`.claude/skills/speckit-*`),
-which is what SDLE discovers. In v1.0.6 the older `specify init . --skills --here` fails
-with `No such option: --skills`, and `--integration-options=--skills` fails with
-`Unknown integration option '--skills'`. `--force` lets init merge into a directory that
-already has files; `--non-interactive` stops it waiting on a prompt. SDLE never upgrades an
-existing SpecKit installation. If you already have one, check its version with
-`specify version` before relying on it.
-
-On Windows the Bash command was run in Git Bash. Native Linux Bash was **not run**
-during that verification.
-
-### 2. Install This Skill
-
-SDLE is more than a skill folder. The engine (`scripts/`), the commands
-(`.claude/commands/`) and the guardrail hooks (`.claude/hooks/` plus their
-registration in `.claude/settings.json`) live outside `.claude/skills/sdle/`,
-so copying the skill folder alone installs a half-engine.
-
-Copy all five into your target project:
-
-```
-.claude/skills/sdle/     the orchestrator prompt files
-.claude/commands/        the nine /sdle-* commands
-.claude/hooks/           the five guardrail hooks
-.claude/agents/sdle-*    the four read-only product subagents
-scripts/                 sdle.py and its launchers
-```
-
-Then merge `.claude/settings.json`'s `hooks` block into your project's
-settings.
-
-`scripts/sdle.sh preflight` confirms the install (SpecKit, its skills, your
-requirements), but, like every runtime command, it resolves a **WorkItem**
-first. In a repository with no WorkItem it refuses `workitem_required` before
-checking anything else. That is expected, not a broken install. `start
-workflow` does this in the supported order: it asks for a WorkItem name,
-creates it, *then* runs `sdle.sh --workitem <id> preflight`. Global options
-such as `--workitem` go **before** the subcommand.
-
-### 3. Add Requirements
-
-In your target project, create `requirements/` and add your requirements:
-
-```
-your-project/
-└── requirements/
-    ├── feature.md        # What to build
-    └── constraints.md    # Tech stack, limits (optional)
-```
-
-### 4. Start the Workflow
-
-Open Claude Code in your target project and say:
-
-```
-start workflow
-```
-
-SDLE will handle everything from there, in this order: WorkItem name →
-`workitem create` → `preflight` (halts on missing SpecKit, skills or
-requirements) → requirements scan → governance assessment → `init`.
+In short: SDLE runs inside *your* application repository. You need Python 3.11+, Git, `uv`, Claude Code (signed in) and a POSIX `sh` (Git for Windows on Windows). You install the pinned Spec Kit release into the project, copy SDLE's engine, skill, commands, agents and hooks in, add a `requirements/` folder, launch Claude Code **from the project root** and say `start workflow`.
 
 ---
 
@@ -175,11 +97,9 @@ Every runtime command resolves a WorkItem before it runs:
 4. otherwise a still-valid persisted active context
    (`workitem use --workitem <id>` sets it, `--clear` removes it);
 5. otherwise a unique Git-branch match;
-6. otherwise `workitem_required` — and when a legacy repository-global
-   `.workflow/state.json` is also on disk, that refusal names the two-step
-   recovery, `workitem create` then `migrate-workflow --workitem <id>`, in that
-   order. There is no rung that binds a legacy runtime: `.workflow/` is a
-   migration source and a project-root marker, never a runtime;
+6. otherwise `workitem_required`. A retired repository-global `.workflow/state.json`
+   never binds: when one is on disk the refusal says SDLE does not run or migrate
+   it and points at `workitem create`;
 7. and when several are plausible and none is named, `workitem_ambiguous`,
    listing the candidates. SDLE never picks one for you.
 
@@ -203,26 +123,12 @@ on. Running a lifecycle-advancing or content-fingerprinting command from a
 different branch refuses `branch_mismatch` once and proceeds on a re-run, which
 is logged; everything else warns.
 
-`lint-skill`, `sha`, `constants`, `workitem`, `migrate-workflow`, `validate`
-and `config` touch no runtime state and need no resolution.
+`lint-skill`, `sha`, `constants`, `workitem`, `validate` and `config` touch no
+runtime state and need no resolution.
 
-A repository that still has a legacy repository-global `.workflow/` moves it
-under a WorkItem once. No command runs against a legacy runtime, so this is the
-whole recovery — two commands, in this order:
-
-```
-scripts/sdle.sh workitem create --name "Customer Notification Service"
-scripts/sdle.sh migrate-workflow --workitem customer-notification-service
-```
-
-Both are runtime-free, so neither is locked out by the very condition it fixes.
-
-It validates the legacy state, verifies the legacy audit chain, copies the
-ledger, manifest, completion summary and migration evidence, writes the target
-`state.json` last as the sole commit point, verifies it, and records the
-migration on `workitem.json`. `.workflow/` is left byte-for-byte untouched, so
-recovery is deleting `workitems/<id>/.sdle/`. `init` refuses while a legacy
-`.workflow/state.json` is present.
+A repository that still has a retired repository-global `.workflow/` is not migrated: no
+command runs against it. Start a current WorkItem with
+`scripts/sdle.sh workitem create --name "Customer Notification Service"`; `.workflow/` is left untouched.
 
 The name is normalised to kebab-case (`Customer Notification Service` →
 `customer-notification-service`): trimmed, lowercased, whitespace and `_`
@@ -414,7 +320,7 @@ and what was rejected, is in
 | Design Generation | *(SDLE-native, no SpecKit call)* |
 | Security Review | *(SDLE-native, no SpecKit call)* |
 
-These skill names are installed by SpecKit's Claude integration (`specify init --here --integration claude`, see Quick Start for the exact tested command). SDLE auto-discovers the installed prefix (`speckit-` vs `speckit.`) on first run — these names are never exposed to the user during normal operation.
+These skill names are installed by SpecKit's Claude integration (the exact tested install command is in [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)). SDLE auto-discovers the installed prefix (`speckit-` vs `speckit.`) on first run — these names are never exposed to the user during normal operation.
 
 ---
 
@@ -445,10 +351,10 @@ scripts/
 │                               design review, code review, security review.
 │                               Grant is Read/Grep/Glob; a PreToolUse fence
 │                               denies every write and every command
-├── hooks/                    ← Five guardrail hooks
+├── hooks/                    ← Guardrail hooks: hooks.py, started through run-hook.sh
 └── settings.json             ← Hook registration (the product-agent fence is
                                 registered per agent, not here)
-tests/                        ← pytest: units, 9 transcript integrations, hooks
+tests/                        ← pytest: units, transcript integrations, hooks
 ```
 
 Run `scripts/sdle.sh lint-skill` after editing any of it — the cross-file sync
@@ -500,15 +406,14 @@ belong to the Claude Code runtime, and which are convention only.
             ├── execution.json         ← Execution identity (<3-letter-git-prefix>-<UTC>-<8 hex>)
             ├── audit.md               ← Append-only event log (hash-chained via state.json → audit_sha)
             ├── lock                   ← Session lock (concurrent-session detection; the only ignored file)
-            ├── evidence/              ← Evidence records (governance, discovery, review, implementation, migration)
+            ├── evidence/              ← Evidence records (governance, discovery, review, implementation)
             ├── implementation-manifest.md ← Gate 7 artifact (file list + secrets scan + test evidence + summary)
             └── completion-summary.json    ← Written on final Gate 8 approval
 ```
 
-A repository that predates WorkItems may also have a legacy `.workflow/`
-directory with the same runtime files. It is **archival**: nothing runs against
-it, and `migrate-workflow --workitem <id>` moves its contents under a WorkItem
-without ever mutating it.
+A repository may still contain a retired repository-global `.workflow/` runtime. SDLE does
+not run or migrate it and never writes to it; a repository whose only runtime is that
+directory is refused with an explanation that points at `workitem create`.
 
 The two `.sdle/` directories are different boundaries that happen to share a
 name. The one at the repository root is derived from the project root alone and
@@ -647,8 +552,8 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_version` | string | Schema version (`1.17`); an older state is auto-migrated forward on load |
-| `workitem` | string\|null | The WorkItem this state belongs to; `null` only in an unmigrated legacy `.workflow/state.json`. Makes a state file self-describing and a misplaced one detectable |
+| `workflow_version` | string | State schema version (`1.17`). A state of any other version is refused `unsupported_state_version` and left untouched |
+| `workitem` | string\|null | The WorkItem this state belongs to; Makes a state file self-describing and a misplaced one detectable |
 | `flow` | string | The flow this WorkItem traverses — `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init`, never re-bound |
 | `project_name` | string\|null | Inferred from requirements |
 | `current_phase` | string | Phase ID (e.g., `gate_plan`) |
@@ -692,28 +597,3 @@ Full field-by-field reference: **[Appendix B of the Reference Guide](docs/SDLE-R
 **Override SpecKit behavior:** Drop a file in `guidance/` matching the Guidance File Map in `modules/phase-execution.md` — its content is injected into that phase's generation call. No code changes required.
 
 ---
-
-## Version History
-
-Everything above this section describes the current release, v1.17. This table is the one place earlier releases are described. For full rationale behind each hardening pass, see the Reference Guide. Condensed changelog:
-
-| Version | Summary |
-|---|---|
-| **v1.17** | V1 convergence. The WorkItem-based runtime is now the **only** runtime: the transitional dual-read of a repository-global `.workflow/state.json` is gone, and a repository still on the pre-v1.14 layout recovers with exactly two commands — `workitem create` then `migrate-workflow --workitem <id>` — which the `workitem_required` refusal now names in order. `.workflow/` remains a *migration source* and a project-root marker: `migrate-workflow` still moves it under a WorkItem without ever mutating it, and the write fence still protects it. Spec Kit feature discovery fails closed — more than one candidate in a tier refuses `feature_ambiguous` instead of picking the newest, so a shared `specs/` staging area can no longer hand one WorkItem another's specification. A governance re-assessment that lowers a recorded risk level is recorded as `governance_downgraded` and carried into the evidence of every gate omitted after it. New `pending_branch_ack` state field closes the branch-guard fail-open: an acknowledgement names one checkout and is no longer standing permission for the next. `.sdle/` is engine bookkeeping on both guard surfaces, and the write fence normalises `..` before matching its carve-out. |
-| **v1.16** | Declarative flow selection. `PHASE_SEQUENCE` became a 21-entry phase *registry* and a **flow** — an ordered subset of it — became what a WorkItem traverses. Five flows: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX`, `HOTFIX`, declared in `FLOW_PHASES` except GREENFIELD, which is frozen in the engine so a new registry row can never silently join it. New gateless `impact_analysis` phase in the two defect flows. Progress fractions, gate numbers and gate labels are derived per flow. New `flow` state field, bound once at `init` and never re-bound; a governance record that later proposes a different flow is refused `flow_mismatch`. Seven new `lint-skill` checks. Then the brownfield half: a gateless `discovery` phase in `BROWNFIELD_DISCOVERY` whose findings are recorded through `discovery assess` and are refused unless every one of them is classified; and `.sdle/baseline.json`, written once at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` completion, which is what makes discovery happen once — a later WorkItem converges onto `ITERATIVE` against it, and `init` refuses `baseline_present` or `baseline_required` rather than relying on convention. |
-| **v1.15** | WorkItem-scoped Spec Kit context. The active WorkItem's Spec Kit feature directory moved from the repository-global `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, so two WorkItems in one repository can never be handed each other's specification. Repository-wide Spec Kit scaffolding — `.specify/`, including `memory/constitution.md` — stays where it is. New `specKit` state object replacing `current_feature_id`, new `feature bind` and `feature capabilities` subcommands, Spec Kit capability detection that refuses rather than assumes, and a gate that will not approve another WorkItem's artifact. |
-| **v1.14** | WorkItem-scoped runtime. `state.json`, `audit.md`, `lock`, `execution.json`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`, so independent WorkItems no longer share state, an audit ledger or a lock. New `workitem` state field, new `--workitem` override, new `migrate-workflow` command that moves a legacy workflow under a WorkItem without ever mutating `.workflow/`, and lightweight execution identity (`<3-letter-git-prefix>-<UTC>`). |
-| **v1.13** | Deterministic core. The mechanical layer moved out of prose into `scripts/sdle.py`, which refuses rather than warns: gate crossings, forward jumps, artifact verification, drift, the audit hash chain, locking and rate limits are now enforced by code and covered by 180+ tests in CI on Linux and Windows. Nine slash commands, four guardrail hooks, `lint-skill` for the cross-file sync rules, test evidence and a pinned diff range at Gate 7. SKILL.md 906 -> 268 lines. |
-| **v1.12** | 7-item guardrail hardening: untrusted-content (prompt-injection) scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha` hash chain), session lock, dirty-tree guard before implement, repo staleness warning, and two-step `confirm skip`. |
-| **v1.11** | 12-gap hardening pass across all skill files (edge cases in drift, rate limiting, and state migration). |
-| **v1.10** | 15-gap hardening pass; fixed 3 gate-bypass vulnerabilities (forward-jump and stale-confirmation guards). |
-| **v1.9** | 30-gap hardening: expanded to the current 18-phase / 8-gate workflow; idempotency via `phase_checkpoint`. |
-| **v1.8** | Added artifact drift detection and re-approval queue (`artifact_shas`, `drift_queue`, `pending_phase`). |
-| **v1.7** | Clarification tracking — `speckit-clarify` responses persisted to `clarifications/*.clarify` instead of living only in conversation. |
-| **v1.6** | Verbose mode — internal operational detail suppressed by default; toggle with `verbose on` / `verbose off`. |
-| **v1.5** | Rate limiting — configurable caps (`rate_limits`) on remediation and retry loops, with per-phase counters. |
-| **v1.4** | Added the Design Generation phase (app + DB design docs) and Gate 6, inserted before Implementation. |
-| **v1.3** | Split the single SKILL.md into SKILL.md + three lazy-loaded modules (`phase-execution.md`, `gate-protocol.md`, `security-review.md`). |
-| **v1.1–1.2** | Initial hardening over the happy-path-only v1: state assertion header, SpecKit skill name auto-discovery, artifact verification, full gate content display, rejection feedback file, evidence-based (not hallucinated) security review, recovery consistency check, post-execution self-check. |
-
-State files are auto-migrated forward on load — a `state.json` written by any prior version will be upgraded in place the next time SDLE runs, with no data loss.

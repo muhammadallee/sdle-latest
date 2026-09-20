@@ -1,6 +1,5 @@
 # Spec Kit integration
 
-**Applies to:** SDLE v1.17
 **Authority:** `scripts/sdle.py` (`feature` subcommands,
 `detect_speckit_capabilities`). See also
 `docs/architecture/ADR-007-progressive-capabilities-and-product-subagents.md`.
@@ -25,12 +24,7 @@ all of them.
 
 SDLE does not pin or install Spec Kit; it **detects** what the installed copy
 supports rather than assuming it. The release it is *verified* against is
-**v1.0.6**, installed with the exact command in the README's Quick Start. That
-verification ran it in disposable projects through both script flavours,
-confirming the `speckit-*` skill names SDLE probes for and the
-`SPECIFY_INIT_DIR` / `SPECIFY_FEATURE_DIRECTORY` behaviour through the installed
-scripts themselves. The results are recorded in
-[`docs/verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
+**v1.0.6**, installed with the exact command in [GETTING-STARTED.md](../GETTING-STARTED.md#4-install-the-spec-kit-integration). It was run in disposable projects through the Bash flavour and the `speckit-*` skill names SDLE probes for were confirmed, as were the `SPECIFY_INIT_DIR` / `SPECIFY_FEATURE_DIRECTORY` behaviours through the installed scripts.
 Other releases may work, but they are not what was tested.
 
 | Command | Behaviour |

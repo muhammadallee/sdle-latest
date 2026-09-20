@@ -1,7 +1,5 @@
 # Tutorial — the full tour: everything you can configure
 
-**Applies to:** SDLE v1.17
-
 **`GREENFIELD`, 18 phases, 8 gates.** This is the same flow as
 [greenfield.md](greenfield.md), walked a second time with every knob turned. If
 you want the shortest path through a new project, read that one. Read this one

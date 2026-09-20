@@ -1,7 +1,5 @@
 # Tutorial — `GREENFIELD`: a new project
 
-**Applies to:** SDLE v1.17
-
 **18 phases, 8 gates.** Use this flow when there is no code yet and nothing to
 discover — a new service, a new component, the first thing in an empty
 repository.
@@ -25,7 +23,7 @@ flow comes from, and the baseline it leaves behind.
 
 ## 1. Before you start
 
-You need a `requirements/` directory with at least one document in it. `init`
+Set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes. You need a `requirements/` directory with at least one document in it. `init`
 refuses `requirements_missing` otherwise, and it refuses before it creates
 anything.
 

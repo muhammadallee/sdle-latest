@@ -22,16 +22,8 @@
 
 ## Setup
 
-A disposable project. Nothing outside the directory is touched.
-
-```bash
-mkdir dr01 && cd dr01 && git init -q
-uvx --from git+https://github.com/github/spec-kit.git@v1.0.6 specify init --here --force --non-interactive --integration claude --script sh
-# Copy SDLE in: .claude/skills/sdle/, .claude/commands/, .claude/hooks/,
-# .claude/agents/sdle-*, scripts/  — and merge .claude/settings.json's hooks.
-mkdir requirements && cp <sdle-checkout>/requirements/todo-api.md requirements/
-git add -A && git commit -qm "fixture"
-```
+A disposable project set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes, with
+`requirements/todo-api.md` as the requirements. Nothing outside the directory is touched.
 
 The executable form of this scenario uses the suite's generated fixture rather
 than a real Spec Kit install: `tests/conftest.py::git_project` writes

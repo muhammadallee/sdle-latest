@@ -1,6 +1,5 @@
 # Brownfield — discovery once, then iterate
 
-**Applies to:** SDLE v1.17
 **Authority:** `scripts/sdle.py` (`discovery`, `baseline`) and
 `docs/architecture/ADR-005-brownfield-discovery-and-baseline.md`.
 

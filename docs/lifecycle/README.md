@@ -1,6 +1,5 @@
 # The lifecycle — phase registry, flows and gates
 
-**Applies to:** SDLE v1.17
 **Authority:** the constant tables in `.claude/skills/sdle/SKILL.md`, parsed by
 `scripts/sdle.py`. Read them with `sdle.sh constants`. This document is a
 derived view; the engine is the source of truth.

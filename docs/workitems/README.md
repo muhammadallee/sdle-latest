@@ -1,6 +1,5 @@
 # WorkItems — the unit of work
 
-**Applies to:** SDLE v1.17
 **Authority:** `scripts/sdle.py`. Every constant named below is read out of the
 engine — `RUNTIME_FREE_COMMANDS`, `INDEX_COLUMNS`, `ACTIVE_CONTEXT_SETTERS`,
 `Paths`, `resolve_decision`. This document is a derived view. If it and the
@@ -128,24 +127,21 @@ ambiguous. There is no tie-break, no ordering preference, and no "most recent".
 Rungs 4 and 5 are only reachable with two or more registered WorkItems, so the
 Git subprocess of rung 5 never runs in a single-WorkItem repository.
 
-### Legacy state never binds
+### A retired runtime never binds
 
-No rung binds a legacy repository-global `.workflow/state.json`, and none infers
-one. With zero WorkItems registered the answer is `none` whether or not legacy
-state exists.
+No rung binds a repository-global `.workflow/state.json` from a retired runtime, and
+none infers one. With zero WorkItems registered the answer is `none` whether or not
+such state exists.
 
-Nothing is stranded by that. The refusal names the two-step recovery, and both
-steps are runtime-free (§6), so neither reaches this ladder and neither can be
-locked out by it:
+Nothing is stranded by that. The refusal points at `workitem create`, which is
+runtime-free (§6), so it never reaches this ladder and cannot be locked out by it:
 
 ```bash
 sdle.sh workitem create --name "<name>"
-sdle.sh migrate-workflow --workitem <id>
 ```
 
-`migrate-workflow` **reads** `.workflow/` and never writes, renames or deletes
-it. After a migration — successful, refused, or interrupted at any write point —
-every file under `.workflow/` has the SHA-256 it had before.
+SDLE does not run, migrate or write the retired directory: every file under
+`.workflow/` keeps the SHA-256 it had.
 
 ---
 
@@ -158,7 +154,6 @@ not, and each is runtime-free for a stated reason:
 |---|---|
 | `lint-skill`, `sha`, `constants` | Repository- or input-scoped; no lifecycle state involved |
 | `workitem` | It is how a WorkItem comes to exist |
-| `migrate-workflow` | It is the other half of the recovery above |
 | `validate` | It exists to diagnose repositories too broken to resolve, so it must never be gated on resolution succeeding. It runs the ladder speculatively and turns a refusal into a finding |
 | `config` | Repository-global by definition (§11) |
 | `governance policy` | Reads a repository-scoped policy. `assess`, `show` and `gates` are WorkItem-scoped and bind explicitly |
@@ -170,19 +165,18 @@ runs a lifecycle command with no WorkItem bound.
 
 ---
 
-## 7. `.workflow/` — its two surviving roles
+## 7. `.workflow/` — detection only
 
-`.workflow/` is the legacy repository-global layout. It is **archival**: nothing
-runs against it. It survives as exactly two things:
+`.workflow/` is the retired repository-global layout. Nothing runs against it, and
+it survives as detection only:
 
-1. a **migration source**, read by `migrate-workflow` and never written; and
-2. a **project-root marker** — `PROJECT_ROOT_MARKERS` still carries
-   `('.workflow', 'state.json')`, without which a legacy-only repository could
-   not be discovered and therefore could not be migrated at all.
+- a **project-root marker**: `PROJECT_ROOT_MARKERS` still carries
+  `('.workflow', 'state.json')`, so a repository whose only runtime is that
+  directory is found and refused with an explanation rather than treated as empty; and
+- the thing the `workitem_required` and `legacy_workflow_present` refusals point at.
 
 It is also still fenced (`hooks.py::FENCED`), still an entry in
-`SDLE_OWNED_PREFIXES`, and still gitignored. A migration source that could be
-edited by hand between the read and the write is not a migration source.
+`SDLE_OWNED_PREFIXES`, and still gitignored, so its contents stay exactly as found.
 
 ---
 
@@ -193,10 +187,10 @@ a **convenience, not an authority**: rung 4 consults it, and only after rungs 1�
 have declined. It is validated against the registry before it is honoured, so a
 stale entry naming a deleted WorkItem is ignored rather than obeyed.
 
-It has exactly three writers — `ACTIVE_CONTEXT_SETTERS`:
+It has exactly two writers — `ACTIVE_CONTEXT_SETTERS`:
 
 ```
-init · use · migrate-workflow
+init · use
 ```
 
 That constant is enforced, not documentary: `write_active_context` raises if

@@ -8,10 +8,6 @@ results are step conclusions. A result is
 recorded only from a run that happened. A run that was not executed says
 **NOT RUN**, never PASS.
 
-The full execution record, including every defect's reproduction and the
-red-before-green evidence, is
-[`../verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
-
 ## Runs
 
 | Run | Commit | Platform | Command | Result |

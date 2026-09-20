@@ -1,8 +1,8 @@
 # Todo List REST API
 
 A small REST API for managing personal todo items. This document is the ground
-truth input for the SDLE workflow: it is the repository's test fixture, and the
-subject of every transcript under `docs/dry-runs/`.
+truth input for the SDLE workflow, and the sample requirements used throughout
+the SDLE documentation.
 
 ## Purpose
 

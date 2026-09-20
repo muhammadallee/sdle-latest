@@ -326,7 +326,6 @@ finding that is not here is a defect in this ADR.
 | TR23 | The post-commit `workitem.json` write sits outside the migration commit window | **DEFERRED** | The commit marker is the target `state.json`, written last. A failure after it leaves a correct, resolvable runtime with slightly stale metadata, which the next command re-derives. Changing the commit window would risk the atomicity property the interrupted-migration test exists to protect. Now pinned by test, so the residual is bounded and visible |
 | TR24 | The migration crash test never exercised the manifest and completion-summary copies | **FIXED** | All nine write points are now parameterised, as a **named sequence**, so a new write point fails loudly rather than going unexercised |
 | TR25 | `design/`, `reviews/` and `clarifications/` are repository-level, and `design/app/app-design.md` is shared across WorkItems | **DEFERRED** | An explicit earlier decision, restated as the V1 position: these are repository-level **by design**. §10 warns against copying shared artifacts into every WorkItem for directory aesthetics. The follow-on question is which of them are genuinely WorkItem-scoped, not how to move all three |
-| TR26 | `docs/transition/RESUME.md` was stale | **FIXED** | Updated to describe the completed state. It remains explicitly non-authoritative |
 
 ---
 

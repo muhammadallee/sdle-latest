@@ -36,16 +36,12 @@ from conftest import REPO_ROOT, sdle
 
 EXIT_REFUSED = 1
 
-# The documents a user or the orchestrator copies commands out of. Two
-# records are excluded because they quote history as it was: the transition
-# log, and the verification record, which quotes the wrong forms this test
-# exists to catch.
+# The documents a user or the orchestrator copies commands out of.
 DOCUMENTS = sorted(
     [p for p in (REPO_ROOT / ".claude").rglob("*.md")
      if "agents" not in p.parts]
     + [REPO_ROOT / "README.md"]
-    + [p for p in (REPO_ROOT / "docs").rglob("*.md")
-       if "transition" not in p.parts and "verification" not in p.parts]
+    + list((REPO_ROOT / "docs").rglob("*.md"))
 )
 
 INVOCATION = re.compile(r"`((?:scripts/)?sdle\.(?:sh|ps1|py) [^`]+)`")
@@ -136,12 +132,23 @@ def test_no_documented_invocation_puts_a_global_option_after_its_command(
         "`sdle.sh --workitem <id> --session <token> <command> ...`.")
 
 
-def test_the_readme_states_the_tested_speckit_command_exactly():
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert sdle.SPECKIT_INIT_COMMAND in readme
-    assert sdle.SPECKIT_INIT_COMMAND.replace("--script sh",
-                                             "--script ps") in readme
-    assert f"SpecKit v{sdle.SPECKIT_SUPPORTED_VERSION}" in readme
+GUIDE = REPO_ROOT / "docs" / "GETTING-STARTED.md"
+
+
+def test_the_getting_started_guide_states_the_tested_speckit_command_exactly():
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert sdle.SPECKIT_INIT_COMMAND in guide
+    assert sdle.SPECKIT_INIT_COMMAND.replace("--script sh", "--script ps") in guide
+    assert f"Spec Kit v{sdle.SPECKIT_SUPPORTED_VERSION}" in guide
+
+
+def test_only_the_getting_started_guide_teaches_the_install_command():
+    """One setup recipe. Every other document links to the guide instead of
+    restating the command, so there is one place to keep correct."""
+    teaching = [p.relative_to(REPO_ROOT).as_posix() for p in DOCUMENTS
+                if "dry-runs" not in p.parts  # transcripts quote engine output
+                and "specify init --here" in p.read_text(encoding="utf-8")]
+    assert teaching == ["docs/GETTING-STARTED.md"], teaching
 
 
 def test_no_document_still_teaches_the_rejected_skills_flag():
@@ -158,11 +165,6 @@ def test_no_document_still_teaches_the_rejected_skills_flag():
 
 def test_the_engine_messages_carry_the_tested_command():
     assert sdle.SPECKIT_INIT_COMMAND in sdle.SPECKIT_MISSING_MESSAGE
-    # The transcript's declared substitution restates the command because a
-    # substitution pair must be a literal; this keeps the two equal.
-    from conftest import DRY_RUN_SUBSTITUTIONS
-    assert any(new.strip() == sdle.SPECKIT_INIT_COMMAND
-               for _, new in DRY_RUN_SUBSTITUTIONS)
     assert "--skills" not in sdle.SPECKIT_INIT_COMMAND
     assert f"@v{sdle.SPECKIT_SUPPORTED_VERSION}" in sdle.SPECKIT_INIT_COMMAND
 
@@ -204,3 +206,14 @@ def test_preflight_in_a_repository_with_no_workitem_asks_for_one_first(
     bare_project.ok("workitem", "create", "--name", "Todo API")
     assert bare_project.ok("--workitem", "todo-api", "preflight").data[
         "problems"] == []
+
+
+def test_the_guides_sample_requirements_equal_the_sample_file():
+    """The guide prints the sample in full so a reader need not open another
+    file. It is a copy, so it is pinned equal to the source."""
+    guide = GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")
+    start = guide.index("````markdown\n") + len("````markdown\n")
+    embedded = guide[start:guide.index("\n````\n", start)]
+    sample = (REPO_ROOT / "requirements" / "todo-api.md").read_text(
+        encoding="utf-8").replace("\r\n", "\n")
+    assert embedded.rstrip("\n") == sample.rstrip("\n")
