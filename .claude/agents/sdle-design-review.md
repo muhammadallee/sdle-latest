@@ -5,7 +5,7 @@ tools: Read, Grep, Glob
 model: inherit
 hooks:
   PreToolUse:
-    - matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash"
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell"
       hooks:
         - type: command
           command: "python .claude/hooks/hooks.py product-agent-fence"

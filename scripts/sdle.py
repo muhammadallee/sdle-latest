@@ -10694,11 +10694,13 @@ def _check_capability_map(paths: Paths, consts: Constants) -> list[Check]:
 # become an independent workflow controller. Every one of those four is denied
 # by taking away the tools that would perform it.
 PRODUCT_AGENT_TOOLS = ("Read", "Grep", "Glob")
-FORBIDDEN_AGENT_TOOLS = ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit",
-                         "Agent", "Task")
-# The tools the frontmatter fence must match. `Bash` is on the list because a
-# shell is all it takes to run `gate approve`.
-FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash")
+FORBIDDEN_AGENT_TOOLS = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit",
+                         "NotebookEdit", "Agent", "Task")
+# The tools the frontmatter fence must match. `Bash` and `PowerShell` are on the
+# list because a shell is all it takes to run `gate approve`. The hook module
+# carries the same set as `FILE_WRITE_TOOLS + SHELL_TOOLS`; a test pins the two.
+FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash",
+                      "PowerShell")
 PRODUCT_AGENT_FENCE = "hooks.py product-agent-fence"
 PRODUCT_AGENT_NON_APPROVAL_CLAUSE = (
     "This subagent inspects and reports. It never mutates lifecycle state, "

@@ -81,16 +81,6 @@ def test_the_registered_interpreter_resolves_on_this_machine():
                 )
 
 
-# The parent session's registrations as a table: (event, matcher) -> guard.
-# This is the direct replacement for pinning `settings.json` and `hooks.py`
-# byte-for-byte against an old commit: a guard that is added, dropped,
-# re-matched or unregistered changes this table, and the table is asserted.
-PARENT_REGISTRATIONS = {
-    ("PreToolUse", "Write|Edit|MultiEdit"): "write-fence",
-    ("PreToolUse", "Read"): "untrusted-read",
-    ("PreToolUse", "Bash"): "dirty-tree",
-    ("PostToolUse", "Write|Edit"): "secrets-scan",
-}
 GUARD_NAMES = ["write-fence", "untrusted-read", "dirty-tree", "secrets-scan",
                "product-agent-fence"]
 
@@ -102,10 +92,6 @@ def settings_registrations() -> dict:
             for hook in block["hooks"]:
                 found[(event, block["matcher"])] = hook["command"].split()[-1]
     return found
-
-
-def test_settings_registers_exactly_the_parent_session_guards():
-    assert settings_registrations() == PARENT_REGISTRATIONS
 
 
 def test_the_guard_registry_is_exactly_the_five_documented_guards():
@@ -670,3 +656,200 @@ def test_the_fence_battery_is_the_size_it_claims_to_be():
     """Non-vacuity guard: parametrising over an empty list passes silently."""
     assert len(FENCE_BATTERY) == 9
     assert len(product_agents()) == 4
+
+
+# ==========================================================================
+# Path anchoring, failure posture, tool coverage (F-014, F-015, F-016)
+#
+# Reproduced against the pre-fix hook at the hook boundary (direct invocation
+# from a WorkItem directory) and on the payload shapes Claude Code 2.1.278
+# actually sends: an absolute native `file_path`, `notebook_path` for
+# NotebookEdit, and a `cwd` field.
+# ==========================================================================
+
+
+def load_hooks_module():
+    """`hooks.py` by path, for the constants the registrations are checked
+    against."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sdle_hooks_under_test",
+                                                  HOOKS / "hooks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def installed_hook(project) -> Path:
+    return project.root / ".claude" / "hooks" / "hooks.py"
+
+
+def fire_installed(project, guard: str, payload_or_text, cwd) -> dict:
+    """Run the hook copy installed in the fixture project, from `cwd`, with
+    CLAUDE_PROJECT_DIR set as Claude Code sets it."""
+    text = (payload_or_text if isinstance(payload_or_text, str)
+            else json.dumps(payload_or_text))
+    completed = subprocess.run(
+        [sys.executable, str(installed_hook(project)), guard],
+        input=text, capture_output=True, text=True, encoding="utf-8",
+        cwd=str(cwd),
+        env={**dict(__import__("os").environ),
+             "CLAUDE_PROJECT_DIR": str(project.root)})
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout) if completed.stdout.strip() else {}
+
+
+WORKITEM_RELATIVE_FENCED = [
+    ".sdle/state.json",
+    "./.sdle/state.json",
+    ".sdle\\state.json",
+    ".sdle/audit.md",
+    "workitem.json",
+    "../../workitems/%s/.sdle/audit.md" % FIXTURE_WORKITEM_ID,
+    "../index.md",
+    "specs/../.sdle/state.json",
+]
+
+
+@pytest.mark.parametrize("relative", WORKITEM_RELATIVE_FENCED)
+def test_f015_a_relative_path_is_resolved_against_the_payload_cwd(started,
+                                                                  relative):
+    """The regression: from inside a WorkItem directory, `.sdle/state.json`
+    used to walk past a fence written for `workitems/<id>/.sdle/state.json`."""
+    workitem_dir = started.root / "workitems" / FIXTURE_WORKITEM_ID
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(workitem_dir),
+        "tool_input": {"file_path": relative}}, cwd=workitem_dir)
+    assert decision(output) == "deny", (relative, output)
+
+
+def test_f015_the_process_cwd_is_the_fallback_when_the_payload_has_none(started):
+    workitem_dir = started.root / "workitems" / FIXTURE_WORKITEM_ID
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "tool_input": {"file_path": ".sdle/state.json"}},
+        cwd=workitem_dir)
+    assert decision(output) == "deny", output
+
+
+@pytest.mark.parametrize("relative", [
+    "specs/001-todo/spec.md",           # the carve-out, relative form
+    "../../docs/notes.md",              # a path the engine does not own
+])
+def test_f015_relative_paths_the_engine_does_not_own_are_still_allowed(
+        started, relative):
+    workitem_dir = started.root / "workitems" / FIXTURE_WORKITEM_ID
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(workitem_dir),
+        "tool_input": {"file_path": relative}}, cwd=workitem_dir)
+    assert decision(output) is None, (relative, output)
+
+
+def test_f015_a_notebook_path_is_fenced_like_a_file_path(started):
+    target = started.root / "workitems" / "index.md"
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "NotebookEdit", "cwd": str(started.root),
+        "tool_input": {"notebook_path": str(target)}}, cwd=started.root)
+    assert decision(output) == "deny", output
+
+
+# -- F-014: which guards fail closed, which fail open and say so ------------
+
+
+@pytest.mark.parametrize("guard", ["write-fence", "product-agent-fence"])
+def test_f014_the_fences_fail_closed_on_unparseable_input(started, guard):
+    output = fire_installed(started, guard, "this is not json", cwd=started.root)
+    assert decision(output) == "deny", output
+    assert "denied" in reason(output)
+
+
+def test_f014_write_fence_fails_closed_when_a_write_tool_has_no_path(started):
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "tool_input": {}}, cwd=started.root)
+    assert decision(output) == "deny", output
+    assert "no path" in reason(output)
+
+
+def test_f014_write_fence_stays_silent_for_a_tool_it_does_not_govern(started):
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Read", "tool_input": {}}, cwd=started.root)
+    assert output == {}
+
+
+def remove_engine(project) -> None:
+    (project.root / "scripts" / "sdle.py").unlink()
+
+
+@pytest.mark.parametrize("guard, payload", [
+    ("untrusted-read", lambda p: {"tool_name": "Read", "tool_input": {
+        "file_path": str(p.root / "requirements" / "todo-api.md")}}),
+    ("dirty-tree", lambda p: {"tool_name": "Bash", "tool_input": {
+        "command": "ls"}}),
+    ("secrets-scan", lambda p: {"tool_name": "Write", "tool_input": {
+        "file_path": str(p.root / "requirements" / "todo-api.md")}}),
+])
+def test_f014_a_scanner_that_cannot_run_says_so_to_both_readers(project, guard,
+                                                                payload):
+    """stderr from a hook that exits 0 reaches only Claude Code's debug log, so
+    a degraded scanner must speak through `systemMessage` (the user) and
+    `additionalContext` (Claude)."""
+    remove_engine(project)
+    output = fire_installed(project, guard, payload(project), cwd=project.root)
+    assert decision(output) is None, "a scanner never blocks"
+    assert "could not run" in output["systemMessage"], output
+    assert "sdle.py" in output["systemMessage"], output
+    assert "could not run" in context(output), output
+
+
+@pytest.mark.parametrize("guard", ["untrusted-read", "dirty-tree",
+                                   "secrets-scan"])
+def test_f014_a_scanner_survives_unparseable_input_visibly(project, guard):
+    output = fire_installed(project, guard, "{not json", cwd=project.root)
+    assert decision(output) is None
+    assert "could not run" in output["systemMessage"], output
+
+
+def test_f014_dirty_tree_with_no_workitem_is_silent_not_degraded(project):
+    """No single WorkItem means no implement phase to guard. That is not a
+    fault, and reporting it on every Bash call would make the warning noise."""
+    output = fire_installed(project, "dirty-tree", {
+        "tool_name": "Bash", "tool_input": {"command": "ls"}}, cwd=project.root)
+    assert output == {}, output
+
+
+# -- F-016: matchers are derived from one tool set per role ------------------
+
+
+def test_f016_registered_matchers_equal_the_role_tool_sets():
+    hooks = load_hooks_module()
+    file_writes = "|".join(hooks.FILE_WRITE_TOOLS)
+    shells = "|".join(hooks.SHELL_TOOLS)
+    assert settings_registrations() == {
+        ("PreToolUse", file_writes): "write-fence",
+        ("PreToolUse", "Read"): "untrusted-read",
+        ("PreToolUse", shells): "dirty-tree",
+        ("PostToolUse", file_writes): "secrets-scan",
+    }
+    for agent in product_agents():
+        matchers = re.findall(r'matcher:\s*"([^"]*)"',
+                              agent.read_text(encoding="utf-8"))
+        assert matchers == ["|".join(hooks.FILE_WRITE_TOOLS
+                                     + hooks.SHELL_TOOLS)], (agent.name,
+                                                             matchers)
+
+
+def test_f016_the_tool_sets_cover_what_claude_code_offers():
+    """Claude Code 2.1.278 offers Write, Edit and NotebookEdit for files and
+    Bash and PowerShell for commands (read from its session init event); the
+    sets must contain them all. `MultiEdit` is kept as a tolerated extra."""
+    hooks = load_hooks_module()
+    assert {"Write", "Edit", "NotebookEdit"} <= set(hooks.FILE_WRITE_TOOLS)
+    assert {"Bash", "PowerShell"} <= set(hooks.SHELL_TOOLS)
+
+
+def test_f016_the_engine_lint_and_the_hooks_name_the_same_agent_tools():
+    """Two files state which tools a product-agent fence must cover: the hook
+    module (which registers it) and the engine's `lint-skill` (which checks
+    it). One fact, two homes -- so they are pinned equal."""
+    hooks = load_hooks_module()
+    assert (set(hooks.FILE_WRITE_TOOLS + hooks.SHELL_TOOLS)
+            == set(sdle.FENCED_AGENT_TOOLS))
+    assert set(sdle.FENCED_AGENT_TOOLS) <= set(sdle.FORBIDDEN_AGENT_TOOLS)
