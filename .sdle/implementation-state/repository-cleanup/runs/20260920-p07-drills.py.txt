@@ -1,0 +1,158 @@
+"""P07 recovery drills against a sandbox clone. Writes a transcript to argv[2].
+
+usage: drills.py SOURCE_REPO SANDBOX TRANSCRIPT
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+source, sandbox, transcript = sys.argv[1:4]
+out = []
+
+
+def say(text=""):
+    out.append(text)
+    print(text)
+
+
+def run(argv, cwd, **kw):
+    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", **kw)
+
+
+PY = sys.executable
+if os.path.exists(sandbox):
+    shutil.rmtree(sandbox, ignore_errors=True)
+run(["git", "clone", "-q", source, sandbox], cwd=".")
+sb = Path(sandbox)
+run(["git", "checkout", "-q", "maintenance/repository-cleanup"], cwd=sandbox)
+rc = str(sb / ".sdle/implementation-state/repository-cleanup/runctl.py")
+HOME = sb / ".sdle/implementation-state/repository-cleanup"
+plan_src = Path(source) / "plan-claude-codex-defectfix.md"
+if plan_src.exists():
+    shutil.copy(plan_src, sb / "plan-claude-codex-defectfix.md")
+
+
+def ctl(*args):
+    r = run([PY, rc, *args], cwd=sandbox)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def issues(report_text):
+    try:
+        return [i["issue"] for i in json.loads(report_text)["issues"]]
+    except Exception:
+        return ["<unparseable: %s>" % report_text[:80]]
+
+
+say("P07 recovery drills - sandbox clone of the maintenance branch (records isolated from the real run)")
+say("environment: %s, Python %s" % (sys.platform, sys.version.split()[0]))
+say()
+
+# ---- baseline: bring the sandbox checkpoint in line with its own tree
+ctl("checkpoint", "--phase", "P07", "--phase-status", "implementing", "--task-id", "P07-T01", "--task-status", "in_progress",
+    "--next-action", "drill: run the next task", "--last-action", "drill baseline", "--verification", "not_started",
+    "--note", "drill sandbox", "--plan", "plan-claude-codex-defectfix.md", "--event", "drill_baseline")
+code, text, _ = ctl("verify")
+say("R-00 baseline after a checkpoint: exit=%d issues=%s" % (code, issues(text)))
+state = json.loads((HOME / "STATE.json").read_text(encoding="utf-8"))
+say("R-01 (plan saved, before edits): STATE alone gives phase=%s task=%s next_action=%r handoff.verification_status=%s"
+    % (state["phase"], state["task_id"], state["next_action"], state["handoff"]["verification_status"]))
+say("      a new session resumes the same first incomplete task: %s" % (state["task_id"] == "P07-T01" and state["task_status"] == "in_progress"))
+say()
+
+# ---- R-02 mid-slice with uncommitted files
+with open(sb / "README.md", "a", encoding="utf-8") as h:
+    h.write("\n<!-- drill: an edit made after the last checkpoint -->\n")
+code, text, _ = ctl("verify")
+say("R-02 uncommitted file edited after the last checkpoint: exit=%d issues=%s" % (code, issues(text)))
+say("      the checkpoint's changed_paths does not list README.md: %s" % ("README.md" not in state["changed_paths"]))
+say("      -> resume compares `git status` with changed_paths, finishes or repairs the slice, never overwrites unknown edits")
+run(["git", "checkout", "--", "README.md"], cwd=sandbox)
+say()
+
+# ---- R-03 implementation done, verification not started
+ctl("checkpoint", "--task-status", "implementing", "--verification", "not_started", "--last-action", "drill: implementation finished",
+    "--next-action", "run verification BEFORE anything else")
+state = json.loads((HOME / "STATE.json").read_text(encoding="utf-8"))
+say("R-03 implementation finished, verification not started: verification_status=%s next_action=%r"
+    % (state["handoff"]["verification_status"], state["next_action"]))
+say("      the phase is not marked complete: completed_phases=%s" % state["completed_phases"])
+say()
+
+# ---- R-04 long test runner interrupted
+child = subprocess.Popen([PY, rc, "run", "drill-long", "--tasks", "P07-T01", "--", PY, "-c", "import time; time.sleep(120)"],
+                         cwd=sandbox, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+time.sleep(4)
+record = next(HOME.joinpath("runs").glob("*drill-long.json"))
+data = json.loads(record.read_text(encoding="utf-8"))
+say("R-04 a long run is IN_PROGRESS with runner pid %s (alive)" % data["runner_pid"])
+code, text, _ = ctl("verify")
+say("      while it runs: issues=%s runs_still_running=%s" % (issues(text), json.loads(text)["runs_still_running"]))
+subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)], capture_output=True)  # a process THIS drill owns
+time.sleep(2)
+code, text, _ = ctl("verify")
+say("      after killing the drill's own runner tree: issues=%s" % issues(text))
+say("      reconcile -> %s" % ctl("reconcile")[1])
+final = json.loads(record.read_text(encoding="utf-8"))
+say("      record now: result=%s exit_code=%s reason=%r" % (final["result"], final["exit_code"], final.get("interrupted_reason")))
+code, text, _ = ctl("verify")
+say("      verify after reconcile: no in-progress issue: %s" % ("run_in_progress_but_runner_gone" not in issues(text)))
+say()
+
+# ---- R-05 interrupted atomic checkpoint / ledger write
+(HOME / "STATE.json.dead1234.tmp").write_text('{"phase": "P99", "half', encoding="utf-8")
+code, text, _ = ctl("verify")
+say("R-05a a crash left a temp file (write died before the rename): issues=%s" % issues(text))
+say("      STATE.json itself is still the last complete version: phase=%s" % json.loads((HOME / "STATE.json").read_text(encoding="utf-8"))["phase"])
+(HOME / "STATE.json.dead1234.tmp").unlink()
+good = (HOME / "STATE.json").read_text(encoding="utf-8")
+(HOME / "STATE.json").write_text(good[: len(good) // 2], encoding="utf-8")
+code, text, _ = ctl("verify", "--reconstruct")
+report = json.loads(text)
+say("R-05b STATE.json truncated to half: issues=%s" % [i["issue"] for i in report["issues"]])
+say("      reconstructed candidate (from journal + git, UNKNOWN where unproven): %s" % json.dumps(
+    {k: report["candidate"][k] for k in ("phase", "task_id", "phase_status", "last_journal_event")}))
+(HOME / "STATE.json").write_text(good, encoding="utf-8")
+with open(HOME / "LEDGER.md", "a", encoding="utf-8") as h:
+    h.write("\n<!-- a ledger write that was not confirmed by a checkpoint -->\n")
+code, text, _ = ctl("verify")
+say("R-05c ledger edited after the last checkpoint: issues=%s" % issues(text))
+say("      (never trust partial JSON; an unconfirmed ledger write is compared with git and the journal)")
+ctl("checkpoint", "--last-action", "drill: re-confirm")  # records the new ledger hash
+say()
+
+# ---- R-07 source or plan changed since last verification
+ctl("checkpoint", "--last-action", "drill: verification recorded")
+fp_before = json.loads(ctl("verify")[1])["fingerprint"]
+# a "verification run" claimed by the checkpoint, bound to the current content
+rec = HOME / "runs" / "drill-claimed.json"
+rec.write_text(json.dumps({"run_id": "drill-claimed", "result": "PASS", "content_fingerprint": fp_before,
+                           "runner_pid": None}), encoding="utf-8")
+ctl("checkpoint", "--run", "drill-claimed")
+say("R-07 a PASS run is claimed as current verification; verify now: issues=%s" % issues(ctl("verify")[1]))
+with open(sb / "scripts" / "README.md", "a", encoding="utf-8") as h:
+    h.write("\n<!-- drill: source changed after the verification -->\n")
+say("      product file changed: issues=%s" % issues(ctl("verify")[1]))
+run(["git", "checkout", "--", "scripts/README.md"], cwd=sandbox)
+with open(sb / "plan-claude-codex-defectfix.md", "a", encoding="utf-8") as h:
+    h.write("\n<!-- drill: plan changed -->\n")
+say("      plan edited: issues=%s" % issues(ctl("verify")[1]))
+run(["git", "-c", "user.name=drill", "-c", "user.email=d@example.invalid", "commit", "--allow-empty", "-qm", "drill: HEAD moves"], cwd=sandbox)
+say("      HEAD moved: issues=%s" % issues(ctl("verify")[1]))
+say("      -> affected evidence is invalidated and re-run; nothing is reused across a changed source identity")
+say()
+
+# ---- restore a consistent checkpoint for the cold-session drill
+shutil.copy(plan_src, sb / "plan-claude-codex-defectfix.md")
+ctl("checkpoint", "--phase", "P07", "--phase-status", "implementing", "--task-id", "P07-T09", "--task-status", "in_progress",
+    "--next-action", "DRILL-MARKER: write the R-06 report", "--last-action", "drill checkpoint before a cold session",
+    "--verification", "not_started", "--note", "cold-session drill")
+say("R-06 state left on disk for a fresh session: phase=P07 task=P07-T09 next_action='DRILL-MARKER: write the R-06 report'")
+
+transcript_path = Path(transcript)
+transcript_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+print("transcript written")

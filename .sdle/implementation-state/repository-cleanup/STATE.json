@@ -2,20 +2,20 @@
   "schema_version": 1,
   "repository_root": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
   "branch": "maintenance/repository-cleanup",
-  "head": "9c47f30e0233c740801d5319785b7e923657ae60",
-  "current_content_fingerprint": "6e40af695cbf456212dc0e49b03b1111c12fa269bf72a0f1e45fce820113aee0",
+  "head": "166b42c843f3a48ac5e3cd8ef37f2f224234357d",
+  "current_content_fingerprint": "7c084ce7b8aefd95cb077f908d3ceba4da7a87ec95c8f2ea045049c104309833",
   "changed_paths": [],
   "plan_path": "plan-claude-codex-defectfix.md",
   "plan_sha256": "0438fae84edbbb03f69ccce5d0699a200df322c47765f1e8bdc264afa8aad277",
-  "phase": "P04",
-  "phase_status": "verifying",
-  "task_id": "P04-T11",
-  "task_status": "in_progress",
-  "next_action": "Wait for p03-full-shallow result; run full suite on P04 HEAD; P05: guide-alone replay script, tutorials/dry-run refresh, verification-matrix with fresh results.",
+  "phase": "P07",
+  "phase_status": "complete",
+  "task_id": "P07-T09",
+  "task_status": "complete",
+  "next_action": "Wait for p03-full-shallow; run the full suite on the final HEAD; P08 Codex review on a frozen candidate; then P09.",
   "handoff": {
-    "last_completed_action": "P04 slice committed: GETTING-STARTED.md, retired pages, README/CLAUDE/Reference/troubleshooting rewritten, F-029 fixed.",
-    "verification_status": "p01_audit_done",
-    "note": "Open: F-024 owner decision D-04; ADR bodies + comment narration limits recorded.",
+    "last_completed_action": "P07 drills executed incl. a genuine cold-session drill; STATE bookkeeping repaired (P04-P07 complete).",
+    "verification_status": "p07_pass",
+    "note": "Open: F-024/D-04 owner decision. Limits recorded: ADR bodies, comment narration ratchet, tutorials not re-executed step by step.",
     "unfinished_paths": [
       ".sdle/implementation-state/repository-cleanup"
     ]
@@ -51,13 +51,22 @@
     "P02-T08",
     "P03-T01",
     "P03-T02",
-    "P03-T03"
+    "P03-T03",
+    "P04-T01",
+    "P05-T01",
+    "P06-T01",
+    "P07-T01",
+    "P07-T09"
   ],
   "completed_phases": [
     "P00",
     "P01",
     "P02",
-    "P03"
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07"
   ],
   "verification_run_ids": [
     "20260920T055510-p00-collect",
@@ -89,8 +98,8 @@
   "attempt": 1,
   "in_flight_operation": null,
   "last_verified_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
-  "ledger_sha256": "1fd62e6c12bd4e05e5b51eb08065361df02f7ae9c271172bd1f8ad0d039c4245",
-  "updated_at_utc": "2026-09-20T16:28:40Z",
+  "ledger_sha256": "152c26eab51c56d63db62cd9f46b37eb74bb04bc6746abf1ad9a37d3152c1ff4",
+  "updated_at_utc": "2026-09-20T16:44:27Z",
   "blockers": [],
   "last_verified_content_fingerprint": "ac66c6b284b8b539942e65288dabdd94e36dca26e692c67aae721789870babef"
 }

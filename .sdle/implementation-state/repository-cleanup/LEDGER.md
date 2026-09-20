@@ -196,7 +196,10 @@ tool list has `Write`, `Edit`, `NotebookEdit`, `Bash`, `PowerShell` and **no `Mu
 - P02-T05 F-018: SKILL.md `description` <= 1,024 chars (target ~250), trigger phrases first, no version, no bare "requirements/ folder" trigger; test on length/no-version/no-loose-trigger.
 - P02-T06 F-026: `git update-index --chmod=+x scripts/sdle.sh`; test reads the index mode.
 - P02-T07 F-024: behavioural test (tighten policy, start WorkItem, relax back, observe the next gate decision) per D-04; document the actual mechanism or raise a confirmed defect.
-- P02-T08 Record D-01/D-04/D-05 outcomes; update `
+- P02-T08 Record D-01/D-04/D-05 outcomes; update the Findings statuses.
+
+**Verification:** targeted modules per slice (`tests/test_hooks.py`, new modules, `test_lint_skill.py`, `test_units_capabilities.py`), `lint-skill`, then the full suite once at phase end (P03 runs the post-removal full suite). Live results are labelled live; direct-invocation results are labelled boundary-only.
+**Risk / rollback:** each task is its own commit; `git revert` of one leaves the rest valid. A registration change cannot take effect in *this* session (settings are read at session start), so its live check uses a fresh `claude -p` process. **Exit:** every P02 finding fixed with its reproducer failing before and passing after, or reported as an unresolved blocker.
 
 **P02 progress and verification (2026-09-20).** Runs are under `runs/`; every "before" is a run of the new tests against the parent commit.
 
@@ -242,10 +245,23 @@ tool list has `Write`, `Edit`, `NotebookEdit`, `Bash`, `PowerShell` and **no `Mu
 **P05 (executed):** the guide's own bash blocks (sections 1-8) replayed unedited into an empty directory: 13 blocks, exit 0, tree equals the section 7 inventory, `workitems/` absent (`runs/20260920-p05-guide-replay.txt`, harness `replay_guide.py` inside it). Failure/location cases tested on the replayed target: missing and empty `requirements/` (`requirements_missing`), missing Spec Kit skill (`speckit_skills_missing`), engine launched from a subdirectory (root found), target nested in another repository without its own `.git` (outer root wins; `git init` fixes it). The settings merge was tested on a project that already had permissions, a `Stop` hook and its own Bash hook (all kept; idempotent). Pinned Spec Kit v1.0.6 install ran over the network in a clean project. **Not done:** the five tutorials' and sixteen dry runs' transcripts were not re-executed command by command; their commands are parsed against the real CLI by `test_units_documented_commands.py` and their claims recomputed by `test_dry_run_contracts.py`, and the integration suites drive the scenarios, but that is not a fresh execution of every tutorial step. No new interruption/resumption dry run was added; P07 covers recovery with drills. `docs/dry-runs/verification-matrix.md` is updated at P09 with this run's results.
 **P06 (executed):** `tests/test_units_doc_links.py` (real local-link and anchor resolution incl. reference-style links, duplicate-heading slugs, case-sensitive paths, code/fence exclusion, non-vacuity and 9 negative fixtures; found and fixed one real broken anchor; every page under `docs/` reachable from an entry document), `tests/test_units_install_contract.py` (skill/agent/command frontmatter per its own schema with negative fixtures, the guide's file inventory equals what is tracked and installable, pinned test dependencies and the CI matrix), `tests/test_units_shipped_surface.py` (hygiene, exec bits, narration ratchet), hook registration table checks (P02). Run `p06-checks`: 439 passed. **Not done:** F-009's extension of the documented-commands scan to fenced blocks, `CLAUDE.md`, `scripts/README.md` and agent prompts (recorded; the inline-backtick scan remains); no external-link check (deliberately separate).
 
-## Findings` statuses.
+### P07 — Interruption, quota, and fresh-session recovery drills
 
-**Verification:** targeted modules per slice (`tests/test_hooks.py`, new modules, `test_lint_skill.py`, `test_units_capabilities.py`), `lint-skill`, then the full suite once at phase end (P03 runs the post-removal full suite). Live results are labelled live; direct-invocation results are labelled boundary-only.
-**Risk / rollback:** each task is its own commit; `git revert` of one leaves the rest valid. A registration change cannot take effect in *this* session (settings are read at session start), so its live check uses a fresh `claude -p` process. **Exit:** every P02 finding fixed with its reproducer failing before and passing after, or reported as an unresolved blocker.
+**Plan (written before the drills):** separate recovery of this maintenance run from recovery of a WorkItem; use isolated sandboxes; do not exhaust quota or kill a process the drill does not own. Tooling first: `runctl.py verify` (checkpoint consistency, stale evidence, gone runners, reconstruct-a-candidate) and `reconcile`. Sandbox = a clone of the maintenance branch, so its records cannot touch the real ones; the drill kills only its own runner tree.
+**Results (executed, Windows, 2026-09-20; evidence `runs/20260920-p07-*`):**
+
+| Drill | Executed | Observed |
+|---|---|---|
+| R-01 plan saved, before edits | yes | STATE alone gives phase, task, next action and the same first incomplete task |
+| R-02 mid-slice uncommitted files | yes | `verify` reports `content_changed_since_checkpoint`; the file is not in `changed_paths` |
+| R-03 implementation done, verification not started | yes | `verification_status=not_started`, phase not in `completed_phases` |
+| R-04 long runner interrupted | yes | a real runner tree killed by the drill: `run_in_progress_but_runner_gone` -> `reconcile` marks INTERRUPTED with no result claimed |
+| R-05 atomic write / ledger interrupted | yes | leftover temp file, truncated STATE.json (`state_corrupt`, candidate reconstructed from journal + Git with `UNKNOWN` for unproven fields), unconfirmed ledger write (`ledger_changed_since_last_checkpoint`) |
+| R-06 new Claude session, no conversation | **yes, genuinely** | a fresh `claude -p` session reconstructed path, branch, HEAD, phase/task, last action, verification status and the verbatim next action from disk, modified nothing, and reported real defects in my checkpoint |
+| R-07 source or plan changed | yes | `plan_changed`, `head_moved`, `content_changed_since_checkpoint`, `claimed_evidence_bound_to_other_content` |
+| R-08 product WorkItem interrupted | yes | live foreign lock warned; `resume` from disk; `not_at_gate` and `forward_jump` refused; state and audit byte-identical; other WorkItem untouched |
+
+**Defects found by R-06 in the real records, fixed the same day:** (1) `completed_phases` stopped at P03 while P04-P06 were done; (2) an inline `## Findings` mention inside the P02 plan had been taken for the heading, splitting that plan line and pushing its Verification/Risk paragraphs past later blocks: repaired, and `runctl` insertions now key on the heading line only; (3) no P07 plan existed (this section). **Not run:** an actual quota exhaustion (never simulated by design), a Linux/macOS drill, and a session drill with the interactive UI (headless only).
 
 ## Findings
 
