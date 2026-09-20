@@ -1183,9 +1183,12 @@ def read_state(paths: Paths, *, any_version: bool = False) -> dict:
     Refuses `unsupported_state_version` when the file was written under a state
     schema other than `CURRENT_VERSION`. SDLE never reinterprets, upgrades or
     resets such a file: it is left exactly as found and the remedy is a new
-    WorkItem. The read-only inspection commands (`state dump`, `state get`,
-    `doctor`, `audit verify`) pass `any_version=True` so a file of another
-    version can still be looked at.
+    WorkItem. Two commands pass `any_version=True` because they read the file
+    without interpreting it: `state get` returns a stored field as it is, and
+    `audit verify` checks the ledger's hash chain, which does not depend on the
+    schema. Anything that derives a flow, a label or a verdict from the state
+    (`state dump`, `doctor`) refuses instead of applying today's rules to
+    yesterday's shape.
     """
     relative = paths.runtime_relative
     if not paths.state_file.is_file():
@@ -1941,7 +1944,7 @@ def cmd_resume(args, paths: Paths) -> int:
 
 def cmd_state_dump(args, paths: Paths) -> int:
     consts = load_constants(paths)
-    state = read_state(paths, any_version=True)
+    state = read_state(paths)
     phase = state.get("current_phase", "unknown")
 
     lines = [
@@ -8851,7 +8854,7 @@ def cmd_reset(args, paths: Paths) -> int:
 
 def cmd_doctor(args, paths: Paths) -> int:
     consts = load_constants(paths)
-    state = read_state(paths, any_version=True)
+    state = read_state(paths)
     current = state.get("current_phase")
     history = state.get("phase_history") or []
     flow = flow_for_state(state, consts)

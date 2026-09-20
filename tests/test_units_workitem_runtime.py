@@ -3,10 +3,9 @@
 Contract §8 moves every piece of active workflow runtime state out of the
 repository-global `.workflow/` and under the active WorkItem. What is pinned
 here is the pair of exit criteria — no repository-global runtime state, and the
-18-phase lifecycle passing independently for two WorkItems — plus the machinery
-that makes them true: the resolution ladder, the `workitem` state field and its
-migration, execution identity, `migrate-workflow`, and the guardrails whose
-path assumptions moved.
+lifecycle passing independently for two WorkItems — plus the machinery that
+makes them true: the resolution ladder, the `workitem` state field, execution
+identity, and the guardrails whose path assumptions moved.
 
 The ladder tests deliberately build their own project state from
 `bare_project` rather than the shared `project` fixture. The shared fixture
@@ -20,13 +19,11 @@ import argparse
 import ast
 import json
 import re
-import shutil
 
 import pytest
 
 from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
-from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -302,7 +299,7 @@ def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project)
 
 
 # ==========================================================================
-# State schema and the migration chain (plan D6)
+# The shipped state template
 # ==========================================================================
 
 
@@ -314,42 +311,6 @@ def test_the_shipped_template_is_1_17_and_carries_the_workitem_field(bare_projec
     assert template["workflow_version"] == "1.17"
     assert template["workitem"] is None
     assert list(template)[:2] == ["workflow_version", "workitem"]
-
-
-# ==========================================================================
-# migrate-workflow (plan D8, contract §20)
-# ==========================================================================
-
-
-def legacy_workflow(bare_project: Project, workitem: str = "Wi A") -> str:
-    """Stand up a genuine pre-T02 repository, then register the target WorkItem.
-
-    A v1.14 engine can no longer *create* a repository-global runtime — that is
-    C4/D2 — so the fixture builds a real one under a throwaway WorkItem, moves
-    it to `.workflow/`, erases every trace of the WorkItem layer, and winds the
-    state file back to a v1.13 shape with no `workitem` field. The audit ledger
-    moves byte-for-byte, so `audit_sha` still matches and the migration path
-    is exercised against a ledger that genuinely verifies.
-    """
-    seed = bare_project.as_workitem(create_wi(bare_project, "Legacy Seed").data["id"])
-    seed.ok("init", session="legacy")
-    bare_project.write_artifact(".specify/memory/constitution.md")
-    seed.record_governance()  # T06: E1 guards the seed run's advances.
-    seed.ok("advance", "--to", "gate_constitution", session="legacy")
-    review_for_gate(seed, "gate_constitution")  # T06: E2 guards the seed run.
-    seed.ok("gate", "approve", "--gate", "gate_constitution", session="legacy")
-
-    shutil.move(str(seed.runtime), str(bare_project.root / ".workflow"))
-    shutil.rmtree(bare_project.root / "workitems")
-
-    path = bare_project.root / ".workflow" / "state.json"
-    state = json.loads(path.read_text(encoding="utf-8"))
-    state["workflow_version"] = "1.13"
-    state.pop("workitem", None)
-    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8",
-                    newline="\n")
-
-    return create_wi(bare_project, workitem).data["id"]
 
 
 # ==========================================================================

@@ -318,11 +318,13 @@ security-review evidence's `untracked` list, because no diff shows them.
 
 **Exit 1.** A WorkItem's `state.json` was written under a state schema other than
 the one this SDLE reads (`data.workflow_version` against `data.supported`). SDLE
-never upgrades, reinterprets or resets such a file: every command that reads
-state refuses and the file is left exactly as it is.
+never upgrades, reinterprets or resets such a file: every command that
+interprets state refuses and the file is left exactly as it is.
 
-- To look at it, use `sdle.sh state dump`, `state get`, `doctor` or `audit verify`,
-  which read any version.
+- To look at it, use `sdle.sh state get` (a stored field, as written) or
+  `sdle.sh audit verify` (the ledger's hash chain). Neither interprets the state,
+  so both read any version; `state dump` and `doctor` refuse, because they would
+  apply this version's flow and phase rules to another version's file.
 - To continue the work, start a current WorkItem: `sdle.sh workitem create --name "<name>"`.
 
 ---

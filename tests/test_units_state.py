@@ -294,8 +294,9 @@ def test_every_response_is_a_json_envelope(started):
 # ==========================================================================
 #
 # SDLE reads exactly one state schema. A file of another version is left
-# exactly as found: no upgrade, no reset, no partial reading. The read-only
-# inspection commands can still look at it.
+# exactly as found: no upgrade, no reset, no partial reading. Only the two
+# commands that read without interpreting (`state get`, `audit verify`) still
+# look at it.
 
 
 def with_version(project, version):
@@ -334,13 +335,50 @@ def test_the_refusal_names_the_way_forward(started):
     assert "'1.15'" in message
 
 
-@pytest.mark.parametrize("invocation", [
-    ("state", "dump"), ("state", "get", "--field", "workflow_version"),
-    ("doctor",), ("audit", "verify")])
-def test_the_inspection_commands_can_still_read_another_version(started,
-                                                                invocation):
+@pytest.mark.parametrize("invocation", [("state", "dump"), ("doctor",)])
+def test_the_commands_that_interpret_state_refuse_another_version(started,
+                                                                   invocation):
+    """`state dump` and `doctor` derive a flow, a label and a verdict from the
+    state. Doing that to another schema's file would apply today's rules to
+    yesterday's shape, so they refuse like every other interpreting command."""
     with_version(started, "1.15")
-    assert started.run(*invocation).reason != "unsupported_state_version"
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run(*invocation)
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "unsupported_state_version", result
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_state_get_returns_a_stored_field_of_another_version_untouched(started):
+    with_version(started, "1.15")
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run("state", "get", "--field", "workflow_version")
+
+    assert result.exit_code == EXIT_OK, result
+    assert "1.15" in json.dumps(result.data), result.data
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_audit_verify_reads_the_ledger_of_another_version_untouched(started):
+    """The ledger's hash chain does not depend on the state schema, so
+    verifying it is a read that interprets nothing."""
+    with_version(started, "1.15")
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run("audit", "verify")
+
+    assert result.reason != "unsupported_state_version", result
+    assert result.exit_code in (EXIT_OK, EXIT_INTEGRITY), result
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
 
 
 def test_the_current_version_is_accepted(started):

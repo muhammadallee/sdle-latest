@@ -265,7 +265,7 @@ It is a **floor, not a ceiling.** A capability file may send you to another one 
 
 Run these in order. Each is one script call; each refusal halts the turn.
 
-1. **Supported state.** Any command that reads state refuses `unsupported_state_version` (exit 1) when `state.json` was written under another state schema. Show the message and stop: the file is left exactly as it is, there is no migration, and the remedy is a new WorkItem.
+1. **Supported state.** Every command that interprets state refuses `unsupported_state_version` (exit 1) when `state.json` was written under another state schema; only `state get` and `audit verify`, which read a stored value or the ledger's hash chain without interpreting it, still run. Show the message and stop: the file is left exactly as it is, there is no migration, and the remedy is a new WorkItem.
 2. **`sdle.sh --session <token> lock acquire`** (`--session` is a global option and goes before the subcommand) — generate one random 8-hex token per conversation and reuse it for every call in that conversation. If `warn` is true, show the concurrent-session warning. This warns; it does not halt.
 3. **`sdle.sh audit verify`** — exit 3 means the ledger was edited, truncated, or written by another session. Show the message and stop. `accept audit` (`sdle.sh audit rebaseline`) is the only way past, and it is itself logged.
 4. **`sdle.sh doctor`** — exit 1 with `state_backwards` means possible corruption; halt. `state_jump` means the state moved more than two phases beyond confirmed history; halt and require `accept state` (`sdle.sh accept-state`).
