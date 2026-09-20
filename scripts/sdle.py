@@ -336,10 +336,6 @@ class Paths:
         return self.modules_dir / "phase-execution.md"
 
     @property
-    def security_review_md(self) -> Path:
-        return self.modules_dir / "security-review.md"
-
-    @property
     def state_template(self) -> Path:
         return self.skill_root / "templates" / "state.json"
 
@@ -4151,7 +4147,6 @@ ENGINEERING_FLOWS = (
 # sound baseline — never less, so a model that proposes it cannot weaken
 # anything.
 CLASSIFICATION_KEYS = ("type", "flow", "rediscovery")
-CLASSIFICATION_REQUIRED_KEYS = ("type", "flow")
 
 GOVERNANCE_POLICY_BUILTIN = {
     "policyVersion": "1",
