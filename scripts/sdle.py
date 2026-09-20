@@ -4325,13 +4325,20 @@ def cmd_governance_policy(args, paths: Paths) -> int:
 # branch and SHA in `execution.json`.
 # --------------------------------------------------------------------------
 
-GOVERNANCE_RECORD_VERSION = "2"
-# Every version this engine can READ. `"1"` records stay valid: their one
-# stale key is never consulted for a decision, because every decision
-# re-derives the requirement set from the policy on disk. An unrecognised
-# version is an integrity failure rather than a silent "assume the current
-# shape" — a version field nothing refuses on proves nothing.
-GOVERNANCE_RECORD_VERSIONS = ("1", "2")
+GOVERNANCE_RECORD_VERSION = "3"
+# Every version this engine can READ. An unrecognised version is an integrity
+# failure rather than a silent "assume the current shape" — a version field
+# nothing refuses on proves nothing.
+#
+# `"1"` and `"2"` records stay valid and carry no `pinnedPolicy`, so they
+# derive from the live policy alone, exactly as the engine did before ADR-011.
+# That is deliberate and it is the fail-OPEN direction, which needs saying:
+# refusing them would freeze every WorkItem that was in flight when the pin
+# shipped, and an older record is evidence of an older schema, not evidence of
+# a tighter policy. Such a WorkItem gains the pin the next time it is
+# assessed, and `revalidate_recorded_omissions` re-checks its earlier
+# omissions at the terminal gate.
+GOVERNANCE_RECORD_VERSIONS = ("1", "2", "3")
 GOVERNANCE_INPUT_VERSIONS = ("1",)
 QUALITY_RESULTS = ("PASS", "FAIL", "NOT_APPLICABLE")
 GOVERNANCE_INPUT_SECTIONS = ("governanceInputVersion", "quality",
@@ -4745,6 +4752,14 @@ def required_gate_set(classification: dict, final_level: str,
 # the current policy forbids (invariant 7), and it would need a state field, a
 # migration row and a template change. Deriving costs nothing and makes the
 # re-derivations at `advance` and at the terminal gate free.
+#
+# ONE stored value is read back, and it is the exception that keeps the rule:
+# `pinnedPolicy`, the policy the WorkItem started under (ADR-011). Live
+# derivation alone let a policy that required a gate at the start be relaxed
+# mid-run so the gate became omittable, which is F-024. The pin is applied as
+# an AND — omittable live AND omittable when it started — so it can only ever
+# refuse more. It authorises nothing, which is precisely why it is not the
+# second source of truth the paragraph above forbids.
 
 # The closed disposition vocabulary. Three values, each a different fact:
 # "the flow does not contain this phase" and "the policy does not require this
@@ -4901,21 +4916,68 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
     Reads the policy from disk on every call, deliberately. A cached model
     would be the stored second source of truth this design refuses, and the
     whole point is that a recorded omission is re-derived rather than trusted.
+
+    The single place the ADR-011 pin is applied, so `gate omit`, `advance`'s
+    omission re-derivation, `revalidate_recorded_omissions`, `gate show` and
+    `resume` cannot answer "is this gate required" differently.
     """
     record = read_governance_record(paths)
     if record is None:
         return None
     effective = read_governance_policy(paths, consts)
-    model = gate_requirements(
-        consts,
-        flow_for_state(state, consts),
-        record.get("classification") or {},
-        (record.get("risk") or {}).get("finalLevel"),
-        effective["policy"],
-    )
+    flow = flow_for_state(state, consts)
+    classification = record.get("classification") or {}
+    final_level = (record.get("risk") or {}).get("finalLevel")
+    model = gate_requirements(consts, flow, classification, final_level,
+                              effective["policy"])
     model["policy"] = {"source": effective["source"],
                        "sha256": effective["sha256"]}
+
+    pinned = record.get("pinnedPolicy")
+    model["pinned_policy"] = None if not isinstance(pinned, dict) else {
+        "source": pinned.get("source"), "sha256": pinned.get("sha256"),
+        "pinnedAt": pinned.get("pinnedAt")}
+    if isinstance(pinned, dict) and isinstance(pinned.get("policy"), dict):
+        # Re-derived against the LIVE classification and risk level, so a
+        # genuine re-scope still moves the answer. Only the policy is pinned;
+        # a risk downgrade stays legitimate, audited rather than refused, as
+        # `modules/gate-protocol.md` states.
+        at_start = gate_requirements(consts, flow, classification, final_level,
+                                     pinned["policy"])
+        _apply_policy_pin(model, at_start)
     return model
+
+
+def _apply_policy_pin(model: dict, at_start: dict) -> None:
+    """Narrow ``model`` in place by the requirements that held at the start.
+
+    An AND over the two flow-scoped models: a gate the live policy leaves
+    omittable but the pinned one required becomes required. Nothing moves the
+    other way, so no gate the live policy requires can be relaxed by the pin,
+    and a gate the bound flow does not contain is untouched — the pin narrows
+    what may be omitted, it does not invent a gate.
+
+    The promoted reasons keep the rule that produced them and are tagged
+    `pinned:` (``pinned:always``, ``pinned:risk:HIGH``), because
+    `modules/gate-protocol.md` displays `requirement_reasons` at the gate and a
+    user who cannot omit needs to see that it is the starting policy talking.
+    """
+    required_at_start = {entry["gate"]: entry["reasons"]
+                         for entry in at_start["dispositions"]
+                         if entry["disposition"] == "required"}
+    for entry in model["dispositions"]:
+        if entry["disposition"] != "omittable":
+            continue
+        pinned_reasons = required_at_start.get(entry["gate"])
+        if not pinned_reasons:
+            continue
+        entry["disposition"] = "required"
+        entry["reasons"] = entry["reasons"] + [
+            f"pinned:{reason}" for reason in pinned_reasons]
+    model["required_gates"] = sorted(
+        e["gate"] for e in model["dispositions"] if e["disposition"] == "required")
+    model["omittable_gates"] = sorted(
+        e["gate"] for e in model["dispositions"] if e["disposition"] == "omittable")
 
 
 def bind_for_governance(args, paths: Paths) -> Paths:
@@ -4968,6 +5030,22 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         paths, paths.evidence_dir, stamp,
         lambda eid: f"governance-{eid}.json")
     sources, digest = requirements_sources(paths)
+    # ADR-011. The policy this WorkItem started under, pinned at the FIRST
+    # governance record and carried forward verbatim by every later one.
+    #
+    # Carrying it forward is the whole mechanism, not bookkeeping: `assess`
+    # rewrites this file wholesale, so a pin re-derived here would be erased
+    # by the very sequence it exists to stop — relax the policy, re-assess,
+    # omit. Taken from the superseded record read above when there is one.
+    #
+    # The merged document is stored, not just its SHA: the SHA can say the
+    # policy changed, and only the document can say what it required.
+    pinned_policy = (superseded or {}).get("pinnedPolicy") or {
+        "policy": copy.deepcopy(effective["policy"]),
+        "source": effective["source"],
+        "sha256": effective["sha256"],
+        "pinnedAt": stamp,
+    }
     proposed_requirements = gate_requirements(
         consts, consts.flow(classification.get("flow")), classification,
         risk["finalLevel"], policy)
@@ -4984,9 +5062,14 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         # §15's dispositions for the flow this record PROPOSES. Recorded as
         # evidence of what the assessment implied, never read back for a
         # decision: `init` binds the flow, and every later decision re-derives
-        # the model against the bound one.
+        # the model against the bound one. Not to be confused with
+        # `pinnedPolicy` below, which IS read back — the difference is that
+        # these two are a flow-and-risk composite that a later re-assessment
+        # legitimately replaces, while the pin is the policy document itself.
         "requiredGates": proposed_requirements["required_gates"],
         "omittableGates": proposed_requirements["omittable_gates"],
+        # ADR-011, and the one part of this record a decision reads back.
+        "pinnedPolicy": pinned_policy,
         # Always present, `null` when this assessment did not lower
         # anything, so the record is self-describing rather than making a
         # reader infer "no downgrade" from an absent key.
@@ -7453,14 +7536,23 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             f"{args.gate} requires a human approval and cannot be omitted "
             f"(reasons: {', '.join(reasons) or 'not a gate of this flow'}; "
             f"final risk {(model or {}).get('final_risk')}; policy "
-            f"{((model or {}).get('policy') or {}).get('source')}). Approve "
-            "it, or reject it — a required gate has no third option.",
+            f"{((model or {}).get('policy') or {}).get('source')}"
+            + ("" if not any(r.startswith("pinned:") for r in reasons) else
+               "; required by the policy this WorkItem started under, sha "
+               f"{(((model or {}).get('pinned_policy')) or {}).get('sha256')}")
+            + "). Approve it, or reject it — a required gate has no third "
+            "option.",
             {"gate": args.gate, "phase": gate_phase,
              "final_risk": (model or {}).get("final_risk"),
              "reasons": reasons,
              "required_gates": (model or {}).get("required_gates"),
              "omittable_gates": (model or {}).get("omittable_gates"),
-             "policy": (model or {}).get("policy")},
+             "policy": (model or {}).get("policy"),
+             # ADR-011: which policy the run started under, so a refusal a
+             # reader did not expect can be diagnosed without re-deriving it.
+             "pinned_policy": (model or {}).get("pinned_policy"),
+             "pinned_policy_sha256": (((model or {}).get("pinned_policy"))
+                                      or {}).get("sha256")},
         )
 
     resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
@@ -7489,6 +7581,12 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         "risk_level": model["final_risk"],
         "reasons": disposition["reasons"],
         "policy_sha256": model["policy"]["sha256"],
+        # ADR-011. §15 wants an omitted gate explainable *later*, and after
+        # the pin that takes two policies: the one in force when the gate was
+        # passed, and the one the run started under. `null` when the record
+        # predates the pin.
+        "pinned_policy_sha256": ((model.get("pinned_policy") or {})
+                                 .get("sha256")),
         # The record the level was read from, fingerprinted, so a
         # later reader can tell whether it is still the record on disk.
         "governance_sha256": governance_sha,

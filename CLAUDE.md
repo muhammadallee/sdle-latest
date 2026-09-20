@@ -122,7 +122,7 @@ The engine is cross-platform. Embedded commands in prompt files must be too — 
 | `README.md` | The product, end to end |
 | `CLAUDE.md` | This file — how to work on the repository |
 | `docs/GETTING-STARTED.md` | The one end-to-end setup guide: prerequisites, installing SDLE and Spec Kit, the first `start workflow` |
-| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-011 |
+| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-012 |
 | `docs/workitems/` | WorkItem identity, the registry, the resolution ladder, the retired `.workflow/` |
 | `docs/lifecycle/` | The phase registry, the five flows, gates and gate discipline |
 | `docs/risk-and-gates/` | How the required gate set is derived from governance, and the floors |
@@ -134,4 +134,4 @@ Each of them is a **derived view**. `scripts/sdle.py` and the constant tables in
 
 ## Design rationale
 
-`docs/architecture/ADR-001-deterministic-core.md` records why the mechanical layer lives in code and what was rejected. `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md` records the WorkItem-scoped runtime, and `docs/architecture/ADR-010-no-state-migration.md` why a state of another schema is refused rather than migrated and the retired global runtime is detected, never run.
+`docs/architecture/ADR-001-deterministic-core.md` records why the mechanical layer lives in code and what was rejected. `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md` records the WorkItem-scoped runtime, and `docs/architecture/ADR-010-no-state-migration.md` why a state of another schema is refused rather than migrated and the retired global runtime is detected, never run. `docs/architecture/ADR-011-pinned-governance-policy.md` records the one stored value a gate decision reads back: the policy the WorkItem started under, applied as an AND so it can only ever refuse more.

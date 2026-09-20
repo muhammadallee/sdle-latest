@@ -47,6 +47,7 @@ from test_units_governance import (
     assess,
     governance_input,
     paths_for,
+    policy_file,
     record_of,
     sha_map,
     write_policy,
@@ -615,13 +616,16 @@ def test_n24_both_reporters_are_read_only(project):
 # --------------------------------------------------------------------------
 
 
-def test_the_record_declares_version_two_and_carries_both_gate_lists(project):
-    """D12: `wouldBeRequiredGates` is replaced by the two lists the model
-    actually produces, computed against the flow the record PROPOSES."""
+def test_the_record_declares_its_version_and_carries_both_gate_lists(project):
+    """`wouldBeRequiredGates` is replaced by the two lists the model actually
+    produces, computed against the flow the record PROPOSES. Version 3 adds
+    `pinnedPolicy` (ADR-011), the one key a decision reads back."""
     assert assess(project).exit_code == EXIT_OK
 
     record = record_of(project)
-    assert record["governanceVersion"] == "2"
+    assert record["governanceVersion"] == "3"
+    assert record["pinnedPolicy"]["sha256"] is None, "the built-in floor"
+    assert record["pinnedPolicy"]["policy"] == BUILTIN
     assert "wouldBeRequiredGates" not in record
     assert record["requiredGates"] == ["gate_constitution", "gate_implement",
                                        "gate_plan", "gate_security",
@@ -650,7 +654,7 @@ def test_n25_a_version_one_record_still_advances(project):
                        "--to", "gate_constitution").exit_code == EXIT_OK
 
 
-@pytest.mark.parametrize("version", ["3", 2, None, ""])
+@pytest.mark.parametrize("version", ["4", 3, None, ""])
 def test_n25_an_unreadable_record_version_is_an_integrity_failure(project,
                                                                   version):
     """N25: a version field nothing refuses on proves nothing. Exit 3, the
@@ -1447,3 +1451,197 @@ def test_a15_the_prompt_layer_names_spec_kit_only_where_it_is_recorded():
     rule = [line for line in here(".claude/skills/sdle/SKILL.md").splitlines()
             if "speckit-" in line]
     assert rule and "opacity" in rule[0].lower(), rule
+
+
+# ==========================================================================
+# F-024 — the policy a WorkItem started under is pinned (ADR-011)
+#
+# The requirement set is still derived at every decision point from the policy
+# on disk. What is added is an AND: a gate is omittable only if it is omittable
+# under the live policy *and* under the policy pinned in the governance record.
+# The pin can only ever refuse more, so it authorises nothing and is not the
+# stored second source of truth invariant 7 forbids.
+#
+# Scope: this closes the POLICY channel. A risk downgrade can still make a gate
+# omittable, which gate-protocol.md documents as legitimate and audits; the
+# test below pins that it is still permitted, so an over-fix would fail here.
+# ==========================================================================
+
+TIGHT_AT_LOW = "gate_design"
+
+
+def tighten_low(project, gate: str = TIGHT_AT_LOW):
+    """A repository policy that requires `gate` at LOW, which the built-in
+    floor does not. Returns the policy file, so a test can delete it."""
+    tight = copy.deepcopy(BUILTIN["required_gates_by_risk"])
+    tight["LOW"] = sorted(set(tight.get("LOW") or []) | {gate})
+    write_policy(project, {"required_gates_by_risk": tight})
+    return policy_file(project)
+
+
+def at_omittable_gate(project, gate: str = TIGHT_AT_LOW, level: str = "LOW"):
+    """Walk a GREENFIELD WorkItem to `gate` with its artifact reviewed, so the
+    only thing standing between the run and an omission is the requirement."""
+    walk(project, stop=gate, level=level)
+    review_for_gate(project, gate)
+
+
+def test_f024_a_relaxed_policy_cannot_drop_a_gate_required_at_start(git_project):
+    """The reproduction, promoted. Under the tight policy the omission is
+    refused; deleting the policy file must not change that answer for a
+    WorkItem that started under it."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+
+    before = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert before.exit_code == EXIT_REFUSED, before
+    assert before.reason == "gate_required", before
+
+    tight.unlink()  # relax back to the built-in floor
+
+    after = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert after.exit_code == EXIT_REFUSED, after
+    assert after.reason == "gate_required", after
+    # The template pre-seeds every gate key as `null`; what must not appear is
+    # a decision.
+    assert not (git_project.state().get("approvals") or {}).get(TIGHT_AT_LOW)
+
+
+def test_f024_the_refusal_names_the_pin_and_both_policies(git_project):
+    """`gate show --gate <key>` is what gate-protocol.md tells the orchestrator
+    to display, so a user who cannot omit must be able to see why."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    tight.unlink()
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+
+    assert any(reason.startswith("pinned:")
+               for reason in refused.data["reasons"]), refused.data
+    assert "pinned_policy_sha256" in refused.data, refused.data
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data
+    assert shown["required"] is True
+    assert shown["requirement_reasons"] == refused.data["reasons"]
+
+
+def test_f024_re_assessing_after_relaxing_does_not_move_the_pin(git_project):
+    """The attack a naive fix leaves open: `governance assess` rewrites
+    governance.json wholesale, so a pin that is not carried forward is erased
+    by relax -> re-assess -> omit."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    pinned_before = record_of(git_project)["pinnedPolicy"]["sha256"]
+
+    tight.unlink()
+    again = assess(git_project)
+    assert again.exit_code == EXIT_OK, again
+
+    record = record_of(git_project)
+    assert record["pinnedPolicy"]["sha256"] == pinned_before, record["pinnedPolicy"]
+    assert record["policy"]["sha256"] is None, "the live policy is the floor now"
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "gate_required", refused
+
+
+def test_f024_a_policy_tightened_mid_flight_still_applies(git_project):
+    """The pin is an AND, not a replacement: the live policy is still read, so
+    a gate the pinned policy did not require but the live one does is
+    required."""
+    at_omittable_gate(git_project)  # started under the built-in floor
+    assert git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data[
+        "required"] is False
+
+    tighten_low(git_project)  # tightened after the run started
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "gate_required", refused
+    assert f"risk:LOW" in refused.data["reasons"], refused.data
+
+
+def test_f024_a_risk_downgrade_under_one_policy_still_permits_omission(git_project):
+    """Deliberately NOT fixed here. `gate-protocol.md` says a downgrade is never
+    refused because a real re-scope is legitimate; it is audited instead. An
+    over-fix that pinned the derived gate list rather than the policy would
+    refuse this, so this test is what keeps the scope honest."""
+    walk(git_project, stop=TIGHT_AT_LOW, level="HIGH")
+    review_for_gate(git_project, TIGHT_AT_LOW)
+    assert git_project.run(
+        "gate", "omit", "--gate", TIGHT_AT_LOW).reason == "gate_required"
+
+    lowered = assess(git_project, governance_input(
+        risk={"signals": [], "proposedLevel": "LOW", "uncertainty": "LOW"}))
+    assert lowered.exit_code == EXIT_OK, lowered
+
+    omitted = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert omitted.exit_code == EXIT_OK, omitted
+    entry = git_project.state()["approvals"][TIGHT_AT_LOW]
+    assert entry["decision"] == sdle.GATE_OMITTED_DECISION
+    assert entry["governance_downgrade"], "the downgrade is recorded, not refused"
+
+
+def test_f024_the_pin_is_recorded_with_its_source_and_sha(git_project):
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+
+    pinned = record_of(git_project)["pinnedPolicy"]
+
+    assert pinned["sha256"] == sdle.sha256_file(tight)
+    assert pinned["source"].endswith("governance-policy.json")
+    assert pinned["pinnedAt"], pinned
+    assert pinned["policy"]["required_gates_by_risk"]["LOW"] == [TIGHT_AT_LOW]
+
+
+def test_f024_an_omission_records_both_policy_shas(git_project):
+    """§15 wants an omitted gate explainable later, from what was written down:
+    which policy permitted it, and which policy the run started under."""
+    at_omittable_gate(git_project)
+
+    assert git_project.ok("gate", "omit", "--gate", TIGHT_AT_LOW).exit_code == EXIT_OK
+    entry = git_project.state()["approvals"][TIGHT_AT_LOW]
+
+    assert "policy_sha256" in entry
+    assert "pinned_policy_sha256" in entry
+
+
+def test_f024_a_record_written_before_the_pin_derives_from_the_live_policy(
+        git_project):
+    """Records at governanceVersion 1 and 2 carry no pin. They stay readable and
+    derive live-only: failing closed would freeze every WorkItem in flight when
+    this shipped, and an old record is evidence of an older schema, not of a
+    tighter policy."""
+    at_omittable_gate(git_project)
+    target = git_project.runtime / "governance.json"
+    record = json.loads(target.read_text(encoding="utf-8"))
+    record.pop("pinnedPolicy", None)
+    record["governanceVersion"] = "2"
+    target.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8",
+                      newline="\n")
+
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW)
+
+    assert shown.data["required"] is False, shown.data
+    assert git_project.ok("gate", "omit", "--gate", TIGHT_AT_LOW).exit_code == EXIT_OK
+
+
+def test_f024_the_record_version_is_three_and_the_old_ones_still_read():
+    assert sdle.GOVERNANCE_RECORD_VERSION == "3"
+    assert sdle.GOVERNANCE_RECORD_VERSIONS == ("1", "2", "3")
+
+
+def test_f024_the_pin_only_promotes_gates_the_flow_contains(git_project):
+    """A pinned policy naming a gate the bound flow has no phase for stays
+    `not_in_flow`; the pin narrows, it does not invent a gate."""
+    tight = copy.deepcopy(BUILTIN["required_gates_by_risk"])
+    tight["LOW"] = ["gate_constitution"]          # HOTFIX has no constitution
+    write_policy(git_project, {"required_gates_by_risk": tight})
+    bind_and_init(git_project, flow="HOTFIX")
+    policy_file(git_project).unlink()
+
+    model = git_project.ok("governance", "gates").data
+    entry = next((d for d in model["dispositions"]
+                  if d["gate"] == "gate_constitution"), None)
+    assert entry is None or entry["disposition"] == "not_in_flow", model
+    assert "gate_constitution" not in model["required_gates"], model

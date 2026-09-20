@@ -301,6 +301,28 @@ security-review evidence's `untracked` list, because no diff shows them.
 
 ---
 
+## `gate_required` — the gate cannot be omitted
+
+**Exit 1.** `gate omit` was asked to pass a gate that requires a human approval.
+`data.reasons` says under which rule, and there is no flag that overrides it:
+approve the gate, or reject it.
+
+A reason beginning `pinned:` means the gate is required by **the policy this
+WorkItem started under**, not by the policy on disk now. SDLE derives the
+requirement set from both and takes the stricter answer, so relaxing or deleting
+`.sdle/policies/governance-policy.json` part-way through a run cannot drop a gate
+it required at the start (ADR-011). `data.pinned_policy_sha256` identifies that
+policy, and `data.policy` the live one.
+
+- To pass the gate, approve it. That is always permitted and always the stricter
+  choice.
+- To work under a genuinely different policy, start a new WorkItem; its pin is
+  taken when it is first assessed.
+- `sdle.sh gate show --gate <key>` reports the same `required` and
+  `requirement_reasons` the refusal used, so the two can never disagree.
+
+---
+
 ## `unsupported_state_version` — a state SDLE does not read
 
 **Exit 1.** A WorkItem's `state.json` was written under a state schema other than

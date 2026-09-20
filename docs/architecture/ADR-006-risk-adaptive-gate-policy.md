@@ -6,6 +6,10 @@
 review), ADR-004 (declarative flow model).
 **Context:** contract §15, executed under the constraint §12 closes with.
 
+**Amended by:** ADR-011. The requirement set is still derived at every decision point, with
+one exception: the policy the WorkItem started under is pinned in the governance record and
+applied as an AND, so a policy relaxed mid-run cannot drop a gate it required at the start.
+
 ---
 
 ## 1. The problem, stated as the contract states it

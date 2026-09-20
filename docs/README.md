@@ -85,6 +85,7 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-008](architecture/ADR-008-v1-convergence-and-legacy-removal.md) | WorkItem-scoped runtime and the retired global runtime |
 | [ADR-009](architecture/ADR-009-gate-evidence-and-execution-identity.md) | Gate evidence, change selection and execution identity |
 | [ADR-010](architecture/ADR-010-no-state-migration.md) | No state migration: another schema is refused, the retired runtime is detected |
+| [ADR-011](architecture/ADR-011-pinned-governance-policy.md) | The policy a WorkItem started under is pinned, so relaxing it mid-run cannot drop a gate |
 
 ## Specification — not documentation
 
