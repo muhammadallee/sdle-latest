@@ -94,8 +94,11 @@ GUARD_EVENT = {
 # work. Matched on a path-segment boundary, like `in_dir`, so it works for both
 # the repo-relative and the absolute form Claude Code passes. Nothing else under
 # workitems/ is exempt: the registry, workitem.json and the whole <id>/.sdle/
-# runtime stay denied.
-SPECS_CARVE_OUT = re.compile(r"(?:^|/)workitems/[^/]+/specs/")
+# runtime stay denied. It is anchored like the fence itself (`fenced_target`):
+# inside the repository only the top-level `workitems/` counts, so a path that
+# merely contains the shape, such as `requirements/workitems/x/specs/a.md`, is
+# not carved out of the directory it sits in.
+SPECS_CARVE_OUT = re.compile(r"^workitems/[^/]+/specs/")
 
 FENCE_REASONS = {
     ".workflow": (
@@ -253,6 +256,26 @@ def relative(path):
     return path[len(prefix):] if path.startswith(prefix) else path
 
 
+def specs_carved_out(path):
+    """Is `path` under the WorkItem specs directory the fence does not govern?
+
+    Inside the repository the shape must start the repository-relative path.
+    Outside it the fence is loose (`in_dir`), so the carve-out is loose too, but
+    only when `workitems/` is the first fenced directory on the path: a
+    `requirements/` or `guidance/` segment ahead of it means the path is inside
+    a directory the fence guards.
+    """
+    inside = relative(path)
+    if inside != path:
+        return bool(SPECS_CARVE_OUT.match(inside))
+    segments = path.split("/")
+    for index, segment in enumerate(segments):
+        if segment in FENCED:
+            return segment == "workitems" and bool(
+                SPECS_CARVE_OUT.match("/".join(segments[index:])))
+    return False
+
+
 def normalized(path):
     """Collapse `.` and `..` segments before any pattern is matched.
 
@@ -280,7 +303,7 @@ def write_fence(payload):
     path = normalized(path)
     if CASE_INSENSITIVE:
         path = path.lower()
-    if SPECS_CARVE_OUT.search(relative(path)):
+    if specs_carved_out(path):
         return
     for name in FENCED:
         if fenced_target(path, name):

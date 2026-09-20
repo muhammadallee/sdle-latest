@@ -1089,3 +1089,51 @@ def test_cx002_the_fence_still_leaves_a_lookalike_directory_alone(started):
             "tool_input": {"file_path": str(started.root / relative)}},
             cwd=started.root)
         assert output == {}, (relative, output)
+
+
+# -- CI CX-001: the specs carve-out cannot be borrowed by another fenced directory
+
+
+@pytest.mark.parametrize("relative", [
+    "requirements/workitems/x/specs/a.md",
+    "guidance/workitems/x/specs/a.md",
+    ".workflow/workitems/x/specs/state.json",
+    "workitems/workitems/x/specs/../../.sdle/state.json",
+])
+@pytest.mark.parametrize("form", ["absolute", "relative"])
+def test_ci_cx001_a_carve_out_shaped_path_inside_another_fenced_root_is_denied(
+        started, relative, form):
+    file_path = str(started.root / relative) if form == "absolute" else relative
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": file_path}}, cwd=started.root)
+    assert decision(output) == "deny", (relative, form, output)
+
+
+@pytest.mark.parametrize("relative", [
+    "workitems/x/specs/001-todo/spec.md",
+    "workitems/wi-a/specs/001-todo/plan.md",
+])
+def test_ci_cx001_the_real_specs_directory_is_still_carved_out(started, relative):
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": str(started.root / relative)}},
+        cwd=started.root)
+    assert output == {}, output
+
+
+def test_ci_cx001_outside_the_repository_the_first_fenced_directory_decides(
+        started):
+    """The loose match for another tree's paths keeps the carve-out only where
+    `workitems/` is the first fenced directory on the path."""
+    elsewhere = started.root.parent / "elsewhere"
+    allowed = elsewhere / "workitems" / "x" / "specs" / "a.md"
+    denied = elsewhere / "requirements" / "workitems" / "x" / "specs" / "a.md"
+    for target, expect in ((allowed, {}), (denied, "deny")):
+        output = fire_installed(started, "write-fence", {
+            "tool_name": "Write", "cwd": str(started.root),
+            "tool_input": {"file_path": str(target)}}, cwd=started.root)
+        if expect == "deny":
+            assert decision(output) == "deny", (target, output)
+        else:
+            assert output == {}, (target, output)
