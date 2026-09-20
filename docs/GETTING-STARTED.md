@@ -29,7 +29,7 @@ New-Item -ItemType Directory -Force $TARGET | Out-Null; Set-Location $TARGET
 
 | Tool | Needed for | Check |
 |---|---|---|
-| Python 3.11 or newer | the engine (`scripts/sdle.py`) | `$PY --version`, with `PY` set as below |
+| Python 3.11 or newer (tested on 3.11 and 3.13) | the engine (`scripts/sdle.py`) | `$PY --version`, with `PY` set as below |
 | Git | project root, branch and starting-commit evidence, the implementation diff | `git --version` |
 | `uv` | running the pinned Spec Kit installer with `uvx` | `uv --version` (install: <https://docs.astral.sh/uv/>) |
 | Claude Code, installed **and signed in** | running the workflow | `claude --version`, then start it once and sign in if asked |

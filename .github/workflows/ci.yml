@@ -7,22 +7,25 @@ on:
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        # The declared support: 3.11 (the floor the engine and its launchers
+        # require) and the newest version the suite has been run on.
+        python: ["3.11", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
 
-      - name: Install pytest
-        run: python -m pip install --quiet pytest
+      - name: Install test dependencies (pinned)
+        run: python -m pip install --quiet -r requirements-dev.txt
 
       # Fixtures are generated at runtime, but git identity is needed for the
       # audit ledger's actor field and for the git-backed scenarios.

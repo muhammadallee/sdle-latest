@@ -15,7 +15,7 @@ Users interact only with SDLE — SpecKit commands never surface directly.
 
 **Start with [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).** It is the one end-to-end setup guide: prerequisites, installing Spec Kit and SDLE into your project, creating your requirements, the readiness check, launching Claude Code, the first `start workflow`, and what to do when it does not start.
 
-In short: SDLE runs inside *your* application repository. You need Python 3.11+, Git, `uv`, Claude Code (signed in) and a POSIX `sh` (Git for Windows on Windows). You install the pinned Spec Kit release into the project, copy SDLE's engine, skill, commands, agents and hooks in, add a `requirements/` folder, launch Claude Code **from the project root** and say `start workflow`.
+In short: SDLE runs inside *your* application repository. You need Python 3.11 or newer (tested on 3.11 and 3.13), Git, `uv`, Claude Code (signed in) and a POSIX `sh` (Git for Windows on Windows). You install the pinned Spec Kit release into the project, copy SDLE's engine, skill, commands, agents and hooks in, add a `requirements/` folder, launch Claude Code **from the project root** and say `start workflow`.
 
 ---
 
