@@ -1,6 +1,6 @@
 ---
 name: sdle
-description: SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable flows over a 21-phase registry — wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate-limits remediation and retry loops. Verbose mode available. Clarification responses persisted. Artifact drift detection with re-approval queue. Design before implementation. Tasks and security review each have explicit approval gates. Forward-jump prevention and stateful confirmation tracking prevent unauthorized gate bypass. Untrusted-content scanning, secrets and test evidence in the implementation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.
+description: Use when the user says start workflow, begin, continue, resume, approve, reject, status, show state, restart phase, reset workflow, or skip. Runs SDLE, a gated, spec-driven software delivery lifecycle (one of five flows, wrapping SpecKit) that stops at human approval gates. State, gates, the audit chain, drift detection and locking are enforced by scripts/sdle.py, which refuses rather than warns.
 ---
 
 ## CORE RULES (read every turn — highest priority)

@@ -11002,7 +11002,7 @@ def _check_single_state_template(paths: Paths) -> Check:
 
 
 def _check_version_consistency(paths: Paths) -> Check:
-    """One version string, six locations.
+    """One version string, and every place that states it.
 
     T11 F6 anticipated a sixth turning up during the v1.17 bump, and one did:
     ``sdle.py``'s own ``CURRENT_VERSION``, which decides when `migrate` stops
@@ -11020,7 +11020,8 @@ def _check_version_consistency(paths: Paths) -> Check:
     skill = paths.skill_md.read_text(encoding="utf-8")
     frontmatter = re.search(r"Lifecycle Engine v([0-9]+\.[0-9]+)", skill)
     heading = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", skill, re.MULTILINE)
-    found["SKILL.md frontmatter"] = frontmatter.group(1) if frontmatter else None
+    if frontmatter:  # an optional display copy: absent is fine, wrong is not
+        found["SKILL.md frontmatter"] = frontmatter.group(1)
     found["SKILL.md heading"] = heading.group(1) if heading else None
 
     root = _repo_root(paths)

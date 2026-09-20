@@ -787,3 +787,23 @@ def test_n24_the_check_goes_absent_rather_than_passing_on_a_bare_tree(repo):
     names = [c["name"] for c in result.data["checks"]]
     assert "documentation_set_is_present" not in names
     assert result.data["failed"] == []
+
+
+def test_a_skill_frontmatter_with_no_version_is_clean(repo):
+    """The frontmatter version is an optional display copy. Absent, it is not
+    a mismatch: only the operational locations must agree."""
+    skill = repo.skill_root / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    assert "Lifecycle Engine v" not in text.split("\n---\n", 1)[0]
+    assert results(repo)["version_string_consistent"] is True
+
+
+def test_a_skill_frontmatter_pinning_the_wrong_version_still_fires(repo):
+    """Optional does not mean unchecked: when the frontmatter does state a
+    version, it must be the current one."""
+    skill = repo.skill_root / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    skill.write_text(text.replace(
+        "description: ", "description: Lifecycle Engine v1.13. ", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "version_string_consistent")
