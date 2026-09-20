@@ -109,12 +109,10 @@ class Paths:
 
     ``project_root`` is the target project (the repository context).
     ``skill_root`` is the directory holding ``SKILL.md`` — the constants host.
-    ``workitem`` is the bound WorkItem id. After T11 a *bound* ``Paths``
-    always names one: ``None`` survives only before binding and in the
-    migration **source view** ``cmd_migrate_workflow`` constructs to read a
-    pre-v1.14 ``.workflow/``. It is still the *only* switch between the two
-    locations: every runtime path below derives from ``runtime``, so no
-    command ever concatenates a WorkItem-owned path of its own.
+    ``workitem`` is the bound WorkItem id. A *bound* ``Paths`` always names
+    one; ``None`` survives only before binding. Every runtime path below
+    derives from ``runtime``, so no command ever concatenates a WorkItem-owned
+    path of its own.
     """
 
     project_root: Path
@@ -128,13 +126,12 @@ class Paths:
 
     @property
     def legacy_workflow(self) -> Path:
-        """The pre-v1.14 repository-global directory.
+        """The retired repository-global runtime directory.
 
-        T11 removed the resolution rung that bound it as a *runtime*. It
-        survives as exactly two things and nothing more: a **migration
-        source** (``cmd_migrate_workflow`` reads it and never writes it) and a
-        **project-root marker**, without which a legacy-only repository could
-        not be discovered and therefore could not be migrated at all.
+        Nothing binds it as a runtime. It survives as detection only: a
+        **project-root marker**, and the thing a refusal points at, so a
+        repository that holds one is refused with an explanation instead of
+        being treated as empty. SDLE never runs, migrates or writes it.
         """
         return self.project_root / ".workflow"
 
@@ -223,10 +220,9 @@ class Paths:
     def speckit_specs_root(self) -> Path | None:
         """Where this WorkItem's Spec Kit feature directories live.
 
-        ``None`` only for an **unbound** ``Paths`` — the source view
-        ``cmd_migrate_workflow`` constructs, which has no WorkItem to scope
-        to. T11 removed the legacy runtime binding, so no *bound* ``Paths``
-        reaches this with ``workitem`` unset (R2). Derived here so no call
+        ``None`` only for an **unbound** ``Paths``, which has no WorkItem to scope
+        to; a *bound* ``Paths`` never reaches this with ``workitem`` unset.
+        Derived here so no call
         site ever concatenates a Spec Kit path of its own — the same
         discipline ``runtime`` established for the runtime.
         """
@@ -1461,8 +1457,8 @@ def cmd_audit_append(args, paths: Paths) -> int:
 def verify_audit_chain(entries: list[str]) -> tuple[bool, int | None]:
     """Walk the ``prev_sha`` chain. Returns ``(ok, first_broken_entry_number)``.
 
-    Extracted unchanged from ``cmd_audit_verify`` at T02 so `migrate-workflow`
-    can verify a ledger at a second location without restating the rule.
+    The one place the chain rule is stated: ``cmd_audit_verify`` and any other
+    caller verify a ledger through it instead of restating it.
     """
     prev = GENESIS
     for index, block in enumerate(entries, start=1):
@@ -1893,8 +1889,8 @@ def cmd_resume(args, paths: Paths) -> int:
     phase exists to defend against.
 
     It **writes nothing**: no state, no audit entry, no lock touch, and
-    deliberately no migration. A read-only command that silently migrates is
-    not read-only; a caller that needs `migrate` calls `migrate`.
+    no upgrade and no repair. A read-only command that silently changes state
+    is not read-only.
     """
     consts = load_constants(paths)
     state = read_state(paths)
@@ -2357,8 +2353,6 @@ def cmd_workitem_list(args, paths: Paths) -> int:
 # when more than one WorkItem could be meant it refuses and lists them.
 
 # Commands that touch no runtime state, so the ladder never runs for them.
-# `migrate-workflow` is here because it does its own explicit binding from a
-# mandatory --workitem.
 RUNTIME_FREE_COMMANDS = frozenset({
     "lint-skill", "sha", "constants", "workitem",
     # `validate` exists to diagnose repositories that are too broken to
@@ -2400,8 +2394,8 @@ def registered_workitem_ids(paths: Paths) -> list[str]:
 # construction rather than by coordination (TP-007, contract §9 "Do not
 # implement distributed locking").
 #
-# It is written by exactly three commands — `init`, `migrate-workflow` and
-# `workitem use` — and by nothing else. `bind_workitem` must never write it:
+# It is written by exactly two commands, `init` and `workitem use`, and by
+# nothing else. `bind_workitem` must never write it:
 # its purity is what lets `.claude/hooks/hooks.py::dirty_tree` call it
 # speculatively from a PreToolUse callback, and a hook that writes state is a
 # second writer (CLAUDE.md invariant 6).
@@ -2705,8 +2699,8 @@ def resolve_decision(
     """Run contract §9's ladder and report the outcome. Pure.
 
     Nothing is printed and nothing is written — in particular the active
-    context is *read* here and only ever *written* by `init`,
-    `migrate-workflow` and `workitem use`. That purity is what lets
+    context is *read* here and only ever *written* by `init` and
+    `workitem use`. That purity is what lets
     ``.claude/hooks/hooks.py::dirty_tree`` call the ladder speculatively from a
     PreToolUse callback without becoming a second writer (invariant 6).
 
@@ -2728,19 +2722,15 @@ def resolve_decision(
     Rungs 4 and 5 are only reachable with two or more registered WorkItems, so
     the git subprocess of rung 5 never runs in a single-WorkItem repository.
 
-    **T11 deleted the transitional rung** that bound the repository-global
-    ``.workflow/`` runtime when nothing was registered. It was *deleted, not
-    replaced by an inference*: with zero WorkItems the answer is ``none``
-    whether or not legacy state exists, and the ladder still never guesses.
-    A legacy runtime is now a migration source and a project-root marker only.
-    ``bind_workitem`` names the two-step recovery in its refusal, and both
-    steps (`workitem create`, `migrate-workflow`) are RUNTIME_FREE, so neither
-    reaches this ladder and neither can be locked out by the removal.
+    **A retired ``.workflow/`` runtime never binds.** With zero WorkItems the
+    answer is ``none`` whether or not legacy state exists, and the ladder
+    still never guesses. ``bind_workitem`` says so in its refusal and points
+    at `workitem create`, which is RUNTIME_FREE and so never reaches this
+    ladder.
 
-    ``for_init`` is the one exception left. `init` reports ``legacy_present``
-    whenever legacy state exists, *whatever* the registered count. Proceeding
-    would create a second runtime beside a legacy one that `migrate-workflow`
-    would then refuse to move (`target_exists`).
+    ``for_init`` is the one exception. `init` reports ``legacy_present``
+    whenever legacy state exists, *whatever* the registered count:
+    proceeding would create a second runtime beside a retired one.
     """
     known = registered_workitem_ids(paths)
     decision = Resolution(known=known)
@@ -2794,9 +2784,9 @@ def resolve_decision(
             return decision
 
     if not known:
-        # Rung 6 — nothing is registered. A legacy `.workflow/` on disk does
-        # not change the answer (T11): it is a migration source, not a
-        # runtime, and `bind_workitem` names the recovery path in its refusal.
+        # Rung 6: nothing is registered. A retired `.workflow/` on disk does not
+        # change the answer: it is never a runtime, and `bind_workitem` names
+        # the way forward in its refusal.
         decision.reason = "none"
         return decision
 
@@ -3525,9 +3515,8 @@ def _validate_runtime_state(paths: Paths, value: str,
             workitem=value, path=target,
         )]
     declared = doc.get("workitem") if isinstance(doc, dict) else None
-    # Only a *disagreement* is a finding. An absent field is a pre-1.14 state
-    # awaiting `migrate`, which `migrate` itself reports; calling that a
-    # misplaced runtime would be a false positive.
+    # Only a *disagreement* is a finding. An absent field is not evidence of a
+    # misplaced runtime, and calling it one would be a false positive.
     if isinstance(declared, str) and declared and declared != value:
         return [_finding(
             "runtime_state_outside_workitem", VALIDATE_ERROR,
@@ -6179,26 +6168,6 @@ def cmd_baseline_validate(args, paths: Paths) -> int:
         )
     emit("baseline validate", data)
     return EXIT_OK
-
-
-# --------------------------------------------------------------------------
-# migrate-workflow — legacy .workflow/ to workitems/<id>/.sdle/
-# --------------------------------------------------------------------------
-#
-# Contract §20. The legacy runtime is NEVER written to, renamed or deleted
-# (§8.9): the only recovery a user ever needs is to delete the target
-# directory, after which resolution rung 3 binds the legacy runtime again.
-#
-# Crash safety: every write before the commit point is a whole-file overwrite,
-# so an interruption anywhere leaves no resolvable target workflow, keeps the
-# legacy authoritative, and makes a re-run safe. The target `state.json` is
-# written LAST and is the sole commit marker.
-
-# Fields whose survival the target verification asserts (contract §20.11).
-MIGRATION_VERIFIED_FIELDS = (
-    "current_phase", "status", "progress", "approvals", "artifact_shas",
-    "rate_limits", "attempt_counts", "implementation_base_ref", "phase_history",
-)
 
 
 # --------------------------------------------------------------------------
@@ -10503,9 +10472,8 @@ def _check_single_state_template(paths: Paths) -> Check:
 def _check_version_consistency(paths: Paths) -> Check:
     """One version string, and every place that states it.
 
-    T11 F6 anticipated a sixth turning up during the v1.17 bump, and one did:
-    ``sdle.py``'s own ``CURRENT_VERSION``, which decides when `migrate` stops
-    and which nothing was checking against the template it must agree with.
+    ``sdle.py``'s own ``CURRENT_VERSION`` is one of them: it decides which state
+    schema the engine reads, and it must agree with the template.
     Added here rather than checked by hand, so this rule stays the single
     authority for the version string (invariant 7).
     """
@@ -11142,8 +11110,8 @@ def build_parser() -> argparse.ArgumentParser:
     wi_use = workitem_sub.add_parser(
         "use", help="Persist this working directory's active WorkItem."
     )
-    # Distinct dest, following the `migrate-workflow` precedent: argparse
-    # would otherwise clobber the global --workitem with this one's default.
+    # Distinct dest: argparse would otherwise clobber the global --workitem
+    # with this one's default.
     wi_use.add_argument("--workitem", dest="use_workitem",
                         help="WorkItem id to make active (must be registered).")
     wi_use.add_argument("--clear", action="store_true",

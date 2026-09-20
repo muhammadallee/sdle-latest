@@ -167,3 +167,76 @@ def test_the_prompts_really_do_invoke_the_launcher_directly():
     start = (REPO_ROOT / ".claude" / "commands" / "sdle-start.md").read_text(
         encoding="utf-8")
     assert re.search(r"(?<!sh )scripts/sdle\.sh ", start)
+
+
+# ==========================================================================
+# Historical narration in shipped source (F-019, AC-03)
+#
+# Comments and docstrings that tell the story of an earlier version or of a
+# finished task ("T11 D13", "as of v1.15", "pre-v1.14") describe a product that
+# no longer exists. Text that reaches a user or the model (help, refusals, hook
+# reasons, prompts) must carry none, and does not. The source comments still
+# carry some; this is a ratchet, so the number can only go down.
+# ==========================================================================
+
+import ast
+import io
+import tokenize
+
+NARRATION = re.compile(
+    r"\bv1\.\d+|\bT(?:0\d|1[01])\b|pre-v1|as of v1|since v1|\bD\d\d\b")
+
+# Lines of comment or docstring naming a version or a task. Lower this when
+# narration is rewritten to state the current rule; never raise it.
+NARRATION_CEILING = {"scripts/sdle.py": 130, ".claude/hooks/hooks.py": 0}
+
+
+def narration_lines(relative: str) -> list[tuple[int, str]]:
+    source = (REPO_ROOT / relative).read_text(encoding="utf-8")
+    found = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT and NARRATION.search(token.string):
+            found.append((token.start[0], token.string.strip()))
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
+            body = node.body
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                for offset, line in enumerate(body[0].value.value.split("\n")):
+                    if NARRATION.search(line):
+                        found.append((body[0].lineno + offset, line.strip()))
+    return found
+
+
+def test_the_narration_pattern_recognises_what_it_is_meant_to():
+    for text in ("# T11 D13: the flag", "as of v1.15 the", "a pre-v1.14 state",
+                 "since v1.14 it is"):
+        assert NARRATION.search(text), text
+    assert not NARRATION.search("the current state schema")
+
+
+def test_runtime_facing_text_carries_no_version_or_task_marker():
+    """Refusal messages, CLI help and hook reasons are read by the user and by
+    the model. Checked on the string literals passed to the exception types
+    and to `help=`, and on the hook module's strings."""
+    source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
+    offenders = []
+    for node in ast.walk(ast.parse(source)):
+        if (isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) in (
+                    "Refused", "UsageError", "IntegrityError", "SdleError")):
+            segment = ast.get_source_segment(source, node) or ""
+            if NARRATION.search(segment):
+                offenders.append((node.lineno, segment[:80]))
+    assert offenders == [], offenders
+    hooks = (REPO_ROOT / ".claude" / "hooks" / "hooks.py").read_text(
+        encoding="utf-8")
+    assert not NARRATION.search(hooks)
+
+
+@pytest.mark.parametrize("relative", sorted(NARRATION_CEILING))
+def test_source_narration_does_not_grow(relative):
+    found = narration_lines(relative)
+    assert len(found) <= NARRATION_CEILING[relative], (
+        relative, len(found), found[:5])
