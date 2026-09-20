@@ -2,20 +2,18 @@
   "schema_version": 1,
   "repository_root": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
   "branch": "maintenance/repository-cleanup",
-  "head": "50b15ac838023a6d2752cb2ba70930ea278e297c",
-  "current_content_fingerprint": "270114d6db4ff05ba0d87b9a5d14da5df2fb38629cb5f3d4692c39b29a7803b0",
-  "changed_paths": [
-    ".claude/settings.local.json"
-  ],
+  "head": "8c584f7dcc36a969b4a739be936d294d464c6f20",
+  "current_content_fingerprint": "3f7747331ccad6694aa30a621d6b6178b1b64a781bc44a339f79cb884ce1d77a",
+  "changed_paths": [],
   "plan_path": "plan-claude-codex-defectfix.md",
   "plan_sha256": "0438fae84edbbb03f69ccce5d0699a200df322c47765f1e8bdc264afa8aad277",
-  "phase": "P01",
-  "phase_status": "complete",
-  "task_id": "P01-T13",
-  "task_status": "complete",
-  "next_action": "P02: write concrete plan into LEDGER; first slice replaces the settings.json/.gitignore/hooks history freezes, then F-012, F-013 ...",
+  "phase": "P02",
+  "phase_status": "implementing",
+  "task_id": "P02-T05",
+  "task_status": "in_progress",
+  "next_action": "P02-T05: rewrite SKILL.md description (<=1024, no version, narrow trigger) + make _check_version_consistency tolerate an absent frontmatter version, with negative test; then T06 F-026, T07 F-024.",
   "handoff": {
-    "last_completed_action": "P01 complete: findings, removals, directory inventory, documentation map, owner decisions, backlogs written.",
+    "last_completed_action": "F-012 (0451ef9), F-014/15/16 (b8ea888), F-013 (8c584f7) fixed; live smoke recorded incl. F-028 (subdirectory launch loads no hooks).",
     "verification_status": "p01_audit_done",
     "note": "settings.local.json owner edit still uncommitted by design. Records commits: adbe8e1 (F-025), 50b15ac (records).",
     "unfinished_paths": [
@@ -42,7 +40,11 @@
     "P01-T08",
     "P01-T10",
     "P01-T12",
-    "P01-T13"
+    "P01-T13",
+    "P02-T01",
+    "P02-T02",
+    "P02-T03",
+    "P02-T04"
   ],
   "completed_phases": [
     "P00",
@@ -60,16 +62,21 @@
     "20260920T062315-p00-two-tests-clean-head-plus-wip",
     "20260920T123707-p00-full-suite-clean",
     "20260920T131501-p01-f025-targeted",
-    "20260920T131634-p01-f025-modules"
+    "20260920T131634-p01-f025-modules",
+    "20260920T135450-p02-t01-final",
+    "20260920T140347-p02-t02-lint",
+    "20260920T142450-p02-t03-lint-final"
   ],
-  "open_finding_ids": [],
+  "open_finding_ids": [
+    "F-028"
+  ],
   "run_id": "repository-cleanup-20260920",
   "base_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
   "attempt": 1,
   "in_flight_operation": null,
   "last_verified_commit": "0377871fe944ad056dea1b3d61df3af2175fdd3d",
-  "ledger_sha256": "fe479d0381d009ae5039a7a4453325ba3bc2f00640a70a732ed905e8c5dc5e92",
-  "updated_at_utc": "2026-09-20T13:40:36Z",
+  "ledger_sha256": "678e3ba73ed9380b198403f3eaf83f3f77865b67d5951d56914ac1b3773931f1",
+  "updated_at_utc": "2026-09-20T14:26:56Z",
   "blockers": [],
   "last_verified_content_fingerprint": "ac66c6b284b8b539942e65288dabdd94e36dca26e692c67aae721789870babef"
 }
