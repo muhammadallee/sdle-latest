@@ -175,8 +175,8 @@ def test_the_prompts_really_do_invoke_the_launcher_directly():
 # Comments and docstrings that tell the story of an earlier version or of a
 # finished task ("T11 D13", "as of v1.15", "pre-v1.14") describe a product that
 # no longer exists. Text that reaches a user or the model (help, refusals, hook
-# reasons, prompts) must carry none, and does not. The source comments still
-# carry some; this is a ratchet, so the number can only go down.
+# reasons, prompts) must carry none, and neither do the source comments and
+# docstrings: a comment states the current rule and why, not how it got there.
 # ==========================================================================
 
 import ast
@@ -186,9 +186,9 @@ import tokenize
 NARRATION = re.compile(
     r"\bv1\.\d+|\bT(?:0\d|1[01])\b|pre-v1|as of v1|since v1|\bD\d\d\b")
 
-# Lines of comment or docstring naming a version or a task. Lower this when
-# narration is rewritten to state the current rule; never raise it.
-NARRATION_CEILING = {"scripts/sdle.py": 130, ".claude/hooks/hooks.py": 0}
+# Lines of comment or docstring naming a version or a task, per shipped source
+# file. The number is zero; a comment that needs a history belongs in an ADR.
+NARRATION_ALLOWED = {"scripts/sdle.py": 0, ".claude/hooks/hooks.py": 0}
 
 
 def narration_lines(relative: str) -> list[tuple[int, str]]:
@@ -235,11 +235,21 @@ def test_runtime_facing_text_carries_no_version_or_task_marker():
     assert not NARRATION.search(hooks)
 
 
-@pytest.mark.parametrize("relative", sorted(NARRATION_CEILING))
-def test_source_narration_does_not_grow(relative):
+@pytest.mark.parametrize("relative", sorted(NARRATION_ALLOWED))
+def test_shipped_source_carries_no_historical_narration(relative):
     found = narration_lines(relative)
-    assert len(found) <= NARRATION_CEILING[relative], (
+    assert len(found) <= NARRATION_ALLOWED[relative], (
         relative, len(found), found[:5])
+
+
+def test_the_narration_scan_reads_the_files_it_names():
+    """Non-vacuity: a scan that found no comments at all would pass with zero."""
+    assert not any(NARRATION_ALLOWED.values())
+    for relative in NARRATION_ALLOWED:
+        source = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        comments = sum(1 for _ in tokenize.generate_tokens(
+            io.StringIO(source).readline) if _.type == tokenize.COMMENT)
+        assert comments > 20, (relative, comments)
 
 
 # ==========================================================================
