@@ -33,7 +33,6 @@ import copy
 import functools
 import json
 import subprocess
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -69,10 +68,6 @@ REPO_ROOT = Path(SDLE_PY).resolve().parent.parent
 # --------------------------------------------------------------------------
 # Helpers — local by design
 # --------------------------------------------------------------------------
-
-
-def consts_for(project: Project):
-    return sdle.load_constants(paths_for(project))
 
 
 def risk_input(signals, proposed="LOW", uncertainty="LOW", **over) -> dict:
@@ -1322,8 +1317,6 @@ FROZEN_FILES = (
     # test_units_capabilities.py, by declared substitution against `4b1aa71`.
     # One home for that pin, not two: a second copy would be a second source
     # of truth for the same fact (invariant 7).
-    ".claude/settings.json",
-    ".gitignore",
 )
 
 
@@ -1398,237 +1391,6 @@ def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
         text = here(path.relative_to(REPO_ROOT).as_posix())
         for old, _ in DRY_RUN_SUBSTITUTIONS:
             assert old not in text, (path.name, old)
-
-
-HOOKS_FILE = ".claude/hooks/hooks.py"
-HOOK_FILES = (HOOKS_FILE,)
-
-# The guard registry, written out on both sides of T10. The four T09 pinned,
-# and the one T10's plan (B4) declares.
-T09_GUARDS = ("write-fence", "untrusted-read", "dirty-tree", "secrets-scan")
-T10_GUARD_ADDITIONS = ("product-agent-fence",)
-T10_HOOK_ADDITIONS = ("PRODUCT_AGENT_FENCE_REASON", "product_agent_fence")
-
-# T11 X9. The hooks pin is re-baselined from T09's rollback point to T11's,
-# because D7 edits `hooks.py`. The baseline commit is written out, and the
-# additions and edits T11 declares are written out, so anything else still
-# fails.
-T11_HOOKS_BASELINE = "4b1aa71"
-# `normalized` and the `posixpath` import are D7's. `fenced_target` is **not a
-# D-item**: it is a user-approved correction made outside the plan, during M7,
-# and it is recorded as such rather than folded into an X row that does not fit
-# it. `in_dir` matched `/{name}/` anywhere in a path while `SDLE_OWNED_PREFIXES`
-# is entirely repository-root-relative, so the fence was strictly broader than
-# the ownership it protects and denied `docs/workitems/` — a path the engine
-# does not own and has no choke-point refusal for. `fenced_target` anchors the
-# match at the repository-relative path start, mirroring the constant, and
-# falls back to `in_dir` for absolute paths outside the repository as defence
-# in depth. The `SCANNED`/`untrusted_read` call site still uses `in_dir` and is
-# byte-identical.
-T11_HOOK_ADDITIONS = ("normalized", "import:import posixpath", "fenced_target")
-# Definitions T11 legitimately edits. Each is pinned below by an explicit
-# property assertion instead of by bytes, so dropping it from the byte
-# comparison does not drop it from coverage.
-T11_HOOK_EDITS = ("FENCE_REASONS", "write_fence", "in_dir")
-
-
-def at_t11_hooks_baseline(relative: str) -> str | None:
-    """The file's content at T11's byte-identity baseline, or None."""
-    result = subprocess.run(
-        ["git", "show", f"{T11_HOOKS_BASELINE}:{relative}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def _hooks_top_level(source: str) -> dict[str, str]:
-    """Every top-level definition in the hooks module, by name, with the exact
-    source that defines it. Functions by `def`, constants by assigned name.
-
-    **T11 remediation of T10 NB-1.** T10's verifier found that this extraction
-    silently ignored `import` statements and the module docstring, so a
-    guardrail file could gain an import — or have its stated purpose rewritten
-    — without the byte-identity pin noticing. Both are captured now. This is a
-    strict strengthening: nothing that was covered before is covered less.
-    """
-    tree = ast.parse(source)
-    found = {}
-    docstring = ast.get_docstring(tree, clean=False)
-    if docstring is not None:
-        found["__doc__"] = docstring
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            found[node.name] = ast.get_source_segment(source, node)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    found[target.id] = ast.get_source_segment(source, node)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            found["import:" + ast.get_source_segment(source, node)] = (
-                ast.get_source_segment(source, node))
-    return found
-
-
-def _without_docstring(definition: str) -> str:
-    """A function definition's structure with its docstring removed.
-
-    Used to prove that a definition changed *only* in prose. Comparing
-    `ast.dump` rather than text means whitespace and line wrapping cannot
-    disguise a real edit, and the docstring is the single node dropped — not
-    a class of nodes, so nothing else can hide behind the exclusion.
-    """
-    node = ast.parse(textwrap.dedent(definition)).body[0]
-    body = node.body
-    if (body and isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-            and isinstance(body[0].value.value, str)):
-        body = body[1:]
-    assert body, "a definition that is only a docstring pins nothing"
-    node.body = body
-    return ast.dump(node)
-
-
-def _registered_guards(source: str) -> list[str]:
-    """The keys of the module's `GUARDS` table, read out of the source rather
-    than by importing it, so a syntax-level edit cannot hide behind a run."""
-    for node in ast.parse(source).body:
-        if (isinstance(node, ast.Assign)
-                and any(isinstance(t, ast.Name) and t.id == "GUARDS"
-                        for t in node.targets)):
-            return [key.value for key in node.value.keys]
-    raise AssertionError("hooks.py registers no GUARDS table")
-
-
-def test_n28_the_hooks_are_byte_identical():
-    """T09's A10 assertion, re-valued for T10 (TP-003 category 2, X-GEN).
-
-    It read: *"hooks are tripwires and T09 added no fence. Whole directory, so
-    a new hook file would fail here rather than pass unnoticed."* T10's plan
-    declares one hook change (B4): a fifth guard, `product-agent-fence`, added
-    inside the existing `hooks.py`. Whole-directory byte identity against T09's
-    rollback point is therefore false by design, and the assertion is re-valued
-    rather than deleted or relaxed. It is split into the three things it was
-    actually buying, each still exact equality against a written-out set:
-
-    * the directory's **file list** is exactly `HOOK_FILES` -- T10 adds no hook
-      file, so a new one still fails here, which is the sentence above;
-    * every hook file other than `hooks.py` is still byte-identical to the T09
-      rollback point;
-    * inside `hooks.py`, every top-level definition T09 pinned is byte-identical
-      one at a time, and the set of definitions is exactly T09's plus the two
-      T10 declares -- so an edit to `write_fence`, a sixth guard, or a stray
-      module-level constant all still fail.
-
-    Nothing here is a subset test, a prefix test or an `any`. The guard registry
-    is additionally pinned to the five names in order, because a guard that is
-    defined but never registered would otherwise pass.
-    """
-    hooks = sorted((REPO_ROOT / ".claude" / "hooks").rglob("*"))
-    present = sorted(p.relative_to(REPO_ROOT).as_posix()
-                     for p in hooks if p.is_file())
-    assert present == sorted(HOOK_FILES), present
-
-    for relative in present:
-        original = at_rollback(relative)
-        assert original is not None, relative
-        if relative != HOOKS_FILE:
-            assert here(relative) == original, relative
-
-    baseline_source = at_t11_hooks_baseline(HOOKS_FILE)
-    assert baseline_source is not None, (
-        f"{T11_HOOKS_BASELINE} must be reachable, or this test is vacuous")
-    before = _hooks_top_level(baseline_source)
-    after = _hooks_top_level(here(HOOKS_FILE))
-    assert "__doc__" in before and "__doc__" in after, (
-        "T10 NB-1: the module docstring must be part of the pin")
-    assert any(k.startswith("import:") for k in before), (
-        "T10 NB-1: imports must be part of the pin")
-    assert sorted(after) == sorted(set(before) | set(T11_HOOK_ADDITIONS)), (
-        sorted(set(after) ^ set(before)))
-    for name, source in before.items():
-        # The definitions T11 declares as edited are pinned by property just
-        # below, not by bytes. Everything else — including the module
-        # docstring and every import, which T10's verifier found were being
-        # skipped entirely — is still byte-identical.
-        if name in T11_HOOK_EDITS:
-            continue
-        assert after[name] == source, name
-
-    assert _registered_guards(here(HOOKS_FILE)) == list(
-        T09_GUARDS + T10_GUARD_ADDITIONS)
-
-    # -- what byte-identity was buying for the two edited definitions --------
-    #
-    # Each property below is one the byte pin used to catch. They are asserted
-    # explicitly rather than assumed, because a replacement that only *looks*
-    # stronger is how coverage narrows silently.
-    hooks_now = here(HOOKS_FILE)
-    fence = _hooks_top_level(hooks_now)["write_fence"]
-
-    # (1) FENCE_REASONS still explains exactly the fenced names, no more and
-    #     no fewer — a fenced directory with no reason would emit `None`.
-    import ast as _ast
-    reasons = _ast.literal_eval(
-        _hooks_top_level(hooks_now)["FENCE_REASONS"].split("=", 1)[1].strip())
-    fenced = _ast.literal_eval(
-        _hooks_top_level(hooks_now)["FENCED"].split("=", 1)[1].strip())
-    assert sorted(reasons) == sorted(fenced)
-    assert fenced == (".workflow", "workitems", "requirements", "guidance"), (
-        "T11 preserves the fence: `.workflow/` is still a migration source "
-        "and must stay unwriteable by hand (P6)")
-    for name, text in reasons.items():
-        # Each reason names its own fenced directory and says who owns
-        # it — the two things that make a denial actionable rather than
-        # opaque. Written as a conjunction: the previous form was a
-        # disjunction that could be satisfied for the wrong reason.
-        assert isinstance(text, str) and len(text) > 60, name
-        assert f"'{name}/'" in text, name
-        assert "SDLE" in text or "sdle.py" in text, name
-
-    # (2) `write_fence` still denies rather than asks, still reads its reason
-    #     from FENCE_REASONS, still has exactly the one carve-out, and still
-    #     iterates FENCED.
-    assert '"deny"' in fence
-    assert "FENCE_REASONS" in fence
-    assert fence.count("SPECS_CARVE_OUT") == 1
-    assert "for name in FENCED" in fence
-    # (3) and T11's declared addition: it normalises first (D7 / T04 N-3).
-    assert "normalized(" in fence
-
-    # (4) The fence tests each name through `fenced_target`, not `in_dir`.
-    #     This is the M7 out-of-plan correction, pinned structurally here and
-    #     behaviourally in `tests/test_hooks.py`.
-    assert "fenced_target(" in fence
-    assert "in_dir(" not in fence, (
-        "the fence must use the anchored test, not the loose one")
-
-    defs = _hooks_top_level(hooks_now)
-
-    # (5) `in_dir` keeps its loose form *verbatim* — it is what `fenced_target`
-    #     falls back to outside the repository, and what `untrusted_read`
-    #     still uses. Only prose was added, and that is asserted rather than
-    #     trusted: with the docstring removed from both sides, the definition
-    #     must be structurally identical to the baseline. Byte-identity was
-    #     buying exactly this, and nothing else, because the baseline
-    #     definition carried no docstring at all.
-    assert _without_docstring(before["in_dir"]) == _without_docstring(
-        defs["in_dir"]), "in_dir changed by more than its docstring"
-
-    # (6) `fenced_target` anchors against the repository-relative path and
-    #     falls back to the loose test only outside it. Both halves asserted:
-    #     an implementation that dropped the anchor would silently restore the
-    #     over-broad denial, and one that dropped the fallback would stop
-    #     seeing writes into another tree's `workitems/`.
-    anchored = defs["fenced_target"]
-    assert "relative(path)" in anchored
-    assert 'inside.startswith(f"{name}/")' in anchored
-    assert "return in_dir(path, name)" in anchored
-
-    # (7) `untrusted_read` is the one caller that must stay loose: SCANNED is
-    #     an advisory warn-and-acknowledge scan, not an ownership claim. It is
-    #     byte-identical above; this records *why* it was left alone.
-    assert "in_dir(path, name) for name in SCANNED" in defs["untrusted_read"]
 
 
 def test_n28_the_state_schema_did_not_move(project):

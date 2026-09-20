@@ -177,7 +177,7 @@ def fenced_target(path, name):
     Only an absolute path *outside* the repository falls through to `in_dir`'s
     loose segment match, as defence in depth. Absoluteness is tested after
     `tool_path` has turned backslashes into `/`, so a Windows drive-letter
-    path counts as absolute -- `posixpath.isabs` would call `C:/proj/...`
+    path counts as absolute -- `posixpath.isabs` would call `C:/<project>/...`
     relative and wrongly anchor another tree's path against this root.
     """
     inside = relative(path)

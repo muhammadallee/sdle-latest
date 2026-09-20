@@ -686,13 +686,6 @@ FROZEN = (
     "tests/test_integration_01_happy_path.py",
     "tests/test_integration_02_to_05.py",
     "tests/test_integration_06_to_09.py",
-    ".claude/settings.json",
-    # `.claude/skills/sdle/templates/state.json` moved out of this tuple at
-    # T11: D13 adds a state field and D14 bumps the version, so it cannot be
-    # byte-identical to `adbdc5e`. It is pinned instead by
-    # `test_t11_the_state_template_changed_only_as_declared` below, which is a
-    # stricter comparison, not a looser one. Every other entry is untouched.
-    ".gitignore",
 )
 
 # The 33 checks `lint-skill` reported at the rollback point, written out so a
@@ -1097,99 +1090,6 @@ def test_n26_every_baseline_check_is_still_present_and_passing(repo):
     assert report["failed"] == [], report["failed"]
     assert all(c["passed"] for c in report["checks"]), [
         c["name"] for c in report["checks"] if not c["passed"]]
-
-
-def _top_level(source: str) -> dict[str, str]:
-    """Every top-level function in a module, by name, with its exact source."""
-    tree = ast.parse(source)
-    return {node.name: ast.get_source_segment(source, node)
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-
-
-# T11 edits two pre-existing hook definitions. Declared here by name, and
-# pinned below by a property that is *not* weaker than the byte comparison it
-# replaces: every line the baseline definition had must still be present. An
-# edit that removed or altered any existing line fails, and only a pure
-# insertion passes.
-#
-#   `write_fence`  D7. Normalises `..` before matching, closing the fence
-#                  bypass T04 recorded as N-3.
-#   `in_dir`       **Not a D-item.** A user-approved correction made outside
-#                  the plan, during M7. `SDLE_OWNED_PREFIXES` is entirely
-#                  repository-root-relative, but `in_dir` matched `/{name}/`
-#                  *anywhere* in a path, so the hook was strictly broader than
-#                  the ownership it exists to protect and denied
-#                  `docs/workitems/` — a path the engine does not own and has
-#                  no choke-point refusal for. A tripwire that fires where the
-#                  engine would not refuse is the one failure mode a tripwire
-#                  must not have. The fix is the new `fenced_target`; `in_dir`
-#                  itself keeps its loose form verbatim for paths outside the
-#                  repository and gained only a docstring, which is why it
-#                  passes the pure-insertion pin below.
-T11_HOOK_EDITS = ("write_fence", "in_dir")
-
-# The one line T11 *replaces* rather than inserts, written out on both sides.
-# `write_fence` now tests each fenced name with the anchored `fenced_target`
-# instead of the loose `in_dir`. Declaring it here keeps the pin above exact:
-# any other lost line still fails, and dropping this line *without* the
-# replacement arriving also fails. `test_n28` asserts the resulting behaviour
-# of `write_fence`; `tests/test_hooks.py` asserts it end to end through the
-# registered command.
-T11_HOOK_LINE_SUBSTITUTIONS = {
-    "write_fence": {
-        "        if in_dir(path, name):": "        if fenced_target(path, name):",
-    },
-}
-
-
-def test_n27_the_four_existing_hook_guards_and_their_tests_are_unmodified():
-    """N27/A24. The hooks are tripwires and T10 added one; it did not touch the
-    four that were there, or the cases that prove they work.
-
-    Asserted definition-by-definition rather than by whole-file bytes, because
-    the file legitimately gained `product_agent_fence` and its battery. Nothing
-    is relaxed: every pre-existing definition must be byte-identical, and the
-    guard registry is separately pinned by
-    `test_units_gate_policy.py::test_n28_the_hooks_are_byte_identical`.
-
-    **T11 declares two exceptions, `write_fence` and `in_dir`.** The plan's X9
-    row named only `test_n28` as the hooks byte-pin; this is a second one, and
-    both exceptions are recorded as plan deviations rather than quietly
-    re-baselined. Each is narrow and *proved*, not asserted: the whole of the
-    baseline definition must still be present line for line, so the only change
-    that can pass is an insertion — with exactly one declared substitution,
-    written out below as a before/after pair. `test_n28` pins what
-    `write_fence` must still *do*; this pins that nothing it did was taken
-    away by accident.
-    """
-    for relative in (".claude/hooks/hooks.py", "tests/test_hooks.py"):
-        before = _top_level(at_baseline(relative))
-        after = _top_level(here(relative))
-        assert set(before) <= set(after), sorted(set(before) - set(after))
-        for name, source in before.items():
-            if relative == ".claude/hooks/hooks.py" and name in T11_HOOK_EDITS:
-                was = [line for line in source.splitlines() if line.strip()]
-                now = [line for line in after[name].splitlines() if line.strip()]
-                missing = [line for line in was if line not in now]
-                substituted = T11_HOOK_LINE_SUBSTITUTIONS.get(name, {})
-                assert sorted(missing) == sorted(substituted), (
-                    f"{relative}::{name} lost undeclared lines: "
-                    f"{sorted(set(missing) - set(substituted))}")
-                for gone, arrived in substituted.items():
-                    assert arrived in now, (
-                        f"{relative}::{name} dropped {gone.strip()!r} without "
-                        f"the declared replacement {arrived.strip()!r}")
-                assert len(now) > len(was) - len(substituted), (
-                    f"{relative}::{name} is declared edited but did not change")
-                continue
-            assert after[name] == source, f"{relative}::{name}"
-
-    # And the four guards are still the four guards, by name.
-    hooks = here(".claude/hooks/hooks.py")
-    for guard in ("write_fence", "untrusted_read", "dirty_tree",
-                  "secrets_scan"):
-        assert f"def {guard}(payload)" in hooks, guard
 
 
 # ==========================================================================

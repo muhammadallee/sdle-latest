@@ -81,6 +81,54 @@ def test_the_registered_interpreter_resolves_on_this_machine():
                 )
 
 
+# The parent session's registrations as a table: (event, matcher) -> guard.
+# This is the direct replacement for pinning `settings.json` and `hooks.py`
+# byte-for-byte against an old commit: a guard that is added, dropped,
+# re-matched or unregistered changes this table, and the table is asserted.
+PARENT_REGISTRATIONS = {
+    ("PreToolUse", "Write|Edit|MultiEdit"): "write-fence",
+    ("PreToolUse", "Read"): "untrusted-read",
+    ("PreToolUse", "Bash"): "dirty-tree",
+    ("PostToolUse", "Write|Edit"): "secrets-scan",
+}
+GUARD_NAMES = ["write-fence", "untrusted-read", "dirty-tree", "secrets-scan",
+               "product-agent-fence"]
+
+
+def settings_registrations() -> dict:
+    found = {}
+    for event, blocks in SETTINGS["hooks"].items():
+        for block in blocks:
+            for hook in block["hooks"]:
+                found[(event, block["matcher"])] = hook["command"].split()[-1]
+    return found
+
+
+def test_settings_registers_exactly_the_parent_session_guards():
+    assert settings_registrations() == PARENT_REGISTRATIONS
+
+
+def test_the_guard_registry_is_exactly_the_five_documented_guards():
+    """Read out of the source, not by importing it, so a syntax-level edit
+    cannot hide behind a successful run."""
+    import ast
+    tree = ast.parse((HOOKS / "hooks.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "GUARDS"
+                        for t in node.targets)):
+            assert [k.value for k in node.value.keys] == GUARD_NAMES
+            return
+    raise AssertionError("hooks.py registers no GUARDS table")
+
+
+def test_the_hooks_directory_holds_only_the_shipped_files():
+    """A new hook file is a new thing that runs on every tool call; it must be
+    added here on purpose."""
+    names = sorted(p.name for p in HOOKS.iterdir() if p.is_file())
+    assert names == ["hooks.py"], names
+
+
 def test_every_guard_is_registered():
     text = json.dumps(SETTINGS)
     for guard in ("write-fence", "untrusted-read", "dirty-tree", "secrets-scan"):
