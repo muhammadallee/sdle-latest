@@ -1392,18 +1392,15 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
 
 
 def test_t11_the_legacy_rung_is_gone():
-    """Replaces `test_n31_no_t11_leakage`, which was an anti-leakage pin whose
-    declared owner was T11 and which therefore had to fail once T11 did its
-    job. It is replaced, not deleted: the same surfaces are asserted, now in
-    the direction T11 establishes.
-
-    The three surfaces it guarded are re-asserted positively here:
+    """The retired `.workflow/` runtime is detected, never bound.
 
     * the legacy **rung** is gone from `resolve_decision` / `bind_workitem`;
-    * `legacy_workflow` itself is *kept* — P1/P2, it is the migration source
-      and the project-root marker, and removing it would brick a legacy-only
-      repository;
-    * `current_feature_id` is kept, but only inside migration rows (P8).
+    * `legacy_workflow` itself is *kept* as the detection view and the
+      project-root marker, and removing it would leave a legacy-only
+      repository unfindable, so the refusal could never reach its user;
+    * the flat `current_feature_id` state field is gone from the engine
+      altogether: it was only ever named by the state migration, which no
+      longer exists (ADR-010), and the Spec Kit context lives in `specKit`.
     """
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
 
@@ -1411,13 +1408,13 @@ def test_t11_the_legacy_rung_is_gone():
     assert 'decision.rung = "legacy"' not in source
     assert 'rung == "legacy"' not in source
 
-    # Preserved: the migration source view and the project-root marker.
+    # Preserved: the detection view and the project-root marker.
     assert "legacy_workflow" in source
     assert '(".workflow", "state.json")' in source, (
-        "P1: without this marker a legacy-only repository cannot be found, "
-        "so `migrate-workflow` could never be pointed at it")
+        "without this marker a legacy-only repository cannot be found, so "
+        "the refusal that points at `workitem create` could never reach it")
     assert ".workflow/" in sdle.SDLE_OWNED_PREFIXES
-    assert "current_feature_id" in source
+    assert "current_feature_id" not in source
 
     # And the ladder itself no longer offers the value.
     assert "legacy" not in {
