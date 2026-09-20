@@ -1,0 +1,58 @@
+{
+  "run_id": "20260920T165807-p08-codex-tests-drift",
+  "result": "PASS",
+  "task_ids": [
+    "P08"
+  ],
+  "ac_ids": [
+    "AC-01",
+    "AC-02",
+    "AC-19"
+  ],
+  "area": "tests-drift",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/review-wt",
+  "candidate_sha": "413d38d1c0b744fb82b630412a21828d3d30c396",
+  "timeout_seconds": 1800,
+  "prompt": "tests-drift.prompt.md",
+  "prompt_sha256": "9e521864781c6386f80ff53c8ccdc259cec2d86978ac228e9736daec5aad21d9",
+  "schema": "review.schema.json",
+  "schema_sha256": "5cf4c84450a10c82681a60706906a45d3c23643f4b2a6f7dbf9ada1a53b4f3ae",
+  "started_utc": "2026-09-20T16:58:07Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/review-wt",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\repository-cleanup\\runs\\p08-packets\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\repository-cleanup\\runs\\20260920T165807-p08-codex-tests-drift.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-09-20T16:58:07Z",
+      "exit_code": 0,
+      "finished_utc": "2026-09-20T17:07:36Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20260920T165807-p08-codex-tests-drift.a1.events.jsonl",
+        "stderr": "20260920T165807-p08-codex-tests-drift.a1.stderr.log",
+        "review": "20260920T165807-p08-codex-tests-drift.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-09-20T17:07:36Z",
+  "findings": 5,
+  "coverage_not_reviewed": [],
+  "review_output": "20260920T165807-p08-codex-tests-drift.a1.review.json"
+}

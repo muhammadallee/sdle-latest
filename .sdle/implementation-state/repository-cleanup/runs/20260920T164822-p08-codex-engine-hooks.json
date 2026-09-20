@@ -1,0 +1,61 @@
+{
+  "run_id": "20260920T164822-p08-codex-engine-hooks",
+  "result": "PASS",
+  "task_ids": [
+    "P08"
+  ],
+  "ac_ids": [
+    "AC-01",
+    "AC-02",
+    "AC-19"
+  ],
+  "area": "engine-hooks",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/review-wt",
+  "candidate_sha": "413d38d1c0b744fb82b630412a21828d3d30c396",
+  "timeout_seconds": 1800,
+  "prompt": "engine-hooks.prompt.md",
+  "prompt_sha256": "552a3093edbce9e641977e425ab66d18f51d914f2d44df158a7a0a236abe547c",
+  "schema": "review.schema.json",
+  "schema_sha256": "5cf4c84450a10c82681a60706906a45d3c23643f4b2a6f7dbf9ada1a53b4f3ae",
+  "started_utc": "2026-09-20T16:48:22Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/review-wt",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\repository-cleanup\\runs\\p08-packets\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\repository-cleanup\\runs\\20260920T164822-p08-codex-engine-hooks.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-09-20T16:48:22Z",
+      "exit_code": 0,
+      "finished_utc": "2026-09-20T16:58:02Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20260920T164822-p08-codex-engine-hooks.a1.events.jsonl",
+        "stderr": "20260920T164822-p08-codex-engine-hooks.a1.stderr.log",
+        "review": "20260920T164822-p08-codex-engine-hooks.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-09-20T16:58:02Z",
+  "findings": 6,
+  "coverage_not_reviewed": [
+    "Unchanged scripts/sdle.py behavior unrelated to state/version handling, migration removal, hooks, secrets, agent governance, or changed lint surfaces was not re-reviewed line by line.",
+    "The full test suite was not executed."
+  ],
+  "review_output": "20260920T164822-p08-codex-engine-hooks.a1.review.json"
+}

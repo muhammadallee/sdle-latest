@@ -440,7 +440,47 @@ Fact/contract → source of truth → canonical document → derived examples �
 
 ## Independent review
 
-_P08._
+_P08._ Reviewer: Codex (`codex-cli 0.151.0`, logged in through ChatGPT, `--sandbox read-only --ephemeral --json --output-schema`), against the frozen candidate `413d38d1c0b744fb82b630412a21828d3d30c396` in a detached worktree (`scratchpad/review-wt`). Four areas, one run each, all PASS on the first attempt: engine and hooks (6 findings), tests and drift checks (5), documentation (7), CI, install and hygiene (7) — 25 findings. Packets, prompts, the schema, event streams and the raw outputs are `runs/*p08-*`; the packet generator and runner are `runs/p08-codex_packet.py.txt` and `runs/p08-codexrun.py.txt`. The reviewer's own coverage caveats: it did not run the suite, did not re-read deleted documents, and skimmed unchanged transcript bodies.
+
+I did not accept any finding on the reviewer's word. Every one below was checked against the candidate; the ones that claim behaviour (hook bypasses, silent scanners) were reproduced by running the code, and a fix ships with a test that fails on the parent. No critical finding was raised. The one high finding (E-CX-001) was accepted.
+
+Same-candidate whole-suite result for round 1's baseline: `runs/20260920T164813-p08-full-suite-candidate` — **2313 passed**, exit 0, in a depth-1 clone of `413d38d` (Windows 10, Python 3.13.0; the reviewer's findings are therefore not test failures — they are what the suite did not check).
+
+### Dispositions
+
+IDs are `<area>-CX-nnn`: E engine-hooks, T tests-drift, D docs, C ci-install-hygiene.
+
+| ID | Sev | Disposition | Evidence and outcome |
+|---|---|---|---|
+| E-CX-001 | high | **ACCEPTED**, fixed `745aa86` | Phase 17, gate approve/reject/drift and the completion summary told the model to set state fields, append to `audit.md` and write `completion-summary.json`; `security-review begin`, `gate approve`, `gate reject`, `artifact record`, `checkpoint` and `audit append` already do each of these and the write fence refuses the hand edit. Pre-existing in the base (`modules/` unchanged in the range). 29 hand-write lines on the candidate, none now, held by a new scan over every prompt |
+| E-CX-002 | med | **ACCEPTED**, fixed `498001b` | Reproduced: `WORKITEMS/probe/.SDLE/state.json` (absolute, backslash and relative) was allowed on Windows, the lowercase path denied. The fence and the specs carve-out now fold case on Windows only; POSIX keeps the exact match. 22 tests failed on the parent |
+| E-CX-003 | med | **ACCEPTED**, fixed `498001b` | Reproduced: `secrets-scan` (Write, Edit, NotebookEdit) and `untrusted-read` (Read) with no path returned no output. A missing path on a registered tool is now a `PayloadError`, so a fail-open scanner tells both readers |
+| E-CX-004 | med | **ACCEPTED**, fixed `86abcec` | `state dump` and `doctor` derived flow, label and verdict from another schema's file while SKILL.md said every state-reading command refuses. They now refuse `unsupported_state_version`; `state get` and `audit verify` (which read a stored field and the hash chain without interpreting) still run. SKILL.md, the `read_state` docstring, troubleshooting and ADR-010 state that exact boundary |
+| E-CX-005 | med | **ACCEPTED**, fixed `e097183` | I had recorded this as a known limitation (AC-03 and F-019 do cover shipped comments). 112 narration blocks rewritten; three were wrong as well as historical: `baseline_file` said no engine path writes it, `write_active_context` said three setters (there are two), a docstring said a state could be bound by migration. The AST of the module with docstrings blanked equals the parent's; the ceiling of 130 is now zero |
+| E-CX-006 | low | **ACCEPTED**, fixed `745aa86` | `/sdle-start` said not to move the retired `.workflow/` while also saying `init` refuses until it is gone. It now says SDLE never moves or deletes it and the user removes or moves it aside |
+| T-CX-001 | med | **DUPLICATE** of E-CX-005 | Fixed `e097183` |
+| T-CX-002 | med | **ACCEPTED**, fixed `0ef7207` | The documented-command scan omitted CLAUDE.md, `scripts/README.md`, the agents, fenced blocks and `sh`/`python`-prefixed launchers. It now covers all of them (433 invocations against 312) with recogniser and negative-fixture tests. It found one real remnant: a fenced `migrate-workflow` command in ADR-008 section 3.1 |
+| T-CX-003 | med | **PARTLY ACCEPTED** (`2b766e4`) | Rejected as a defect: the guide instructs copying `.claude/commands/`, `.claude/agents/` and the skill directory whole, so a file added under one is installed by that instruction and is covered by it. Accepted as a risk: a file could be added silently. The install directories are now pinned to their exact file sets, and the guide's stated counts (nine commands, four agents, five modules) are checked against them |
+| T-CX-004 | med | **ACCEPTED**, fixed `86abcec` | The weak assertion was `reason != unsupported_state_version`. Each inspection command now has its expected outcome, and `state.json` and `audit.md` are compared byte for byte before and after |
+| T-CX-005 | low | **ACCEPTED**, fixed `86abcec` | `legacy_workflow`, its imports and the stale migration section removed from `test_units_workitem_runtime.py` |
+| D-CX-001 | med | **ACCEPTED**, fixed `2b766e4` | The guide had no PowerShell settings merge. Added, and the guide's own PowerShell blocks (sections 1, 5, 6) were replayed from the file in a disposable target: own settings kept, launchers registered, a second merge changes nothing, `sdle.ps1 constants` ok, `preflight` refuses `workitem_required` as documented (`runs/20260920-p08-ps-guide-replay.txt`). The replay also showed `sh` is not on the PowerShell PATH, so the hook check is now said to be run from Git Bash |
+| D-CX-002 | med | **PARTLY ACCEPTED**, `2b766e4` | The sentence "every path in this table exists" contradicted the optional and absent rows; corrected. A per-file listing was not adopted for the reason given at T-CX-003 |
+| D-CX-003 | med | **ACCEPTED**, fixed `2b766e4` | The Reference Guide summary described one fixed lifecycle with eight mandatory gates. It now describes a flow chosen from the 21-phase registry, with each flow's phase and gate count from `sdle.py constants` |
+| D-CX-004 | med | **ACCEPTED**, fixed `2b766e4`, `0ef7207` | Orphaned `migrate-workflow` refusal table in troubleshooting (I had missed it); stale text in the Reference Guide, README, ADR-004, -005, -008. New ADR-010 records the decision; the ADRs carry a supersession note; a new scan keeps the retired names out of living documents (failed on the candidate for two files) |
+| D-CX-005 | med | **ACCEPTED**, fixed `2b766e4` | The index said the suite "recomputes every claim" in the dry runs. It now names what is recomputed (progress fractions, gate numbers and labels, refusal names, cited test nodes) and says the conversations are simulated and not executed |
+| D-CX-006 | low | **ACCEPTED**, fixed `2b766e4` | `"templates": ".sdle/templates"` removed from the tutorial's `config show` output |
+| D-CX-007 | low | **ACCEPTED**, fixed `2b766e4` | `docs/workitems/README.md` now names both developer-local ignored paths |
+| C-CX-001 | med | **ACCEPTED**, fixed `40b4d10` | New finding. `SPECS_CARVE_OUT` was searched anywhere in the path: `requirements/workitems/x/specs/a.md`, `guidance/...` and `.workflow/...` were ALLOWED on the candidate (run before the change) and are denied now; the real `workitems/<id>/specs/` is still carved out, and outside the repository the first fenced directory decides |
+| C-CX-002 | med | **DUPLICATE** of E-CX-003 | Fixed `498001b` |
+| C-CX-003 | med | **DUPLICATE** of D-CX-001 | Fixed `2b766e4` |
+| C-CX-004 | med | **ACCEPTED**, fixed `88c03ca` | The guide said never copy `.claude/settings.local.json` but did not ignore it in the target. The Bash and PowerShell lines now append three entries, tied by a test to the entries this repository itself ignores. Whether Claude Code ignores that file on its own was not verified; the added line is harmless either way |
+| C-CX-005 | med | **DUPLICATE** of D-CX-004 | Fixed as above |
+| C-CX-006 | med | **ACCEPTED**, fixed `2b766e4`, `88c03ca` | Tutorial as D-CX-006; ADR-002 no longer lists `shared_templates_dir` or describes shared templates |
+| C-CX-007 | low | **DUPLICATE** of E-CX-004 | Fixed differently from the suggestion (the two interpreting commands refuse rather than the wording being loosened); wording is now exact |
+
+Tally: 25 findings; 18 accepted and fixed, 2 partly accepted, 5 duplicates of an accepted finding; none rejected outright; none deferred.
+
+Fix commits, in order: `498001b` (hooks), `86abcec` (state boundary and dead helper), `745aa86` (prompts), `2b766e4` (docs), `40b4d10` (carve-out), `88c03ca` (gitignore, ADR-002), `0ef7207` (command scan), `e097183` (narration).
 
 ## Owner decisions
 
