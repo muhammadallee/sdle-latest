@@ -204,7 +204,7 @@ This is a gate phase. The artifact is the implementation manifest in the WorkIte
 
 **Phase 17 — `security_review`:**
 - Do NOT invoke SpecKit.
-- Run `sdle.sh security-review begin`. It names the review file — `reviews/security-review-<YYYY-MM-DD-HHmm>.md`, from the current local time — and pins it as `security_review_artifact` with `phase_checkpoint: "security_review_started"`, so crash recovery and drift detection know the target path before generation begins. Use the `review_filename` it returns; never write your own.
+- Run `sdle.sh security-review begin`. It names the review file — `reviews/security-review-<YYYY-MM-DD-HHmm>.md`, from the current local time, with a `-2`, `-3` suffix when that file already exists — and pins it as `security_review_artifact` with `phase_checkpoint: "security_review_started"`, so crash recovery and drift detection know the target path before generation begins. Use the `review_filename` it returns; never write your own.
 - Read `modules/security-review.md` and follow its procedure. Pass `review_filename` as the explicit output path — the module must write to this exact path, not generate a new timestamped name.
 - After the review file is confirmed written at `review_filename`: run `sdle.sh artifact record --path <review_filename>`. It verifies the size (≥ 100 bytes), fingerprints the file, sets `current_artifact` and clears `phase_checkpoint`.
 - Advance: `sdle.sh advance --to gate_security`. The script records phase history, progress and the audit entry.

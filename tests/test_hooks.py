@@ -1137,3 +1137,45 @@ def test_ci_cx001_outside_the_repository_the_first_fenced_directory_decides(
             assert decision(output) == "deny", (target, output)
         else:
             assert output == {}, (target, output)
+
+
+# -- follow-up round F-CX-001: a Windows drive-relative path cannot be walked past
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="drive-relative paths exist only on Windows")
+@pytest.mark.parametrize("rest", [
+    "workitems" + chr(92) + "x" + chr(92) + ".sdle" + chr(92) + "state.json",
+    "WORKITEMS/x/.SDLE/state.json",
+    "requirements/notes.md",
+])
+def test_fcx001_a_same_drive_drive_relative_path_is_resolved_and_denied(started, rest):
+    """`C:workitems...` names a path relative to the drive's current directory,
+    which for the session's own drive is the payload's `cwd`."""
+    file_path = str(started.root)[:2] + rest
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": file_path}}, cwd=started.root)
+    assert decision(output) == "deny", (file_path, output)
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="drive-relative paths exist only on Windows")
+def test_fcx001_a_drive_relative_path_on_another_drive_fails_closed(started):
+    own = str(started.root)[0].upper()
+    other = "Z" if own != "Z" else "Y"
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": other + ":docs/a.md"}}, cwd=started.root)
+    assert decision(output) == "deny", output
+    assert "drive" in reason(output), output
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="drive-relative paths exist only on Windows")
+def test_fcx001_an_ordinary_same_drive_path_outside_the_fence_is_still_allowed(started):
+    output = fire_installed(started, "write-fence", {
+        "tool_name": "Write", "cwd": str(started.root),
+        "tool_input": {"file_path": str(started.root)[:2] + "docs/a.md"}},
+        cwd=started.root)
+    assert output == {}, output

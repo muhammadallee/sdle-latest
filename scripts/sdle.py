@@ -8123,10 +8123,16 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
 
 def cmd_security_review_begin(args, paths: Paths) -> int:
     """Pin the review filename before generation, so crash recovery and drift
-    detection both know the target path."""
+    detection both know the target path. The name is never one that already
+    exists: a second call in the same minute, or another WorkItem sharing
+    `reviews/`, takes the next `-2`, `-3` suffix instead of overwriting."""
     state = read_state(paths)
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
     filename = f"reviews/security-review-{stamp}.md"
+    suffix = 2
+    while (paths.project_root / filename).exists():
+        filename = f"reviews/security-review-{stamp}-{suffix}.md"
+        suffix += 1
     state["security_review_artifact"] = filename
     state["phase_checkpoint"] = "security_review_started"
     save_state(paths, state, args.session)

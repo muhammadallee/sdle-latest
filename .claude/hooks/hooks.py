@@ -77,7 +77,8 @@ PATH_FIELDS = ("file_path", "notebook_path")
 # being walked past. POSIX keeps the exact comparison: `Workitems/` is a
 # different directory on a case-sensitive file system, and denying it would
 # fence a path the engine does not own.
-CASE_INSENSITIVE = os.name == "nt"
+IS_WINDOWS = os.name == "nt"
+CASE_INSENSITIVE = IS_WINDOWS
 
 FAIL_CLOSED = ("write-fence", "product-agent-fence")
 GUARD_EVENT = {
@@ -184,10 +185,21 @@ def tool_path(payload):
     if not raw:
         return None
     path = re.sub(r"/+", "/", str(raw).replace("\\", "/"))
-    if not _is_absolute(path):
-        base = str(payload.get("cwd") or os.getcwd()).replace("\\", "/")
-        path = re.sub(r"/+", "/", base.rstrip("/") + "/" + path)
-    return path
+    base = str(payload.get("cwd") or os.getcwd()).replace("\\", "/")
+    drive_relative = IS_WINDOWS and re.match(r"^([A-Za-z]):(?!/)(.*)$", path)
+    if drive_relative:
+        # `C:workitems/x` is relative to the drive's current directory. For the
+        # session's own drive that is `cwd`; for any other drive it cannot be
+        # known here, so the call cannot be evaluated and the caller decides
+        # what that means for its guard.
+        if base[:2].lower() != path[:2].lower():
+            raise PayloadError(
+                "the drive-relative path {0!r} names another drive's current "
+                "directory, which cannot be resolved".format(str(raw)))
+        path = base.rstrip("/") + "/" + drive_relative.group(2)
+    elif not _is_absolute(path):
+        path = base.rstrip("/") + "/" + path
+    return re.sub(r"/+", "/", path)
 
 
 def emit(event, decision=None, reason=None, context=None, message=None):

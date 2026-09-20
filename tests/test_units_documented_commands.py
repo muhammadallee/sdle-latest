@@ -136,6 +136,39 @@ def misplaced_globals(argv: list[str]) -> list[str]:
             if token in GLOBAL_OPTIONS and token not in own]
 
 
+def unknown_command(argv: list[str]) -> str | None:
+    """The first token of a command chain that the real parser does not have.
+
+    A neutral `x` stands for a placeholder (`<command>`, `<id>`) and is never
+    reported. The position check above deliberately ignores what it cannot pin
+    down; this is the check that a documented command is a command.
+    """
+    parser = sdle.build_parser()
+    index = 0
+    while index < len(argv) and argv[index].startswith("-"):
+        index += 2 if argv[index] in GLOBAL_OPTIONS else 1
+    command = parser
+    while index < len(argv):
+        choices = _subparsers(command)
+        if not choices:
+            return None
+        token = argv[index]
+        if token == "x" or token.startswith("-"):
+            return None
+        if token not in choices:
+            return token
+        command = choices[token]
+        index += 1
+    return None
+
+
+def test_the_command_check_reports_a_command_the_parser_does_not_have():
+    assert unknown_command(["nonexistent", "--bogus"]) == "nonexistent"
+    assert unknown_command(["gate", "nonexistent", "--gate", "x"]) == "nonexistent"
+    assert unknown_command(["--workitem", "x", "gate", "show", "--gate", "x"]) is None
+    assert unknown_command(["x", "--workitem", "y"]) is None
+
+
 def test_the_position_check_catches_the_forms_that_were_wrong():
     """The check is proven able to fail, on the two invocations D05 found."""
     assert misplaced_globals(["lock", "acquire", "--session", "x"]) == [
@@ -283,3 +316,10 @@ def test_a_misplaced_global_option_in_a_fenced_block_is_caught():
     text = FENCE_MARK + "bash\nsh scripts/sdle.sh lock acquire --session abc\n" + FENCE_MARK
     (invocation,) = invocations_in(text)
     assert misplaced_globals(argv_of(invocation)) == ["--session"]
+
+
+@pytest.mark.parametrize("where, invocation", documented_invocations())
+def test_every_documented_command_is_a_command_the_parser_has(where, invocation):
+    unknown = unknown_command(argv_of(invocation))
+    assert unknown is None, (
+        f"{where}: `{invocation}` names `{unknown}`, which the CLI does not have")
