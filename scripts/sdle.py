@@ -10701,7 +10701,8 @@ FORBIDDEN_AGENT_TOOLS = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit",
 # carries the same set as `FILE_WRITE_TOOLS + SHELL_TOOLS`; a test pins the two.
 FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash",
                       "PowerShell")
-PRODUCT_AGENT_FENCE = "hooks.py product-agent-fence"
+PRODUCT_AGENT_FENCE = "product-agent-fence"
+PRODUCT_AGENT_FENCE_LAUNCHER = "run-hook.sh"
 PRODUCT_AGENT_NON_APPROVAL_CLAUSE = (
     "This subagent inspects and reports. It never mutates lifecycle state, "
     "never runs `gate approve`, `gate omit` or `advance`, and never decides "
@@ -10782,8 +10783,10 @@ def _check_product_agents(paths: Paths) -> list[Check]:
     unfenced = []
     for path in agents:
         front = agent_frontmatter(bodies[path])
-        if PRODUCT_AGENT_FENCE not in front:
-            unfenced.append(f"{path.name} registers no {PRODUCT_AGENT_FENCE}")
+        if (PRODUCT_AGENT_FENCE not in front
+                or PRODUCT_AGENT_FENCE_LAUNCHER not in front):
+            unfenced.append(f"{path.name} registers no {PRODUCT_AGENT_FENCE} "
+                            f"through {PRODUCT_AGENT_FENCE_LAUNCHER}")
             continue
         covered = " ".join(_AGENT_MATCHER_RE.findall(front))
         gaps = [tool for tool in FENCED_AGENT_TOOLS if tool not in covered]

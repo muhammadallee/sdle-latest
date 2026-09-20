@@ -511,8 +511,31 @@ def test_a_product_agent_with_the_fence_stripped_fires(repo):
     path = agent_path(repo)
     path.write_text(
         path.read_text(encoding="utf-8").replace(
-            "python .claude/hooks/hooks.py product-agent-fence",
-            "python .claude/hooks/hooks.py write-fence", 1),
+            r'run-hook.sh\" product-agent-fence',
+            r'run-hook.sh\" write-fence', 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_fence_registered_without_the_launcher_fires(repo):
+    """The registration must go through `run-hook.sh`: a bare `python
+    hooks.py` resolves against the session's current directory (F-013)."""
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            r'sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh\" ',
+            "python .claude/hooks/hooks.py ", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_fence_matcher_that_misses_powershell_fires(repo):
+    """Claude Code has a `PowerShell` tool beside `Bash`; a shell is all it
+    takes to run `gate approve`, so the fence must cover both (F-016)."""
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "|Bash|PowerShell", "|Bash", 1),
         encoding="utf-8")
     assert_only_failure(repo, "product_agents_declare_the_fence")
 

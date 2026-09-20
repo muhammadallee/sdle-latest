@@ -36,20 +36,38 @@ def registered(guard: str) -> str:
     raise AssertionError(f"{guard} is not registered in settings.json")
 
 
+LAUNCH_PREFIX = 'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh" '
+
+
+def launch(command: str, stdin_text: str, project, cwd, *, sh: str = "sh",
+           path: str | None = None, python: bool = True):
+    """Run a registered hook command the way Claude Code does: expand
+    `${CLAUDE_PROJECT_DIR}`, export it, and hand the string to a POSIX shell.
+
+    `python=True` pins the interpreter with the launcher's own SDLE_PYTHON
+    escape hatch so ordinary tests do not depend on PATH; the launcher tests
+    below turn it off and control PATH instead."""
+    import os
+    project_posix = Path(project).as_posix()
+    text = command.replace("${CLAUDE_PROJECT_DIR}", project_posix)
+    if sh != "sh":
+        assert text.startswith("sh "), text
+        text = '"%s" %s' % (Path(sh).as_posix(), text[3:])
+    env = {**dict(os.environ), "CLAUDE_PROJECT_DIR": project_posix}
+    env.pop("SDLE_PYTHON", None)
+    if python:
+        env["SDLE_PYTHON"] = Path(sys.executable).as_posix()
+    if path is not None:
+        env["PATH"] = path
+    return subprocess.run([sh, "-c", text], input=stdin_text,
+                          capture_output=True, text=True, encoding="utf-8",
+                          cwd=str(cwd), env=env)
+
+
 def fire(guard: str, payload: dict, cwd) -> dict:
-    """Run the registered command verbatim, only substituting this
-    interpreter for `python` so the test does not depend on PATH ordering."""
-    parts = registered(guard).split()
-    assert parts[0] == "python", parts
-    completed = subprocess.run(
-        [sys.executable, *parts[1:]],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=str(cwd),
-        env={**dict(__import__("os").environ), "CLAUDE_PROJECT_DIR": str(cwd)},
-    )
+    """Run the registered command verbatim, from the project root."""
+    completed = launch(registered(guard), json.dumps(payload), project=cwd,
+                       cwd=cwd)
     assert completed.returncode == 0, completed.stderr
     return json.loads(completed.stdout) if completed.stdout.strip() else {}
 
@@ -69,16 +87,40 @@ def context(output: dict) -> str:
 # -- the gap that let the shell hooks ship broken ---------------------------
 
 
-def test_the_registered_interpreter_resolves_on_this_machine():
-    """`sh` did not, which is why every shell hook silently never fired."""
-    for event in SETTINGS["hooks"].values():
-        for matcher in event:
-            for hook in matcher["hooks"]:
-                exe = hook["command"].split()[0]
-                assert shutil.which(exe) is not None, (
-                    f"settings.json registers {exe!r}, which does not resolve "
-                    "on PATH — the hook would never run"
-                )
+def all_registered_commands() -> list[str]:
+    commands = [hook["command"]
+                for blocks in SETTINGS["hooks"].values()
+                for block in blocks for hook in block["hooks"]]
+    commands += [frontmatter_command(p) for p in product_agents()]
+    return commands
+
+
+def test_the_registered_launcher_resolves_on_this_machine():
+    """A hook whose executable does not resolve never runs, and Claude Code
+    treats that as a non-blocking error -- the guard is silently off. The
+    launcher is a POSIX shell script, so the registration needs `sh`."""
+    assert shutil.which("sh") is not None, (
+        "no POSIX sh on PATH: the registered hooks would never run")
+    for command in all_registered_commands():
+        assert command.split()[0] == "sh", command
+
+
+def test_every_registration_is_anchored_on_the_project_directory():
+    """A bare relative script path resolves against the *current* directory,
+    which is wherever the session last moved to. Observed live: from a
+    subdirectory, `python .claude/hooks/hooks.py` could not start and Claude
+    Code blocked the call."""
+    commands = all_registered_commands()
+    assert len(commands) == 8, commands  # four in settings.json, one per agent
+    for command in commands:
+        assert command.startswith(LAUNCH_PREFIX), command
+
+
+def test_every_registered_launcher_exists_in_the_project():
+    for command in all_registered_commands():
+        script = command.split('"')[1].replace("${CLAUDE_PROJECT_DIR}",
+                                                str(REPO_ROOT))
+        assert Path(script).is_file(), script
 
 
 GUARD_NAMES = ["write-fence", "untrusted-read", "dirty-tree", "secrets-scan",
@@ -112,7 +154,7 @@ def test_the_hooks_directory_holds_only_the_shipped_files():
     """A new hook file is a new thing that runs on every tool call; it must be
     added here on purpose."""
     names = sorted(p.name for p in HOOKS.iterdir() if p.is_file())
-    assert names == ["hooks.py"], names
+    assert names == ["hooks.py", "run-hook.sh"], names
 
 
 def test_every_guard_is_registered():
@@ -123,12 +165,12 @@ def test_every_guard_is_registered():
 
 
 def test_a_malformed_payload_never_breaks_the_tool_call(project):
-    parts = registered("write-fence").split()
-    completed = subprocess.run(
-        [sys.executable, *parts[1:]], input="not json at all",
-        capture_output=True, text=True, encoding="utf-8", cwd=str(project.root),
-    )
-    assert completed.returncode == 0
+    """The hook exits 0 and answers in the protocol, so Claude Code sees a
+    decision (deny: the fence fails closed) rather than a crash."""
+    completed = launch(registered("write-fence"), "not json at all",
+                       project=project.root, cwd=project.root)
+    assert completed.returncode == 0, completed.stderr
+    assert decision(json.loads(completed.stdout)) == "deny"
 
 
 # -- write fence ------------------------------------------------------------
@@ -569,26 +611,18 @@ def frontmatter_command(agent: Path) -> str:
     body = agent.read_text(encoding="utf-8")
     assert body.startswith("---"), agent.name
     front = body.split("---", 2)[1]
-    found = re.findall(r'^\s*-?\s*command:\s*"([^"]+)"', front, re.MULTILINE)
+    # The value is a YAML double-quoted string, so a quote inside it is `\"`.
+    found = re.findall(r'^\s*-?\s*command:\s*"((?:[^"\\]|\\.)*)"', front,
+                       re.MULTILINE)
+    found = [command.replace('\\"', '"') for command in found]
     assert found, f"{agent.name} registers no frontmatter hook command"
     assert len(set(found)) == 1, f"{agent.name} registers {found}"
     return found[0]
 
 
 def run_hook(command: str, payload: dict, cwd) -> dict:
-    """Run a registered command verbatim, substituting only this interpreter
-    for `python` so the test does not depend on PATH ordering."""
-    parts = command.split()
-    assert parts[0] == "python", parts
-    completed = subprocess.run(
-        [sys.executable, *parts[1:]],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=str(cwd),
-        env={**dict(__import__("os").environ), "CLAUDE_PROJECT_DIR": str(cwd)},
-    )
+    """Run a registered command verbatim, from the project root."""
+    completed = launch(command, json.dumps(payload), project=cwd, cwd=cwd)
     assert completed.returncode == 0, completed.stderr
     return json.loads(completed.stdout) if completed.stdout.strip() else {}
 
@@ -597,7 +631,7 @@ def test_every_product_agent_registers_the_same_fence():
     agents = product_agents()
     assert len(agents) == 4, [p.name for p in agents]
     commands = {frontmatter_command(p) for p in agents}
-    assert commands == {"python .claude/hooks/hooks.py product-agent-fence"}, \
+    assert commands == {LAUNCH_PREFIX + "product-agent-fence"}, \
         commands
     # And it is deliberately absent from settings.json — see the docstring.
     assert "product-agent-fence" not in json.dumps(SETTINGS)
@@ -853,3 +887,102 @@ def test_f016_the_engine_lint_and_the_hooks_name_the_same_agent_tools():
     assert (set(hooks.FILE_WRITE_TOOLS + hooks.SHELL_TOOLS)
             == set(sdle.FENCED_AGENT_TOOLS))
     assert set(sdle.FENCED_AGENT_TOOLS) <= set(sdle.FORBIDDEN_AGENT_TOOLS)
+
+
+# ==========================================================================
+# The launcher (F-013): run-hook.sh starts the hook from any directory and on
+# any interpreter layout, and says so when it cannot
+# ==========================================================================
+
+RUN_HOOK = HOOKS / "run-hook.sh"
+SDLE_SH = REPO_ROOT / "scripts" / "sdle.sh"
+CANDIDATES = re.compile(r'^for candidate in ((?:"[^"]+"\s*)+); do',
+                        re.MULTILINE)
+
+
+def sh_absolute() -> str:
+    found = shutil.which("sh")
+    assert found, "no POSIX sh on PATH"
+    return found
+
+
+def test_the_launcher_tries_interpreters_in_the_engine_launchers_order():
+    """One fact, two homes: the order in which SDLE looks for Python. Pinned
+    equal so the hooks and the engine can never resolve different interpreters."""
+    hook = CANDIDATES.search(RUN_HOOK.read_text(encoding="utf-8"))
+    engine = CANDIDATES.search(SDLE_SH.read_text(encoding="utf-8"))
+    assert hook and engine
+    assert hook.group(1) == engine.group(1)
+    assert "py -3" in hook.group(1)
+
+
+def test_the_launcher_requires_python_311_like_the_engine_launchers():
+    assert "(3, 11)" in RUN_HOOK.read_text(encoding="utf-8")
+    assert "(3, 11)" in SDLE_SH.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("where", ["project root", "workitem dir", "elsewhere"])
+def test_f013_the_registered_hook_starts_from_any_working_directory(
+        started, tmp_path, where):
+    """The defect: `python .claude/hooks/hooks.py` resolved against the current
+    directory, so a session that had `cd`-ed away could not start its hooks."""
+    cwd = {"project root": started.root,
+           "workitem dir": started.root / "workitems" / FIXTURE_WORKITEM_ID,
+           "elsewhere": tmp_path}[where]
+    payload = {"tool_name": "Write", "cwd": str(cwd), "tool_input": {
+        "file_path": str(started.root / "workitems" / "index.md")}}
+    completed = launch(registered("write-fence"), json.dumps(payload),
+                       project=started.root, cwd=cwd)
+    assert completed.returncode == 0, completed.stderr
+    assert decision(json.loads(completed.stdout)) == "deny", completed.stdout
+
+
+def shim_bin(tmp_path, names) -> Path:
+    """A directory whose only executables are shims for the named commands,
+    each running this test's own interpreter -- a host where `python3` exists
+    and `python` and `py` do not."""
+    directory = tmp_path / "bin"
+    directory.mkdir()
+    for name in names:
+        shim = directory / name
+        shim.write_text('#!/bin/sh\nexec "%s" "$@"\n'
+                        % Path(sys.executable).as_posix(), newline="\n")
+        shim.chmod(0o755)
+    return directory
+
+
+def test_f013_the_launcher_starts_on_a_python3_only_host(started, tmp_path):
+    bin_dir = shim_bin(tmp_path, ["python3"])
+    payload = {"tool_name": "Write", "tool_input": {
+        "file_path": str(started.root / "workitems" / "index.md")}}
+    completed = launch(registered("write-fence"), json.dumps(payload),
+                       project=started.root, cwd=started.root,
+                       sh=sh_absolute(), path=str(bin_dir), python=False)
+    assert completed.returncode == 0, completed.stderr
+    assert decision(json.loads(completed.stdout)) == "deny", completed.stdout
+
+
+@pytest.mark.parametrize("guard, event", [
+    ("write-fence", "PreToolUse"), ("product-agent-fence", "PreToolUse"),
+    ("untrusted-read", "PreToolUse"), ("dirty-tree", "PreToolUse"),
+    ("secrets-scan", "PostToolUse"),
+])
+def test_f013_a_missing_interpreter_is_visible_never_silent(started, tmp_path,
+                                                            guard, event):
+    """No Python on PATH. A fence denies (fail closed); a scanner tells the
+    user and Claude (fail open, out loud). Silence is the failure."""
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    command = LAUNCH_PREFIX + guard
+    completed = launch(command, "{}", project=started.root, cwd=started.root,
+                       sh=sh_absolute(), path=str(empty), python=False)
+    assert completed.returncode == 0, completed.stderr
+    output = json.loads(completed.stdout)
+    if guard in ("write-fence", "product-agent-fence"):
+        assert decision(output) == "deny", output
+        assert "could not run" in reason(output)
+    else:
+        assert decision(output) is None
+        assert "could not run" in output["systemMessage"], output
+        assert output["hookSpecificOutput"]["hookEventName"] == event
+        assert "could not run" in context(output)

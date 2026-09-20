@@ -8,7 +8,7 @@ hooks:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell"
       hooks:
         - type: command
-          command: "python .claude/hooks/hooks.py product-agent-fence"
+          command: "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh\" product-agent-fence"
 ---
 
 You review one implementation against what was asked for.
