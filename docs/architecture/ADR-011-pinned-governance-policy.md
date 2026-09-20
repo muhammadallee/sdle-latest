@@ -96,10 +96,16 @@ it is assessed, and `revalidate_recorded_omissions` re-checks its earlier omissi
 
 ## 7. Where the rule is applied
 
-One place: `gate_requirements_for_state`, which every consumer already goes through — `gate omit`,
-`apply_advance`'s omission re-derivation, `revalidate_recorded_omissions`, and `gate_disposition`, which
-backs both `gate show` and `resume`. A second application site would be a second answer to "is this gate
-required", which is exactly the drift the rest of this engine is built to prevent.
+One place: `requirement_model`. Every consumer reaches it — `gate omit`, `apply_advance`'s omission
+re-derivation, `revalidate_recorded_omissions`, `gate_disposition` (which backs both `gate show` and
+`resume`) through `gate_requirements_for_state`, and `governance gates` directly, because that command
+must answer *before* `init` and so resolves the flow from the record rather than from `state.json`.
+
+That second caller is the reason the function exists. The pin first went into `gate_requirements_for_state`
+alone, and `governance gates` — which had its own bare `gate_requirements` call — then reported a pinned
+gate as `omittable` while `gate show` reported it `required`. Two answers to "is this gate required" is
+exactly the drift the rest of this engine is built to prevent, so the derivation has one home and a test
+compares the two surfaces.
 
 A promotion tags its reasons `pinned:` (`pinned:always`, `pinned:risk:HIGH`), because
 `modules/gate-protocol.md` displays `requirement_reasons` at the gate, and a user who is refused an

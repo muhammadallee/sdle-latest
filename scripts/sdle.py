@@ -4924,16 +4924,31 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
     record = read_governance_record(paths)
     if record is None:
         return None
-    effective = read_governance_policy(paths, consts)
-    flow = flow_for_state(state, consts)
-    classification = record.get("classification") or {}
-    final_level = (record.get("risk") or {}).get("finalLevel")
+    return requirement_model(
+        consts, flow_for_state(state, consts),
+        record.get("classification") or {},
+        (record.get("risk") or {}).get("finalLevel"),
+        read_governance_policy(paths, consts), record)
+
+
+def requirement_model(consts: Constants, flow: Flow, classification: dict,
+                      final_level: str | None, effective: dict,
+                      record: dict | None) -> dict:
+    """The requirement model for ``flow``, narrowed by the ADR-011 pin.
+
+    The single home of the rule. `gate_requirements_for_state` resolves the
+    flow from `state.json`; `governance gates` has to answer *before* `init`
+    and resolves it from the record's proposed classification. Both arrive
+    here, because two derivations of "is this gate required" is precisely the
+    second source of truth invariant 7 forbids — and while the pin lived in
+    only one of them, `gate show` and `governance gates` disagreed.
+    """
     model = gate_requirements(consts, flow, classification, final_level,
                               effective["policy"])
     model["policy"] = {"source": effective["source"],
                        "sha256": effective["sha256"]}
 
-    pinned = record.get("pinnedPolicy")
+    pinned = (record or {}).get("pinnedPolicy")
     model["pinned_policy"] = None if not isinstance(pinned, dict) else {
         "source": pinned.get("source"), "sha256": pinned.get("sha256"),
         "pinnedAt": pinned.get("pinnedAt")}
@@ -5185,8 +5200,8 @@ def cmd_governance_gates(args, paths: Paths) -> int:
         flow = consts.flow(classification.get("flow"))
         flow_source = "record"
 
-    model = gate_requirements(consts, flow, classification, final_level,
-                              effective["policy"])
+    model = requirement_model(consts, flow, classification, final_level,
+                              effective, record)
     emit("governance gates", {
         "workitem": paths.workitem,
         "classification": classification,
@@ -5204,6 +5219,10 @@ def cmd_governance_gates(args, paths: Paths) -> int:
         "registered_gates": sorted(consts.phase_to_gate_key.values()),
         "policy": {"source": effective["source"],
                    "sha256": effective["sha256"]},
+        # ADR-011. `null` for a record written before the pin existed, which
+        # is a different fact from "the built-in floor was pinned" and is
+        # reported as such.
+        "pinned_policy": model["pinned_policy"],
     })
     return EXIT_OK
 

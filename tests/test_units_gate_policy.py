@@ -1645,3 +1645,25 @@ def test_f024_the_pin_only_promotes_gates_the_flow_contains(git_project):
                   if d["gate"] == "gate_constitution"), None)
     assert entry is None or entry["disposition"] == "not_in_flow", model
     assert "gate_constitution" not in model["required_gates"], model
+
+
+def test_f024_gate_show_and_governance_gates_agree_under_the_pin(git_project):
+    """Two surfaces answering "is this gate required" differently is the drift
+    this engine is built to prevent. `governance gates` derived the model with a
+    bare `gate_requirements` and so reported a pinned gate as omittable, while
+    `gate show` reported it required; both now go through `requirement_model`."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    tight.unlink()
+
+    reported = git_project.ok("governance", "gates").data
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data
+    entry = next(d for d in reported["dispositions"] if d["gate"] == TIGHT_AT_LOW)
+
+    assert shown["required"] is True, shown
+    assert entry["disposition"] == "required", entry
+    assert entry["reasons"] == shown["requirement_reasons"], (entry, shown)
+    assert TIGHT_AT_LOW in reported["required_gates"]
+    assert TIGHT_AT_LOW not in reported["omittable_gates"]
+    assert reported["pinned_policy"]["sha256"] == (
+        record_of(git_project)["pinnedPolicy"]["sha256"])
