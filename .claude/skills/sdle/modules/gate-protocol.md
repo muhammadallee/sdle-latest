@@ -67,51 +67,28 @@ Please review the content above, then respond with:
 > If `state.json → drift_queue` is non-empty, this approval is a drift re-approval, not a normal gate advance. Handle as follows:
 >
 > 1. `gate_key` = `drift_queue[0]` (the gate being re-approved; do NOT use PHASE_TO_GATE_KEY here).
-> 2. Resolve the artifact path from **ARTIFACT_OWNERSHIP** using `gate_key` (substitute `current_feature_id` if needed).
-> 3. Run `sdle.sh gate approve --gate <drift_queue[0]>` (add `--comments`). The script re-fingerprints the artifact as the new baseline, records the approval, pops the queue and audits it. Approving out of queue order is refused.
+> 2. Run `sdle.sh gate approve --gate <gate_key>` (add `--comments`). The script resolves the artifact from **ARTIFACT_OWNERSHIP**, re-fingerprints it as the new baseline, records the approval, pops the queue and audits it. Approving out of queue order is refused. When the queue empties it restores `pending_phase` as the current phase, clears `pending_phase` and sets the status back to `in_progress`; the response reports `drift_mode`, `remaining_drift` and `resumed_phase`.
 >
-> - **If `drift_queue` is now empty:**
->   - Restore `current_phase` = `state.json → pending_phase`. Clear `pending_phase = null`. Set `status = "in_progress"`. Save state.
->   - Confirm to user: "✅ All drift re-approvals complete. Resuming {pending_phase}…"
->   - Read `modules/phase-execution.md` and execute the restored `current_phase` (starting from step 1 — the drift check in step 0 will now pass).
-> - **If `drift_queue` is still non-empty:**
+> - **If `remaining_drift` is empty:**
+>   - Confirm to user: "✅ All drift re-approvals complete. Resuming {resumed_phase}…"
+>   - Read `modules/phase-execution.md` and execute the restored current phase (starting from step 1 — the drift check in step 0 will now pass).
+> - **If `remaining_drift` is not empty:**
 >   - Present the next drifted gate's full artifact content for re-approval (same RE-APPROVAL gate prompt format from phase-execution.md step 0.5). Show `(Re-approval {completed+1}/{total} …)`.
 >   - HALT — do not execute the normal approve flow below.
 >
 > **DO NOT proceed to the normal approve flow when in drift re-approval mode.**
 
 1. Derive `gate_key` by looking up `current_phase` in **PHASE_TO_GATE_KEY** (Internal Constants). Never derive it from `current_phase` string directly.
-2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "approved", "comments": "<text or null>", "timestamp": "<ISO>" }`.
-3. **Record approval-time SHA:** the script fingerprints the artifact and writes `artifact_shas[gate_key]` as the drift baseline.
-4. Append to audit: `[<ISO>] Gate <N> approved. Baseline SHA recorded: <sha>. Comments: <text or none>.`
-5. Append to `state.json → phase_history`: `{ "phase": "<current_phase>", "completed_at": "<ISO>", "outcome": "approved" }`. Set `last_updated`. Save state.
-6. Do **not** derive `next_phase` from a table. **NEXT_PHASE** is the *registry* chain, not the bound flow's — under GREENFIELD it maps `requirements_check` to `impact_analysis`, a phase GREENFIELD does not contain. `sdle.sh gate approve` moves the phase itself and returns the one it moved to; `sdle.sh flow show` reports `next_phase` for the bound flow.
-7. **gate_security special case:** If `gate_key` is `gate_security`:
-   a. Write `completion-summary.json` into the bound WorkItem's own runtime, `workitems/<workitem>/.sdle/` — never a repository-global path. Take `<workitem>` from `state.json → workitem`, which `sdle.sh resume` also reports:
-      ```json
-      {
-        "workflow_version": "<state.workflow_version>",
-        "project_name": "<state.project_name>",
-        "completed_at": "<ISO timestamp>",
-        "flow": "<state.flow>",
-        "phases_completed": <count of phase_history entries>,
-        "security_review_artifact": "<state.security_review_artifact>",
-        "all_gates_approved": <derived: false if any gate was omitted by policy>
-      }
-      ```
-   b. Set `current_phase` to `complete`, `status` to `completed`. `progress` is written by the script from the bound flow — **PROGRESS_MAP** is the GREENFIELD view and is not the value to copy.
-   c. Save state.
-   d. Append to audit: `[<ISO>] Gate {gate_number}/{gate_total} (security) approved. Workflow complete. Completion summary written.`
-   e. Congratulate the user:
-      ```
-      ✅ Security review approved. Workflow complete!
+2. Run `sdle.sh gate approve --gate <gate_key>` (add `--comments "<text>"`). The script is the only writer of the record: it refuses unless every precondition holds (a current PASS review, an artifact that has not drifted), then records the approval and the approval-time SHA as the drift baseline, appends the audit entry and the phase history, moves the workflow to the bound flow's next phase and saves the state. **NEXT_PHASE** is the *registry* chain, not the bound flow's — under GREENFIELD it maps `requirements_check` to `impact_analysis`, a phase GREENFIELD does not contain — so never derive the next phase from a table: read `next_phase`, `status` and `progress` from the response. `progress` is derived from the bound flow; **PROGRESS_MAP** (the GREENFIELD view) is never the value to copy. Do not edit `state.json` or `audit.md` yourself.
+3. **Final gate.** When the response carries a `completion_summary` path, the script has already written `completion-summary.json` into the bound WorkItem's own runtime, set the status to `completed`, moved to `complete`, established the repository baseline where the flow does (the response's `baseline`) and audited `workflow_complete`. Congratulate the user, naming the path the response returned:
+   ```
+   ✅ Approved. Workflow complete!
 
-      All {gate_total} gates passed. Completion summary: <the path you just wrote>
-      Security review: <security_review_artifact>
-      ```
-   f. HALT — do not propose a next phase.
-8. `sdle.sh gate approve` has already set `current_phase`, `status`, `progress` and `last_updated` and saved the state — `progress` is derived from the bound flow, so **PROGRESS_MAP** (the GREENFIELD view) is never the value to copy. Read the values back from the response; do not compute them.
-9. Propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?"
+   All {gate_total} gates passed. Completion summary: <completion_summary from the response>
+   Security review: <security_review_artifact>
+   ```
+   Then HALT — do not propose a next phase.
+4. Otherwise propose executing the next phase: "Approved! Moving to Phase <N+1>: <label>. Shall I proceed?" — the phase and its label come from the response.
 
 **On `reject with comments`:**
 - Go to Step 7: Rejection & Remediation (below).
@@ -158,10 +135,8 @@ On `omit`, run `sdle.sh gate omit --gate <gate_key>`. The engine re-derives the 
 > If `state.json → drift_queue` is non-empty, this rejection is during a drift re-approval. Handle as follows:
 >
 > 1. `gate_key` = `drift_queue[0]`.
-> 2. Record in `state.json → approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
-> 3. Clear `drift_queue = []`. Clear `pending_phase = null`. Set `status = "rejected"`. Save state.
-> 4. Append to audit: `[<ISO>] Drift re-approval REJECTED for <gate_key>. Feedback: <text>. Drift queue cleared.`
-> 5. Respond:
+> 2. Run `sdle.sh gate reject --gate <gate_key> --reason "<text>"`. The script records the rejection, clears `drift_queue` and `pending_phase`, sets the status to `rejected` and audits it.
+> 3. Respond:
 >    ```
 >    Drift re-approval rejected for {gate_label}.
 >
@@ -170,16 +145,13 @@ On `omit`, run `sdle.sh gate omit --gate <gate_key>`. The engine re-derives the 
 >    The drift re-approval queue has been cleared. To fix this, you need to regenerate the artifact that was modified.
 >    Use `restart phase <N>` where N is the phase number for the preceding execution phase (the one that originally produced this artifact), then re-run the workflow from there.
 >    ```
-> 6. HALT — do not execute the normal rejection flow below.
+> 4. HALT — do not execute the normal rejection flow below.
 
 1. Derive `gate_key` from **PHASE_TO_GATE_KEY** (Internal Constants) using `current_phase`.
-2. Record in `state.json` under `approvals[gate_key]`: `{ "decision": "rejected", "comments": "<text>", "timestamp": "<ISO>" }`.
-   - `state.json` is the **canonical source** of the feedback text. Everything else derives from it.
-3. Set `status` to `rejected`. Set `last_updated`. Save state immediately.
-4. Append to audit: `[<ISO>] Gate <N> rejected. Comments: <text>.`
-5. Respond:
+2. Run `sdle.sh gate reject --gate <gate_key> --reason "<text>"`. The script records the rejection under `approvals[gate_key]` — the **canonical source** of the feedback text, from which everything else derives — sets the status to `rejected` and audits it. Do not edit `state.json` or `audit.md` yourself.
+3. Respond:
 ```
-Understood — I've recorded your feedback in state.json:
+Understood — I've recorded your feedback:
 
 "{rejection comments}"
 
@@ -197,7 +169,7 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
 
 5. **If execution type is SDLE-native** (gate_design or gate_security):
    - **For `gate_design`:** Read `modules/phase-execution.md`. Re-execute Phase 13 (`design_generation`) with this context prepended: `"REMEDIATION RUN — Reviewer feedback to incorporate: <paste feedback text>. Ensure both design documents address these concerns."` After generation and Post-SpecKit Verification, proceed to step 7.
-   - **For `gate_security`:** Pre-compute a new `review_filename` with an updated timestamp. Update `security_review_artifact` in state to the new filename. Save state. Read `modules/security-review.md`. Re-run the security review with this context prepended: `"REMEDIATION RUN — Reviewer feedback to address: <paste feedback text>."` Pass the new `review_filename` as the output path. After generation and Post-SpecKit Verification, proceed to step 7.
+   - **For `gate_security`:** Run `sdle.sh security-review begin`; it names a new `review_filename` with an updated timestamp and pins it as `security_review_artifact`. Read `modules/security-review.md`. Re-run the security review with this context prepended: `"REMEDIATION RUN — Reviewer feedback to address: <paste feedback text>."` Pass the new `review_filename` as the output path. After generation and Post-SpecKit Verification, proceed to step 7.
 6. **If execution type is SpecKit:**
    - If `.specify/sdle-feedback.md` content does not match current state (re-check after writing in step 4), re-write it. The file must match canonical state before invoking SpecKit.
    - Re-invoke the relevant SpecKit skill via the Skill tool. Include in args: `"Incorporate reviewer feedback from .specify/sdle-feedback.md. Feedback: <paste comments text directly into args as well, as a fallback>."`

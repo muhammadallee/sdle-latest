@@ -240,3 +240,62 @@ def test_source_narration_does_not_grow(relative):
     found = narration_lines(relative)
     assert len(found) <= NARRATION_CEILING[relative], (
         relative, len(found), found[:5])
+
+
+# ==========================================================================
+# The prompts do not tell the model to write governed files (CX-001, invariant 6)
+#
+# `state.json` and `audit.md` have one writer, the engine. A prompt that says
+# "set `status` in state" or "append to audit" asks the model to write them by
+# hand: the write fence would block it, and a fence that is not there would let
+# it fork the audit chain. Every such step names the engine command that owns it.
+# ==========================================================================
+
+HAND_WRITE = re.compile(
+    r"(?i)\bappend (?:the )?(?:completion event )?to (?:the )?(?:`?audit(?:\.md)?`?)"
+    r"|\bappend audit\b"
+    r"|\bsave (?:the )?(?:updated )?(?:`?state(?:\.json)?`?)"
+    r"|\bupdate `state\.json`"
+    r"|\brecord in `state\.json`"
+    r"|\bset `(?:status|current_phase|current_artifact|phase_checkpoint"
+    r"|security_review_artifact|progress)`"
+    r"|\bclear `phase_checkpoint"
+    r"|\bin state immediately"
+    r"|\bwrite `?completion-summary")
+
+
+def prompt_files():
+    skill = REPO_ROOT / ".claude" / "skills" / "sdle"
+    return sorted([*skill.rglob("*.md"),
+                   *(REPO_ROOT / ".claude" / "commands").glob("*.md"),
+                   *(REPO_ROOT / ".claude" / "agents").glob("*.md")])
+
+
+def test_the_hand_write_pattern_recognises_what_it_is_meant_to():
+    for text in ("Append to audit: `[<ISO>] Phase started.`",
+                 "Save state.",
+                 "Update `state.json`: set the phase.",
+                 "Set `status` to `in_progress`.",
+                 "Clear `phase_checkpoint: null`.",
+                 "set `security_review_artifact = f` in state immediately",
+                 "Record in `state.json` under `approvals`"):
+        assert HAND_WRITE.search(text), text
+    for text in ("Run `sdle.sh audit append --phase x --event y --message z`.",
+                 "Do not edit `state.json` or `audit.md` yourself.",
+                 "`sdle.sh checkpoint clear`"):
+        assert not HAND_WRITE.search(text), text
+
+
+def test_the_prompts_hold_the_files_they_are_checked_over():
+    files = prompt_files()
+    names = {p.name for p in files}
+    assert {"SKILL.md", "phase-execution.md", "gate-protocol.md",
+            "sdle-start.md", "sdle-code-review.md"} <= names, sorted(names)
+
+
+@pytest.mark.parametrize("path", prompt_files(), ids=lambda p: p.name)
+def test_no_prompt_tells_the_model_to_write_governed_state(path):
+    hits = [(n, line.strip()[:120])
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if HAND_WRITE.search(line)]
+    assert hits == [], (path.name, hits)

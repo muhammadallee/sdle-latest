@@ -29,8 +29,9 @@ argument-hint: "[--verbose]"
    still runs when resolution cannot.
    If a repository-global `.workflow/state.json` exists, it is a workflow from a retired runtime and it
    does **not** run: every runtime command refuses exit 1 `workitem_required`, and the refusal says SDLE
-   does not run or migrate it and leaves it untouched. Do not try to move it: start a current WorkItem with
-   `sdle.sh workitem create --name "<name>"`. `init` refuses `legacy_workflow_present` while it is there.
+   does not run or migrate it and leaves it untouched. SDLE never moves or deletes it for the user: they remove it or
+   move it aside themselves, then start a current WorkItem with `sdle.sh workitem create --name "<name>"`.
+   `init` refuses `legacy_workflow_present` for as long as it is there.
    A WorkItem whose `state.json` uses another state schema is refused `unsupported_state_version`; show the
    message and stop.
 3. Otherwise this is a new workflow, and identity comes before initialisation.
