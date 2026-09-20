@@ -1,0 +1,6 @@
+POLICY 0 None {'source': '.sdle/policies/governance-policy.json', 'path': '.sdle/policies/governance-policy.json', 'sha256': '928e4d3a2b17b95376e233410647838d6b5e6cb4a8e85be8ba24395eee403d6f', 'policy': {'policyVer
+UNDER TIGHT POLICY omit -> 1 gate_required {'source': '.sdle/policies/governance-policy.json', 'sha256': '928e4d3a2b17b95376e233410647838d6b5e6cb4a8e85be8ba24395eee403d6f'}
+AFTER RELAXING   omit -> 0 None omitted_by_policy LOW
+APPROVAL ENTRY {"decision": "omitted_by_policy", "comments": null, "timestamp": "2026-09-20T14:33:32Z", "risk_level": "LOW", "reasons": [], "policy_sha256": null, "governance_sha256": "0e569800b2d7b5d9763caaf5ed1ffe3dd0f14bda6f5c7ffa7d4e8b24985e2a92", "governance_downgrade": null}
+.
+1 passed in 5.35s
