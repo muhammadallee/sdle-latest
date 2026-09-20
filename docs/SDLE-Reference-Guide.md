@@ -365,9 +365,9 @@ The two directories share a name and own nothing in common:
 |---|---|
 | `config.json` — global configuration (`configVersion`, `policyFormat`) | `state.json` — lifecycle state |
 | `policies/` — policy definitions | `execution.json` — execution identity |
-| `templates/` — shared templates | `audit.md` — append-only ledger |
-| `baseline.json` — the repository baseline; written once, at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem | `lock` — session lock |
-| `implementation-state/` — reserved for implementation-transition metadata | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
+| `baseline.json` — the repository baseline; written once, at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem | `audit.md` — append-only ledger |
+| `implementation-state/` — records of repository-maintenance runs (no schema; no engine command reads it) | `lock` — session lock |
+| | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
 
 The split is a **derivation, not a path prefix test**: the repository members
 reference the project root and never the bound WorkItem, so rebinding moves

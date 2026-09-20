@@ -278,15 +278,6 @@ class Paths:
         return self.policies_dir / "governance-policy.json"
 
     @property
-    def shared_templates_dir(self) -> Path:
-        """Repository-shared templates.
-
-        Deliberately not named ``templates_dir``: ``skill_root/templates/``
-        already exists and a bare name would read as that one.
-        """
-        return self.config_root / "templates"
-
-    @property
     def baseline_file(self) -> Path:
         """The §11 baseline slot. No engine path writes it at T05 — §14 owns
         its schema."""
@@ -3663,7 +3654,6 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
     config_names = (
         paths.config_file.name,
         paths.policies_dir.name,
-        paths.shared_templates_dir.name,
         paths.baseline_file.name,
         paths.implementation_state_dir.name,
     )
@@ -3773,8 +3763,7 @@ def cmd_config_init(args, paths: Paths) -> int:
     # `.gitkeep` exists because Git cannot version an empty directory, and §19
     # places `.sdle/policies/*` under "must eventually be versioned". An
     # existing directory keeps whatever it already holds.
-    for directory in (paths.policies_dir, paths.shared_templates_dir,
-                      paths.implementation_state_dir):
+    for directory in (paths.policies_dir, paths.implementation_state_dir):
         directory.mkdir(parents=True, exist_ok=True)
         keep = directory / ".gitkeep"
         if not keep.exists():
@@ -3818,7 +3807,6 @@ def cmd_config_show(args, paths: Paths) -> int:
         "members": {
             "config": relative(paths.config_file),
             "policies": relative(paths.policies_dir),
-            "templates": relative(paths.shared_templates_dir),
             # Named, not created: §14 owns the baseline schema, not T05.
             "baseline": relative(paths.baseline_file),
             "implementation_state": relative(paths.implementation_state_dir),

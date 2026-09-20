@@ -266,7 +266,7 @@ with the code.
 
 | Command | Effect |
 |---|---|
-| `scripts/sdle.sh config init` | Create the repository configuration boundary: `config.json` plus `policies/`, `templates/` and `implementation-state/`. Never overwrites; refuses `config_exists`. |
+| `scripts/sdle.sh config init` | Create the repository configuration boundary: `config.json` plus `policies/` and `implementation-state/`. Never overwrites; refuses `config_exists`. |
 | `scripts/sdle.sh config show` | Report the effective configuration and where each member lives. Creates nothing; a repository with no `.sdle/` reports the defaults. |
 
 ```json
@@ -489,9 +489,8 @@ belong to the Claude Code runtime, and which are convention only.
 ├── .sdle/                             ← Repository-wide SDLE configuration (versioned; nothing here is WorkItem state)
 │   ├── config.json                    ← Global configuration (`configVersion`, `policyFormat`)
 │   ├── policies/                      ← Policy definitions (empty today)
-│   ├── templates/                     ← Shared templates
 │   ├── baseline.json                  ← The repository baseline, written once at the final gate of a GREENFIELD or BROWNFIELD_DISCOVERY WorkItem
-│   └── implementation-state/          ← Reserved: implementation-transition metadata
+│   └── implementation-state/          ← Records of repository-maintenance runs (no schema; no engine command reads it)
 └── workitems/
     ├── index.md                       ← Append-only WorkItem registry (single source of truth)
     └── <workitem-id>/

@@ -77,7 +77,6 @@ $ sdle.sh config init
     },
     "created": [
       ".sdle/policies/.gitkeep",
-      ".sdle/templates/.gitkeep",
       ".sdle/implementation-state/.gitkeep",
       ".sdle/config.json"
     ]
