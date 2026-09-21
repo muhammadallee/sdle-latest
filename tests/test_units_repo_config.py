@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, SDLE_PY, Project, Result, sdle
+from conftest import REPO_ROOT, SDLE_PY, Project, Result, sdle, create_wi
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 
 EXIT_OK = 0
@@ -277,9 +277,7 @@ def sha_map(root: Path, skip: tuple[str, ...] = (".git",)) -> dict[str, str]:
     return out
 
 
-def create_wi(project: Project, name: str) -> str:
-    project.ok("workitem", "create", "--name", name)
-    return sdle.normalize_workitem_name(name)
+
 
 
 def config_root(project: Project) -> Path:
@@ -684,6 +682,11 @@ def test_the_runtime_member_names_are_derived_from_paths():
         # here is what gives the leak detector its new parametrisation for
         # free, in both directions.
         "discovery.json",
+        # ADR-012: which requirement documents this WorkItem declared it is
+        # about. WorkItem-owned for the same reason as the two above — the
+        # relationship between a document and a WorkItem is the WorkItem's
+        # fact, and the same document may be bound by several of them.
+        "requirements.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "baseline.json",

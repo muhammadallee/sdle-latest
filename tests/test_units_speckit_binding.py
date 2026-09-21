@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (FEATURE_ID, FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND,
-                      REPO_ROOT, Project, sdle)
+                      REPO_ROOT, Project, create_wi, sdle)
 from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -41,8 +41,7 @@ STUB_SCRIPT = ".specify/scripts/bash/common.sh"
 # ==========================================================================
 
 
-def create_wi(project: Project, name: str) -> str:
-    return project.ok("workitem", "create", "--name", name).data["id"]
+
 
 
 def install_speckit_scripts(project: Project, *names: str) -> Path:

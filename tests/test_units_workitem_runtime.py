@@ -22,7 +22,7 @@ import re
 
 import pytest
 
-from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle
+from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle, create_wi
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -37,8 +37,7 @@ RUNTIME_FILES = (
 )
 
 
-def create_wi(project: Project, name: str):
-    return project.ok("workitem", "create", "--name", name)
+
 
 
 def legacy_state(project: Project, **overrides) -> dict:

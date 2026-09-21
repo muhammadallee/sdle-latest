@@ -63,6 +63,14 @@ def create(project: Project, name: str, *extra: str):
     return project.run("workitem", "create", "--name", name, *extra)
 
 
+def bind(project: Project, workitem: str):
+    """The ADR-012 step between `workitem create` and `init`. Separate from
+    `create` because most tests here are about creation itself and never
+    initialise."""
+    return project.as_workitem(workitem).ok(
+        "requirements", "bind", "--source", "requirements/todo-api.md")
+
+
 # -- normalization ---------------------------------------------------------
 
 
@@ -356,6 +364,7 @@ def test_init_records_the_resolved_workitem_in_state(project):
     WorkItem it belongs to, and must live under that WorkItem."""
     create(project, "Alpha One")
     project.workitem = "alpha-one"
+    bind(project, "alpha-one")
     project.ok("init", session="testsess")
     state = project.state()
     assert state["workitem"] == "alpha-one"
@@ -379,10 +388,12 @@ def test_a_workitem_does_not_change_what_init_and_advance_produce(project, tmp_p
     control = Project(control_root, control_root / ".claude" / "skills" / "sdle",
                       workitem="control-item")
     assert create(control, "Control Item").exit_code == EXIT_OK
+    bind(control, "control-item")
 
     control_init = control.run("init", session="testsess")
     assert create(project, "Customer Notification Service").exit_code == EXIT_OK
     project.workitem = "customer-notification-service"
+    bind(project, "customer-notification-service")
     project_init = project.run("init", session="testsess")
 
     assert project_init.exit_code == control_init.exit_code == EXIT_OK

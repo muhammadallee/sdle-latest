@@ -74,8 +74,12 @@ STATE_FIELDS = (
 # Occurrences of each write primitive in scripts/sdle.py. State, audit and
 # lock have one writer, the engine (invariant 6); a new call site is a new
 # writer and must be justified where this number changes.
+#
+# 25 -> 26: ADR-012's `requirements bind` writes the WorkItem's requirements
+# binding. Engine-written for the same reason the governance record is — it
+# decides what an assessment means, so it is not a file a model may edit.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 25,
+    'write_atomic': 26,
     'save_state': 46,
     'append_audit': 47,
     'record_audit': 0,
@@ -139,6 +143,9 @@ COMMANDS = (
     'release',
     'remediate',
     'repo-staleness',
+    # ADR-012: `requirements bind` / `requirements show`. A WorkItem declares
+    # the documents it is about; every consumer reads that binding.
+    'requirements',
     'reset',
     'resolve',
     'restart',

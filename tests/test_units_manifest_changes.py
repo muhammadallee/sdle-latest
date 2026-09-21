@@ -226,6 +226,7 @@ def second_workitem_activity(project) -> list[str]:
     created = project.ok("workitem", "create", "--name", "Second Item")
     other = created.data["id"]
     view = project.as_workitem(other)
+    view.ok("requirements", "bind", "--source", "requirements/todo-api.md")
     view.record_governance()
     view.ok("init", session="other")
     return [f"workitems/{other}/", "workitems/index.md"]

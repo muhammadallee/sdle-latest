@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, sdle, searchable_files
+from conftest import SDLE_PY, Project, sdle, searchable_files, create_wi
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 from test_units_artifact_review import review_for_gate
 
@@ -107,9 +107,7 @@ def sha_map(root: Path, skip: tuple[str, ...] = (".git",)) -> dict[str, str]:
     return out
 
 
-def create_wi(project: Project, name: str) -> str:
-    project.ok("workitem", "create", "--name", name)
-    return project.run("workitem", "list").data["workitems"][-1]["id"]
+
 
 
 def policy_file(project: Project) -> Path:

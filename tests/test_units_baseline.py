@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import REPO_ROOT, Project, sdle
+from conftest import REPO_ROOT, Project, create_wi, sdle
 from test_integration_01_happy_path import run_happy_path
 from test_units_artifact_review import review_for_gate
 from test_units_flow_model import drive
@@ -635,7 +635,9 @@ def test_the_baseline_write_has_exactly_one_call_site(git_project):
 # completes an ITERATIVE run that never enters `discovery`.
 
 
-def create_wi(project: Project, name: str):
+def create_wi_result(project: Project, name: str):
+    """The `workitem create` response, for tests that read it. The shared
+    `create_wi` (conftest) returns the id and binds."""
     return project.ok("workitem", "create", "--name", name)
 
 

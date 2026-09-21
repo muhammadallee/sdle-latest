@@ -28,7 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, Result, sdle
+from conftest import (SDLE_PY, Project, Result, create_wi,
+                      create_wi_unbound, sdle)
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -59,10 +60,7 @@ def run_here(project: Project, *args, session: str | None = None) -> Result:
     return Result(code, out.getvalue(), err.getvalue())
 
 
-def create_wi(project: Project, name: str) -> str:
-    """Register a WorkItem and return its id."""
-    project.ok("workitem", "create", "--name", name)
-    return sdle.normalize_workitem_name(name)
+
 
 
 def paths_for(project: Project) -> "sdle.Paths":
@@ -127,8 +125,8 @@ def test_matrix_cwd_inside_wi_a_with_many_workitems_binds_wi_a(
     bare_project, monkeypatch
 ):
     """| inside WI-A | many | irrelevant | WI-A |"""
-    wi_a = create_wi(bare_project, "Alpha")
-    wi_b = create_wi(bare_project, "Bravo")
+    wi_a = create_wi(bare_project, "Alpha")          # initialised below
+    wi_b = create_wi_unbound(bare_project, "Bravo")  # must stay runtime-less
 
     monkeypatch.chdir(bare_project.root / "workitems" / wi_a)
     result = run_here(bare_project, "init", session="s")
@@ -158,8 +156,8 @@ def test_matrix_workitems_dir_with_many_plausible_and_no_signal_refuses(
     bare_project, monkeypatch
 ):
     """| `workitems/` | many plausible | none | ask | — and writes nothing."""
-    wi_a = create_wi(bare_project, "Alpha")
-    wi_b = create_wi(bare_project, "Bravo")
+    wi_a = create_wi_unbound(bare_project, "Alpha")
+    wi_b = create_wi_unbound(bare_project, "Bravo")
     before = sha_map(bare_project.root)
 
     monkeypatch.chdir(bare_project.root / "workitems")
@@ -386,8 +384,8 @@ def test_an_explicit_root_with_an_outside_cwd_does_not_feed_the_cwd_rung(
 def test_cwd_inside_an_unregistered_workitem_directory_refuses(
     bare_project, monkeypatch
 ):
-    wi_a = create_wi(bare_project, "Alpha")
-    wi_b = create_wi(bare_project, "Bravo")
+    wi_a = create_wi_unbound(bare_project, "Alpha")
+    wi_b = create_wi_unbound(bare_project, "Bravo")
     ghost = bare_project.root / "workitems" / "wi-ghost"
     ghost.mkdir()
     before = sha_map(bare_project.root)
@@ -1272,8 +1270,11 @@ def test_two_worktrees_drive_two_workitems_with_no_flag(
     """Contract §9 exit criterion: two developers on separate worktrees operate
     two different WorkItems with no shared SDLE state and no global lock."""
     bare_project.init_git()
+    # Each WorkItem binds in the worktree that drives it. Binding creates the
+    # runtime directory, and what this test asserts is that neither worktree
+    # writes into the other's WorkItem *in its own working directory*.
     wi_a = create_wi(bare_project, "Alpha")
-    wi_b = create_wi(bare_project, "Bravo")
+    wi_b = create_wi_unbound(bare_project, "Bravo")
     bare_project.git("add", "-A")
     bare_project.git("commit", "-q", "-m", "register workitems")
 
@@ -1296,6 +1297,8 @@ def test_two_worktrees_drive_two_workitems_with_no_flag(
 
     monkeypatch.chdir(second_root)
     run_here(second, "workitem", "use", "--workitem", wi_b)
+    second.as_workitem(wi_b).ok("requirements", "bind",
+                                "--source", "requirements/todo-api.md")
     b_init = run_here(second, "init", session="dev-b")
     assert b_init.exit_code == EXIT_OK, b_init
 

@@ -1505,6 +1505,7 @@ def test_two_workitems_on_different_flows_advance_independently(git_project):
     git_project.ok("workitem", "create", "--name", "Second Item")
     second_id = git_project.run("workitem", "list").data["workitems"][-1]["id"]
     second = git_project.as_workitem(second_id)
+    second.ok("requirements", "bind", "--source", "requirements/todo-api.md")
 
     frozen_state = first.state_file.read_bytes()
     frozen_audit = first.audit_file.read_bytes()
