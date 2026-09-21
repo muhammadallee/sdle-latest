@@ -52,13 +52,17 @@ identity first", not "stop", so SDLE asks for the name, runs
 ```
 WorkItem created: todo-api.
 
-I need requirements before starting the workflow. Create a `requirements/` folder and
-add at least one document. Then say "start workflow" or "continue".
+This WorkItem has not declared which requirement documents it is about. Run
+`requirements bind --source <path>` (repeatable), or `--all-current` to bind every
+document under requirements/ exactly as it stands now. Then say "start workflow" or
+"continue".
 ```
 
 *(Engine: `sdle.sh --workitem todo-api preflight` exited 1 with
-`requirements_missing`. No `state.json` was created, so there is no status
-header. An empty `requirements/` directory produces the same halt.)*
+`requirements_unbound`. No `state.json` was created, so there is no status
+header. A WorkItem that bound documents which are no longer in the repository —
+including the case where `requirements/` was emptied or removed — halts the same
+way, with `requirements_source_missing`, which names them instead.)*
 
 ---
 
@@ -156,8 +160,9 @@ fingerprinted artifacts. The governance record is a separate matter. If
 | Claim | Test |
 |---|---|
 | No WorkItem → `workitem_required`, then preflight passes | `tests/test_units_documented_commands.py::test_preflight_in_a_repository_with_no_workitem_asks_for_one_first` |
-| No requirements directory halts | `tests/test_integration_06_to_09.py::test_09_no_requirements_directory_halts` |
-| An empty requirements directory halts | `tests/test_integration_06_to_09.py::test_09_empty_requirements_directory_halts` |
+| A WorkItem that never bound its documents halts | `tests/test_integration_06_to_09.py::test_09_a_workitem_that_never_bound_halts` |
+| A bound document that is gone halts | `tests/test_integration_06_to_09.py::test_09_a_bound_document_that_is_gone_halts` |
+| An emptied requirements directory halts | `tests/test_integration_06_to_09.py::test_09_an_emptied_requirements_directory_halts` |
 | Missing SpecKit halts first, naming `specify init` | `tests/test_integration_06_to_09.py::test_09_missing_speckit_halts_first` |
 | Undiscoverable skills halt | `tests/test_integration_06_to_09.py::test_09_undiscoverable_skills_halt` |
 | A healthy project passes | `tests/test_integration_06_to_09.py::test_09_healthy_project_passes_preflight` |

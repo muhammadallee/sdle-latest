@@ -144,7 +144,8 @@ def engine_reasons() -> set[str]:
     reasons |= set(re.findall(r'reason="([a-z_]+)"', source))
     # `preflight` reports its problems as keys of a message table.
     reasons |= {"speckit_missing", "speckit_skills_missing",
-                "requirements_missing"}
+                "requirements_unbound",
+                "requirements_source_missing"}
     return reasons
 
 

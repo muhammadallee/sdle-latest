@@ -45,7 +45,7 @@ def test_refusal_exit_code_survives_the_process_boundary(project):
         path.unlink()
     result = project.run_cli("init")
     assert result.exit_code == EXIT_REFUSED
-    assert result.envelope["reason"] == "requirements_missing"
+    assert result.envelope["reason"] == "requirements_source_missing"
 
 
 def test_integrity_exit_code_survives_the_process_boundary(project):

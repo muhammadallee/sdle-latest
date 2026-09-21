@@ -10229,9 +10229,17 @@ def cmd_preflight(args, paths: Paths) -> int:
             "(looked for .claude/skills/speckit-constitution/ here and in "
             "your home directory). SpecKit's Claude integration installs "
             f"them; re-run its init: {SPECKIT_INIT_COMMAND}",
-            "requirements_missing": "I need requirements before starting the "
-            "workflow. Create a `requirements/` folder and add at least one "
-            "document.",
+            # ADR-012 replaced one vague `requirements_missing` with two that
+            # each name what to do. "There is nothing in a directory" was never
+            # the question; "this WorkItem has not said what it is about" and
+            # "what it said it is about is not there" are.
+            "requirements_unbound": "This WorkItem has not declared which "
+            "requirement documents it is about. Run `requirements bind "
+            "--source <path>` (repeatable), or `--all-current` to bind every "
+            "document under requirements/ exactly as it stands now.",
+            "requirements_source_missing": "This WorkItem is bound to "
+            "requirement documents that are not in the repository. Run "
+            "`requirements show` to see which, then restore them or re-bind.",
         }
         first = problems[0]
         emit("preflight", data, ok=False, reason=first, message=messages[first])
