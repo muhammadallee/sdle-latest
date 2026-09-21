@@ -727,8 +727,18 @@ def test_governance_show_reports_the_record_and_its_freshness(project):
     assert shown.data["record"] == record_of(project)
     assert shown.data["recorded_digest"] == shown.data["current_digest"]
 
+    # ADR-012: a document this WorkItem never bound is not part of its
+    # assessment, so it cannot move its freshness.
     (project.root / "requirements" / "extra.md").write_text(
         "# Extra\n", encoding="utf-8", newline="\n")
+    unrelated = project.ok("governance", "show")
+    assert unrelated.data["fresh"] is True
+    assert unrelated.data["recorded_digest"] == unrelated.data["current_digest"]
+
+    # Editing a document it *did* bind still does.
+    bound = project.root / "requirements" / "todo-api.md"
+    bound.write_text(bound.read_text("utf-8") + "\n## Added later\n",
+                     encoding="utf-8", newline="\n")
     stale = project.ok("governance", "show")
     assert stale.data["fresh"] is False
     assert stale.data["recorded_digest"] != stale.data["current_digest"]
@@ -1174,22 +1184,44 @@ def test_editing_a_requirement_after_the_assessment_is_stale(project):
     assert project.state()["current_phase"] == "gate_constitution"
 
 
-def test_adding_a_requirement_file_is_also_stale(project):
-    """N11(c). The digest covers the requirement *set*, not one file, so a
-    new document cannot slip past an assessment that never saw it."""
+def test_an_unbound_document_does_not_stale_this_workitem(project):
+    """Replaces `test_adding_a_requirement_file_is_also_stale`, deliberately.
+
+    That test pinned the behaviour F-101 turned out to be: the digest covered
+    everything under `requirements/`, so a document written for a *different*
+    WorkItem refused this one's next advance. The property it protected — a new
+    document cannot slip past an assessment that never saw it — is kept and
+    made precise: what must not slip past is a change to a document this
+    WorkItem **bound**, which the test below and the two staleness tests above
+    assert.
+    """
     assert assess(project).exit_code == EXIT_OK
     project.ok("init", session="stale2")
 
+    (project.root / "requirements" / "billing.md").write_text(
+        "# Billing\n\nAnother WorkItem's requirement document.\n",
+        encoding="utf-8", newline="\n")
+
+    assert project.ok("advance", "--to", "gate_constitution").exit_code == EXIT_OK
+
+
+def test_binding_that_document_then_does_stale_it(project):
+    """The other half: the document is inert until this WorkItem declares it is
+    about it, and re-binding is a different fact from the content changing."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="stale3")
     (project.root / "requirements" / "billing.md").write_text(
         "# Billing\n\nA second requirement document.\n",
         encoding="utf-8", newline="\n")
     before = frozen(project)
 
+    project.ok("requirements", "bind",
+               "--source", "requirements/todo-api.md",
+               "--source", "requirements/billing.md")
     result = project.run("advance", "--to", "gate_constitution")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "governance_stale", result
-    assert "requirements/billing.md" in result.data["requirements"]
     assert frozen(project) == before
 
 
@@ -1226,6 +1258,7 @@ def test_e1_now_applies_unconditionally_because_nothing_binds_without_a_workitem
     workitem = create_wi(bare_project, "Wi A")
     shutil.rmtree(legacy)
     bound = bare_project.as_workitem(workitem)
+    bound.ok("requirements", "bind", "--source", "requirements/todo-api.md")
     bound.ok("init", session="contrast")
 
     refused = bound.run("advance", "--to", "gate_constitution")
@@ -2085,6 +2118,10 @@ def _alpha(bare_project):
     """One registered WorkItem, bound through the ladder (no --workitem)."""
     workitem = create_wi(bare_project, "Alpha")
     bare_project.workitem = workitem
+    # ADR-012: an assessment is about the documents the WorkItem declared, so
+    # a WorkItem made here binds them exactly as the lifecycle does.
+    bare_project.ok("requirements", "bind",
+                    "--source", "requirements/todo-api.md")
     return bare_project
 
 

@@ -414,6 +414,13 @@ def project(bare_project: Project) -> Project:
     """
     bare_project.ok("workitem", "create", "--name", FIXTURE_WORKITEM_NAME)
     bare_project.workitem = FIXTURE_WORKITEM_ID
+    # ADR-012: a WorkItem declares the requirement documents it is about, and
+    # every consumer from `preflight` onwards reads that binding. The real
+    # lifecycle binds between `workitem create` and `preflight`, so the fixture
+    # does too; tests that exercise the binding itself start from
+    # `bare_project` and bind explicitly.
+    bare_project.ok("requirements", "bind",
+                    "--source", "requirements/todo-api.md")
     return bare_project
 
 
