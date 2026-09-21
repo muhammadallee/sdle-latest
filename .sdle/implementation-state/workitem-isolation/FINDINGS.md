@@ -84,6 +84,9 @@ Fixing F-102 makes that true for *engine-owned* paths. It cannot make it true fo
 and B both edit application code after A's base, git cannot attribute those edits to either. A's manifest
 will contain B's code changes.
 
+**F-102's fix does not fix this, and must not be described as if it did.** Engine-owned paths are now
+excluded; application code cannot be attributed by a repository-wide diff at all.
+
 **This is an architectural choice, not a bug to patch.** One of the following has to be true, and the
 documentation must say which:
 
@@ -110,3 +113,63 @@ The debate considered four shapes for F-101:
 
 Both parties changed position during the debate. The full exchange, including what each got wrong, is in
 `debate-r1.out.md` and `debate-r2.out.md` beside this file.
+
+
+---
+
+## F-102 — fixed
+
+`implementation_exclusions` now excludes every *other* registered WorkItem's tree, plus the registry
+file. Both consumers were driven through the real commands in the regression tests; before the fix the
+leak was:
+
+```
+workitems/index.md
+workitems/second-item/.sdle/{state,governance,execution}.json
+workitems/second-item/.sdle/audit.md
+workitems/second-item/.sdle/evidence/governance-<id>.json
+workitems/second-item/workitem.json
+```
+
+Two decisions inside the fix are judgements rather than deductions, and each is pinned by a test:
+
+- **Enumerated from the registry, not globbed.** A directory under `workitems/` that no row claims is
+  an anomaly `validate` reports, so it stays *visible* in the manifest. Filtering it out would let an
+  unregistered runtime be created during an implementation and never reach a reviewer.
+- **`workitems/index.md` is excluded.** It changes whenever any WorkItem is created, so leaving it in
+  shows every concurrent reviewer a row that is not theirs. The cost, stated plainly: a hand-edited
+  registry during implementation no longer surfaces at Gate 7. Its controls are the write fence and
+  `validate`, where a registry edit is a governance question rather than an implementation one.
+
+---
+
+## F-103 — proposal for the owner, not a decision taken
+
+`docs/workitems/README.md` says concurrent WorkItems "do not interact". After F-102 that is true of
+every engine-owned path and false of application code, which no repository-wide diff can attribute.
+
+This is a user-visible contract change, so it is put rather than taken. Two candidate wordings:
+
+**Option 1 — support concurrency, bound it to isolated checkouts.**
+
+> A repository can carry as many WorkItems as you like. Two WorkItems may sit at any phase at once;
+> their records never interact. **While two WorkItems are in the `implement` phase, give each its own
+> branch or Git worktree.** The implementation change set is a diff of the working tree against a pinned
+> commit, so two implementations in one checkout cannot be told apart, and each would list the other's
+> code changes.
+
+**Option 2 — declare same-checkout implementation unsupported.**
+
+> A repository can carry as many WorkItems as you like, concurrently, and their records never interact.
+> **Only one WorkItem may be in the `implement` phase in a given checkout at a time.** SDLE does not
+> attribute application-code changes to a WorkItem; it measures them from a pinned commit.
+
+Option 1 keeps the capability and tells the user how to get it. Option 2 is a narrower promise that
+needs no new practice from the user. Option 1 is the better product if worktrees are an acceptable ask;
+Option 2 is more honest if they are not.
+
+A third option — attributing implementation changes to a WorkItem explicitly — is a substantial feature
+and is not proposed here.
+
+**Neither is written yet.** Until the owner chooses, the documentation keeps its current wording, which
+is now wrong only about application code and which this finding records as wrong.

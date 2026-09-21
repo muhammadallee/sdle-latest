@@ -9381,6 +9381,32 @@ def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
     requirements/ and design/ edits from the manifest. It carries the
     relocation/ownership exclusions, including the repository-global
     configuration root, so both consumers exclude the same paths.
+
+    **Every other WorkItem's tree is excluded (F-102).** WorkItem records are
+    versioned by design, so B advancing a phase while A implements put B's
+    `state.json`, `audit.md`, evidence and identity inside A's manifest and A's
+    security-review diff — another WorkItem's governed record shown to a
+    reviewer as A's implementation, and scanned for secrets as if it were.
+
+    Two deliberate choices in how that exclusion is computed:
+
+    * **Per WorkItem, not the whole `workitems/` prefix.** A blanket prefix
+      would also hide the bound WorkItem's own tree. Only its `.sdle/` runtime
+      and its Spec Kit feature directory are not implementation; anything else
+      it changes under its own directory is a change a reviewer should see.
+    * **Enumerated from the registry, not by globbing the directory.** A
+      directory under `workitems/` that no row claims is an anomaly — `validate`
+      reports it as `runtime_state_outside_workitem` — and an anomaly that
+      appeared during an implementation belongs in front of the reviewer, not
+      filtered out of the evidence by the filter's own convenience.
+
+    `workitems/index.md` is excluded too, and that one is a judgement rather
+    than a deduction. It is engine-owned and it changes whenever *any* WorkItem
+    is created, so leaving it in means every reviewer of a concurrent run sees
+    a registry row that is not theirs. The cost is that a hand-edited registry
+    during implementation no longer surfaces here; its controls are the write
+    fence and `validate`, which is where a registry edit is a governance
+    question rather than an implementation one.
     """
     excluded = [
         paths.runtime_relative + "/",       # this WorkItem's runtime
@@ -9390,6 +9416,14 @@ def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
     feature_directory = speckit_ref(state)["featureDirectory"]
     if feature_directory:
         excluded.append(feature_directory.rstrip("/") + "/")
+
+    root = workitems_root(paths).relative_to(paths.project_root).as_posix()
+    excluded.append(
+        workitem_index_file(paths).relative_to(paths.project_root).as_posix())
+    for row in read_index(paths):
+        other = (row.get("WorkItem") or "").strip()
+        if other and other != paths.workitem:
+            excluded.append(f"{root}/{other}/")
     return excluded
 
 

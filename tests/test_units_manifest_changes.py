@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import PASSING_TEST_COMMAND
+from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND
 from test_units_flow_model import drive
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -200,3 +200,111 @@ def test_d03_rebuilding_unchanged_inputs_gives_the_same_change_set(
     assert first == second
     assert [c["path"] for c in first] == sorted(c["path"] for c in first)
     assert len({c["path"] for c in first}) == len(first), "no duplicates"
+
+
+# ==========================================================================
+# F-102 — another WorkItem's records are not this WorkItem's implementation
+#
+# `implementation_exclusions` feeds BOTH consumers — the Gate 7 manifest and
+# `security-review evidence` — so both are driven here. WorkItem records are
+# versioned by design, so a second WorkItem simply being used during this one's
+# implementation puts its governed records in this one's diff.
+# ==========================================================================
+
+
+IMPLEMENTATION = "# real implementation\n" + "value = 1\n" * 20
+
+
+def second_workitem_activity(project) -> list[str]:
+    """Create a second WorkItem and let it write its own governed records.
+
+    Returns the repo-relative paths it touched, which the bound WorkItem's
+    change set must not contain.
+    """
+    created = project.ok("workitem", "create", "--name", "Second Item")
+    other = created.data["id"]
+    view = project.as_workitem(other)
+    view.record_governance()
+    view.ok("init", session="other")
+    return [f"workitems/{other}/", "workitems/index.md"]
+
+
+def mine(project):
+    """A view pinned to the WorkItem under test.
+
+    Creating a second WorkItem moves the developer-local active context, so
+    every call after that names its WorkItem explicitly rather than resolving.
+    """
+    return project.as_workitem(FIXTURE_WORKITEM_ID)
+
+
+def test_f102_another_workitems_records_stay_out_of_the_manifest(git_project):
+    at_implement(git_project)
+    foreign = second_workitem_activity(git_project)
+    git_project.write_artifact("src/edit_me.py", IMPLEMENTATION)
+
+    files = build(mine(git_project)).data["files"]
+
+    leaked = [f for f in files if any(f.startswith(p) for p in foreign)]
+    assert leaked == [], (
+        "another WorkItem's governed records are in this WorkItem's Gate 7 "
+        f"manifest: {leaked}")
+    assert "src/edit_me.py" in files, "the real implementation is still listed"
+
+
+def test_f102_another_workitems_records_stay_out_of_the_security_evidence(
+        git_project):
+    at_implement(git_project)
+    foreign = second_workitem_activity(git_project)
+    git_project.write_artifact("src/edit_me.py", IMPLEMENTATION)
+
+    evidence = mine(git_project).ok("security-review", "evidence").data
+    paths = [c["path"] for c in evidence["changes"]] + list(
+        evidence.get("untracked") or [])
+
+    leaked = [p for p in paths if any(p.startswith(f) for f in foreign)]
+    assert leaked == [], (
+        "another WorkItem's governed records are in this WorkItem's "
+        f"security-review evidence: {leaked}")
+    assert "src/edit_me.py" in paths
+
+
+def test_f102_the_bound_workitems_own_implementation_is_still_listed(git_project):
+    """Non-vacuity, and the guard against over-excluding: the fix must not
+    silence the bound WorkItem's own changes to implementation paths."""
+    at_implement(git_project)
+    git_project.write_artifact("src/keep.py", IMPLEMENTATION)
+
+    files = build(git_project).data["files"]
+
+    assert "src/keep.py" in files, files
+
+
+def test_f102_an_unregistered_directory_under_workitems_is_still_listed(
+        git_project):
+    """The exclusion is enumerated from the registry on purpose. A directory no
+    row claims is an anomaly `validate` reports, and an anomaly that appeared
+    during an implementation belongs in front of the reviewer rather than being
+    filtered out by the filter's own convenience."""
+    at_implement(git_project)
+    stray = git_project.root / "workitems" / "not-registered"
+    (stray / ".sdle").mkdir(parents=True)
+    (stray / ".sdle" / "state.json").write_text("{}\n", encoding="utf-8",
+                                                newline="\n")
+
+    files = build(git_project).data["files"]
+
+    assert "workitems/not-registered/.sdle/state.json" in files, files
+
+
+def test_f102_the_registry_itself_is_excluded(git_project):
+    """A judgement, not a deduction: `workitems/index.md` changes whenever any
+    WorkItem is created, so leaving it in shows every concurrent reviewer a row
+    that is not theirs. A hand-edited registry is the write fence's and
+    `validate`'s question, not Gate 7's."""
+    at_implement(git_project)
+    second_workitem_activity(git_project)
+
+    files = build(mine(git_project)).data["files"]
+
+    assert "workitems/index.md" not in files, files
