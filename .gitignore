@@ -8,3 +8,6 @@ __pycache__/
 .pytest_cache/
 workitems/*/.sdle/lock
 workitems/.active-context.json
+
+# Developer-local Claude Code settings: per-developer, never shipped or installed
+.claude/settings.local.json

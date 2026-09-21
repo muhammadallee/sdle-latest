@@ -1,7 +1,5 @@
 # Tutorial — `HOTFIX`: the shortest flow, and what it still enforces
 
-**Applies to:** SDLE v1.17
-
 **10 phases, 3 gates.** Use this flow when something is wrong in production
 right now and the shortest governed path is the correct path.
 

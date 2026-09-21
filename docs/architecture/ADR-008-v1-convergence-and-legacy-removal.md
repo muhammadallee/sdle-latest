@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-09
 **Supersedes:** the transitional dual-path runtime introduced alongside ADR-001.
+**Superseded in part by:** ADR-010, which removes the migration path §3 and §3.1 describe. The retired `.workflow/` is now only detected and refused.
 **Extends:** ADR-002 … ADR-007.
 **Context:** transition contract §17 (primary), with §18, §19, §20, §26, §28.
 
@@ -48,6 +49,8 @@ never guesses* is a stronger statement after this change than before it.
 
 ## 3. What was deliberately preserved, and why removing it would have been wrong
 
+> **Superseded by ADR-010.** `migrate-workflow` and its refusals no longer exist; the rows and §3.1 record the decision as it stood when this ADR was accepted. P1 and P6 still hold.
+
 This is the half of the decision that is easy to get wrong, so it is written
 out. §28 forbids removing a safety control without providing the replacement
 safety property; each row below is a control whose justification **survives**
@@ -64,20 +67,14 @@ the removal.
 | P7 | `.workflow/` in `.gitignore` | It is archival, never versioned (§19 versions WorkItem records, not the legacy runtime) |
 | P8 | `current_feature_id` inside migration steps `1.0→1.1`, `1.1→1.2`, `1.14→1.15` | It was removed *as workflow identity* earlier in the migration. The migration rows are what `lint-skill`'s "every state field has a migration row" invariant is made of |
 
-### 3.1 The migration path, stated plainly
+### 3.1 The migration path as accepted (superseded)
 
-After this change, a repository still on the pre-v1.14 runtime recovers with
-**exactly two commands**, both runtime-free and therefore never reaching the
-resolution ladder:
-
-```bash
-sdle.sh workitem create --name "<name>"
-sdle.sh migrate-workflow --workitem <id>
-```
-
-Every other command in such a repository refuses `workitem_required` (exit 1)
-and **the refusal names those two steps in order**. That is proven end-to-end
-through the real CLI, not asserted.
+When this ADR was accepted, a repository still on the pre-v1.14 runtime recovered
+with two runtime-free commands: `workitem create`, then a `migrate-workflow` that
+moved the retired runtime under the new WorkItem. ADR-010 removed the second
+step. Today such a repository creates a new WorkItem (`sdle.sh workitem create
+--name "<name>"`), and every other command refuses `workitem_required` with a
+message that says so.
 
 ---
 
@@ -326,7 +323,6 @@ finding that is not here is a defect in this ADR.
 | TR23 | The post-commit `workitem.json` write sits outside the migration commit window | **DEFERRED** | The commit marker is the target `state.json`, written last. A failure after it leaves a correct, resolvable runtime with slightly stale metadata, which the next command re-derives. Changing the commit window would risk the atomicity property the interrupted-migration test exists to protect. Now pinned by test, so the residual is bounded and visible |
 | TR24 | The migration crash test never exercised the manifest and completion-summary copies | **FIXED** | All nine write points are now parameterised, as a **named sequence**, so a new write point fails loudly rather than going unexercised |
 | TR25 | `design/`, `reviews/` and `clarifications/` are repository-level, and `design/app/app-design.md` is shared across WorkItems | **DEFERRED** | An explicit earlier decision, restated as the V1 position: these are repository-level **by design**. §10 warns against copying shared artifacts into every WorkItem for directory aesthetics. The follow-on question is which of them are genuinely WorkItem-scoped, not how to move all three |
-| TR26 | `docs/transition/RESUME.md` was stale | **FIXED** | Updated to describe the completed state. It remains explicitly non-authoritative |
 
 ---
 

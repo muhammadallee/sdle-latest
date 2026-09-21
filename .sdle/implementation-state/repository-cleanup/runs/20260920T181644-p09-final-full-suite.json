@@ -1,0 +1,44 @@
+{
+  "run_id": "20260920T181644-p09-final-full-suite",
+  "result": "FAIL",
+  "label": "p09-final-full-suite",
+  "task_ids": [
+    "P09"
+  ],
+  "ac_ids": [
+    "AC-09",
+    "AC-11",
+    "AC-19"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short"
+  ],
+  "cwd": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpad\\shallow-final",
+  "head": "d4627da1fcc9aa662044bd5c5bdc3ddfe33897f3",
+  "content_fingerprint": "748c879a5bf2557efe33442c6c61f85de4e61e936656a6ab6813fff3a389b117",
+  "manifest_paths": 0,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T18:16:44Z",
+  "runner_pid": 33340,
+  "stdout": "20260920T181644-p09-final-full-suite.stdout.log",
+  "stderr": "20260920T181644-p09-final-full-suite.stderr.log",
+  "note": "Whole suite on post-review HEAD d4627da in a depth-1 clone; fingerprint field describes the main checkout",
+  "memory_samples": "20260920T181644-p09-final-full-suite.mem.csv",
+  "exit_code": 2,
+  "expected_exit_code": 0,
+  "counts": {
+    "error": 1
+  },
+  "finished_utc": "2026-09-20T18:16:49Z",
+  "fingerprint_unchanged_during_run": true
+}

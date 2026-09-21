@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, sdle
+from conftest import SDLE_PY, Project, sdle, searchable_files
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 from test_units_artifact_review import review_for_gate
 
@@ -477,41 +477,6 @@ def test_the_classification_vocabularies_are_exactly_section_12s():
 # --------------------------------------------------------------------------
 
 
-def _searchable_files() -> list[Path]:
-    """Every versioned prose/config file outside `scripts/sdle.py` and the
-    tests. `docs/transition/` is the migration control plane, not the product,
-    and this test file itself legitimately quotes §12's check ids."""
-    roots = [
-        REPO_ROOT / "README.md",
-        REPO_ROOT / "CLAUDE.md",
-        REPO_ROOT / "docs" / "SDLE-Reference-Guide.md",
-    ]
-    files = [path for path in roots if path.is_file()]
-    for directory in (REPO_ROOT / ".claude" / "skills",
-                      REPO_ROOT / ".claude" / "commands",
-                      REPO_ROOT / ".claude" / "hooks",
-                      REPO_ROOT / ".sdle",
-                      REPO_ROOT / "docs" / "architecture"):
-        if directory.is_dir():
-            files.extend(p for p in sorted(directory.rglob("*")) if p.is_file())
-    # T10 (X3): product subagent prompts are part of the shipped prompt layer,
-    # so a restatement in one of them is exactly the drift this search exists
-    # to catch. Four `sdle-transition-*` files used to be excluded here: they
-    # were the migration control plane (contract §1.4), not the product, and
-    # `sdle-transition-planner.md` legitimately used the transition
-    # contract's own evidence vocabulary — OBSERVED / INFERRED / UNKNOWN —
-    # which happens to be spelled exactly like §14's classifications. The
-    # post-migration cleanup deleted those four files, so the carve-out went
-    # with them and every agent prompt on disk is scanned. `docs/transition/`
-    # stays outside the roots above for a different and still-live reason,
-    # given in the docstring.
-    agents = REPO_ROOT / ".claude" / "agents"
-    if agents.is_dir():
-        files.extend(path for path in sorted(agents.glob("sdle-*.md"))
-                     if path.is_file())
-    return files
-
-
 def policy_identifiers() -> set[str]:
     """The identifier-shaped policy values, derived from the built-in.
 
@@ -546,7 +511,7 @@ def test_no_policy_default_value_is_restated_outside_sdle_py():
     needles = policy_identifiers()
 
     offenders: dict[str, list[str]] = {}
-    for path in _searchable_files():
+    for path in searchable_files():
         try:
             body = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -871,7 +836,8 @@ def test_governance_refuses_when_a_legacy_runtime_is_all_there_is(bare_project):
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "workitem_required", result
-    assert "migrate-workflow" in result.envelope["message"]
+    assert "workitem create" in result.envelope["message"]
+    assert "migrate-workflow" not in result.envelope["message"]
     assert not (legacy / "governance.json").exists()
     assert sorted(p.name for p in legacy.iterdir()) == before
 

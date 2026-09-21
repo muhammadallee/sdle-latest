@@ -1,0 +1,527 @@
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+..............................................F......................... [ 18%]
+........................................................................ [ 21%]
+........................................................................ [ 25%]
+.........F.............................................................. [ 28%]
+.............F.......................FF................................. [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 40%]
+........................................................................ [ 43%]
+........................................................................ [ 47%]
+...................................FFFFFFF..........F................... [ 50%]
+.................F.......F.....F........................................ [ 53%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+...............................................F........................ [ 68%]
+...............................................................F........ [ 72%]
+........................................................................ [ 75%]
+.......................................F.........FFFFFFFFFFF............ [ 78%]
+........................................................................ [ 81%]
+........................................................................ [ 84%]
+..............................................FFFFFF.FFF............FF.. [ 87%]
+............FFFFFFF....................................................F [ 90%]
+FFF..................................................................... [ 94%]
+........................................................................ [ 97%]
+......F..FFF...........FF........F..FFFFFFFFFFFFFF...........F.F.        [100%]
+================================== FAILURES ===================================
+E   AssertionError: no check named migration_covers_every_state_field
+    assert 'migration_covers_every_state_field' in {'tables_wellformed': True, 'phase_set_matches_next_phase': True, 'phase_set_matches_phase_label_map': True, 'phase_set_matches_progress_map': True, ...}
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_lint_skill.py:54: AssertionError: no check named migration_covers_every_state_field
+E   AssertionError: assert 'version_chain' in {'phase_sequence': ['requirements_check', 'discovery', 'impact_analysis', 'constitution_draft', 'gate_constitution', '...ution': 'gate_constitution', 'gate_spec': 'gate_spec', 'gate_plan': 'gate_plan', 'gate_tasks': 'gate_tasks', ...}, ...}
+     +  where {'phase_sequence': ['requirements_check', 'discovery', 'impact_analysis', 'constitution_draft', 'gate_constitution', '...ution': 'gate_constitution', 'gate_spec': 'gate_spec', 'gate_plan': 'gate_plan', 'gate_tasks': 'gate_tasks', ...}, ...} = <Result exit=0 ok=True reason=None data={'phase_sequence': ['requirements_check', 'discovery', 'impact_analysis', 'con...I\\sdle-git-repo\\sdle-latest\\.claude\\skills\\sdle', 'project_root': 'D:\\Learning\\AI\\sdle-git-repo\\sdle-latest'}>.data
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_capabilities.py:199: AssertionError: assert 'version_chain' in {'phase_sequence': ['requirements_check', 'discovery', 'impact_analysis', 'constitution_draft', 'gate_constitution', '...ution': 'gate_constitution', 'gate_spec': 'gate_spec', 'gate_plan': 'gate_plan', 'gate_tasks': 'gate_tasks', ...}, ...}
+E   AssertionError: expected success, got <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.15', 'supported': '1.17', 'path': 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-713\\test_n12_resume_writes_nothing0\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+      unsupported_state_version: workitems/fixture-workitem/.sdle/state.json uses state schema '1.15', and this SDLE reads only '1.17'. It never rewrites another version; the file is left exactly as it is. Start a current WorkItem with `workitem create --name <name>`, or inspect this one with `state dump`.
+      
+    assert 1 == 0
+     +  where 1 = <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.15', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n12_resume_writes_nothing0\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.15', 'supported': '1.17', 'path': 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-713\\test_n12_resume_writes_nothing0\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+E   AssertionError: assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+     +    where <Result exit=2 ok=False reason=None data={}> = run('migrate-workflow', '--workitem', 'migrated-thing')
+     +      where run = <conftest.Project object at 0x0000020484AE72A0>.run
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_capabilities.py:802: AssertionError: assert 2 == 0
+E   AssertionError: ['migration_covers_every_state_field']
+    assert ['capability_...t_files', ...] == ['capability_...t_files', ...]
+      
+      At index 29 diff: 'next_phase_chains_sequence' != 'migration_covers_every_state_field'
+      Right contains one more item: 'version_string_consistent'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_capabilities.py:816: AssertionError: ['migration_covers_every_state_field']
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AttributeError: module 'sdle_under_test' has no attribute '_mig_1_15'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_flow_model.py:674: AttributeError: module 'sdle_under_test' has no attribute '_mig_1_15'
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AttributeError: 'Constants' object has no attribute 'version_chain'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_flow_model.py:720: AttributeError: 'Constants' object has no attribute 'version_chain'
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: ['cmd_init']
+    assert {'cmd_init'} == {'_mig_1_15', 'cmd_init'}
+      
+      Extra items in the right set:
+      '_mig_1_15'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_flow_model.py:1615: AssertionError: ['cmd_init']
+E   AssertionError: version_chain
+    assert 'version_chain' in {'phase_sequence': ['requirements_check', 'discovery', 'impact_analysis', 'constitution_draft', 'gate_constitution', '...ution': 'gate_constitution', 'gate_spec': 'gate_spec', 'gate_plan': 'gate_plan', 'gate_tasks': 'gate_tasks', ...}, ...}
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_flow_model.py:1768: AssertionError: version_chain
+E   KeyError: 'migration_covers_every_state_field'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_flow_model.py:1855: KeyError: 'migration_covers_every_state_field'
+E   AssertionError: assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+     +    where <Result exit=2 ok=False reason=None data={}> = run('migrate-workflow', '--workitem', 'migrated-thing')
+     +      where run = <conftest.Project object at 0x0000020484B1B930>.run
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_gate_policy.py:1458: AssertionError: assert 2 == 0
+E   AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_governance.py:839: AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+E   AssertionError: ('state', 'get')
+    assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:425: AssertionError: ('state', 'get')
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:968: Failed: DID NOT RAISE OSError
+E   AssertionError: the interruption must surface
+    assert <Result exit=2 ok=False reason=None data={}> is None
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:1029: AssertionError: the interruption must surface
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert (<Result exit=2 ok=False reason=None data={}> is not None and 2 == 0)
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:1025: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_hardening.py:1065: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_speckit_binding.py:772: AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki1\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+    assert 1 == 0
+     +  where 1 = <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki1\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_speckit_binding.py:844: AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki1\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+E   AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki2\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+    assert 1 == 0
+     +  where 1 = <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki2\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_speckit_binding.py:844: AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki2\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+E   AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki3\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+    assert 1 == 0
+     +  where 1 = <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki3\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_speckit_binding.py:844: AssertionError: <Result exit=1 ok=False reason='unsupported_state_version' data={'workflow_version': '1.14', 'supported': '1.17', 'pat...\\pytest-of-Ali\\pytest-713\\test_n8_a_state_with_no_specki3\\target\\workitems\\fixture-workitem\\.sdle\\state.json'}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   assert 2 == 1
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_state.py:165: assert 2 == 1
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AttributeError: 'Constants' object has no attribute 'version_chain'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_transitions.py:594: AttributeError: 'Constants' object has no attribute 'version_chain'
+E   AssertionError: assert frozenset({'b...-skill', ...}) == frozenset({'b...-skill', ...})
+      
+      Extra items in the right set:
+      'migrate-workflow'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_resolution.py:1365: AssertionError: assert frozenset({'b...-skill', ...}) == frozenset({'b...-skill', ...})
+E   AssertionError: assert {'_validate_r...ion_findings'} == {'_validate_r...ion_findings'}
+      
+      Extra items in the right set:
+      'cmd_migrate_workflow'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_resolution.py:1452: AssertionError: assert {'_validate_r...ion_findings'} == {'_validate_r...ion_findings'}
+E   AssertionError: assert {'cmd_init', ...workitem_use'} == {'cmd_init', ...workitem_use'}
+      
+      Extra items in the right set:
+      'cmd_migrate_workflow'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_resolution.py:1476: AssertionError: assert {'cmd_init', ...workitem_use'} == {'cmd_init', ...workitem_use'}
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert None == 'workitem_flag_required'
+     +  where None = <Result exit=2 ok=False reason=None data={}>.reason
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_resolution.py:1517: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:216: AssertionError: assert 'migrate-workflow' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: assert 'migrate-workflow' in 'A repository-global workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it, ...s left exactly as it is: remove or move it aside, then create a current WorkItem with `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:295: AssertionError: assert 'migrate-workflow' in 'A repository-global workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it, ...s left exactly as it is: remove or move it aside, then create a current WorkItem with `workitem create --name <name>`.'
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 1
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:351: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 1
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:500: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 3
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:526: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 3
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:540: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: <Result exit=2 ok=False reason=None data={}>
+    assert 2 == 1
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:556: AssertionError: <Result exit=2 ok=False reason=None data={}>
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:583: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:583: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:583: Failed: DID NOT RAISE OSError
+E   Failed: DID NOT RAISE OSError
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:583: Failed: DID NOT RAISE OSError
+E   AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+      usage: sdle [-h] [--project-root PROJECT_ROOT] [--skill-root SKILL_ROOT]
+                  [--workitem WORKITEM] [--session SESSION]
+                  {lint-skill,init,header,resume,validate,config,governance,baseline,discovery,flow,workitem,state,retry,audit,advance,gate,drift,feature,security-review,artifact,limit,checkpoint,confirm,remediate,skip,restart,reset,doctor,accept-state,accept-content,repo-staleness,preflight,scan,clarify,guidance,implement,manifest,lock,sha,constants} ...
+      sdle: error: argument command: invalid choice: 'migrate-workflow' (choose from 'lint-skill', 'init', 'header', 'resume', 'validate', 'config', 'governance', 'baseline', 'discovery', 'flow', 'workitem', 'state', 'retry', 'audit', 'advance', 'gate', 'drift', 'feature', 'security-review', 'artifact', 'limit', 'checkpoint', 'confirm', 'remediate', 'skip', 'restart', 'reset', 'doctor', 'accept-state', 'accept-content', 'repo-staleness', 'preflight', 'scan', 'clarify', 'guidance', 'implement', 'manifest', 'lock', 'sha', 'constants')
+      
+    assert 2 == 0
+     +  where 2 = <Result exit=2 ok=False reason=None data={}>.exit_code
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\conftest.py:144: AssertionError: expected success, got <Result exit=2 ok=False reason=None data={}>
+E   AssertionError: No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.
+    assert 'migrate-workflow --workitem' in 'No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:763: AssertionError: No WorkItem is registered, and a workflow from a retired runtime exists at .workflow/state.json. SDLE does not run or migrate it and leaves it exactly as it is. Start a current WorkItem instead: `workitem create --name <name>`.
+E   AssertionError: assert {'migrate-wor...', 'workitem'} <= frozenset({'b...-skill', ...})
+      
+      Extra items in the left set:
+      'migrate-workflow'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_workitem_runtime.py:803: AssertionError: assert {'migrate-wor...', 'workitem'} <= frozenset({'b...-skill', ...})
+=========================== short test summary info ===========================
+FAILED tests/test_lint_skill.py::test_a_state_field_without_a_migration_row_fires
+FAILED tests/test_units_capabilities.py::test_n8_constants_exposes_the_map - ...
+FAILED tests/test_units_capabilities.py::test_n12_resume_writes_nothing_and_migrates_nothing
+FAILED tests/test_units_capabilities.py::test_n22_migrate_workflow_still_leaves_the_legacy_tree_untouched
+FAILED tests/test_units_capabilities.py::test_n26_every_baseline_check_is_still_present_and_passing
+FAILED tests/test_units_flow_model.py::test_a_v1_15_state_migrates_to_greenfield
+FAILED tests/test_units_flow_model.py::test_the_flow_migration_is_idempotent
+FAILED tests/test_units_flow_model.py::test_the_flow_migration_never_reads_the_governance_record
+FAILED tests/test_units_flow_model.py::test_the_flow_migration_source_names_no_governance_symbol
+FAILED tests/test_units_flow_model.py::test_the_flow_migration_preserves_every_verified_field
+FAILED tests/test_units_flow_model.py::test_a_v1_13_state_migrates_the_whole_chain_and_lands_on_greenfield
+FAILED tests/test_units_flow_model.py::test_the_version_chain_declares_the_flow_row
+FAILED tests/test_units_flow_model.py::test_a_pre_v1_16_state_with_a_hotfix_record_refuses_flow_mismatch
+FAILED tests/test_units_flow_model.py::test_only_init_and_the_migration_write_the_flow_field
+FAILED tests/test_units_flow_model.py::test_constants_reports_every_flow - As...
+FAILED tests/test_units_flow_model.py::test_the_state_schema_did_not_move - K...
+FAILED tests/test_units_gate_policy.py::test_n31_migrate_workflow_still_leaves_the_legacy_tree_untouched
+FAILED tests/test_units_governance.py::test_governance_refuses_when_a_legacy_runtime_is_all_there_is
+FAILED tests/test_units_hardening.py::test_t11_n8_zero_workitems_with_legacy_state_names_both_steps_in_order
+FAILED tests/test_units_hardening.py::test_t11_n7_the_migration_write_sequence_is_exactly_this
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[1]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[2]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[3]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[4]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[5]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[6]
+FAILED tests/test_units_hardening.py::test_t11_n7_an_interruption_at_any_write_point_is_recoverable[7]
+FAILED tests/test_units_hardening.py::test_t11_n7_a_post_commit_interruption_leaves_a_correct_runtime[8]
+FAILED tests/test_units_hardening.py::test_t11_n7_a_post_commit_interruption_leaves_a_correct_runtime[9]
+FAILED tests/test_units_hardening.py::test_t11_n7_a_legacy_only_repository_recovers_in_exactly_two_commands
+FAILED tests/test_units_speckit_binding.py::test_n7_the_legacy_binding_no_longer_resolves_a_feature
+FAILED tests/test_units_speckit_binding.py::test_n8_the_feature_directory_is_derived_from_disk[workitem-workitems/fixture-workitem/specs/001-todo-api]
+FAILED tests/test_units_speckit_binding.py::test_n8_the_feature_directory_is_derived_from_disk[legacy-.specify/specs/001-todo-api]
+FAILED tests/test_units_speckit_binding.py::test_n8_the_feature_directory_is_derived_from_disk[both-workitems/fixture-workitem/specs/001-todo-api]
+FAILED tests/test_units_speckit_binding.py::test_n8_the_feature_directory_is_derived_from_disk[neither-None]
+FAILED tests/test_units_speckit_binding.py::test_n8_a_null_feature_id_migrates_to_an_all_null_object
+FAILED tests/test_units_speckit_binding.py::test_n8_a_state_with_no_speckit_key_is_readable[args1]
+FAILED tests/test_units_speckit_binding.py::test_n8_a_state_with_no_speckit_key_is_readable[args2]
+FAILED tests/test_units_speckit_binding.py::test_n8_a_state_with_no_speckit_key_is_readable[args3]
+FAILED tests/test_units_speckit_binding.py::test_migrated_in_flight_workflow_refuses_its_next_speckit_gate
+FAILED tests/test_units_speckit_binding.py::test_feature_resolve_recovers_a_migrated_workflow_without_drift
+FAILED tests/test_units_state.py::test_migrate_walks_the_whole_chain_from_1_0
+FAILED tests/test_units_state.py::test_migrate_is_idempotent - AssertionError...
+FAILED tests/test_units_state.py::test_migrate_refuses_unknown_version - asse...
+FAILED tests/test_units_state.py::test_migrate_adds_implementation_base_ref
+FAILED tests/test_units_state.py::test_migrate_normalizes_uppercase_shas_from_powershell
+FAILED tests/test_units_state.py::test_migrate_1_8_warns_about_reordered_phases
+FAILED tests/test_units_state.py::test_migrate_1_8_recomputes_progress - Asse...
+FAILED tests/test_units_transitions.py::test_n23_the_migration_adds_the_field_and_is_idempotent
+FAILED tests/test_units_transitions.py::test_n23_the_migration_preserves_every_verified_field
+FAILED tests/test_units_transitions.py::test_n23_an_outstanding_acknowledgement_is_migrated_to_null_deliberately
+FAILED tests/test_units_transitions.py::test_n23_the_version_chain_gained_a_row_and_lost_none
+FAILED tests/test_units_workitem_resolution.py::test_runtime_free_commands_is_a_closed_enumerated_set
+FAILED tests/test_units_workitem_resolution.py::test_workitem_rebinding_happens_only_at_the_declared_sites
+FAILED tests/test_units_workitem_resolution.py::test_the_active_context_is_written_only_by_the_declared_setters
+FAILED tests/test_units_workitem_resolution.py::test_n20_the_usage_error_and_the_resolution_refusal_have_distinct_reasons
+FAILED tests/test_units_workitem_runtime.py::test_rung3_legacy_state_no_longer_binds_and_the_refusal_names_recovery
+FAILED tests/test_units_workitem_runtime.py::test_the_legacy_recovery_path_is_exactly_two_runtime_free_commands
+FAILED tests/test_units_workitem_runtime.py::test_init_never_takes_the_legacy_rung
+FAILED tests/test_units_workitem_runtime.py::test_migrating_a_state_under_a_workitem_binds_that_workitem
+FAILED tests/test_units_workitem_runtime.py::test_migrating_a_state_at_the_legacy_location_leaves_workitem_null
+FAILED tests/test_units_workitem_runtime.py::test_migrate_moves_the_whole_runtime_and_preserves_every_field
+FAILED tests/test_units_workitem_runtime.py::test_migrate_records_evidence_metadata_and_a_target_audit_entry
+FAILED tests/test_units_workitem_runtime.py::test_migrate_refuses_an_unregistered_workitem
+FAILED tests/test_units_workitem_runtime.py::test_migrate_refuses_when_the_target_runtime_already_exists
+FAILED tests/test_units_workitem_runtime.py::test_migrate_refuses_a_corrupt_legacy_state
+FAILED tests/test_units_workitem_runtime.py::test_migrate_refuses_an_unknown_legacy_version
+FAILED tests/test_units_workitem_runtime.py::test_migrate_refuses_a_broken_legacy_audit_chain
+FAILED tests/test_units_workitem_runtime.py::test_a_crash_during_migration_leaves_no_resolvable_target[1]
+FAILED tests/test_units_workitem_runtime.py::test_a_crash_during_migration_leaves_no_resolvable_target[2]
+FAILED tests/test_units_workitem_runtime.py::test_a_crash_during_migration_leaves_no_resolvable_target[3]
+FAILED tests/test_units_workitem_runtime.py::test_a_crash_during_migration_leaves_no_resolvable_target[4]
+FAILED tests/test_units_workitem_runtime.py::test_after_migration_the_workitem_runtime_is_the_one_that_resolves
+FAILED tests/test_units_workitem_runtime.py::test_n17_the_workitem_required_refusal_names_the_recovery_in_order
+FAILED tests/test_units_workitem_runtime.py::test_n25_every_bound_runtime_command_names_a_workitem
+75 failed, 2222 passed in 2200.97s (0:36:40)

@@ -1,0 +1,50 @@
+Live hook smoke — real headless Claude Code 2.1.278 sessions (`claude -p`), Windows 10, Git Bash hooks shell, 2026-09-20.
+Disposable projects under the session scratchpad; hooks installed as copied files + the registration in .claude/settings.json.
+Extracted from the stream-json event logs (full logs stay in the scratchpad; they carry unrelated session-start context).
+
+== A  new registration, launched at project root: Write workitems/.sdle-hook-probe
+   expected: denied by the SDLE write fence, no file created
+   session cwd: ...\livesmoke
+   tool_use: Write {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   tool_result (is_error=True): PreToolUse:Write hook error: SDLE write fence: 'workitems/' is owned by the SDLE engine. The registry (workitems/index.md), each WorkItem's identity (workitem.json) and the WorkItem runtime (workitems/<id>/.sdle/) are written only by scripts/sdle.py -- a hand-edited registry is unrecoverable. Use `w
+
+== B  new registration, Bash `cd workitems/sub` then Write workitems/.sdle-hook-probe-b
+   denied; hook started normally
+   session cwd: ...\livesmoke
+   tool_use: Bash {"command": "mkdir -p workitems/sub && cd workitems/sub && pwd", "description": "Create workitems/sub and print its path"}
+   tool_result (is_error=False): /tmp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/livesmoke/workitems/sub
+   tool_use: Write {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   tool_result (is_error=True): PreToolUse:Write hook error: SDLE write fence: 'workitems/' is owned by the SDLE engine. The registry (workitems/index.md), each WorkItem's identity (workitem.json) and the WorkItem runtime (workitems/<id>/.sdle/) are written only by scripts/sdle.py -- a hand-edited registry is unrecoverable. Use `w
+
+== B-control  OLD registration (0377871), same prompt
+   ALSO denied: an in-call cd does not move the hooks cwd in headless mode, so B does not discriminate old from new
+   session cwd: ...\livesmoke-old
+   tool_use: Bash {"command": "mkdir -p workitems/sub && cd workitems/sub && pwd", "description": "Create workitems/sub and print its path"}
+   tool_result (is_error=False): /tmp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/livesmoke-old/workitems/sub
+   tool_use: Write {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   tool_result (is_error=True): PreToolUse:Write hook error: SDLE write fence: 'workitems/' is owned by the SDLE engine. The registry (workitems/index.md), each WorkItem's identity (workitem.json) and the WorkItem runtime (workitems/<id>/.sdle/) are written only by scripts/sdle.py — a hand-edited registry is unrecoverable. Use `wo
+
+== C-old  OLD registration, session launched from workitems/sub: Write probe-c.txt
+   write allowed: no SDLE hook ran
+   session cwd: ...\livesmoke-old\workitems\sub
+   tool_use: Write {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   tool_result (is_error=None): File created successfully at: C:\Users\Ali\AppData\Local\Temp\claude\D--Learning-AI-sdle-git-repo-sdle-latest\3bef9616-81e4-4f37-9695-beaa5bef8258\scratchpad\livesmoke-old\workitems\sub\probe-c.txt (file state is current in your context — no need to Read it back)
+
+== C-new  NEW registration, session launched from workitems/sub: Write probe-c.txt
+   write allowed: no SDLE hook ran
+   session cwd: ...\livesmoke\workitems\sub
+   tool_use: Write {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   tool_result (is_error=None): File created successfully at: C:\Users\Ali\AppData\Local\Temp\claude\D--Learning-AI-sdle-git-repo-sdle-latest\3bef9616-81e4-4f37-9695-beaa5bef8258\scratchpad\livesmoke\workitems\sub\probe-c.txt (file state is current in your context — no need to Read it back)
+
+== E  scanner degraded (scripts/sdle.py absent): Read requirements/a.md
+   systemMessage reached the user channel
+   session cwd: ...\livesmoke-noengine
+   tool_use: Read {"file_path": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpa
+   system message: PreToolUse:Read says: SDLE untrusted-read could not run (scripts/sdle.py is not in this project), so this tripwire is off for this call. The engine's refusals at its choke points still apply.
+   tool_result (is_error=None): 1	Build a todo API. 2	
+
+== D  logging hook registered by absolute path in the PARENT .claude/settings.json (livehook project)
+   launched at the project root: 1 log entry.  launched from sub/: 0 log entries, the Write succeeded.
+   => project hooks in the parent directory are NOT loaded when Claude Code is launched from a subdirectory.
+
+== Not verified live: python3-only host and no-interpreter case (tests only, via PATH shims); additionalContext reaching the model (only the user-channel systemMessage is visible in the stream); /hooks listing (interactive only); Linux/macOS.

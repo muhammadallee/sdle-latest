@@ -1,7 +1,5 @@
 # Troubleshooting — recovery procedures
 
-**Applies to:** SDLE v1.17
-
 SDLE **refuses; it does not warn.** A refusal is final, it is structured, and it
 names a way out. Nothing in this document is a workaround: every procedure below
 is the intended path.
@@ -30,40 +28,22 @@ do not pattern-match the prose.
 sdle.sh workitem create --name "<name>"
 ```
 
-### 1b. A repository still on the pre-v1.14 runtime
+### 1b. A repository with a retired `.workflow/` runtime
 
 If `data` carries a `legacy_state` path, this repository has a repository-global
-`.workflow/state.json` from before v1.14. As of v1.17 that is **not a runtime**
-— SDLE no longer runs one. Recover in exactly two steps, **in this order**:
+`.workflow/state.json` from a runtime SDLE no longer has. It is **not a runtime**:
+SDLE does not run, migrate or write it, and leaves it exactly as it is. Start a
+current WorkItem instead:
 
 ```bash
 sdle.sh workitem create --name "<name>"
-sdle.sh migrate-workflow --workitem <id>
 ```
 
-Both commands are runtime-free: neither resolves a WorkItem before it runs, so
-neither can be locked out by the very condition you are recovering from.
-
-`migrate-workflow` **never modifies, renames or deletes `.workflow/`.** It is
-left in place, byte for byte, as an archive — whether the migration succeeds,
-refuses, or is interrupted partway through. Re-running an interrupted migration
-is safe.
-
-Migration refusals you may see:
-
-| Reason | Meaning |
-|---|---|
-| `target_exists` | The WorkItem already has a runtime. Migrating would overwrite it |
-| `legacy_state_missing` | There is no `.workflow/state.json` to migrate |
-| `legacy_state_invalid` | The legacy state will not parse. It is not safe to move |
-| `legacy_audit_broken` | The legacy audit chain does not verify. Migrating would import a tampered ledger |
-
-`init` refuses `legacy_workflow_present` while a legacy runtime is on disk.
-That is deliberate: initialising beside it would create a second runtime that
-`migrate-workflow` would then refuse to move.
-
-You can confirm a legacy runtime is still on disk at any time — `sdle.sh
-validate` reports it as `runtime_state_outside_workitem`.
+`workitem create` is runtime-free, so it works in a repository that resolves to
+nothing. `init` refuses `legacy_workflow_present` while the retired runtime is on
+disk, because initialising beside it would create two competing records: remove
+the directory or move it aside first. `sdle.sh validate` reports it as
+`runtime_state_outside_workitem` while WorkItems exist.
 
 ---
 
@@ -318,3 +298,66 @@ guesses.
 Deletions are listed and never read. Binary files are listed as `(binary)`
 and not scanned. Untracked files appear in the manifest and in the
 security-review evidence's `untracked` list, because no diff shows them.
+
+---
+
+## `gate_required` — the gate cannot be omitted
+
+**Exit 1.** `gate omit` was asked to pass a gate that requires a human approval.
+`data.reasons` says under which rule, and there is no flag that overrides it:
+approve the gate, or reject it.
+
+A reason beginning `pinned:` means the gate is required by **the policy this
+WorkItem started under**, not by the policy on disk now. SDLE derives the
+requirement set from both and takes the stricter answer, so relaxing or deleting
+`.sdle/policies/governance-policy.json` part-way through a run cannot drop a gate
+it required at the start (ADR-011). `data.pinned_policy_sha256` identifies that
+policy, and `data.policy` the live one.
+
+- To pass the gate, approve it. That is always permitted and always the stricter
+  choice.
+- To work under a genuinely different policy, start a new WorkItem; its pin is
+  taken when it is first assessed.
+- `sdle.sh gate show --gate <key>` reports the same `required` and
+  `requirement_reasons` the refusal used, so the two can never disagree.
+
+---
+
+## `unsupported_state_version` — a state SDLE does not read
+
+**Exit 1.** A WorkItem's `state.json` was written under a state schema other than
+the one this SDLE reads (`data.workflow_version` against `data.supported`). SDLE
+never upgrades, reinterprets or resets such a file: every command that
+interprets state refuses and the file is left exactly as it is.
+
+- To look at it, use `sdle.sh state get` (a stored field, as written) or
+  `sdle.sh audit verify` (the ledger's hash chain). Neither interprets the state,
+  so both read any version; `state dump` and `doctor` refuse, because they would
+  apply this version's flow and phase rules to another version's file.
+- To continue the work, start a current WorkItem: `sdle.sh workitem create --name "<name>"`.
+
+---
+
+## Hooks that do not fire
+
+The guard hooks are tripwires: they stop a write to a governed path, warn on
+untrusted content and unpinned implementation work, and scan for secrets. The
+engine's own refusals still apply when they are off, but you want them on. Check
+with the probe in [GETTING-STARTED.md](../GETTING-STARTED.md#10-check-that-the-hooks-fire-before-start-workflow):
+ask Claude to write `workitems/.sdle-hook-probe`. It must be refused with a message
+beginning `SDLE write fence:`, and the file must not exist. (Claude Code labels a
+deliberate refusal `PreToolUse:Write hook error: SDLE write fence: …`; that is a
+working hook, not a broken one.)
+
+If the write succeeds:
+
+| Cause | Check | Fix |
+|---|---|---|
+| Claude Code was launched from a subdirectory | `pwd` when you ran `claude` | Project hooks load only from the launch directory. Relaunch from the project root, the directory that holds `.claude/settings.json` |
+| No POSIX `sh` | `sh -c 'echo ok'` | Install Git for Windows (Windows) or a POSIX shell |
+| `run-hook.sh` or `hooks.py` missing | `ls .claude/hooks` | Copy them again from the SDLE source |
+| Hooks not registered | `.claude/settings.json` has no `run-hook.sh` entries | Add SDLE's entries (the merge snippet in the guide) |
+| No Python 3.11+ | run the direct hook check in the guide | Install Python 3.11+, or `uv`. With no interpreter the fences deny and the scanners warn out loud, so this is visible rather than silent |
+
+If a tool call fails with `PreToolUse … hook error` and a Python or "no such file"
+message instead of an SDLE message, a hook could not start: re-copy the hook files.

@@ -1,0 +1,49 @@
+{
+  "run_id": "20260920T163559-p06-checks",
+  "result": "PASS",
+  "label": "p06-checks",
+  "task_ids": [
+    "P06"
+  ],
+  "ac_ids": [
+    "AC-08",
+    "AC-13",
+    "AC-15",
+    "AC-18"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_units_install_contract.py",
+    "tests/test_units_doc_links.py",
+    "tests/test_units_shipped_surface.py",
+    "tests/test_units_documented_commands.py",
+    "tests/test_lint_skill.py"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "5cc891a122e349f49f361d82b1b0a05e21ca55c1",
+  "content_fingerprint": "9349a49011c74bf62f2c43525a5a47a12a50646800ae716ee4836727fb1c1e4e",
+  "manifest_paths": 6,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T16:35:59Z",
+  "runner_pid": 34120,
+  "stdout": "20260920T163559-p06-checks.stdout.log",
+  "stderr": "20260920T163559-p06-checks.stderr.log",
+  "note": "",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 439
+  },
+  "finished_utc": "2026-09-20T16:36:23Z",
+  "fingerprint_unchanged_during_run": true
+}

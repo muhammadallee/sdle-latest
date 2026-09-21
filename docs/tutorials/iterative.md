@@ -1,7 +1,5 @@
 # Tutorial — `ITERATIVE`: the second WorkItem in the same repository
 
-**Applies to:** SDLE v1.17
-
 **16 phases, 7 gates.** Use this flow in a repository that already has a valid
 baseline — which, in practice, means every WorkItem after the first one.
 

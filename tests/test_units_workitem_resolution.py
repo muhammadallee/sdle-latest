@@ -1363,7 +1363,7 @@ def test_the_active_context_is_ignored_by_git(bare_project):
 
 def test_runtime_free_commands_is_a_closed_enumerated_set():
     assert sdle.RUNTIME_FREE_COMMANDS == frozenset({
-        "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
+        "lint-skill", "sha", "constants", "workitem",
         "validate",
         # T05: repository-level configuration is owned by the repository, so
         # contract §11 requires it to resolve with no WorkItem bound.
@@ -1455,7 +1455,6 @@ def test_workitem_rebinding_happens_only_at_the_declared_sites():
         "candidate_evidence",
         "collect_validation_findings",
         "_validate_runtime_state",
-        "cmd_migrate_workflow",
     }
 
 
@@ -1473,8 +1472,8 @@ def test_the_active_context_is_written_only_by_the_declared_setters(
                     and getattr(node.func, "id", None) in {
                         "write_active_context", "clear_active_context"}):
                 writers.add(fn.name)
-    assert writers == {"cmd_init", "cmd_migrate_workflow", "cmd_workitem_use"}
-    assert sdle.ACTIVE_CONTEXT_SETTERS == ("init", "use", "migrate-workflow")
+    assert writers == {"cmd_init", "cmd_workitem_use"}
+    assert sdle.ACTIVE_CONTEXT_SETTERS == ("init", "use")
 
     # T11 D9 / X5: the value is unchanged, but the constant is no longer
     # documentary. `write_active_context` now enforces it, so a fourth writer
@@ -1511,10 +1510,6 @@ def test_n20_the_usage_error_and_the_resolution_refusal_have_distinct_reasons(
     missing_flag = bare_project.run("workitem", "use")
     assert missing_flag.exit_code == EXIT_USAGE, missing_flag
     assert missing_flag.reason == "workitem_flag_required", missing_flag
-
-    migrate_flag = bare_project.run("migrate-workflow")
-    assert migrate_flag.exit_code == EXIT_USAGE, migrate_flag
-    assert migrate_flag.reason == "workitem_flag_required", migrate_flag
 
     # And the resolution refusal keeps `workitem_required` at exit 1.
     create_wi(bare_project, "Bravo")

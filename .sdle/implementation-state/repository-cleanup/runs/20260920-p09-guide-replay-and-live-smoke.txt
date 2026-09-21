@@ -1,0 +1,26 @@
+P09 - clean-install replay of docs/GETTING-STARTED.md and a live hook smoke, on post-review HEAD d4627da
+environment: Windows 10, Git Bash (bash.exe), Python 3.13.0, Git 2.46, uv 0.9.16, Claude Code 2.1.278, 2026-09-20
+
+1. Empty target (scratchpad p09-clean-target): the 13 bash blocks of sections 1-8, extracted from the guide by
+   replay_guide.py and run unedited apart from the two path variables, including the pinned Spec Kit v1.0.6
+   `uvx ... specify init` (network) and the section 8 readiness commands.
+     blocks run: 13 | exit code: 0
+     inventory rows checked: 13 | required/recommended paths missing: [] | paths that must be absent but exist: []
+     workitems exists: False (as the guide says: start workflow creates it)
+2. Existing project (p09-existing-target): a Git repo with a commit, its own .claude/settings.json (one permission,
+   one own Bash hook), CLAUDE.md, .gitignore and src/app.py; the same 13 blocks run into it.
+     exit code: 0 | inventory: nothing missing, nothing forbidden present
+     CLAUDE.md and src/app.py byte-identical (sha256 before/after)
+     settings.json: permissions kept ['Bash(ls)'], own hook kept, 4 SDLE launcher registrations added
+     .gitignore: node_modules/ kept, the three developer-local lines appended
+3. PowerShell forms: runs/20260920-p08-ps-guide-replay.txt (pwsh 7, earlier HEAD; the guide's PowerShell blocks are
+   unchanged since). Not re-run at d4627da.
+4. Live hook smoke, real headless Claude Code (`claude -p --allowedTools Write`), launched at the root of the
+   clean target installed in (1):
+     Write workitems/x/.sdle/state.json -> tool_result is_error=True:
+       "PreToolUse:Write hook error: SDLE write fence: 'workitems/' is owned by the SDLE engine. ..."
+       (no workitems/ directory exists afterwards)
+     Write smoke-ok.txt (control)       -> "File created successfully ..." (file exists)
+   Only the write fence was exercised in this session. The scanners' degraded-state messages were observed live in
+   P02 (runs/20260920-p02-t04-live-smoke.txt, case E) on the earlier hook code.
+not run: a full `start workflow` conversation; the interactive /hooks listing; Linux; macOS; Python 3.11.

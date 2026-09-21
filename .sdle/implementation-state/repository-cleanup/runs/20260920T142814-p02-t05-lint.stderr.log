@@ -1,0 +1,45 @@
+[PASS] tables_wellformed: Parsed 21 phases, 8 gates, 17 migration rows.
+[PASS] phase_set_matches_next_phase: identical to PHASE_SEQUENCE
+[PASS] phase_set_matches_phase_label_map: identical to PHASE_SEQUENCE
+[PASS] phase_set_matches_progress_map: identical to the GREENFIELD flow
+[PASS] next_phase_chains_sequence: chains PHASE_SEQUENCE in order
+[PASS] progress_denominator_matches_phase_count: denominators=['18'] expected={18}
+[PASS] gate_registered_gate_constitution: registered everywhere
+[PASS] gate_registered_gate_spec: registered everywhere
+[PASS] gate_registered_gate_plan: registered everywhere
+[PASS] gate_registered_gate_tasks: registered everywhere
+[PASS] gate_registered_gate_analyze: registered everywhere
+[PASS] gate_registered_gate_design: registered everywhere
+[PASS] gate_registered_gate_implement: registered everywhere
+[PASS] gate_registered_gate_security: registered everywhere
+[PASS] every_phase_has_execution_block: all present
+[PASS] execution_block_numbers_are_the_greenfield_positions: all 17 block ordinals are GREENFIELD positions
+[PASS] flow_table_covers_the_required_flows: 5 flows: ['BROWNFIELD_DISCOVERY', 'DEFECT_FIX', 'GREENFIELD', 'HOTFIX', 'ITERATIVE']
+[PASS] every_flow_is_an_ordered_subset_of_the_registry: 5 flows are ordered subsets of PHASE_SEQUENCE
+[PASS] every_flow_retains_the_mandatory_phases: every flow keeps all 10 mandatory phases
+[PASS] progress_map_and_gate_numbers_are_the_derived_greenfield_views: PROGRESS_MAP and the gate-number column match GREENFIELD
+[PASS] every_registry_phase_is_used_by_some_flow: every registry phase is named by at least one flow
+[PASS] gate_labels_are_flow_relative: all 8 gate labels are flow-relative
+[PASS] capability_map_covers_every_registry_phase: all 21 registry phases have a row
+[PASS] every_capability_file_exists: all 5 named capability files exist
+[PASS] capability_map_never_names_the_orchestrator: SKILL.md is the always-loaded orchestrator, never a capability
+[PASS] every_capability_file_is_linted: 5 capability files, all linted, no orphan module
+[PASS] every_row_is_a_strict_subset_of_the_capability_set: every row is a strict subset of the 5 capabilities
+[PASS] capability_cross_references_are_mapped_files: every capability cross-reference resolves and is itself mapped
+[PASS] product_agents_are_read_only: all 4 product agents grant only ['Read', 'Grep', 'Glob']
+[PASS] product_agents_declare_the_fence: all 4 product agents fence ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell']
+[PASS] product_agents_declare_the_non_approval_clause: all 4 product agents carry the invariant-8 clause
+[PASS] discovery_is_gateless: no gate machinery names the discovery phase
+[PASS] discovery_is_declared_by_exactly_one_flow: BROWNFIELD_DISCOVERY is its only carrier
+[PASS] discovery_vocabulary_is_not_restated_in_prompt_files: none of the 13 vocabulary identifiers appears in a prompt file
+[PASS] single_state_template: templates/state.json is the only host
+[PASS] version_string_consistent: all 14 locations report v1.17
+[PASS] migration_covers_every_state_field: every field has a migration row
+[PASS] no_powershell_only_cmdlets: none found
+[PASS] no_hardcoded_progress_outside_progress_map: none found
+[PASS] doc_lists_every_phase_README: all phases present
+[PASS] doc_lists_every_phase_SDLE-Reference-Guide: all phases present
+[PASS] doc_flow_counts_match_engine: 25 stated flow count(s) equal the engine's
+[PASS] documentation_set_is_present: all 9 documentation targets present
+[PASS] documentation_index_links_every_directory: every documentation directory is linked from the index
+[PASS] repo_config_defaults_match_documentation: 1 documented configuration block(s) equal REPO_CONFIG_DEFAULTS

@@ -3,10 +3,9 @@
 Contract §8 moves every piece of active workflow runtime state out of the
 repository-global `.workflow/` and under the active WorkItem. What is pinned
 here is the pair of exit criteria — no repository-global runtime state, and the
-18-phase lifecycle passing independently for two WorkItems — plus the machinery
-that makes them true: the resolution ladder, the `workitem` state field and its
-migration, execution identity, `migrate-workflow`, and the guardrails whose
-path assumptions moved.
+lifecycle passing independently for two WorkItems — plus the machinery that
+makes them true: the resolution ladder, the `workitem` state field, execution
+identity, and the guardrails whose path assumptions moved.
 
 The ladder tests deliberately build their own project state from
 `bare_project` rather than the shared `project` fixture. The shared fixture
@@ -18,16 +17,13 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 import re
-import shutil
 
 import pytest
 
 from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
-from test_units_artifact_review import review_for_gate
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -213,8 +209,7 @@ def test_rung3_legacy_state_no_longer_binds_and_the_refusal_names_recovery(
     assert result.reason == "workitem_required", result
     message = result.envelope["message"]
     assert "workitem create" in message
-    assert "migrate-workflow" in message
-    assert message.index("workitem create") < message.index("migrate-workflow")
+    assert "migrate-workflow" not in message
     assert result.data["legacy_state"].replace("\\", "/").endswith(
         ".workflow/state.json"), result.data
     # Nothing was created and the legacy runtime was not touched.
@@ -222,24 +217,17 @@ def test_rung3_legacy_state_no_longer_binds_and_the_refusal_names_recovery(
     assert (bare_project.root / ".workflow" / "state.json").is_file()
 
 
-def test_the_legacy_recovery_path_is_exactly_two_runtime_free_commands(
-    bare_project,
-):
-    """T11 A4/F1, through the real CLI. Both recovery commands must remain
-    invocable in a repository that resolves to nothing, or removing the rung
-    would brick it — which is the one outcome §17's gate forbids."""
+def test_the_legacy_recovery_is_one_runtime_free_command(bare_project):
+    """A repository whose only runtime is a retired `.workflow/` resolves to
+    nothing, so the one command that recovers it, `workitem create`, must be
+    invocable there. The legacy runtime is left exactly as it was."""
     legacy_state(bare_project, project_name="Legacy Project")
+    before = (bare_project.root / ".workflow" / "state.json").read_bytes()
 
     created = bare_project.ok("workitem", "create", "--name", "Recovered")
-    wid = created.data["id"]
-    assert bare_project.ok("migrate-workflow", "--workitem", wid).data["to"] == (
-        f"workitems/{wid}/.sdle"
-    )
 
-    bound = bare_project.as_workitem(wid)
-    assert bound.ok("state", "get", "--field", "project_name").data["value"] == (
-        "Legacy Project"
-    )
+    assert created.data["id"]
+    assert (bare_project.root / ".workflow" / "state.json").read_bytes() == before
 
 
 def test_rung4_no_workitem_and_no_legacy_state_is_refused(bare_project):
@@ -292,7 +280,8 @@ def test_init_never_takes_the_legacy_rung(bare_project):
     result = bare_project.run("init", session="s")
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "legacy_workflow_present"
-    assert "migrate-workflow" in result.envelope["message"]
+    assert "migrate-workflow" not in result.envelope["message"]
+    assert "workitem create" in result.envelope["message"]
 
 
 def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project):
@@ -310,7 +299,7 @@ def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project)
 
 
 # ==========================================================================
-# State schema and the migration chain (plan D6)
+# The shipped state template
 # ==========================================================================
 
 
@@ -322,290 +311,6 @@ def test_the_shipped_template_is_1_17_and_carries_the_workitem_field(bare_projec
     assert template["workflow_version"] == "1.17"
     assert template["workitem"] is None
     assert list(template)[:2] == ["workflow_version", "workitem"]
-
-
-def test_migrating_a_state_under_a_workitem_binds_that_workitem(project):
-    project.ok("init", session="s")
-    state = project.state()
-    state["workflow_version"] = "1.13"
-    del state["workitem"]
-    project.write_state(state)
-
-    result = project.ok("migrate", session="s")
-
-    assert result.data["steps"] == ["1.13->1.14", "1.14->1.15",
-                                    "1.15->1.16", "1.16->1.17"]
-    assert project.state()["workitem"] == FIXTURE_WORKITEM_ID
-
-
-def test_migrating_a_state_at_the_legacy_location_leaves_workitem_null(bare_project):
-    planted = legacy_state(bare_project, workflow_version="1.13")
-    del planted["workitem"]
-    (bare_project.root / ".workflow" / "state.json").write_text(
-        json.dumps(planted, indent=2) + "\n", encoding="utf-8", newline="\n"
-    )
-
-    # T11 D1: `migrate` is not RUNTIME_FREE, so it can no longer reach a state
-    # file at the legacy location at all — there is nothing there to bind.
-    refused = bare_project.run("migrate")
-    assert refused.exit_code == EXIT_REFUSED, refused
-    assert refused.reason == "workitem_required", refused
-
-    # The 1.13 -> 1.14 rule itself is unchanged and still reachable: a state
-    # whose file does not live under a WorkItem keeps `workitem: null`. It is
-    # asserted against the migration chain directly, which is where the rule
-    # lives, and then end-to-end through `migrate-workflow` — the only route a
-    # legacy state has left.
-    paths = sdle.resolve_paths(str(bare_project.root),
-                               str(bare_project.skill_root))
-    state = dict(planted)
-    steps = sdle.migrate_state(state, paths, sdle.load_constants(paths))
-    assert "1.13->1.14" in steps, steps
-    assert state["workflow_version"] == "1.17"
-    assert state["workitem"] is None
-
-    wid = create_wi(bare_project, "Recovered").data["id"]
-    moved = bare_project.ok("migrate-workflow", "--workitem", wid)
-    assert moved.data["to"] == f"workitems/{wid}/.sdle"
-    migrated = json.loads(
-        (bare_project.root / "workitems" / wid / ".sdle" / "state.json")
-        .read_text(encoding="utf-8")
-    )
-    assert migrated["workflow_version"] == "1.17"
-    assert migrated["workitem"] == wid, (
-        "once it lives under a WorkItem the field names it")
-
-
-# ==========================================================================
-# migrate-workflow (plan D8, contract §20)
-# ==========================================================================
-
-
-def legacy_workflow(bare_project: Project, workitem: str = "Wi A") -> str:
-    """Stand up a genuine pre-T02 repository, then register the target WorkItem.
-
-    A v1.14 engine can no longer *create* a repository-global runtime — that is
-    C4/D2 — so the fixture builds a real one under a throwaway WorkItem, moves
-    it to `.workflow/`, erases every trace of the WorkItem layer, and winds the
-    state file back to a v1.13 shape with no `workitem` field. The audit ledger
-    moves byte-for-byte, so `audit_sha` still matches and the migration path
-    is exercised against a ledger that genuinely verifies.
-    """
-    seed = bare_project.as_workitem(create_wi(bare_project, "Legacy Seed").data["id"])
-    seed.ok("init", session="legacy")
-    bare_project.write_artifact(".specify/memory/constitution.md")
-    seed.record_governance()  # T06: E1 guards the seed run's advances.
-    seed.ok("advance", "--to", "gate_constitution", session="legacy")
-    review_for_gate(seed, "gate_constitution")  # T06: E2 guards the seed run.
-    seed.ok("gate", "approve", "--gate", "gate_constitution", session="legacy")
-
-    shutil.move(str(seed.runtime), str(bare_project.root / ".workflow"))
-    shutil.rmtree(bare_project.root / "workitems")
-
-    path = bare_project.root / ".workflow" / "state.json"
-    state = json.loads(path.read_text(encoding="utf-8"))
-    state["workflow_version"] = "1.13"
-    state.pop("workitem", None)
-    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8",
-                    newline="\n")
-
-    return create_wi(bare_project, workitem).data["id"]
-
-
-def legacy_digests(bare_project: Project) -> dict[str, str]:
-    out = {}
-    for path in sorted((bare_project.root / ".workflow").rglob("*")):
-        if path.is_file():
-            out[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return out
-
-
-def test_migrate_moves_the_whole_runtime_and_preserves_every_field(bare_project):
-    wid = legacy_workflow(bare_project)
-    legacy_state_before = json.loads(
-        (bare_project.root / ".workflow" / "state.json").read_text(encoding="utf-8")
-    )
-    before = legacy_digests(bare_project)
-
-    result = bare_project.ok("migrate-workflow", "--workitem", wid)
-
-    target = bare_project.root / "workitems" / wid / ".sdle"
-    migrated = json.loads((target / "state.json").read_text(encoding="utf-8"))
-
-    for field in (
-        "current_phase", "status", "progress", "approvals", "artifact_shas",
-        "rate_limits", "attempt_counts", "implementation_base_ref",
-        "phase_history", "project_name",
-    ):
-        assert migrated[field] == legacy_state_before[field], field
-    # v1.15 replaced the flat `current_feature_id` with the `specKit` object,
-    # so the object is what has to survive the move now — and the old flat
-    # field must be gone rather than mirrored.
-    assert "current_feature_id" not in migrated
-    assert migrated["specKit"] == legacy_state_before["specKit"]
-    assert migrated["workitem"] == wid
-    assert migrated["workflow_version"] == "1.17"
-
-    assert (target / "audit.md").is_file()
-    assert (target / "execution.json").is_file()
-    assert result.data["legacy_preserved"] is True
-    assert result.data["to"] == f"workitems/{wid}/.sdle"
-
-    # The migrated ledger verifies at its new home.
-    bound = bare_project.as_workitem(wid)
-    assert bound.ok("audit", "verify").data["matches"] is True
-
-    # Contract §8.7/§8.9: the legacy runtime is byte-for-byte untouched.
-    assert legacy_digests(bare_project) == before
-
-
-def test_migrate_records_evidence_metadata_and_a_target_audit_entry(bare_project):
-    wid = legacy_workflow(bare_project)
-    legacy_sha = None
-
-    result = bare_project.ok("migrate-workflow", "--workitem", wid)
-    execution_id = result.data["execution_id"]
-    target = bare_project.root / "workitems" / wid / ".sdle"
-
-    evidence = list((target / "evidence").glob("migration-*.json"))
-    assert len(evidence) == 1
-    facts = json.loads(evidence[0].read_text(encoding="utf-8"))
-    assert facts["executionId"] == execution_id
-    assert facts["migratedFrom"] == ".workflow"
-    assert facts["legacyStateSha"] == result.data["legacy_state_sha"]
-    assert facts["legacyAuditSha"] == result.data["legacy_audit_sha"]
-    legacy_sha = facts["legacyStateSha"]
-
-    metadata = json.loads(
-        (bare_project.root / "workitems" / wid / "workitem.json")
-        .read_text(encoding="utf-8")
-    )
-    assert metadata["id"] == wid  # identity untouched
-    assert metadata["migration"]["executionId"] == execution_id
-    assert metadata["migration"]["legacyStateSha"] == legacy_sha
-    assert metadata["migration"]["migratedFrom"] == ".workflow"
-
-    entries = (target / "audit.md").read_text(encoding="utf-8")
-    assert entries.rstrip().endswith("**Prev:** " + _last_prev(entries))
-    assert "workflow_migrated" in entries.split("## AUDIT")[-1]
-
-
-def _last_prev(text: str) -> str:
-    return text.rstrip().rsplit("**Prev:** ", 1)[1].strip()
-
-
-def test_migrate_refuses_an_unregistered_workitem(bare_project):
-    legacy_workflow(bare_project)
-    result = bare_project.run("migrate-workflow", "--workitem", "nope")
-    assert result.exit_code == EXIT_REFUSED, result
-    assert result.reason == "workitem_unknown"
-    assert "workitem create" in result.envelope["message"]
-    assert not (bare_project.root / "workitems" / "nope").exists()
-
-
-def test_migrate_refuses_when_the_target_runtime_already_exists(bare_project):
-    wid = legacy_workflow(bare_project)
-    bare_project.ok("migrate-workflow", "--workitem", wid)
-    before = legacy_digests(bare_project)
-
-    result = bare_project.run("migrate-workflow", "--workitem", wid)
-
-    assert result.exit_code == EXIT_REFUSED, result
-    assert result.reason == "target_exists"
-    assert legacy_digests(bare_project) == before
-
-
-def test_migrate_refuses_a_corrupt_legacy_state(bare_project):
-    wid = legacy_workflow(bare_project)
-    (bare_project.root / ".workflow" / "state.json").write_text(
-        '{"workflow_version": "1.1', encoding="utf-8"
-    )
-
-    result = bare_project.run("migrate-workflow", "--workitem", wid)
-
-    assert result.exit_code == EXIT_INTEGRITY, result
-    assert result.reason == "legacy_state_invalid"
-    assert not (bare_project.root / "workitems" / wid / ".sdle").exists()
-
-
-def test_migrate_refuses_an_unknown_legacy_version(bare_project):
-    wid = legacy_workflow(bare_project)
-    path = bare_project.root / ".workflow" / "state.json"
-    state = json.loads(path.read_text(encoding="utf-8"))
-    state["workflow_version"] = "9.9"
-    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-
-    result = bare_project.run("migrate-workflow", "--workitem", wid)
-
-    assert result.exit_code == EXIT_INTEGRITY, result
-    assert result.reason == "legacy_state_invalid"
-    assert not (bare_project.root / "workitems" / wid / ".sdle").exists()
-
-
-def test_migrate_refuses_a_broken_legacy_audit_chain(bare_project):
-    wid = legacy_workflow(bare_project)
-    audit = bare_project.root / ".workflow" / "audit.md"
-    audit.write_text(
-        audit.read_text(encoding="utf-8").replace("workflow_initialized", "tampered"),
-        encoding="utf-8",
-    )
-    before = legacy_digests(bare_project)
-
-    result = bare_project.run("migrate-workflow", "--workitem", wid)
-
-    assert result.exit_code == EXIT_REFUSED, result
-    assert result.reason == "legacy_audit_broken"
-    assert "audit rebaseline" in result.envelope["message"]
-    assert not (bare_project.root / "workitems" / wid / ".sdle" / "state.json").exists()
-    assert legacy_digests(bare_project) == before
-
-
-@pytest.mark.parametrize("fail_after", [1, 2, 3, 4])
-def test_a_crash_during_migration_leaves_no_resolvable_target(
-    bare_project, monkeypatch, fail_after
-):
-    """The target state.json is written last and is the sole commit marker, so
-    an interruption anywhere leaves the legacy runtime authoritative and a
-    re-run safe."""
-    wid = legacy_workflow(bare_project)
-    before = legacy_digests(bare_project)
-
-    real = sdle.write_atomic
-    calls = {"n": 0}
-
-    def flaky(path, text):
-        calls["n"] += 1
-        if calls["n"] > fail_after:
-            raise OSError("simulated interruption")
-        return real(path, text)
-
-    monkeypatch.setattr(sdle, "write_atomic", flaky)
-    with pytest.raises(OSError):
-        bare_project.run("migrate-workflow", "--workitem", wid)
-    monkeypatch.setattr(sdle, "write_atomic", real)
-
-    target = bare_project.root / "workitems" / wid / ".sdle"
-    assert not (target / "state.json").exists()
-    assert legacy_digests(bare_project) == before
-
-    # Legacy still resolves (rung 3 is unreachable now that a WorkItem exists,
-    # so bind explicitly) and the re-run completes.
-    assert bare_project.ok("migrate-workflow", "--workitem", wid).exit_code == EXIT_OK
-    assert (target / "state.json").is_file()
-    assert legacy_digests(bare_project) == before
-
-
-def test_after_migration_the_workitem_runtime_is_the_one_that_resolves(bare_project):
-    wid = legacy_workflow(bare_project)
-    bare_project.ok("migrate-workflow", "--workitem", wid)
-
-    bound = bare_project.as_workitem(wid)
-    assert bound.ok("state", "get", "--field", "workitem").data["value"] == wid
-    # Sole registered WorkItem: rung 2 binds it with no flag, and the legacy
-    # dual-read rung is unreachable because a WorkItem now exists.
-    unflagged = bare_project.run("state", "get", "--field", "workitem")
-    assert unflagged.exit_code == EXIT_OK, unflagged
-    assert unflagged.data["value"] == wid
 
 
 # ==========================================================================
@@ -760,8 +465,7 @@ def test_n17_the_workitem_required_refusal_names_the_recovery_in_order(
     assert result.reason == "workitem_required", result
     message = result.envelope["message"]
     assert "workitem create" in message, message
-    assert "migrate-workflow --workitem" in message, message
-    assert message.index("workitem create") < message.index("migrate-workflow")
+    assert "migrate-workflow" not in message, message
     assert result.data["workitems"] == []
     assert result.data["legacy_state"].replace("\\", "/").endswith(
         ".workflow/state.json"), result.data
@@ -798,9 +502,9 @@ def test_n25_every_bound_runtime_command_names_a_workitem(bare_project):
     assert sdle.RUNTIME_FREE_COMMANDS <= registered, (
         sdle.RUNTIME_FREE_COMMANDS - registered)
 
-    # Both recovery steps must stay RUNTIME_FREE, or removing the rung would
-    # brick a legacy-only repository (F1).
-    assert {"workitem", "migrate-workflow"} <= sdle.RUNTIME_FREE_COMMANDS
+    # The recovery command must stay RUNTIME_FREE, or a legacy-only repository
+    # could not create the WorkItem that replaces it.
+    assert "workitem" in sdle.RUNTIME_FREE_COMMANDS
 
     bound_commands = sorted(registered - sdle.RUNTIME_FREE_COMMANDS)
     assert bound_commands, "some command must still bind"

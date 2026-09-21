@@ -1,7 +1,5 @@
 # Tutorial — the full tour: everything you can configure
 
-**Applies to:** SDLE v1.17
-
 **`GREENFIELD`, 18 phases, 8 gates.** This is the same flow as
 [greenfield.md](greenfield.md), walked a second time with every knob turned. If
 you want the shortest path through a new project, read that one. Read this one
@@ -47,7 +45,6 @@ $ sdle.sh config show
     "members": {
       "config": ".sdle/config.json",
       "policies": ".sdle/policies",
-      "templates": ".sdle/templates",
       "baseline": ".sdle/baseline.json",
       "implementation_state": ".sdle/implementation-state"
     }
@@ -77,7 +74,6 @@ $ sdle.sh config init
     },
     "created": [
       ".sdle/policies/.gitkeep",
-      ".sdle/templates/.gitkeep",
       ".sdle/implementation-state/.gitkeep",
       ".sdle/config.json"
     ]

@@ -1,0 +1,35 @@
+...F.................................................................... [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 33%]
+........................................................................ [ 44%]
+........................................................................ [ 55%]
+........................................................................ [ 66%]
+........................................................................ [ 77%]
+........................................................................ [ 88%]
+..................................................................F..... [ 99%]
+......                                                                   [100%]
+================================== FAILURES ===================================
+____________ test_no_tracked_shipped_file_carries_a_developer_path ____________
+tests\test_units_shipped_surface.py:69: in test_no_tracked_shipped_file_carries_a_developer_path
+    assert offenders == {}, offenders
+E   AssertionError: {'.claude/hooks/hooks.py': ['C:/proj/']}
+E   assert {'.claude/hoo... ['C:/proj/']} == {}
+E     
+E     Left contains 1 more item:
+E     {'.claude/hooks/hooks.py': ['C:/proj/']}
+E     Use -v to get more diff
+_ test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point[.gitignore] _
+tests\test_units_gate_policy.py:1348: in test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point
+    assert here(relative) == original, relative
+E   AssertionError: .gitignore
+E   assert '.workflow/\n....local.json\n' == '.workflow/\n...ontext.json\n'
+E     
+E     Skipping 131 identical leading characters in diff, use -v to show
+E       ntext.json
+E     + 
+E     + # Developer-local Claude Code settings: per-developer, never shipped or installed
+E     + .claude/settings.local.json
+=========================== short test summary info ===========================
+FAILED tests/test_units_shipped_surface.py::test_no_tracked_shipped_file_carries_a_developer_path
+FAILED tests/test_units_gate_policy.py::test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point[.gitignore]
+2 failed, 652 passed in 405.78s (0:06:45)

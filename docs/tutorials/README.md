@@ -1,6 +1,6 @@
 # Tutorials — pick a flow, then walk it
 
-**Applies to:** SDLE v1.17
+**Setup is not repeated here.** Install and launch as [../GETTING-STARTED.md](../GETTING-STARTED.md) describes, then follow the tutorial for the flow you need. Each one covers only what differs.
 
 Six walkthroughs, one per flow plus a tour of everything you can configure.
 Every command and every JSON response in them was produced by running the real

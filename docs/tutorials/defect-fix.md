@@ -1,7 +1,5 @@
 # Tutorial — `DEFECT_FIX`: a bug, with time to do it properly
 
-**Applies to:** SDLE v1.17
-
 **14 phases, 6 gates.** Use this flow when something is broken, you know it is
 broken, and you are not in an incident. If you *are* in an incident, read
 [hotfix.md](hotfix.md) instead — the difference is not urgency in the abstract,

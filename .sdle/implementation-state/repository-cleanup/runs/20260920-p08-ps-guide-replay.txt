@@ -1,0 +1,25 @@
+P08 - PowerShell forms of the getting-started guide, replayed from the guide's own text
+environment: Windows 10, PowerShell 7 (pwsh), Python 3.13, Git 2.46, run 2026-09-20
+method: scratchpad/ps_guide_extract.py pulls the ```powershell blocks of sections 1, 5 and 6 out of
+docs/GETTING-STARTED.md; section 1's two path variables were pointed at this checkout and a temp
+directory, section 3's `git init` added, and an existing .claude/settings.json (one permission, one
+own Bash hook) seeded before the merge block. The generated script ran with ErrorActionPreference=Stop.
+
+result (all lines printed by the run):
+  own permissions kept: Bash(ls)
+  own hook kept: True
+  sdle launchers registered: 4
+  gitignore: workitems/*/.sdle/lock | workitems/.active-context.json
+  requirements: todo-api.md
+  constants ok: True                       (.\scripts\sdle.ps1 constants)
+  preflight: ok=False reason=workitem_required   (expected on a project with no WorkItem)
+  untracked files: 28
+An earlier run of the merge block a second time left .claude/settings.json byte-identical.
+
+findings while doing it:
+  - `sh` is not on the PowerShell PATH on this machine (Claude Code finds Git Bash's sh itself), so the
+    guide's hook check cannot be run bare from PowerShell; the guide now says to run that one command
+    from Git Bash.
+  - the guide had no PowerShell way to merge into an existing settings.json (CX-001 of the docs area);
+    it now has one.
+not run: Windows PowerShell 5.1; the PowerShell form of the Spec Kit installer (--script ps).

@@ -6,21 +6,34 @@ them inspect the payload and stay silent when it does not concern them; the
 fifth, `product-agent-fence`, denies everything it is registered for, and the
 difference is explained where it is defined.
 
-Written in Python rather than sh for two reasons. First, `sh` does not resolve
-on Windows outside Git Bash, so shell hooks silently never fired on the
-platform SDLE ships on -- a guardrail that does not run is not a guardrail.
-Second, the shell versions had to restate sdle.py's injection and secret
-patterns, forking a fact that is supposed to live in exactly one place
-(invariant 7). These import them instead.
+Written in Python rather than sh for two reasons. First, a shell hook has to
+restate the engine's injection and secret patterns, forking a fact that lives
+in exactly one place (invariant 7); these import them instead. Second, one
+implementation behaves the same on Windows and POSIX. `run-hook.sh` resolves an
+interpreter the way the engine launchers do and runs this file; the
+registration in `.claude/settings.json` and in each product agent's frontmatter
+names that launcher through `${CLAUDE_PROJECT_DIR}`, so a hook starts the same
+way whatever directory the session is in.
 
 Hooks are TRIPWIRES. Where a hook overlaps the engine, the engine's refusal at
 the choke point is the guarantee -- `gate approve --gate gate_implement`
 rejects a manifest with no secrets scan or test evidence, so skipping a hook
 cannot get an unscanned implementation in front of a reviewer.
 
+Failure posture, per guard. A guard that cannot tell whether a call is allowed
+must not guess:
+
+* `write-fence` and `product-agent-fence` FAIL CLOSED. If the hook runs but
+  cannot evaluate the payload (unparseable input, an unexpected error, a
+  file-writing tool with no path), the call is denied and the reason says why.
+* `untrusted-read`, `dirty-tree` and `secrets-scan` FAIL OPEN, because they
+  are reminders and scanners, not fences. They do not fail silently: a degraded
+  scanner tells the user (`systemMessage`) and Claude (`additionalContext`),
+  because stderr from a hook that exits 0 is visible only in Claude Code's debug
+  log.
+
 Protocol: hook payload as JSON on stdin, decision as JSON on stdout, exit 0.
-Kept import-light and syntax-conservative so a stale `python` on PATH still
-runs it.
+Standard library only.
 """
 
 import importlib.util
@@ -35,16 +48,13 @@ HOOKS_DIR = Path(__file__).resolve().parent
 
 
 def _project_dir():
-    """Claude Code runs hooks from the project directory and exports
-    CLAUDE_PROJECT_DIR. Fall back to cwd, then to this file's location, so the
-    hook works when invoked directly too."""
+    """The project root. Claude Code exports CLAUDE_PROJECT_DIR to every hook;
+    without it, the root is two levels above this file
+    (`<root>/.claude/hooks/hooks.py`). The working directory is deliberately
+    not consulted: it is wherever the session last `cd`-ed to."""
     explicit = os.environ.get("CLAUDE_PROJECT_DIR")
     if explicit and Path(explicit).is_dir():
         return Path(explicit).resolve()
-    cwd = Path.cwd()
-    if ((cwd / ".claude").is_dir() or (cwd / "workitems").is_dir()
-            or (cwd / ".workflow").is_dir()):
-        return cwd.resolve()
     return HOOKS_DIR.parent.parent
 
 
@@ -53,33 +63,58 @@ PROJECT_DIR = _project_dir()
 FENCED = (".workflow", "workitems", "requirements", "guidance")
 SCANNED = ("requirements", "guidance", "clarifications")
 
-# The one carve-out in the fence. As of v1.15 a WorkItem's Spec Kit feature
-# directory lives at workitems/<id>/specs/, and those artifacts are SpecKit's
-# own -- SDLE never writes them and never governs them, so fencing them would
-# block legitimate work. Matched on a path-segment boundary, like `in_dir`,
-# so it works for both the repo-relative and the absolute form Claude Code
-# passes. Nothing else under workitems/ is exempt: the registry, workitem.json
-# and the whole <id>/.sdle/ runtime stay denied.
-SPECS_CARVE_OUT = re.compile(r"(?:^|/)workitems/[^/]+/specs/")
+# Tool names, once. The role tables in the documentation and the registration
+# test are read from these, so a matcher cannot quietly disagree with them.
+# `MultiEdit` is not offered by every Claude Code build; a matcher for a tool a
+# build does not have costs nothing, and leaving it out would leave the fence
+# open on a build that still has it.
+FILE_WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+SHELL_TOOLS = ("Bash", "PowerShell")
+PATH_FIELDS = ("file_path", "notebook_path")
+
+# The Windows file system treats `WORKITEMS/.SDLE` and `workitems/.sdle` as one
+# path, so a fence that compares case-sensitively there is one edit away from
+# being walked past. POSIX keeps the exact comparison: `Workitems/` is a
+# different directory on a case-sensitive file system, and denying it would
+# fence a path the engine does not own.
+IS_WINDOWS = os.name == "nt"
+CASE_INSENSITIVE = IS_WINDOWS
+
+FAIL_CLOSED = ("write-fence", "product-agent-fence")
+GUARD_EVENT = {
+    "write-fence": "PreToolUse",
+    "untrusted-read": "PreToolUse",
+    "dirty-tree": "PreToolUse",
+    "secrets-scan": "PostToolUse",
+    "product-agent-fence": "PreToolUse",
+}
+
+# The one carve-out in the fence. A WorkItem's Spec Kit feature directory lives
+# at workitems/<id>/specs/, and those artifacts are Spec Kit's own -- SDLE never
+# writes them and never governs them, so fencing them would block legitimate
+# work. Matched on a path-segment boundary, like `in_dir`, so it works for both
+# the repo-relative and the absolute form Claude Code passes. Nothing else under
+# workitems/ is exempt: the registry, workitem.json and the whole <id>/.sdle/
+# runtime stay denied. It is anchored like the fence itself (`fenced_target`):
+# inside the repository only the top-level `workitems/` counts, so a path that
+# merely contains the shape, such as `requirements/workitems/x/specs/a.md`, is
+# not carved out of the directory it sits in.
+SPECS_CARVE_OUT = re.compile(r"^workitems/[^/]+/specs/")
 
 FENCE_REASONS = {
     ".workflow": (
-        "'.workflow/' is owned by the SDLE engine. State and audit are written "
-        "only by scripts/sdle.py, which keeps the audit hash chain and drift "
-        "baselines consistent. Use the matching sdle.py subcommand instead "
-        "(state set, audit append, gate, limit set). T11 retired it as a "
-        "runtime: it is now an *archival* legacy runtime and a migration "
-        "source, which is exactly why it stays fenced — `migrate-workflow "
-        "--workitem <id>` validates it before moving it, so a hand-edit here "
-        "corrupts the one input that migration trusts."
+        "'.workflow/' holds a legacy runtime that SDLE no longer runs. Its "
+        "state and audit were written only by scripts/sdle.py, which keeps the "
+        "audit hash chain consistent, so a hand-edit here corrupts a record "
+        "nothing can repair. Nothing in a current WorkItem reads or writes it."
     ),
     "workitems": (
         "'workitems/' is owned by the SDLE engine. The registry "
         "(workitems/index.md), each WorkItem's identity (workitem.json) and "
         "the WorkItem runtime (workitems/<id>/.sdle/) are written only by "
-        "scripts/sdle.py — a hand-edited registry is unrecoverable. Use "
+        "scripts/sdle.py -- a hand-edited registry is unrecoverable. Use "
         "`workitem create`, or the matching sdle.py subcommand. One subtree "
-        "is carved out: workitems/<id>/specs/ holds SpecKit's own artifacts, "
+        "is carved out: workitems/<id>/specs/ holds Spec Kit's own artifacts, "
         "which SDLE neither writes nor governs, so it is not fenced."
     ),
     "requirements": (
@@ -93,69 +128,119 @@ FENCE_REASONS = {
 }
 
 
+class PayloadError(ValueError):
+    """The hook input could not be understood."""
+
+
 def load_engine():
-    """Import sdle.py by path so the patterns are never restated here."""
+    """Import sdle.py by path so the patterns are never restated here.
+
+    Returns `(module, None)`, or `(None, why)` -- the reason is what a degraded
+    scanner reports, so callers never have to guess why the engine is absent.
+    """
     target = PROJECT_DIR / "scripts" / "sdle.py"
     if not target.is_file():
-        return None
+        return None, "scripts/sdle.py is not in this project"
     try:
         spec = importlib.util.spec_from_file_location("sdle_engine", target)
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        return module
-    except Exception:
-        return None
+        return module, None
+    except Exception as exc:  # any import-time failure is the same fact
+        return None, "scripts/sdle.py did not import ({0}: {1})".format(
+            type(exc).__name__, exc)
 
 
 def read_payload():
-    try:
-        return json.loads(sys.stdin.read() or "{}")
-    except (json.JSONDecodeError, OSError):
+    text = sys.stdin.read()
+    if not text.strip():
         return {}
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:
+        raise PayloadError("the hook input is not valid JSON ({0})".format(exc))
+    if not isinstance(payload, dict):
+        raise PayloadError("the hook input is not a JSON object")
+    return payload
+
+
+def _is_absolute(path):
+    return bool(re.match(r"^(?:/|[A-Za-z]:/)", path))
 
 
 def tool_path(payload):
-    """Extract and normalise the target path.
+    """Extract the target path as an absolute, `/`-separated string.
 
     Claude Code passes native paths, so on Windows these arrive with
-    backslashes. Normalising here is what lets one set of rules work on both
-    platforms.
+    backslashes; normalising here is what lets one set of rules work on both
+    platforms. A path that is not absolute is relative to the directory the
+    tool ran in -- the payload's `cwd` -- so it is resolved against that before
+    any rule is applied. Matching the raw string would let `.sdle/state.json`
+    from inside a WorkItem directory walk past a fence written for
+    `workitems/<id>/.sdle/state.json`.
     """
-    raw = (payload.get("tool_input") or {}).get("file_path")
+    tool_input = payload.get("tool_input") or {}
+    raw = next((tool_input[f] for f in PATH_FIELDS if tool_input.get(f)), None)
     if not raw:
         return None
-    return re.sub(r"/+", "/", str(raw).replace("\\", "/"))
+    path = re.sub(r"/+", "/", str(raw).replace("\\", "/"))
+    base = str(payload.get("cwd") or os.getcwd()).replace("\\", "/")
+    drive_relative = IS_WINDOWS and re.match(r"^([A-Za-z]):(?!/)(.*)$", path)
+    if drive_relative:
+        # `C:workitems/x` is relative to the drive's current directory. For the
+        # session's own drive that is `cwd`; for any other drive it cannot be
+        # known here, so the call cannot be evaluated and the caller decides
+        # what that means for its guard.
+        if base[:2].lower() != path[:2].lower():
+            raise PayloadError(
+                "the drive-relative path {0!r} names another drive's current "
+                "directory, which cannot be resolved".format(str(raw)))
+        path = base.rstrip("/") + "/" + drive_relative.group(2)
+    elif not _is_absolute(path):
+        path = base.rstrip("/") + "/" + path
+    return re.sub(r"/+", "/", path)
 
 
-def emit(event, decision=None, reason=None, context=None):
-    if decision is None and context is None:
+def emit(event, decision=None, reason=None, context=None, message=None):
+    if decision is None and context is None and message is None:
         return
+    out = {}
     block = {"hookEventName": event}
     if decision is not None:
         block["permissionDecision"] = decision
         block["permissionDecisionReason"] = reason
     if context is not None:
         block["additionalContext"] = context
-    json.dump({"hookSpecificOutput": block}, sys.stdout)
+    if len(block) > 1:
+        out["hookSpecificOutput"] = block
+    if message is not None:
+        out["systemMessage"] = message
+    json.dump(out, sys.stdout)
     sys.stdout.write("\n")
+
+
+def degraded(guard, why):
+    """A fail-open guard could not run. Say so to both readers."""
+    text = ("SDLE {0} could not run ({1}), so this tripwire is off for this "
+            "call. The engine's refusals at its choke points still apply."
+            .format(guard, why))
+    emit(GUARD_EVENT[guard], context=text, message=text)
 
 
 def in_dir(path, name):
     """Is `path` inside the top-level directory `name`?
 
-    The loose form -- `/{name}/` anywhere -- is deliberate for a path that
-    is *outside* this repository: an absolute write into some other tree's
+    The loose form -- `/{name}/` anywhere -- is deliberate for a path that is
+    *outside* this repository: an absolute write into some other tree's
     `workitems/` is still a write the fence wants to see.
 
-    Inside the repository it is wrong, and T11 M7 found it. `SDLE_OWNED_PREFIXES`
-    is entirely repository-root-relative, so the loose match made the hook
-    strictly broader than the ownership it exists to protect: it denied
+    Inside the repository it would be too broad: `SDLE_OWNED_PREFIXES` is
+    entirely repository-root-relative, so a loose match denies
     `docs/workitems/`, a path the engine does not own and has no choke-point
-    refusal for. A tripwire that fires where the engine would not refuse is
-    the one failure mode a tripwire must not have -- it teaches the reader
-    that the fence is noise. `fenced_target` anchors it; this stays loose for
-    everything else, as defence in depth.
+    refusal for. A tripwire that fires where the engine would not refuse
+    teaches the reader that the fence is noise. `fenced_target` anchors it;
+    this stays loose for everything else, as defence in depth.
     """
     return f"/{name}/" in path or path.startswith(f"{name}/")
 
@@ -163,46 +248,54 @@ def in_dir(path, name):
 def fenced_target(path, name):
     """The fence's own test: anchored inside the repository, loose outside.
 
-    Mirrors `SDLE_OWNED_PREFIXES`, which is root-relative, so the hook denies
-    exactly what the engine claims to own and nothing more.
-
-    Two path shapes are repository-relative and both must anchor:
-
-    * one under `PROJECT_DIR`, which `relative` strips; and
-    * one that is **not absolute at all**, which is relative to the project
-      directory by definition -- this is how the fence has always read
-      `.workflow/state.json`, and `relative` returns it unchanged, so it
-      cannot be told apart from a foreign absolute path by that test alone.
-
-    Only an absolute path *outside* the repository falls through to `in_dir`'s
-    loose segment match, as defence in depth. Absoluteness is tested after
-    `tool_path` has turned backslashes into `/`, so a Windows drive-letter
-    path counts as absolute -- `posixpath.isabs` would call `C:/proj/...`
-    relative and wrongly anchor another tree's path against this root.
+    `path` is absolute (see `tool_path`). Under `PROJECT_DIR` it is matched at
+    the repository-relative path start, mirroring `SDLE_OWNED_PREFIXES`, so the
+    hook denies exactly what the engine claims to own and nothing more. An
+    absolute path outside the repository falls through to `in_dir`'s loose
+    segment match, as defence in depth.
     """
     inside = relative(path)
-    if inside != path or not re.match(r"^(?:/|[A-Za-z]:/)", path):
+    if inside != path:
         return inside == name or inside.startswith(f"{name}/")
     return in_dir(path, name)
 
 
 def relative(path):
     root = str(PROJECT_DIR).replace("\\", "/").rstrip("/")
-    return path[len(root) + 1:] if path.startswith(root + "/") else path
+    prefix = root + "/"
+    if os.name == "nt":  # Windows paths are case-insensitive
+        return path[len(prefix):] if path.lower().startswith(prefix.lower()) else path
+    return path[len(prefix):] if path.startswith(prefix) else path
+
+
+def specs_carved_out(path):
+    """Is `path` under the WorkItem specs directory the fence does not govern?
+
+    Inside the repository the shape must start the repository-relative path.
+    Outside it the fence is loose (`in_dir`), so the carve-out is loose too, but
+    only when `workitems/` is the first fenced directory on the path: a
+    `requirements/` or `guidance/` segment ahead of it means the path is inside
+    a directory the fence guards.
+    """
+    inside = relative(path)
+    if inside != path:
+        return bool(SPECS_CARVE_OUT.match(inside))
+    segments = path.split("/")
+    for index, segment in enumerate(segments):
+        if segment in FENCED:
+            return segment == "workitems" and bool(
+                SPECS_CARVE_OUT.match("/".join(segments[index:])))
+    return False
 
 
 def normalized(path):
     """Collapse `.` and `..` segments before any pattern is matched.
 
     Lexical, not filesystem: the target of a write need not exist yet, so
-    `Path.resolve()` is not available here.
-
-    T11 D7 (T04 N-3). Without this,
-    `workitems/<id>/specs/../.sdle/state.json` matched SPECS_CARVE_OUT --
-    which only looks for the `workitems/<id>/specs/` segment -- and escaped
-    the write fence while actually addressing the WorkItem runtime. The
-    engine's own refusal at the choke point was still the guarantee, but a
-    tripwire with a known bypass is not a tripwire.
+    `Path.resolve()` is not available here. Without this,
+    `workitems/<id>/specs/../.sdle/state.json` would match SPECS_CARVE_OUT --
+    which only looks for the `workitems/<id>/specs/` segment -- and escape the
+    fence while addressing the WorkItem runtime.
     """
     return posixpath.normpath(path)
 
@@ -214,11 +307,15 @@ def write_fence(payload):
     """Governance files have exactly one writer: the engine (invariant 6)."""
     path = tool_path(payload)
     if not path:
+        if payload.get("tool_name") in FILE_WRITE_TOOLS:
+            raise PayloadError(
+                "a file-writing tool ({0}) arrived with no path".format(
+                    payload.get("tool_name")))
         return
-    # T11 D7: normalise first, so neither the carve-out nor the fence itself
-    # can be stepped around with `..`.
     path = normalized(path)
-    if SPECS_CARVE_OUT.search(relative(path)):
+    if CASE_INSENSITIVE:
+        path = path.lower()
+    if specs_carved_out(path):
         return
     for name in FENCED:
         if fenced_target(path, name):
@@ -227,25 +324,41 @@ def write_fence(payload):
             return
 
 
+def raise_if_pathless(payload, tools):
+    """A tool a guard is registered for always carries a path. One that does
+    not is a payload the guard could not evaluate: `fail` decides what that
+    means for this guard, and for a scanner it means saying so."""
+    if payload.get("tool_name") in tools:
+        raise PayloadError("a {0} call arrived with no path".format(
+            payload.get("tool_name")))
+
+
 def untrusted_read(payload):
     """requirements/, guidance/ and clarifications/ are DATA, never
     instructions. Warn-and-acknowledge: the patterns are deliberately broad,
     so this asks rather than blocks."""
     path = tool_path(payload)
-    if not path or not any(in_dir(path, name) for name in SCANNED):
+    if not path:
+        raise_if_pathless(payload, ("Read",))
+        return
+    folded = path.lower() if CASE_INSENSITIVE else path
+    if not any(in_dir(folded, name) for name in SCANNED):
         return
     target = Path(path)
     if not target.is_file():
         return
 
-    engine = load_engine()
+    engine, why = load_engine()
     if engine is None:
+        degraded("untrusted-read", why)
         return
     try:
-        matches = engine.scan_text(target.read_text(encoding="utf-8",
-                                                    errors="replace"))
-    except OSError:
+        body = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        degraded("untrusted-read", "{0} could not be read ({1})".format(
+            relative(path), type(exc).__name__))
         return
+    matches = engine.scan_text(body)
     if not matches:
         return
 
@@ -262,21 +375,30 @@ def untrusted_read(payload):
 def dirty_tree(payload):
     """Trips when the implement phase runs without its preflight, which is
     what pins implementation_base_ref and checks for uncommitted work."""
-    engine = load_engine()
+    engine, why = load_engine()
     if engine is None:
+        degraded("dirty-tree", why)
         return
     try:
         paths = engine.resolve_paths(str(PROJECT_DIR), None)
         # The runtime is WorkItem-scoped, so the guard has to resolve one.
-        # bind_workitem raises rather than guessing when the WorkItem is
-        # ambiguous or absent; a guard that cannot tell which workflow it is
-        # looking at stays silent, which is the pre-existing failure posture
-        # of every other path in this function.
+        # bind_workitem refuses rather than guessing when the WorkItem is
+        # ambiguous or absent. That is not a fault: with no single WorkItem
+        # there is no implement phase to guard, so the guard has nothing to say.
         paths = engine.bind_workitem(paths)
-        if not paths.state_file.is_file():
-            return
+    except (engine.Refused, engine.IntegrityError):
+        return
+    except Exception as exc:
+        degraded("dirty-tree", "the WorkItem could not be resolved ({0}: {1})"
+                 .format(type(exc).__name__, exc))
+        return
+    if not paths.state_file.is_file():
+        return
+    try:
         state = json.loads(paths.state_file.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, ValueError) as exc:
+        degraded("dirty-tree", "the WorkItem state could not be read ({0})"
+                 .format(type(exc).__name__))
         return
 
     if state.get("current_phase") != "implement":
@@ -298,17 +420,21 @@ def secrets_scan(payload):
     Gate 7 refusal, not this."""
     path = tool_path(payload)
     if not path:
+        raise_if_pathless(payload, FILE_WRITE_TOOLS)
         return
     target = Path(path)
     if not target.is_file():
         return
 
-    engine = load_engine()
+    engine, why = load_engine()
     if engine is None:
+        degraded("secrets-scan", why)
         return
     try:
         body = target.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
+        degraded("secrets-scan", "{0} could not be read ({1})".format(
+            relative(path), type(exc).__name__))
         return
 
     for label, pattern in engine.SECRET_PATTERNS:
@@ -340,8 +466,8 @@ def product_agent_fence(payload):
     """Deny every call this guard is registered for. Unconditional, on purpose.
 
     The other four inspect the payload and stay silent when it does not
-    concern them. This one must not. A guard that read a Bash command string
-    and denied "the mutating sdle subcommands" would need a list of mutating
+    concern them. This one must not. A guard that read a command string and
+    denied "the mutating sdle subcommands" would need a list of mutating
     subcommands: a second source of truth for something sdle.py already knows,
     and one that fails open on the subcommand nobody remembered to add. A
     product subagent has no legitimate reason to write anything or to run
@@ -364,16 +490,29 @@ GUARDS = {
 }
 
 
+def fail(guard, exc):
+    """The hook ran but could not evaluate the call. See the module docstring
+    for which guards fail closed."""
+    detail = "{0}: {1}".format(type(exc).__name__, exc)
+    if guard in FAIL_CLOSED:
+        emit(GUARD_EVENT[guard], "deny",
+             "SDLE {0} could not evaluate this call ({1}), so it is denied. "
+             "This guard fails closed: a fence that cannot tell whether a "
+             "write is allowed does not guess.".format(guard, detail))
+    else:
+        degraded(guard, detail)
+
+
 def main(argv):
     if len(argv) != 1 or argv[0] not in GUARDS:
         sys.stderr.write(
             "usage: hooks.py {0}\n".format("|".join(sorted(GUARDS))))
         return 2
-    payload = read_payload()
+    guard = argv[0]
     try:
-        GUARDS[argv[0]](payload)
-    except Exception as exc:  # never break the user's tool call
-        sys.stderr.write("sdle hook {0} errored: {1}\n".format(argv[0], exc))
+        GUARDS[guard](read_payload())
+    except Exception as exc:  # never break the user's tool call by crashing
+        fail(guard, exc)
     return 0
 
 

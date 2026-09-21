@@ -4,8 +4,7 @@
 **Date:** 2026-09
 **Extends:** ADR-001 (the deterministic core), ADR-003 (governance and artifact review), ADR-008 (V1 convergence).
 **Diverges from:** the transition contract's execution-identity format (§"Execution identity"), deliberately — see §5.
-**Context:** SDLE-DEFECT-STABILIZATION-01, defects D01–D06. The execution record is
-[`docs/verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
+**Context:** gate evidence, the change set a gate is judged on, and how an execution is identified were each found to accept less than they should. This record states the contracts that replaced them.
 
 ---
 

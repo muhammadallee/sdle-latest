@@ -1,0 +1,44 @@
+{
+  "run_id": "20260920T190224-p09-final-full-suite-3",
+  "result": "PASS",
+  "label": "p09-final-full-suite-3",
+  "task_ids": [
+    "P09"
+  ],
+  "ac_ids": [
+    "AC-09",
+    "AC-11",
+    "AC-19"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short"
+  ],
+  "cwd": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpad\\shallow-final",
+  "head": "9f41f8f114000ec1ae70ec6fbdb2082cf0af61dc",
+  "content_fingerprint": "465168536f8afbd65bcf0066191ce275eb4009107ad20ba2adf25a856b60241c",
+  "manifest_paths": 0,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T19:02:24Z",
+  "runner_pid": 31336,
+  "stdout": "20260920T190224-p09-final-full-suite-3.stdout.log",
+  "stderr": "20260920T190224-p09-final-full-suite-3.stderr.log",
+  "note": "Whole suite on the acceptance candidate after the test_t11 fix, depth-1 clone; attempt 2 had 3023 passed and 1 failed",
+  "memory_samples": "20260920T190224-p09-final-full-suite-3.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 3024
+  },
+  "finished_utc": "2026-09-20T19:40:13Z",
+  "fingerprint_unchanged_during_run": true
+}

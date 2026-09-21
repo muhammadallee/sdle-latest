@@ -1,6 +1,5 @@
 # Risk and gates — how the required gate set is derived
 
-**Applies to:** SDLE v1.17
 **Authority:** `GOVERNANCE_POLICY_BUILTIN` in `scripts/sdle.py`. Every value
 below is quoted from it; where this document and the constant disagree, the
 constant is right. See also
@@ -86,6 +85,18 @@ by type:   defect adds gate_tasks
 Flow membership is applied on top: a gate the bound flow does not contain is
 `not_in_flow`.
 
+**And the policy the WorkItem started under is applied on top of that.** The set
+is derived twice — once from the policy on disk, once from the policy pinned in
+the governance record when the WorkItem was first assessed — against the
+WorkItem's current classification and level. A gate is omittable only if it is
+omittable under **both**. A gate required only by the pinned policy shows
+`pinned:` reasons (`pinned:always`, `pinned:risk:HIGH`) in `gate show`.
+
+This closes one channel and one only: relaxing or deleting the repository policy
+part-way through a run cannot make a gate omittable that was required when the
+run began. Tightening still applies immediately, because the live policy is
+still read. See `docs/architecture/ADR-011-pinned-governance-policy.md`.
+
 ---
 
 ## 5. Omission, and the evidence it must carry
@@ -95,6 +106,8 @@ a shortcut — it is a **record**, and it must be explainable later, from what w
 written down and nothing else. Every omission carries:
 
 - the policy source and the policy SHA-256 it was derived from;
+- the SHA-256 of the **policy the WorkItem started under** (ADR-011), `null` for
+  a record written before the pin existed;
 - the **governance record SHA-256** the risk level came from;
 - the final level itself;
 - an audit event.
@@ -123,6 +136,12 @@ SDLE's answer to this is **evidence, not refusal**:
 It is never refused, because refusing would invent a floor the contract does not
 state and would block a legitimate re-scope. It is never invisible.
 
+This is deliberately *not* what ADR-011 pins. The pin is the policy document, and
+the requirement set is re-derived against the current level, so a genuine
+downgrade still moves the answer and is still governed by evidence rather than
+refusal. Editing the **policy** is the channel the pin closes; re-assessing the
+**risk** is the channel this section governs.
+
 The prompt layer states the same rule to the orchestrator, in
 `.claude/skills/sdle/modules/gate-protocol.md`.
 
@@ -135,3 +154,8 @@ only the keys listed in `GOVERNANCE_POLICY_OVERRIDABLE`, and it may **add and
 never remove**: extra blocking checks, heavier signal weights, lower thresholds,
 more hard floors, more required gates. Anything that would weaken the shipped
 policy is refused.
+
+Monotonicity is enforced against the built-in floor, which bounds how weak a
+policy can be but says nothing about *changing* one mid-run: removing an override
+is a relaxation the floor permits. That is why a WorkItem's decisions are bound to
+the policy it started under as well as the one on disk (ADR-011).

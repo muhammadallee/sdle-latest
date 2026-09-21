@@ -15,7 +15,7 @@ independent.
 
 It left one thing unresolved. A repository also has facts that are **not**
 about any particular WorkItem: how this repository configures SDLE, what
-policies it applies, what templates its teams share, what baseline describes
+policies it applies, what baseline describes
 the code that already exists. Those have no home. Left long enough, they end up
 in the only writable place available — a WorkItem's runtime — and the isolation
 that motivated the WorkItem scope quietly erodes.
@@ -31,12 +31,12 @@ introducing them into WorkItem runtime state.
 
 | Boundary | Derived from | Owns |
 |---|---|---|
-| `<repo>/.sdle/` | `project_root` alone | global configuration, policy definitions, shared templates, the future baseline, implementation-transition metadata |
+| `<repo>/.sdle/` | `project_root` alone | global configuration, policy definitions, the future baseline, records of repository-maintenance runs |
 | `<repo>/workitems/<id>/.sdle/` | the bound WorkItem | lifecycle state, execution identity, audit, evidence, WorkItem-specific manifests |
 
 The two directories share a name, which is exactly why the split is expressed
 as **derivation in `Paths`** and not as a path prefix test. `Paths.config_root`,
-`config_file`, `policies_dir`, `shared_templates_dir`, `baseline_file` and
+`config_file`, `policies_dir`, `baseline_file` and
 `implementation_state_dir` reference `project_root` and nothing else; they never
 mention `workitem`, `workitem_root` or `runtime`. Rebinding the WorkItem moves
 every runtime member and none of these. That property is asserted directly, both
@@ -137,13 +137,13 @@ and a genuine hazard for any future code that reasons about paths as strings.
 The mitigation is that no engine code does: the boundary is a derivation, and a
 closed set of five functions is the only code allowed to reach it.
 
-**Deliberately empty.** `policies/` and `templates/` carry only a `.gitkeep`, and
-`implementation-state/` is an empty slot: the contract names it in a diagram and
-defines no schema, producer or consumer for it, so inventing one would be
-speculation. `baseline.json` is *named* by `Paths.baseline_file` and policed by
-`validate`, but no code writes it — the phase that owns the baseline schema
-creates the file.
+**Deliberately empty.** `policies/` carries only a `.gitkeep`, and `implementation-state/` is an
+empty slot: it defines no schema and no engine command reads it, so inventing one would be
+speculation. It holds the records of repository-maintenance runs. A `templates/` slot once sat
+beside them with no reader at all; `config init` no longer creates it, and a repository that
+still has the directory is not broken by it. `baseline.json` is *named* by `Paths.baseline_file`
+and policed by `validate`, but no code writes it except the final gate that establishes it.
 
-**Versioned, with no `.gitignore` change.** Global configuration and shared
-templates are team-shared engineering evidence, not ephemera. Nothing under the
+**Versioned, with no `.gitignore` change.** Global configuration and policy
+definitions are team-shared engineering evidence, not ephemera. Nothing under the
 boundary was ignored to begin with, so the versioning decision cost zero diff.

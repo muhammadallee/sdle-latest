@@ -1,0 +1,11 @@
+F..                                                                      [100%]
+================================== FAILURES ===================================
+E   AssertionError: scripts/sdle.sh
+    assert '100644' == '100755'
+      
+      - 100755
+      + 100644
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:161: AssertionError: scripts/sdle.sh
+=========================== short test summary info ===========================
+FAILED tests/test_units_shipped_surface.py::test_a_directly_invoked_launcher_is_executable_in_the_index[scripts/sdle.sh]
+1 failed, 2 passed, 16 deselected in 0.85s

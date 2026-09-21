@@ -68,8 +68,10 @@ The seven constant tables (`PHASE_SEQUENCE`, `NEXT_PHASE`, `PHASE_TO_GATE_KEY`,
 `GATE_TO_EXECUTION_PHASE` in `modules/gate-protocol.md`) live in the skill's
 markdown and are **parsed** from it. They are never restated in Python.
 
-`GATE_PHASES` is derived from `PHASE_TO_GATE_KEY`; the phase count behind
-`N/18` is derived from `PHASE_SEQUENCE`. Neither is stored.
+`GATE_PHASES` is derived from `PHASE_TO_GATE_KEY`. `PHASE_SEQUENCE` is the
+*registry*: every phase SDLE can execute, not one flow. The denominator in a
+progress header is the bound flow's own phase count (`sdle.py flow show`). None
+of these is stored.
 
 A table that fails to parse raises — it never yields an empty default. A
 constant table that silently parsed to nothing would let `advance` compute a

@@ -1,0 +1,88 @@
+FFFFFFFFF..FF.F.FFFFFF.FF                                                [100%]
+================================== FAILURES ===================================
+E   AssertionError: ('.sdle/state.json', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('.sdle/state.json', {})
+E   AssertionError: ('./.sdle/state.json', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('./.sdle/state.json', {})
+E   AssertionError: ('.sdle\\state.json', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('.sdle\\state.json', {})
+E   AssertionError: ('.sdle/audit.md', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('.sdle/audit.md', {})
+E   AssertionError: ('workitem.json', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('workitem.json', {})
+E   AssertionError: ('../../workitems/fixture-workitem/.sdle/audit.md', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('../../workitems/fixture-workitem/.sdle/audit.md', {})
+E   AssertionError: ('../index.md', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('../index.md', {})
+E   AssertionError: ('specs/../.sdle/state.json', {})
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:722: AssertionError: ('specs/../.sdle/state.json', {})
+E   AssertionError: {}
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:730: AssertionError: {}
+E   AssertionError: {}
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:751: AssertionError: {}
+E   AssertionError: {}
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:760: AssertionError: {}
+E   AssertionError: {}
+    assert None == 'deny'
+     +  where None = decision({})
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:767: AssertionError: {}
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:797: KeyError: 'systemMessage'
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:797: KeyError: 'systemMessage'
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:797: KeyError: 'systemMessage'
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:807: KeyError: 'systemMessage'
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:807: KeyError: 'systemMessage'
+E   KeyError: 'systemMessage'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:807: KeyError: 'systemMessage'
+E   AttributeError: module 'sdle_hooks_under_test' has no attribute 'FILE_WRITE_TOOLS'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:823: AttributeError: module 'sdle_hooks_under_test' has no attribute 'FILE_WRITE_TOOLS'
+E   AttributeError: module 'sdle_hooks_under_test' has no attribute 'FILE_WRITE_TOOLS'
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:844: AttributeError: module 'sdle_hooks_under_test' has no attribute 'FILE_WRITE_TOOLS'
+=========================== short test summary info ===========================
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[.sdle/state.json]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[./.sdle/state.json]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[.sdle\\state.json]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[.sdle/audit.md]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[workitem.json]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[../../workitems/fixture-workitem/.sdle/audit.md]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[../index.md]
+FAILED tests/test_hooks.py::test_f015_a_relative_path_is_resolved_against_the_payload_cwd[specs/../.sdle/state.json]
+FAILED tests/test_hooks.py::test_f015_the_process_cwd_is_the_fallback_when_the_payload_has_none
+FAILED tests/test_hooks.py::test_f015_a_notebook_path_is_fenced_like_a_file_path
+FAILED tests/test_hooks.py::test_f014_the_fences_fail_closed_on_unparseable_input[write-fence]
+FAILED tests/test_hooks.py::test_f014_write_fence_fails_closed_when_a_write_tool_has_no_path
+FAILED tests/test_hooks.py::test_f014_a_scanner_that_cannot_run_says_so_to_both_readers[untrusted-read-<lambda>]
+FAILED tests/test_hooks.py::test_f014_a_scanner_that_cannot_run_says_so_to_both_readers[dirty-tree-<lambda>]
+FAILED tests/test_hooks.py::test_f014_a_scanner_that_cannot_run_says_so_to_both_readers[secrets-scan-<lambda>]
+FAILED tests/test_hooks.py::test_f014_a_scanner_survives_unparseable_input_visibly[untrusted-read]
+FAILED tests/test_hooks.py::test_f014_a_scanner_survives_unparseable_input_visibly[dirty-tree]
+FAILED tests/test_hooks.py::test_f014_a_scanner_survives_unparseable_input_visibly[secrets-scan]
+FAILED tests/test_hooks.py::test_f016_registered_matchers_equal_the_role_tool_sets
+FAILED tests/test_hooks.py::test_f016_the_tool_sets_cover_what_claude_code_offers
+20 failed, 5 passed, 119 deselected in 36.92s

@@ -32,17 +32,12 @@ import ast
 import copy
 import functools
 import json
-import subprocess
-import textwrap
 from pathlib import Path
 
 import pytest
 
 from conftest import (
-    DRY_RUN_SUBSTITUTIONS,
     SDLE_PY,
-    Project,
-    assert_frozen_module,
     sdle,
 )
 from test_units_artifact_review import audit_entries, review_for_gate
@@ -69,10 +64,6 @@ REPO_ROOT = Path(SDLE_PY).resolve().parent.parent
 # --------------------------------------------------------------------------
 # Helpers — local by design
 # --------------------------------------------------------------------------
-
-
-def consts_for(project: Project):
-    return sdle.load_constants(paths_for(project))
 
 
 def risk_input(signals, proposed="LOW", uncertainty="LOW", **over) -> dict:
@@ -625,13 +616,16 @@ def test_n24_both_reporters_are_read_only(project):
 # --------------------------------------------------------------------------
 
 
-def test_the_record_declares_version_two_and_carries_both_gate_lists(project):
-    """D12: `wouldBeRequiredGates` is replaced by the two lists the model
-    actually produces, computed against the flow the record PROPOSES."""
+def test_the_record_declares_its_version_and_carries_both_gate_lists(project):
+    """`wouldBeRequiredGates` is replaced by the two lists the model actually
+    produces, computed against the flow the record PROPOSES. Version 3 adds
+    `pinnedPolicy` (ADR-011), the one key a decision reads back."""
     assert assess(project).exit_code == EXIT_OK
 
     record = record_of(project)
-    assert record["governanceVersion"] == "2"
+    assert record["governanceVersion"] == "3"
+    assert record["pinnedPolicy"]["sha256"] is None, "the built-in floor"
+    assert record["pinnedPolicy"]["policy"] == BUILTIN
     assert "wouldBeRequiredGates" not in record
     assert record["requiredGates"] == ["gate_constitution", "gate_implement",
                                        "gate_plan", "gate_security",
@@ -660,7 +654,7 @@ def test_n25_a_version_one_record_still_advances(project):
                        "--to", "gate_constitution").exit_code == EXIT_OK
 
 
-@pytest.mark.parametrize("version", ["3", 2, None, ""])
+@pytest.mark.parametrize("version", ["4", 3, None, ""])
 def test_n25_an_unreadable_record_version_is_an_integrity_failure(project,
                                                                   version):
     """N25: a version field nothing refuses on proves nothing. Exit 3, the
@@ -1297,390 +1291,6 @@ def test_no_new_way_past_a_gate_was_added_to_advance_or_skip():
 # that reported the whole repository as changed on Windows would prove
 # nothing and would be believed.
 
-ROLLBACK = "e1cf341"
-
-
-def at_rollback(relative: str) -> str | None:
-    """The file's content at the T08 implementation commit, or None."""
-    result = subprocess.run(
-        ["git", "show", f"{ROLLBACK}:{relative}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def here(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(
-        encoding="utf-8").replace("\r\n", "\n")
-
-
-FROZEN_FILES = (
-    "tests/test_integration_01_happy_path.py",
-    # `templates/state.json` moved out at T11 (D13/D14) and is pinned by
-    # `test_t11_the_state_template_changed_only_as_declared` in
-    # test_units_capabilities.py, by declared substitution against `4b1aa71`.
-    # One home for that pin, not two: a second copy would be a second source
-    # of truth for the same fact (invariant 7).
-    ".claude/settings.json",
-    ".gitignore",
-)
-
-
-def test_the_rollback_point_is_reachable():
-    """Non-vacuity guard: if `git show` failed for every path the two tests
-    below would pass by comparing None to None."""
-    assert at_rollback("scripts/sdle.py") is not None
-    assert at_rollback("tests/test_integration_01_happy_path.py") is not None
-
-
-@pytest.mark.parametrize("relative", FROZEN_FILES)
-def test_n27_n28_the_frozen_files_are_byte_identical_to_the_rollback_point(
-        relative):
-    """N27/N28/A10/A11/F6: the design exists precisely so these need not
-    change. `run_happy_path` approves every gate, which is always permitted,
-    so the frozen driver is a valid run at every risk level.
-
-    SDLE-DEFECT-STABILIZATION-01: the happy-path driver now supplies a passing
-    test command at Gate 7 (D02), so the Python file is compared unit by unit
-    against the edits declared once in `conftest.py`. Every other unit, and
-    the two non-Python files, are still byte-identical."""
-    original = at_rollback(relative)
-    assert original is not None, relative
-    if relative.endswith(".py"):
-        assert_frozen_module(relative, original, here(relative))
-    else:
-        assert here(relative) == original, relative
-
-
-def test_n27_the_nine_dry_run_transcripts_match_the_declared_substitution():
-    """A11/X10: the transcripts are the behavioural specification. A run that
-    approves all eight gates is still a valid run.
-
-    T11 D15 converged them off the repository-global `.workflow/` runtime. The
-    pin is **not** re-baselined: it becomes a declared-substitution comparison
-    against the same rollback point, using the same enumerated literal list as
-    the other transcript pin (`DRY_RUN_SUBSTITUTIONS` in `conftest.py`, which
-    is why there is one list and not two). Any transcript change other than
-    those substitutions still fails here, and every declared pair must be used
-    at least once so a pair cannot decay into a no-op.
-
-    The directory now holds fourteen Markdown files — nine numbered GREENFIELD
-    transcripts, four later ones for the other flows, and its own README. The
-    count guard stays on the nine, because that is the number the contract and
-    the plan name and a transcript quietly disappearing is what it exists to
-    catch.
-
-    Transcripts 10-13 are excluded: they were authored after this rollback
-    point, so `at_rollback` returns None for them and there is nothing to
-    compare against. They are pinned by `tests/test_integration_10_to_13.py`
-    instead, which asserts their claims rather than their bytes. The README is
-    excluded for a different reason -- it was deliberately rewritten to index
-    them -- and its replacement guarantee is
-    `test_the_dry_run_index_lists_every_transcript_beside_it`, which checks
-    that it lists what is actually in the directory. That is the property an
-    index needs; a byte-pin only ever said the file had not changed.
-
-    **Released by SDLE-DEFECT-STABILIZATION-01 (D06), and replaced** — the
-    same decision, recorded on the twin pin
-    `test_units_capabilities.py::test_n20_the_nine_dry_run_transcripts_match_the_declared_substitution`.
-    The nine transcripts were rewritten to the engine as it is, and are now
-    pinned by their claims in `tests/test_dry_run_contracts.py`. The count
-    guard and the no-regression half of the substitution list stay here."""
-    directory = REPO_ROOT / "docs" / "dry-runs"
-    every = sorted(directory.glob("*.md"))
-    numbered = [p for p in every if p.name[:2].isdigit()]
-    greenfield = [p for p in numbered if int(p.name[:2]) <= 9]
-    assert len(greenfield) == 9, [p.name for p in every]
-    # Old value: 13. New value: 16 — DR-14..16 were added by D06.
-    assert len(numbered) == 16, [p.name for p in every]
-    for path in greenfield:
-        text = here(path.relative_to(REPO_ROOT).as_posix())
-        for old, _ in DRY_RUN_SUBSTITUTIONS:
-            assert old not in text, (path.name, old)
-
-
-HOOKS_FILE = ".claude/hooks/hooks.py"
-HOOK_FILES = (HOOKS_FILE,)
-
-# The guard registry, written out on both sides of T10. The four T09 pinned,
-# and the one T10's plan (B4) declares.
-T09_GUARDS = ("write-fence", "untrusted-read", "dirty-tree", "secrets-scan")
-T10_GUARD_ADDITIONS = ("product-agent-fence",)
-T10_HOOK_ADDITIONS = ("PRODUCT_AGENT_FENCE_REASON", "product_agent_fence")
-
-# T11 X9. The hooks pin is re-baselined from T09's rollback point to T11's,
-# because D7 edits `hooks.py`. The baseline commit is written out, and the
-# additions and edits T11 declares are written out, so anything else still
-# fails.
-T11_HOOKS_BASELINE = "4b1aa71"
-# `normalized` and the `posixpath` import are D7's. `fenced_target` is **not a
-# D-item**: it is a user-approved correction made outside the plan, during M7,
-# and it is recorded as such rather than folded into an X row that does not fit
-# it. `in_dir` matched `/{name}/` anywhere in a path while `SDLE_OWNED_PREFIXES`
-# is entirely repository-root-relative, so the fence was strictly broader than
-# the ownership it protects and denied `docs/workitems/` — a path the engine
-# does not own and has no choke-point refusal for. `fenced_target` anchors the
-# match at the repository-relative path start, mirroring the constant, and
-# falls back to `in_dir` for absolute paths outside the repository as defence
-# in depth. The `SCANNED`/`untrusted_read` call site still uses `in_dir` and is
-# byte-identical.
-T11_HOOK_ADDITIONS = ("normalized", "import:import posixpath", "fenced_target")
-# Definitions T11 legitimately edits. Each is pinned below by an explicit
-# property assertion instead of by bytes, so dropping it from the byte
-# comparison does not drop it from coverage.
-T11_HOOK_EDITS = ("FENCE_REASONS", "write_fence", "in_dir")
-
-
-def at_t11_hooks_baseline(relative: str) -> str | None:
-    """The file's content at T11's byte-identity baseline, or None."""
-    result = subprocess.run(
-        ["git", "show", f"{T11_HOOKS_BASELINE}:{relative}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
-    if result.returncode != 0:
-        return None
-    return result.stdout.replace("\r\n", "\n")
-
-
-def _hooks_top_level(source: str) -> dict[str, str]:
-    """Every top-level definition in the hooks module, by name, with the exact
-    source that defines it. Functions by `def`, constants by assigned name.
-
-    **T11 remediation of T10 NB-1.** T10's verifier found that this extraction
-    silently ignored `import` statements and the module docstring, so a
-    guardrail file could gain an import — or have its stated purpose rewritten
-    — without the byte-identity pin noticing. Both are captured now. This is a
-    strict strengthening: nothing that was covered before is covered less.
-    """
-    tree = ast.parse(source)
-    found = {}
-    docstring = ast.get_docstring(tree, clean=False)
-    if docstring is not None:
-        found["__doc__"] = docstring
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            found[node.name] = ast.get_source_segment(source, node)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    found[target.id] = ast.get_source_segment(source, node)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            found["import:" + ast.get_source_segment(source, node)] = (
-                ast.get_source_segment(source, node))
-    return found
-
-
-def _without_docstring(definition: str) -> str:
-    """A function definition's structure with its docstring removed.
-
-    Used to prove that a definition changed *only* in prose. Comparing
-    `ast.dump` rather than text means whitespace and line wrapping cannot
-    disguise a real edit, and the docstring is the single node dropped — not
-    a class of nodes, so nothing else can hide behind the exclusion.
-    """
-    node = ast.parse(textwrap.dedent(definition)).body[0]
-    body = node.body
-    if (body and isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-            and isinstance(body[0].value.value, str)):
-        body = body[1:]
-    assert body, "a definition that is only a docstring pins nothing"
-    node.body = body
-    return ast.dump(node)
-
-
-def _registered_guards(source: str) -> list[str]:
-    """The keys of the module's `GUARDS` table, read out of the source rather
-    than by importing it, so a syntax-level edit cannot hide behind a run."""
-    for node in ast.parse(source).body:
-        if (isinstance(node, ast.Assign)
-                and any(isinstance(t, ast.Name) and t.id == "GUARDS"
-                        for t in node.targets)):
-            return [key.value for key in node.value.keys]
-    raise AssertionError("hooks.py registers no GUARDS table")
-
-
-def test_n28_the_hooks_are_byte_identical():
-    """T09's A10 assertion, re-valued for T10 (TP-003 category 2, X-GEN).
-
-    It read: *"hooks are tripwires and T09 added no fence. Whole directory, so
-    a new hook file would fail here rather than pass unnoticed."* T10's plan
-    declares one hook change (B4): a fifth guard, `product-agent-fence`, added
-    inside the existing `hooks.py`. Whole-directory byte identity against T09's
-    rollback point is therefore false by design, and the assertion is re-valued
-    rather than deleted or relaxed. It is split into the three things it was
-    actually buying, each still exact equality against a written-out set:
-
-    * the directory's **file list** is exactly `HOOK_FILES` -- T10 adds no hook
-      file, so a new one still fails here, which is the sentence above;
-    * every hook file other than `hooks.py` is still byte-identical to the T09
-      rollback point;
-    * inside `hooks.py`, every top-level definition T09 pinned is byte-identical
-      one at a time, and the set of definitions is exactly T09's plus the two
-      T10 declares -- so an edit to `write_fence`, a sixth guard, or a stray
-      module-level constant all still fail.
-
-    Nothing here is a subset test, a prefix test or an `any`. The guard registry
-    is additionally pinned to the five names in order, because a guard that is
-    defined but never registered would otherwise pass.
-    """
-    hooks = sorted((REPO_ROOT / ".claude" / "hooks").rglob("*"))
-    present = sorted(p.relative_to(REPO_ROOT).as_posix()
-                     for p in hooks if p.is_file())
-    assert present == sorted(HOOK_FILES), present
-
-    for relative in present:
-        original = at_rollback(relative)
-        assert original is not None, relative
-        if relative != HOOKS_FILE:
-            assert here(relative) == original, relative
-
-    baseline_source = at_t11_hooks_baseline(HOOKS_FILE)
-    assert baseline_source is not None, (
-        f"{T11_HOOKS_BASELINE} must be reachable, or this test is vacuous")
-    before = _hooks_top_level(baseline_source)
-    after = _hooks_top_level(here(HOOKS_FILE))
-    assert "__doc__" in before and "__doc__" in after, (
-        "T10 NB-1: the module docstring must be part of the pin")
-    assert any(k.startswith("import:") for k in before), (
-        "T10 NB-1: imports must be part of the pin")
-    assert sorted(after) == sorted(set(before) | set(T11_HOOK_ADDITIONS)), (
-        sorted(set(after) ^ set(before)))
-    for name, source in before.items():
-        # The definitions T11 declares as edited are pinned by property just
-        # below, not by bytes. Everything else — including the module
-        # docstring and every import, which T10's verifier found were being
-        # skipped entirely — is still byte-identical.
-        if name in T11_HOOK_EDITS:
-            continue
-        assert after[name] == source, name
-
-    assert _registered_guards(here(HOOKS_FILE)) == list(
-        T09_GUARDS + T10_GUARD_ADDITIONS)
-
-    # -- what byte-identity was buying for the two edited definitions --------
-    #
-    # Each property below is one the byte pin used to catch. They are asserted
-    # explicitly rather than assumed, because a replacement that only *looks*
-    # stronger is how coverage narrows silently.
-    hooks_now = here(HOOKS_FILE)
-    fence = _hooks_top_level(hooks_now)["write_fence"]
-
-    # (1) FENCE_REASONS still explains exactly the fenced names, no more and
-    #     no fewer — a fenced directory with no reason would emit `None`.
-    import ast as _ast
-    reasons = _ast.literal_eval(
-        _hooks_top_level(hooks_now)["FENCE_REASONS"].split("=", 1)[1].strip())
-    fenced = _ast.literal_eval(
-        _hooks_top_level(hooks_now)["FENCED"].split("=", 1)[1].strip())
-    assert sorted(reasons) == sorted(fenced)
-    assert fenced == (".workflow", "workitems", "requirements", "guidance"), (
-        "T11 preserves the fence: `.workflow/` is still a migration source "
-        "and must stay unwriteable by hand (P6)")
-    for name, text in reasons.items():
-        # Each reason names its own fenced directory and says who owns
-        # it — the two things that make a denial actionable rather than
-        # opaque. Written as a conjunction: the previous form was a
-        # disjunction that could be satisfied for the wrong reason.
-        assert isinstance(text, str) and len(text) > 60, name
-        assert f"'{name}/'" in text, name
-        assert "SDLE" in text or "sdle.py" in text, name
-
-    # (2) `write_fence` still denies rather than asks, still reads its reason
-    #     from FENCE_REASONS, still has exactly the one carve-out, and still
-    #     iterates FENCED.
-    assert '"deny"' in fence
-    assert "FENCE_REASONS" in fence
-    assert fence.count("SPECS_CARVE_OUT") == 1
-    assert "for name in FENCED" in fence
-    # (3) and T11's declared addition: it normalises first (D7 / T04 N-3).
-    assert "normalized(" in fence
-
-    # (4) The fence tests each name through `fenced_target`, not `in_dir`.
-    #     This is the M7 out-of-plan correction, pinned structurally here and
-    #     behaviourally in `tests/test_hooks.py`.
-    assert "fenced_target(" in fence
-    assert "in_dir(" not in fence, (
-        "the fence must use the anchored test, not the loose one")
-
-    defs = _hooks_top_level(hooks_now)
-
-    # (5) `in_dir` keeps its loose form *verbatim* — it is what `fenced_target`
-    #     falls back to outside the repository, and what `untrusted_read`
-    #     still uses. Only prose was added, and that is asserted rather than
-    #     trusted: with the docstring removed from both sides, the definition
-    #     must be structurally identical to the baseline. Byte-identity was
-    #     buying exactly this, and nothing else, because the baseline
-    #     definition carried no docstring at all.
-    assert _without_docstring(before["in_dir"]) == _without_docstring(
-        defs["in_dir"]), "in_dir changed by more than its docstring"
-
-    # (6) `fenced_target` anchors against the repository-relative path and
-    #     falls back to the loose test only outside it. Both halves asserted:
-    #     an implementation that dropped the anchor would silently restore the
-    #     over-broad denial, and one that dropped the fallback would stop
-    #     seeing writes into another tree's `workitems/`.
-    anchored = defs["fenced_target"]
-    assert "relative(path)" in anchored
-    assert 'inside.startswith(f"{name}/")' in anchored
-    assert "return in_dir(path, name)" in anchored
-
-    # (7) `untrusted_read` is the one caller that must stay loose: SCANNED is
-    #     an advisory warn-and-acknowledge scan, not an ownership claim. It is
-    #     byte-identical above; this records *why* it was left alone.
-    assert "in_dir(path, name) for name in SCANNED" in defs["untrusted_read"]
-
-
-def test_n28_the_state_schema_did_not_move(project):
-    """A10: no state field, no migration row, no version bump, eight approval
-    keys. The requirement set is derived at every decision point and stored
-    nowhere, so there was nothing to migrate."""
-    consts = repo_consts()
-    # T11 X11 re-valuation (TP-003 category 2): 16 -> 17. D14 appends the
-    # `1.16 -> 1.17` row for D13's `pending_branch_ack`. Exact equality kept.
-    assert len(consts.version_chain) == 17
-
-    template = json.loads(
-        (project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    assert len(template["approvals"]) == 8
-    assert set(template["approvals"]) == set(consts.phase_to_gate_key.values())
-    assert all(value is None for value in template["approvals"].values())
-
-    # The version string itself, at the two locations a WorkItem runtime can
-    # see. `version_string_consistent` covers all four and is exercised over a
-    # repo copy by `test_lint_skill.py`; this is the half T09 could have moved.
-    assert template["workflow_version"] == "1.17"
-    assert "v1.17" in (project.skill_root / "SKILL.md").read_text(
-        encoding="utf-8")
-    assert consts.version_chain[-1][1] == "1.17"
-
-
-def test_n29_the_frozen_greenfield_tuple_and_every_flow_are_unchanged():
-    """A13: T07 owns which phases execute and T09 changed none of it."""
-    assert len(sdle.GREENFIELD_V1_PHASES) == 19
-    assert sdle.GREENFIELD_V1_PHASES[-1] == "complete"
-
-    consts = repo_consts()
-    assert "GREENFIELD" not in consts.flow_phases, (
-        "GREENFIELD is derived, never a FLOW_PHASES row")
-
-    # Element-wise against the rollback point, read out of that commit's own
-    # SKILL.md rather than restated here.
-    skill = at_rollback(".claude/skills/sdle/SKILL.md")
-    assert skill is not None
-    for name in sdle.ENGINEERING_FLOWS:
-        if name == "GREENFIELD":
-            assert list(consts.flow(name).phases) == list(
-                sdle.GREENFIELD_V1_PHASES)
-            continue
-        prefix = f"| `{name}` | "
-        row = next(line for line in skill.splitlines()
-                   if line.startswith(prefix))
-        declared = row.split("|")[2].split()
-        assert list(consts.flow(name).phases) == declared, name
-
-
 def test_n30_the_policy_needle_count_is_what_this_phase_left_it():
     """N30/A14/F5/I6: the restatement search picks the five new signals up
     automatically. Pinned so a *shrinking* needle set — which would make the
@@ -1786,18 +1396,15 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
 
 
 def test_t11_the_legacy_rung_is_gone():
-    """Replaces `test_n31_no_t11_leakage`, which was an anti-leakage pin whose
-    declared owner was T11 and which therefore had to fail once T11 did its
-    job. It is replaced, not deleted: the same surfaces are asserted, now in
-    the direction T11 establishes.
-
-    The three surfaces it guarded are re-asserted positively here:
+    """The retired `.workflow/` runtime is detected, never bound.
 
     * the legacy **rung** is gone from `resolve_decision` / `bind_workitem`;
-    * `legacy_workflow` itself is *kept* — P1/P2, it is the migration source
-      and the project-root marker, and removing it would brick a legacy-only
-      repository;
-    * `current_feature_id` is kept, but only inside migration rows (P8).
+    * `legacy_workflow` itself is *kept* as the detection view and the
+      project-root marker, and removing it would leave a legacy-only
+      repository unfindable, so the refusal could never reach its user;
+    * the flat `current_feature_id` state field is gone from the engine
+      altogether: it was only ever named by the state migration, which no
+      longer exists (ADR-010), and the Spec Kit context lives in `specKit`.
     """
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
 
@@ -1805,13 +1412,13 @@ def test_t11_the_legacy_rung_is_gone():
     assert 'decision.rung = "legacy"' not in source
     assert 'rung == "legacy"' not in source
 
-    # Preserved: the migration source view and the project-root marker.
+    # Preserved: the detection view and the project-root marker.
     assert "legacy_workflow" in source
     assert '(".workflow", "state.json")' in source, (
-        "P1: without this marker a legacy-only repository cannot be found, "
-        "so `migrate-workflow` could never be pointed at it")
+        "without this marker a legacy-only repository cannot be found, so "
+        "the refusal that points at `workitem create` could never reach it")
     assert ".workflow/" in sdle.SDLE_OWNED_PREFIXES
-    assert "current_feature_id" in source
+    assert "current_feature_id" not in source
 
     # And the ladder itself no longer offers the value.
     assert "legacy" not in {
@@ -1819,50 +1426,244 @@ def test_t11_the_legacy_rung_is_gone():
     }
 
 
-def test_n31_migrate_workflow_still_leaves_the_legacy_tree_untouched(
-    bare_project,
-):
-    """A12, split by T11 X3.
+def here(relative: str) -> str:
+    return (REPO_ROOT / relative).read_text(
+        encoding="utf-8").replace("\r\n", "\n")
 
-    The half that asserted the legacy rung *binds* is inverted (the rung is
-    gone; `state get` refuses `workitem_required`). The half that asserts
-    `migrate-workflow` leaves `.workflow/` byte-for-byte untouched is kept
-    verbatim — that is B9, the migration-discipline guarantee §17 preserves,
-    and it must never be lost.
-    """
-    template = json.loads(
-        (bare_project.skill_root / "templates" / "state.json").read_text(
-            encoding="utf-8"))
-    template["current_phase"] = "requirements_check"
-    legacy = bare_project.root / ".workflow"
-    legacy.mkdir()
-    (legacy / "state.json").write_text(json.dumps(template, indent=2) + "\n",
-                                       encoding="utf-8", newline="\n")
-    (legacy / "audit.md").write_text("# Audit\n", encoding="utf-8",
-                                     newline="\n")
 
-    before = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    refused = bare_project.run("state", "get", "--field", "current_phase")
+# Invariant 3 (SpecKit opacity): the prompt layer must not teach the model to
+# show `speckit-*` skill names or `/speckit.*` commands. These three files are
+# the ones a user's conversation is built from; the lines that name a Spec Kit
+# skill or command are counted, so a new one has to be added here on purpose.
+SPECKIT_NAMING_LINES = {
+    ".claude/skills/sdle/SKILL.md": 1,           # the opacity rule itself
+    ".claude/skills/sdle/modules/gate-protocol.md": 6,
+    ".claude/commands/sdle-approve.md": 0,
+}
+
+
+def test_a15_the_prompt_layer_names_spec_kit_only_where_it_is_recorded():
+    """Invariant 3, stated on the current files."""
+    for relative, expected in SPECKIT_NAMING_LINES.items():
+        named = [line for line in here(relative).splitlines()
+                 if "speckit-" in line or "/speckit." in line]
+        assert len(named) == expected, (relative, named)
+    rule = [line for line in here(".claude/skills/sdle/SKILL.md").splitlines()
+            if "speckit-" in line]
+    assert rule and "opacity" in rule[0].lower(), rule
+
+
+# ==========================================================================
+# F-024 — the policy a WorkItem started under is pinned (ADR-011)
+#
+# The requirement set is still derived at every decision point from the policy
+# on disk. What is added is an AND: a gate is omittable only if it is omittable
+# under the live policy *and* under the policy pinned in the governance record.
+# The pin can only ever refuse more, so it authorises nothing and is not the
+# stored second source of truth invariant 7 forbids.
+#
+# Scope: this closes the POLICY channel. A risk downgrade can still make a gate
+# omittable, which gate-protocol.md documents as legitimate and audits; the
+# test below pins that it is still permitted, so an over-fix would fail here.
+# ==========================================================================
+
+TIGHT_AT_LOW = "gate_design"
+
+
+def tighten_low(project, gate: str = TIGHT_AT_LOW):
+    """A repository policy that requires `gate` at LOW, which the built-in
+    floor does not. Returns the policy file, so a test can delete it."""
+    tight = copy.deepcopy(BUILTIN["required_gates_by_risk"])
+    tight["LOW"] = sorted(set(tight.get("LOW") or []) | {gate})
+    write_policy(project, {"required_gates_by_risk": tight})
+    return policy_file(project)
+
+
+def at_omittable_gate(project, gate: str = TIGHT_AT_LOW, level: str = "LOW"):
+    """Walk a GREENFIELD WorkItem to `gate` with its artifact reviewed, so the
+    only thing standing between the run and an omission is the requirement."""
+    walk(project, stop=gate, level=level)
+    review_for_gate(project, gate)
+
+
+def test_f024_a_relaxed_policy_cannot_drop_a_gate_required_at_start(git_project):
+    """The reproduction, promoted. Under the tight policy the omission is
+    refused; deleting the policy file must not change that answer for a
+    WorkItem that started under it."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+
+    before = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert before.exit_code == EXIT_REFUSED, before
+    assert before.reason == "gate_required", before
+
+    tight.unlink()  # relax back to the built-in floor
+
+    after = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert after.exit_code == EXIT_REFUSED, after
+    assert after.reason == "gate_required", after
+    # The template pre-seeds every gate key as `null`; what must not appear is
+    # a decision.
+    assert not (git_project.state().get("approvals") or {}).get(TIGHT_AT_LOW)
+
+
+def test_f024_the_refusal_names_the_pin_and_both_policies(git_project):
+    """`gate show --gate <key>` is what gate-protocol.md tells the orchestrator
+    to display, so a user who cannot omit must be able to see why."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    tight.unlink()
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+
+    assert any(reason.startswith("pinned:")
+               for reason in refused.data["reasons"]), refused.data
+    assert "pinned_policy_sha256" in refused.data, refused.data
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data
+    assert shown["required"] is True
+    assert shown["requirement_reasons"] == refused.data["reasons"]
+
+
+def test_f024_re_assessing_after_relaxing_does_not_move_the_pin(git_project):
+    """The attack a naive fix leaves open: `governance assess` rewrites
+    governance.json wholesale, so a pin that is not carried forward is erased
+    by relax -> re-assess -> omit."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    pinned_before = record_of(git_project)["pinnedPolicy"]["sha256"]
+
+    tight.unlink()
+    again = assess(git_project)
+    assert again.exit_code == EXIT_OK, again
+
+    record = record_of(git_project)
+    assert record["pinnedPolicy"]["sha256"] == pinned_before, record["pinnedPolicy"]
+    assert record["policy"]["sha256"] is None, "the live policy is the floor now"
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
     assert refused.exit_code == EXIT_REFUSED, refused
-    assert refused.reason == "workitem_required", refused
-
-    bare_project.ok("workitem", "create", "--name", "migrated thing")
-    wid = bare_project.run("workitem", "list").data["workitems"][-1]["id"]
-    assert bare_project.run("migrate-workflow", "--workitem",
-                            wid).exit_code == EXIT_OK
-    after = {p.name: sdle.sha256_file(p) for p in sorted(legacy.iterdir())}
-    assert after == before, "migrate-workflow must never mutate .workflow/"
+    assert refused.reason == "gate_required", refused
 
 
-def test_a15_no_speckit_name_leaked_into_the_prompt_layer():
-    """Invariant 3: the two files T09 edited in the prompt layer must not have
-    gained a `speckit-*` name or a `/speckit.*` command."""
-    for relative in (".claude/skills/sdle/SKILL.md",
-                     ".claude/skills/sdle/modules/gate-protocol.md",
-                     ".claude/commands/sdle-approve.md"):
-        original = (at_rollback(relative) or "").splitlines()
-        current = here(relative).splitlines()
-        added = [line for line in current if line not in original]
-        for line in added:
-            assert "speckit-" not in line, (relative, line)
-            assert "/speckit." not in line, (relative, line)
+def test_f024_a_policy_tightened_mid_flight_still_applies(git_project):
+    """The pin is an AND, not a replacement: the live policy is still read, so
+    a gate the pinned policy did not require but the live one does is
+    required."""
+    at_omittable_gate(git_project)  # started under the built-in floor
+    assert git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data[
+        "required"] is False
+
+    tighten_low(git_project)  # tightened after the run started
+
+    refused = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "gate_required", refused
+    assert f"risk:LOW" in refused.data["reasons"], refused.data
+
+
+def test_f024_a_risk_downgrade_under_one_policy_still_permits_omission(git_project):
+    """Deliberately NOT fixed here. `gate-protocol.md` says a downgrade is never
+    refused because a real re-scope is legitimate; it is audited instead. An
+    over-fix that pinned the derived gate list rather than the policy would
+    refuse this, so this test is what keeps the scope honest."""
+    walk(git_project, stop=TIGHT_AT_LOW, level="HIGH")
+    review_for_gate(git_project, TIGHT_AT_LOW)
+    assert git_project.run(
+        "gate", "omit", "--gate", TIGHT_AT_LOW).reason == "gate_required"
+
+    lowered = assess(git_project, governance_input(
+        risk={"signals": [], "proposedLevel": "LOW", "uncertainty": "LOW"}))
+    assert lowered.exit_code == EXIT_OK, lowered
+
+    omitted = git_project.run("gate", "omit", "--gate", TIGHT_AT_LOW)
+    assert omitted.exit_code == EXIT_OK, omitted
+    entry = git_project.state()["approvals"][TIGHT_AT_LOW]
+    assert entry["decision"] == sdle.GATE_OMITTED_DECISION
+    assert entry["governance_downgrade"], "the downgrade is recorded, not refused"
+
+
+def test_f024_the_pin_is_recorded_with_its_source_and_sha(git_project):
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+
+    pinned = record_of(git_project)["pinnedPolicy"]
+
+    assert pinned["sha256"] == sdle.sha256_file(tight)
+    assert pinned["source"].endswith("governance-policy.json")
+    assert pinned["pinnedAt"], pinned
+    assert pinned["policy"]["required_gates_by_risk"]["LOW"] == [TIGHT_AT_LOW]
+
+
+def test_f024_an_omission_records_both_policy_shas(git_project):
+    """§15 wants an omitted gate explainable later, from what was written down:
+    which policy permitted it, and which policy the run started under."""
+    at_omittable_gate(git_project)
+
+    assert git_project.ok("gate", "omit", "--gate", TIGHT_AT_LOW).exit_code == EXIT_OK
+    entry = git_project.state()["approvals"][TIGHT_AT_LOW]
+
+    assert "policy_sha256" in entry
+    assert "pinned_policy_sha256" in entry
+
+
+def test_f024_a_record_written_before_the_pin_derives_from_the_live_policy(
+        git_project):
+    """Records at governanceVersion 1 and 2 carry no pin. They stay readable and
+    derive live-only: failing closed would freeze every WorkItem in flight when
+    this shipped, and an old record is evidence of an older schema, not of a
+    tighter policy."""
+    at_omittable_gate(git_project)
+    target = git_project.runtime / "governance.json"
+    record = json.loads(target.read_text(encoding="utf-8"))
+    record.pop("pinnedPolicy", None)
+    record["governanceVersion"] = "2"
+    target.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8",
+                      newline="\n")
+
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW)
+
+    assert shown.data["required"] is False, shown.data
+    assert git_project.ok("gate", "omit", "--gate", TIGHT_AT_LOW).exit_code == EXIT_OK
+
+
+def test_f024_the_record_version_is_three_and_the_old_ones_still_read():
+    assert sdle.GOVERNANCE_RECORD_VERSION == "3"
+    assert sdle.GOVERNANCE_RECORD_VERSIONS == ("1", "2", "3")
+
+
+def test_f024_the_pin_only_promotes_gates_the_flow_contains(git_project):
+    """A pinned policy naming a gate the bound flow has no phase for stays
+    `not_in_flow`; the pin narrows, it does not invent a gate."""
+    tight = copy.deepcopy(BUILTIN["required_gates_by_risk"])
+    tight["LOW"] = ["gate_constitution"]          # HOTFIX has no constitution
+    write_policy(git_project, {"required_gates_by_risk": tight})
+    bind_and_init(git_project, flow="HOTFIX")
+    policy_file(git_project).unlink()
+
+    model = git_project.ok("governance", "gates").data
+    entry = next((d for d in model["dispositions"]
+                  if d["gate"] == "gate_constitution"), None)
+    assert entry is None or entry["disposition"] == "not_in_flow", model
+    assert "gate_constitution" not in model["required_gates"], model
+
+
+def test_f024_gate_show_and_governance_gates_agree_under_the_pin(git_project):
+    """Two surfaces answering "is this gate required" differently is the drift
+    this engine is built to prevent. `governance gates` derived the model with a
+    bare `gate_requirements` and so reported a pinned gate as omittable, while
+    `gate show` reported it required; both now go through `requirement_model`."""
+    tight = tighten_low(git_project)
+    at_omittable_gate(git_project)
+    tight.unlink()
+
+    reported = git_project.ok("governance", "gates").data
+    shown = git_project.ok("gate", "show", "--gate", TIGHT_AT_LOW).data
+    entry = next(d for d in reported["dispositions"] if d["gate"] == TIGHT_AT_LOW)
+
+    assert shown["required"] is True, shown
+    assert entry["disposition"] == "required", entry
+    assert entry["reasons"] == shown["requirement_reasons"], (entry, shown)
+    assert TIGHT_AT_LOW in reported["required_gates"]
+    assert TIGHT_AT_LOW not in reported["omittable_gates"]
+    assert reported["pinned_policy"]["sha256"] == (
+        record_of(git_project)["pinnedPolicy"]["sha256"])

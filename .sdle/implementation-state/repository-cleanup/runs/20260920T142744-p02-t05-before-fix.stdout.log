@@ -1,0 +1,40 @@
+FFFF.................................................................... [ 97%]
+F.                                                                       [100%]
+================================== FAILURES ===================================
+E   AssertionError: 1068
+    assert 1068 <= 1024
+     +  where 1068 = len('SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable ...tation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.')
+     +    where 'SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable ...tation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.' = skill_description()
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:115: AssertionError: 1068
+E   AssertionError: SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software deliver
+    assert False
+     +  where False = <built-in method startswith of str object at 0x000001D128154BA0>('Use when the user says start workflow')
+     +    where <built-in method startswith of str object at 0x000001D128154BA0> = 'SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable ...tation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.'.startswith
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:122: AssertionError: SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software deliver
+E   AssertionError: assert not <re.Match object; span=(36, 41), match='v1.17'>
+     +  where <re.Match object; span=(36, 41), match='v1.17'> = <function search at 0x000001D1259E5440>('\\bv\\d+\\.\\d+\\b', 'SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable ...tation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.')
+     +    where <function search at 0x000001D1259E5440> = re.search
+     +    and   'SDLE — Spec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable ...tation manifest, tamper-evident audit log, session lock, dirty-tree guard, repo staleness warning, and confirmed skip.' = skill_description()
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:129: AssertionError: assert not <re.Match object; span=(36, 41), match='v1.17'>
+E   AssertionError: assert 'requirements/' not in 'sdle — spec...firmed skip.'
+      
+      'requirements/' is contained here:
+      ?           ^^^^^^^^
+        ect has a requirements/ folder. speckit commands are never exposed to the user. the mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. rate-limits remediation and retry loops. verbose mode available. clarification responses persisted. artifact drift detection with re-approval queue. design before implementation. tasks and security review each have explicit approval gates. forward-jump prevention and stateful confirmation trac...
+      
+      ...Full output truncated (2 lines hidden), use '-vv' to show
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:135: AssertionError: assert 'requirements/' not in 'sdle — spec...firmed skip.'
+E   AssertionError: assert 'Lifecycle Engine v' not in '---\nname: ...firmed skip.'
+      
+      'Lifecycle Engine v' is contained here:
+        ec Driven Lifecycle Engine v1.17. Orchestrates a gated software delivery lifecycle — one of five selectable flows over a 21-phase registry — wrapping SpecKit. Use when the user says start workflow, continue, approve, reject, status, resume, show state, restart phase, reset workflow, or when the project has a requirements/ folder. SpecKit commands are never exposed to the user. The mechanical layer — state, gates, fingerprints, audit chain, drift, locking, rate limits — is enforced by scripts/sdle.py, which refuses rather than warns. Rate...
+      
+      ...Full output truncated (2 lines hidden), use '-vv' to show
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_lint_skill.py:797: AssertionError: assert 'Lifecycle Engine v' not in '---\nname: ...firmed skip.'
+=========================== short test summary info ===========================
+FAILED tests/test_units_shipped_surface.py::test_the_skill_description_fits_the_agent_skills_limit
+FAILED tests/test_units_shipped_surface.py::test_the_skill_description_leads_with_its_trigger_phrases
+FAILED tests/test_units_shipped_surface.py::test_the_skill_description_carries_no_product_version
+FAILED tests/test_units_shipped_surface.py::test_the_skill_does_not_trigger_on_a_bare_requirements_folder
+FAILED tests/test_lint_skill.py::test_a_skill_frontmatter_with_no_version_is_clean
+5 failed, 69 passed, 12 deselected in 13.55s

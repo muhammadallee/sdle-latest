@@ -1,0 +1,91 @@
+FFFF.FFF.FFFFFFFF                                                        [100%]
+================================== FAILURES ===================================
+E   AssertionError: python .claude/hooks/hooks.py write-fence
+    assert 'python' == 'sh'
+      
+      - sh
+      + python
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:105: AssertionError: python .claude/hooks/hooks.py write-fence
+E   AssertionError: python .claude/hooks/hooks.py write-fence
+    assert False
+     +  where False = <built-in method startswith of str object at 0x00000161D5753CF0>('sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh" ')
+     +    where <built-in method startswith of str object at 0x00000161D5753CF0> = 'python .claude/hooks/hooks.py write-fence'.startswith
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:116: AssertionError: python .claude/hooks/hooks.py write-fence
+E   IndexError: list index out of range
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:121: IndexError: list index out of range
+E   AssertionError: ['hooks.py']
+    assert ['hooks.py'] == ['hooks.py', 'run-hook.sh']
+      
+      Right contains one more item: 'run-hook.sh'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:157: AssertionError: ['hooks.py']
+E   AssertionError: {'python .claude/hooks/hooks.py product-agent-fence'}
+    assert {'python .cla...-agent-fence'} == {'sh "${CLAUD...-agent-fence'}
+      
+      Extra items in the left set:
+      'python .claude/hooks/hooks.py product-agent-fence'
+      Extra items in the right set:
+      'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh" product-agent-fence'
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:634: AssertionError: {'python .claude/hooks/hooks.py product-agent-fence'}
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\Learning\\AI\\sdle-git-repo\\sdle-latest\\.claude\\hooks\\run-hook.sh'
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py:537: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\Learning\\AI\\sdle-git-repo\\sdle-latest\\.claude\\hooks\\run-hook.sh'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\Learning\\AI\\sdle-git-repo\\sdle-latest\\.claude\\hooks\\run-hook.sh'
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py:537: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\Learning\\AI\\sdle-git-repo\\sdle-latest\\.claude\\hooks\\run-hook.sh'
+E   AssertionError: C:\Users\Ali\AppData\Local\Programs\Python\Python313\python.exe: can't open file 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-698\\test_f013_the_registered_hook_1\\target\\workitems\\fixture-workitem\\.claude\\hooks\\hooks.py': [Errno 2] No such file or directory
+      
+    assert 2 == 0
+     +  where 2 = CompletedProcess(args=['sh', '-c', 'python .claude/hooks/hooks.py write-fence'], returncode=2, stdout='', stderr="C:\\..._1\\\\target\\\\workitems\\\\fixture-workitem\\\\.claude\\\\hooks\\\\hooks.py': [Errno 2] No such file or directory\n").returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:936: AssertionError: C:\Users\Ali\AppData\Local\Programs\Python\Python313\python.exe: can't open file 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-698\\test_f013_the_registered_hook_1\\target\\workitems\\fixture-workitem\\.claude\\hooks\\hooks.py': [Errno 2] No such file or directory
+E   AssertionError: C:\Users\Ali\AppData\Local\Programs\Python\Python313\python.exe: can't open file 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-698\\test_f013_the_registered_hook_2\\.claude\\hooks\\hooks.py': [Errno 2] No such file or directory
+      
+    assert 2 == 0
+     +  where 2 = CompletedProcess(args=['sh', '-c', 'python .claude/hooks/hooks.py write-fence'], returncode=2, stdout='', stderr="C:\\...pytest-698\\\\test_f013_the_registered_hook_2\\\\.claude\\\\hooks\\\\hooks.py': [Errno 2] No such file or directory\n").returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:936: AssertionError: C:\Users\Ali\AppData\Local\Programs\Python\Python313\python.exe: can't open file 'C:\\Users\\Ali\\AppData\\Local\\Temp\\pytest-of-Ali\\pytest-698\\test_f013_the_registered_hook_2\\.claude\\hooks\\hooks.py': [Errno 2] No such file or directory
+E   AssertionError: python .claude/hooks/hooks.py write-fence
+    assert False
+     +  where False = <built-in method startswith of str object at 0x00000161D5753CF0>('sh ')
+     +    where <built-in method startswith of str object at 0x00000161D5753CF0> = 'python .claude/hooks/hooks.py write-fence'.startswith
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:54: AssertionError: python .claude/hooks/hooks.py write-fence
+E   AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete0/target/.claude/hooks/run-hook.sh: No such file or directory
+      
+    assert 127 == 0
+     +  where 127 = CompletedProcess(args=['C:\\Program Files\\Git\\usr\\bin\\sh.EXE', '-c', '"C:/Program Files/Git/usr/bin/sh.EXE" "C:/Us...ytest-of-Ali/pytest-698/test_f013_a_missing_interprete0/target/.claude/hooks/run-hook.sh: No such file or directory\n').returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:979: AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete0/target/.claude/hooks/run-hook.sh: No such file or directory
+E   AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete1/target/.claude/hooks/run-hook.sh: No such file or directory
+      
+    assert 127 == 0
+     +  where 127 = CompletedProcess(args=['C:\\Program Files\\Git\\usr\\bin\\sh.EXE', '-c', '"C:/Program Files/Git/usr/bin/sh.EXE" "C:/Us...ytest-of-Ali/pytest-698/test_f013_a_missing_interprete1/target/.claude/hooks/run-hook.sh: No such file or directory\n').returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:979: AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete1/target/.claude/hooks/run-hook.sh: No such file or directory
+E   AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete2/target/.claude/hooks/run-hook.sh: No such file or directory
+      
+    assert 127 == 0
+     +  where 127 = CompletedProcess(args=['C:\\Program Files\\Git\\usr\\bin\\sh.EXE', '-c', '"C:/Program Files/Git/usr/bin/sh.EXE" "C:/Us...ytest-of-Ali/pytest-698/test_f013_a_missing_interprete2/target/.claude/hooks/run-hook.sh: No such file or directory\n').returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:979: AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete2/target/.claude/hooks/run-hook.sh: No such file or directory
+E   AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete3/target/.claude/hooks/run-hook.sh: No such file or directory
+      
+    assert 127 == 0
+     +  where 127 = CompletedProcess(args=['C:\\Program Files\\Git\\usr\\bin\\sh.EXE', '-c', '"C:/Program Files/Git/usr/bin/sh.EXE" "C:/Us...ytest-of-Ali/pytest-698/test_f013_a_missing_interprete3/target/.claude/hooks/run-hook.sh: No such file or directory\n').returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:979: AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete3/target/.claude/hooks/run-hook.sh: No such file or directory
+E   AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete4/target/.claude/hooks/run-hook.sh: No such file or directory
+      
+    assert 127 == 0
+     +  where 127 = CompletedProcess(args=['C:\\Program Files\\Git\\usr\\bin\\sh.EXE', '-c', '"C:/Program Files/Git/usr/bin/sh.EXE" "C:/Us...ytest-of-Ali/pytest-698/test_f013_a_missing_interprete4/target/.claude/hooks/run-hook.sh: No such file or directory\n').returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_hooks.py:979: AssertionError: C:/Program Files/Git/usr/bin/sh: C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-698/test_f013_a_missing_interprete4/target/.claude/hooks/run-hook.sh: No such file or directory
+=========================== short test summary info ===========================
+FAILED tests/test_hooks.py::test_the_registered_launcher_resolves_on_this_machine
+FAILED tests/test_hooks.py::test_every_registration_is_anchored_on_the_project_directory
+FAILED tests/test_hooks.py::test_every_registered_launcher_exists_in_the_project
+FAILED tests/test_hooks.py::test_the_hooks_directory_holds_only_the_shipped_files
+FAILED tests/test_hooks.py::test_every_product_agent_registers_the_same_fence
+FAILED tests/test_hooks.py::test_the_launcher_tries_interpreters_in_the_engine_launchers_order
+FAILED tests/test_hooks.py::test_the_launcher_requires_python_311_like_the_engine_launchers
+FAILED tests/test_hooks.py::test_f013_the_registered_hook_starts_from_any_working_directory[workitem dir]
+FAILED tests/test_hooks.py::test_f013_the_registered_hook_starts_from_any_working_directory[elsewhere]
+FAILED tests/test_hooks.py::test_f013_the_launcher_starts_on_a_python3_only_host
+FAILED tests/test_hooks.py::test_f013_a_missing_interpreter_is_visible_never_silent[write-fence-PreToolUse]
+FAILED tests/test_hooks.py::test_f013_a_missing_interpreter_is_visible_never_silent[product-agent-fence-PreToolUse]
+FAILED tests/test_hooks.py::test_f013_a_missing_interpreter_is_visible_never_silent[untrusted-read-PreToolUse]
+FAILED tests/test_hooks.py::test_f013_a_missing_interpreter_is_visible_never_silent[dirty-tree-PreToolUse]
+FAILED tests/test_hooks.py::test_f013_a_missing_interpreter_is_visible_never_silent[secrets-scan-PostToolUse]
+15 failed, 2 passed, 141 deselected in 20.44s

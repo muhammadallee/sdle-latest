@@ -1,0 +1,21 @@
+import copy, json
+from conftest import *  # noqa
+from test_units_gate_policy import walk, review_for_gate, ledger
+from test_units_governance import write_policy, policy_file, BUILTIN
+
+
+def test_probe(git_project):
+    tight = copy.deepcopy(BUILTIN["required_gates_by_risk"])
+    tight["LOW"] = ["gate_design"]
+    write_policy(git_project, {"required_gates_by_risk": tight})
+    show = git_project.run("governance", "policy")
+    print("POLICY", show.exit_code, show.reason, str(show.data)[:200])
+    walk(git_project, stop="gate_design", level="LOW")
+    review_for_gate(git_project, "gate_design")
+    r1 = git_project.run("gate", "omit", "--gate", "gate_design")
+    print("UNDER TIGHT POLICY omit ->", r1.exit_code, r1.reason, r1.data.get("policy"))
+    policy_file(git_project).unlink()          # relax back to the built-in floor
+    r2 = git_project.run("gate", "omit", "--gate", "gate_design")
+    print("AFTER RELAXING   omit ->", r2.exit_code, r2.reason, r2.data.get("decision"), r2.data.get("final_risk"))
+    if r2.exit_code == 0:
+        print("APPROVAL ENTRY", json.dumps(git_project.state()["approvals"]["gate_design"]))

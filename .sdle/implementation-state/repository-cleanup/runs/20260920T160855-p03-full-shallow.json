@@ -1,0 +1,44 @@
+{
+  "run_id": "20260920T160855-p03-full-shallow",
+  "result": "PASS",
+  "label": "p03-full-shallow",
+  "task_ids": [
+    "P03"
+  ],
+  "ac_ids": [
+    "AC-09",
+    "AC-11",
+    "AC-02"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short"
+  ],
+  "cwd": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpad\\shallow-p03",
+  "head": "1507cabb12ad14eb276a5bf2a4af4d954285c57a",
+  "content_fingerprint": "696e99878fddd41cc67476ffe362ae3d72d2c6f387cd7960daeb59542d4dbe6e",
+  "manifest_paths": 0,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T16:08:55Z",
+  "runner_pid": 27960,
+  "stdout": "20260920T160855-p03-full-shallow.stdout.log",
+  "stderr": "20260920T160855-p03-full-shallow.stderr.log",
+  "note": "Whole suite in a depth-1 clone of 1507cab (one commit): also proves normal tests need no history. Fingerprint field describes the main checkout, not the clone.",
+  "memory_samples": "20260920T160855-p03-full-shallow.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 2251
+  },
+  "finished_utc": "2026-09-20T16:47:22Z",
+  "fingerprint_unchanged_during_run": false
+}

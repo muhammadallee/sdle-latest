@@ -12,7 +12,6 @@ Two rules hold everywhere in this suite:
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import importlib.util
 import io
@@ -444,28 +443,13 @@ def started_git(project: Project) -> Project:
     project.ok("init", session="testsess")
     return project
 # ---------------------------------------------------------------------------
-# T11 D15 / X10 -- the dry-run transcript substitution set
+# Retired wording in the dry-run transcripts
 # ---------------------------------------------------------------------------
 #
-# The nine transcripts are the behavioural specification, and they are pinned
-# byte-identical against two different commits, in two different test files.
-# T11 converged them off the repository-global `.workflow/` runtime, which had
-# been stale since the runtime became WorkItem-scoped.
-#
-# Rather than re-baselining the pins -- which would have thrown away everything
-# they were buying -- both became a **declared substitution** comparison:
-#
-#     apply_dry_run_substitutions(at_baseline(f)) == here(f)
-#
-# Every pair below is an exact literal, never a pattern. A wildcard here would
-# silently absorb a real edit, which is the one failure mode this shape exists
-# to prevent: any change to a transcript other than these substitutions still
-# fails both pins. Each pin additionally asserts that every pair was used at
-# least once, so a pair that stopped matching cannot decay into a no-op.
-#
-# The list lives here, once, so the two pins cannot drift apart.
-
-DRY_RUN_WORKITEM_RUNTIME = "workitems/todo-api/.sdle"
+# Each pair is (wording that describes a layout SDLE no longer has, its current
+# form). Two checks use them: no dry run may contain the old wording, and the
+# documented commands must contain the new. Every pair is an exact literal,
+# never a pattern, so nothing broader can be absorbed by accident.
 
 DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
     ('No `.workflow/` exists.',
@@ -512,20 +496,6 @@ DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
 )
 
 
-def apply_dry_run_substitutions(text: str, used: set | None = None) -> str:
-    """Rewrite a baseline transcript into its post-T11 form.
-
-    `used`, when given, collects the left-hand side of every pair that
-    actually matched, so the caller can assert the whole set was exercised.
-    """
-    for old, new in DRY_RUN_SUBSTITUTIONS:
-        if old in text:
-            if used is not None:
-                used.add(old)
-            text = text.replace(old, new)
-    return text
-
-
 # ---------------------------------------------------------------------------
 # SDLE-DEFECT-STABILIZATION-01 -- verification commands for Gate 7 (D02)
 # ---------------------------------------------------------------------------
@@ -554,166 +524,33 @@ FAILING_TEST_COMMAND = _command_line(
     [sys.executable, "-c", "raise SystemExit(1)"])
 
 
-# ---------------------------------------------------------------------------
-# SDLE-DEFECT-STABILIZATION-01 -- declared edits to the frozen test files
-# ---------------------------------------------------------------------------
-#
-# Three integration files are pinned byte-identical to historical commits,
-# because they are the behavioural contract. Two of their assertions encoded
-# defects this iteration fixes: `test_06_gate_seven_accepts_a_built_manifest`
-# approved Gate 7 on a `--skip-tests` manifest (D02), and
-# `test_06_security_review_falls_back_when_no_ref_pinned` required the silent
-# `HEAD~1` fallback (D03). A byte pin cannot survive either fix.
-#
-# The pin is not re-baselined, which would discard what it proves. It becomes
-# a **unit-level declared comparison**, the shape T11 used for `hooks.py`:
-#
-#   * every top-level unit at the baseline (the docstring, each import, each
-#     function, each assignment) is still present and byte-identical --
-#     unless it is named in `STABILIZATION_01_TEST_EDITS` or
-#     `STABILIZATION_01_TEST_REMOVALS`;
-#   * an edited unit must equal its baseline once the declared removed lines
-#     are taken out of the baseline and the declared added lines out of the
-#     current version, compared as ordered sequences -- so the only change that
-#     passes is exactly the declared one;
-#   * a removed unit must name the unit that replaces it, and that unit must
-#     exist;
-#   * a current unit absent at the baseline must be named in
-#     `STABILIZATION_01_TEST_ADDITIONS`, and every name there must exist.
-#
-# Each entry is recorded in `docs/verification/defect-stabilization-01.md`.
+# --------------------------------------------------------------------------
+# Restatement search (invariant 7): which files must not repeat an engine fact
+# --------------------------------------------------------------------------
 
-STABILIZATION_01_TEST_EDITS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
-    "tests/test_integration_01_happy_path.py": {
-        # D02: Gate 7 needs a test run that passed. The fixture project has no
-        # runner to detect, so the driver supplies one.
-        "run_happy_path": {
-            "removed": (
-                '    project.ok("manifest", "build", "--summary", '
-                '"Implemented the Todo REST API.")',
-            ),
-            "added": (
-                '    project.ok("manifest", "build", "--summary", '
-                '"Implemented the Todo REST API.",',
-                '               "--test-command", PASSING_TEST_COMMAND)',
-            ),
-        },
-    },
-    "tests/test_integration_06_to_09.py": {
-        # D02: the acceptance case now builds with a passing command; its
-        # `--skip-tests` half moved to the refusal test declared below.
-        "test_06_gate_seven_accepts_a_built_manifest": {
-            "removed": (
-                '    git_project.ok("manifest", "build", "--skip-tests")',
-            ),
-            "added": (
-                '    git_project.ok("manifest", "build", "--test-command",',
-                '                   PASSING_TEST_COMMAND)',
-            ),
-        },
-        # D03: the change set is measured from the base `implement preflight`
-        # pins, and building without one is refused rather than measured from
-        # HEAD. These three built a manifest without ever pinning it.
-        **{name: {"removed": (),
-                  "added": ('    git_project.ok("implement", "preflight")',)}
-           for name in (
-               "test_06_manifest_flags_a_hardcoded_key_masked",
-               "test_06_manifest_always_has_the_mandatory_sections",
-               "test_06_test_evidence_records_a_real_failing_run",
-           )},
-    },
-}
-
-STABILIZATION_01_TEST_ADDITIONS: dict[str, tuple[str, ...]] = {
-    "tests/test_integration_01_happy_path.py": (
-        "import:from conftest import PASSING_TEST_COMMAND",
-    ),
-    "tests/test_integration_06_to_09.py": (
-        "import:from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND",
-        "test_06_gate_seven_refuses_a_manifest_whose_tests_were_skipped",
-        "test_06_security_review_refuses_when_no_ref_pinned",
-    ),
-}
-
-# Units removed outright, each mapped to the unit that replaces it.
-STABILIZATION_01_TEST_REMOVALS: dict[str, dict[str, str]] = {
-    "tests/test_integration_06_to_09.py": {
-        # The original import, widened to carry the D02 command.
-        "import:from conftest import FIXTURE_WORKITEM_ID":
-            "import:from conftest import FIXTURE_WORKITEM_ID, "
-            "PASSING_TEST_COMMAND",
-        # D03: required the silent `HEAD~1` fallback the fix removes.
-        "test_06_security_review_falls_back_when_no_ref_pinned":
-            "test_06_security_review_refuses_when_no_ref_pinned",
-    },
-}
+MAINTENANCE_RECORDS = Path(".sdle") / "implementation-state" / "repository-cleanup"
+"""Execution records of a repository-maintenance run: ledgers, run logs and
+recorders whose whole job is to quote engine vocabulary (test names, result
+words). They are evidence, not a prompt or documentation surface. The
+exclusion is this one directory and nothing wider: every other file under
+`.sdle/` is still searched."""
 
 
-def module_units(source: str) -> dict[str, str]:
-    """Every top-level unit of a module, keyed, with its exact source."""
-    tree = ast.parse(source)
-    units: dict[str, str] = {}
-    docstring = ast.get_docstring(tree, clean=False)
-    if docstring is not None:
-        units["__doc__"] = docstring
-    for node in tree.body:
-        segment = ast.get_source_segment(source, node)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                             ast.ClassDef)):
-            units[node.name] = segment
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = (node.targets if isinstance(node, ast.Assign)
-                       else [node.target])
-            for target in targets:
-                for name in ast.walk(target):
-                    if isinstance(name, ast.Name):
-                        units[name.id] = segment
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            units["import:" + segment] = segment
-    return units
-
-
-def assert_frozen_module(relative: str, baseline: str, current: str) -> None:
-    """The unit-level declared comparison described above."""
-    before, after = module_units(baseline), module_units(current)
-    edits = STABILIZATION_01_TEST_EDITS.get(relative, {})
-    additions = set(STABILIZATION_01_TEST_ADDITIONS.get(relative, ()))
-    removals = STABILIZATION_01_TEST_REMOVALS.get(relative, {})
-
-    for name, replacement in removals.items():
-        assert name in before, (
-            f"{relative}: declared removal {name!r} never existed")
-        assert name not in after, f"{relative}: {name!r} was declared removed"
-        assert replacement in after, (
-            f"{relative}: {name!r} removed without its replacement "
-            f"{replacement!r}")
-
-    for name in edits:
-        assert name in before and name in after, (
-            f"{relative}: declared edit {name!r} names no unit")
-
-    for name, source in before.items():
-        if name in removals:
-            continue
-        assert name in after, f"{relative}: {name!r} disappeared undeclared"
-        if name not in edits:
-            assert after[name] == source, (
-                f"{relative}::{name} changed undeclared")
-            continue
-        declared = edits[name]
-        was = [line for line in source.splitlines() if line.strip()]
-        now = [line for line in after[name].splitlines() if line.strip()]
-        for line in declared["removed"]:
-            assert line in was, (f"{relative}::{name}: declared removed line "
-                                 f"is not in the baseline: {line!r}")
-        for line in declared["added"]:
-            assert line in now, (f"{relative}::{name}: declared added line "
-                                 f"is missing: {line!r}")
-        assert ([line for line in was if line not in declared["removed"]]
-                == [line for line in now if line not in declared["added"]]), (
-            f"{relative}::{name} changed beyond its declaration")
-
-    extra = set(after) - set(before)
-    assert extra == additions, (
-        f"{relative}: undeclared additions {sorted(extra - additions)}, "
-        f"declared but absent {sorted(additions - extra)}")
+def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
+    """Every versioned prose/config file that must not restate a fact owned by
+    `scripts/sdle.py`: the README, `CLAUDE.md`, the Reference Guide, the skill,
+    command, hook and product-agent prompts, the architecture decisions and the
+    repository configuration under `.sdle/` (minus `MAINTENANCE_RECORDS`)."""
+    files = [p for p in (root / "README.md", root / "CLAUDE.md",
+                         root / "docs" / "SDLE-Reference-Guide.md") if p.is_file()]
+    skipped = root / MAINTENANCE_RECORDS
+    for directory in (root / ".claude" / "skills", root / ".claude" / "commands",
+                      root / ".claude" / "hooks", root / ".sdle",
+                      root / "docs" / "architecture"):
+        if directory.is_dir():
+            files.extend(p for p in sorted(directory.rglob("*"))
+                         if p.is_file() and skipped not in p.parents)
+    agents = root / ".claude" / "agents"
+    if agents.is_dir():
+        files.extend(p for p in sorted(agents.glob("sdle-*.md")) if p.is_file())
+    return files

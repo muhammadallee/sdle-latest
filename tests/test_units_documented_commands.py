@@ -19,7 +19,7 @@ or the orchestrator to type and what the engine accepts:
 The position check reads the real parser rather than a hand-kept list: for
 every documented invocation, each global option written *after* the
 subcommand must be one that subcommand's own parser defines (as
-`migrate-workflow --workitem` and `workitem use --workitem` deliberately do).
+`workitem use --workitem` deliberately does).
 Invocations are prose as often as they are complete commands — "run
 `sdle.sh advance`", synopses with `[--path <p>]` — so they are not parsed
 whole; only the property that went wrong is checked.
@@ -36,29 +36,49 @@ from conftest import REPO_ROOT, sdle
 
 EXIT_REFUSED = 1
 
-# The documents a user or the orchestrator copies commands out of. Two
-# records are excluded because they quote history as it was: the transition
-# log, and the verification record, which quotes the wrong forms this test
-# exists to catch.
+# The documents a user or the orchestrator copies commands out of: every prose
+# surface that can carry a command, including the product agents' prompts,
+# CLAUDE.md and the launcher README.
 DOCUMENTS = sorted(
-    [p for p in (REPO_ROOT / ".claude").rglob("*.md")
-     if "agents" not in p.parts]
-    + [REPO_ROOT / "README.md"]
-    + [p for p in (REPO_ROOT / "docs").rglob("*.md")
-       if "transition" not in p.parts and "verification" not in p.parts]
+    list((REPO_ROOT / ".claude").rglob("*.md"))
+    + [REPO_ROOT / "README.md", REPO_ROOT / "CLAUDE.md",
+       REPO_ROOT / "scripts" / "README.md"]
+    + list((REPO_ROOT / "docs").rglob("*.md"))
 )
 
-INVOCATION = re.compile(r"`((?:scripts/)?sdle\.(?:sh|ps1|py) [^`]+)`")
+# A launcher, optionally run through `sh`, an interpreter or `$PY`, and
+# optionally written `./` or `.\`, in inline code or as a line of a fenced block
+# (a `$ ` prompt is allowed).
+LAUNCHER = r"(?:scripts[/\\])?sdle\.(?:sh|ps1|py)"
+PREFIX = r"(?:(?:sh|bash|python3?|py -3|\$PY)[ ]+)?(?:\.[/\\])?"
+INVOCATION = re.compile(r"`" + PREFIX + r"(" + LAUNCHER + r" [^`\n]+)`")
+FENCED_LINE = re.compile(
+    r"^[ \t]*(?:\$ )?" + PREFIX + r"(" + LAUNCHER + r" .+)$", re.M)
+FENCE = re.compile(r"^(?:```|~~~)[^\n]*\n(.*?)^(?:```|~~~)[ \t]*$", re.M | re.S)
+TRAILING_COMMENT = re.compile(r"\s+#\s.*$")
 PLACEHOLDER = re.compile(r"<[^<>]*>")
+
+
+def invocations_in(text: str) -> list[str]:
+    """Every launcher invocation in a document: inline code, and the lines of
+    fenced blocks. A fenced line that continues onto the next with a trailing
+    backslash is read as far as its first line, which carries the subcommand;
+    a trailing `# comment` is not part of the command."""
+    found = [match.group(1) for match in INVOCATION.finditer(text)]
+    for block in FENCE.finditer(text):
+        for match in FENCED_LINE.finditer(block.group(1)):
+            command = TRAILING_COMMENT.sub("", match.group(1)).rstrip(" \\")
+            if command:
+                found.append(command)
+    return found
 
 
 def documented_invocations() -> list[tuple[str, str]]:
     found = []
     for path in DOCUMENTS:
-        text = path.read_text(encoding="utf-8")
-        for match in INVOCATION.finditer(text):
-            found.append((path.relative_to(REPO_ROOT).as_posix(),
-                          match.group(1)))
+        text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        for invocation in invocations_in(text):
+            found.append((path.relative_to(REPO_ROOT).as_posix(), invocation))
     return found
 
 
@@ -116,6 +136,39 @@ def misplaced_globals(argv: list[str]) -> list[str]:
             if token in GLOBAL_OPTIONS and token not in own]
 
 
+def unknown_command(argv: list[str]) -> str | None:
+    """The first token of a command chain that the real parser does not have.
+
+    A neutral `x` stands for a placeholder (`<command>`, `<id>`) and is never
+    reported. The position check above deliberately ignores what it cannot pin
+    down; this is the check that a documented command is a command.
+    """
+    parser = sdle.build_parser()
+    index = 0
+    while index < len(argv) and argv[index].startswith("-"):
+        index += 2 if argv[index] in GLOBAL_OPTIONS else 1
+    command = parser
+    while index < len(argv):
+        choices = _subparsers(command)
+        if not choices:
+            return None
+        token = argv[index]
+        if token == "x" or token.startswith("-"):
+            return None
+        if token not in choices:
+            return token
+        command = choices[token]
+        index += 1
+    return None
+
+
+def test_the_command_check_reports_a_command_the_parser_does_not_have():
+    assert unknown_command(["nonexistent", "--bogus"]) == "nonexistent"
+    assert unknown_command(["gate", "nonexistent", "--gate", "x"]) == "nonexistent"
+    assert unknown_command(["--workitem", "x", "gate", "show", "--gate", "x"]) is None
+    assert unknown_command(["x", "--workitem", "y"]) is None
+
+
 def test_the_position_check_catches_the_forms_that_were_wrong():
     """The check is proven able to fail, on the two invocations D05 found."""
     assert misplaced_globals(["lock", "acquire", "--session", "x"]) == [
@@ -123,7 +176,6 @@ def test_the_position_check_catches_the_forms_that_were_wrong():
     assert misplaced_globals(["--workitem", "x", "init", "--session", "y"]) \
         == ["--session"]
     assert misplaced_globals(["--session", "x", "lock", "acquire"]) == []
-    assert misplaced_globals(["migrate-workflow", "--workitem", "x"]) == []
     assert misplaced_globals(["workitem", "use", "--workitem", "x"]) == []
 
 
@@ -137,12 +189,23 @@ def test_no_documented_invocation_puts_a_global_option_after_its_command(
         "`sdle.sh --workitem <id> --session <token> <command> ...`.")
 
 
-def test_the_readme_states_the_tested_speckit_command_exactly():
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert sdle.SPECKIT_INIT_COMMAND in readme
-    assert sdle.SPECKIT_INIT_COMMAND.replace("--script sh",
-                                             "--script ps") in readme
-    assert f"SpecKit v{sdle.SPECKIT_SUPPORTED_VERSION}" in readme
+GUIDE = REPO_ROOT / "docs" / "GETTING-STARTED.md"
+
+
+def test_the_getting_started_guide_states_the_tested_speckit_command_exactly():
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert sdle.SPECKIT_INIT_COMMAND in guide
+    assert sdle.SPECKIT_INIT_COMMAND.replace("--script sh", "--script ps") in guide
+    assert f"Spec Kit v{sdle.SPECKIT_SUPPORTED_VERSION}" in guide
+
+
+def test_only_the_getting_started_guide_teaches_the_install_command():
+    """One setup recipe. Every other document links to the guide instead of
+    restating the command, so there is one place to keep correct."""
+    teaching = [p.relative_to(REPO_ROOT).as_posix() for p in DOCUMENTS
+                if "dry-runs" not in p.parts  # transcripts quote engine output
+                and "specify init --here" in p.read_text(encoding="utf-8")]
+    assert teaching == ["docs/GETTING-STARTED.md"], teaching
 
 
 def test_no_document_still_teaches_the_rejected_skills_flag():
@@ -159,11 +222,6 @@ def test_no_document_still_teaches_the_rejected_skills_flag():
 
 def test_the_engine_messages_carry_the_tested_command():
     assert sdle.SPECKIT_INIT_COMMAND in sdle.SPECKIT_MISSING_MESSAGE
-    # The transcript's declared substitution restates the command because a
-    # substitution pair must be a literal; this keeps the two equal.
-    from conftest import DRY_RUN_SUBSTITUTIONS
-    assert any(new.strip() == sdle.SPECKIT_INIT_COMMAND
-               for _, new in DRY_RUN_SUBSTITUTIONS)
     assert "--skills" not in sdle.SPECKIT_INIT_COMMAND
     assert f"@v{sdle.SPECKIT_SUPPORTED_VERSION}" in sdle.SPECKIT_INIT_COMMAND
 
@@ -205,3 +263,63 @@ def test_preflight_in_a_repository_with_no_workitem_asks_for_one_first(
     bare_project.ok("workitem", "create", "--name", "Todo API")
     assert bare_project.ok("--workitem", "todo-api", "preflight").data[
         "problems"] == []
+
+
+def test_the_guides_sample_requirements_equal_the_sample_file():
+    """The guide prints the sample in full so a reader need not open another
+    file. It is a copy, so it is pinned equal to the source."""
+    guide = GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")
+    start = guide.index("````markdown\n") + len("````markdown\n")
+    embedded = guide[start:guide.index("\n````\n", start)]
+    sample = (REPO_ROOT / "requirements" / "todo-api.md").read_text(
+        encoding="utf-8").replace("\r\n", "\n")
+    assert embedded.rstrip("\n") == sample.rstrip("\n")
+
+
+# -- coverage of the scan itself ---------------------------------------------
+
+FENCE_MARK = chr(96) * 3
+
+
+def test_the_scan_reaches_every_surface_a_command_can_be_copied_from():
+    scanned = {where for where, _ in documented_invocations()}
+
+    documents = {p.relative_to(REPO_ROOT).as_posix() for p in DOCUMENTS}
+    assert {"CLAUDE.md", "scripts/README.md", "README.md",
+            ".claude/agents/sdle-code-review.md"} <= documents
+    assert "scripts/README.md" in scanned, "the launcher README's invocations are parsed"
+    assert any(where.startswith(".claude/commands/") for where in scanned)
+
+
+def test_invocations_are_read_from_fenced_blocks_and_launcher_prefixes():
+    text = "\n".join([
+        "Inline: `sdle.sh gate show --gate gate_spec` and `sh scripts/sdle.sh preflight`.",
+        FENCE_MARK + "bash",
+        "sh scripts/sdle.sh constants     # a comment",
+        "$ python scripts/sdle.py validate",
+        "$PY scripts/sdle.py state dump",
+        "./scripts/sdle.sh resume",
+        "not a command: echo sdle.sh",
+        FENCE_MARK,
+    ])
+    found = invocations_in(text)
+    assert "scripts/sdle.sh preflight" in found
+    assert "scripts/sdle.sh constants" in found
+    assert "scripts/sdle.py validate" in found
+    assert "scripts/sdle.py state dump" in found
+    assert "scripts/sdle.sh resume" in found
+    assert not any("echo" in item for item in found)
+
+
+def test_a_misplaced_global_option_in_a_fenced_block_is_caught():
+    """The check that only read inline code would have passed this."""
+    text = FENCE_MARK + "bash\nsh scripts/sdle.sh lock acquire --session abc\n" + FENCE_MARK
+    (invocation,) = invocations_in(text)
+    assert misplaced_globals(argv_of(invocation)) == ["--session"]
+
+
+@pytest.mark.parametrize("where, invocation", documented_invocations())
+def test_every_documented_command_is_a_command_the_parser_has(where, invocation):
+    unknown = unknown_command(argv_of(invocation))
+    assert unknown is None, (
+        f"{where}: `{invocation}` names `{unknown}`, which the CLI does not have")

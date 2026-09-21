@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "command": "validate",
+  "reason": null,
+  "data": {
+    "findings": [
+      {
+        "check": "active_workitem_unresolved",
+        "severity": "warning",
+        "workitem": null,
+        "detail": "no WorkItem resolves here (reason: none); name one with `--workitem <id>` or persist one with `workitem use`",
+        "path": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest"
+      }
+    ],
+    "errors": 0,
+    "warnings": 1,
+    "project_root": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+    "workitems": [],
+    "active": null,
+    "rung": null,
+    "reason": "none",
+    "branch": "maintenance/repository-cleanup"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "run_id": "20260920T153607-p03-t03-mods",
+  "result": "PASS",
+  "label": "p03-t03-mods",
+  "task_ids": [
+    "P03-T03"
+  ],
+  "ac_ids": [
+    "AC-02",
+    "AC-04",
+    "AC-13"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_lint_skill.py",
+    "tests/test_units_capabilities.py",
+    "tests/test_units_flow_model.py",
+    "tests/test_units_gate_policy.py",
+    "tests/test_units_governance.py",
+    "tests/test_units_hardening.py",
+    "tests/test_units_speckit_binding.py",
+    "tests/test_units_state.py",
+    "tests/test_units_transitions.py",
+    "tests/test_units_workitem_resolution.py",
+    "tests/test_units_workitem_runtime.py",
+    "tests/test_units_documented_commands.py",
+    "tests/test_units_invariants.py"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "a5bbe334cefb748a358f3dda245dc356925b28c3",
+  "content_fingerprint": "7c631b464ccd032edd2eed534fb39e830a6d35767f271fae6e5a20cdd3e41219",
+  "manifest_paths": 16,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T15:36:07Z",
+  "runner_pid": 20848,
+  "stdout": "20260920T153607-p03-t03-mods.stdout.log",
+  "stderr": "20260920T153607-p03-t03-mods.stderr.log",
+  "note": "",
+  "memory_samples": "20260920T153607-p03-t03-mods.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 1452
+  },
+  "finished_utc": "2026-09-20T15:52:32Z",
+  "fingerprint_unchanged_during_run": true
+}

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import copy
 import json
 from pathlib import Path
 
@@ -521,81 +520,4 @@ def test_tr20_the_acknowledgement_is_still_ledgered_before_a_later_refusal(
 # ==========================================================================
 # T11 N23 / D14 — the 1.16 -> 1.17 migration
 # ==========================================================================
-
-
-def test_n23_the_migration_adds_the_field_and_is_idempotent(started):
-    """Running the chain twice must be indistinguishable from running it
-    once — a migration that is not idempotent turns a retried command into a
-    corruption."""
-    state = started.state()
-    state["workflow_version"] = "1.16"
-    state.pop("pending_branch_ack", None)
-    started.write_state(state)
-
-    first = started.ok("migrate", session="n23")
-    assert first.data["steps"] == ["1.16->1.17"], first
-    once = started.state()
-    assert once["workflow_version"] == "1.17"
-    assert once["pending_branch_ack"] is None
-
-    second = started.ok("migrate", session="n23")
-    assert second.data["steps"] == [], second
-    assert started.state() == once
-
-
-def test_n23_the_migration_preserves_every_verified_field(started):
-    """The fields `migrate-workflow` verifies after a move are exactly the
-    ones a migration must not disturb, so they are the ones asserted here."""
-    before = started.state()
-    keep = {field: copy.deepcopy(before[field])
-            for field in sdle.MIGRATION_VERIFIED_FIELDS}
-
-    state = started.state()
-    state["workflow_version"] = "1.16"
-    state.pop("pending_branch_ack", None)
-    started.write_state(state)
-    started.ok("migrate", session="n23b")
-
-    after = started.state()
-    for field, value in keep.items():
-        assert after[field] == value, field
-
-
-def test_n23_an_outstanding_acknowledgement_is_migrated_to_null_deliberately(
-    started,
-):
-    """The safe value, not the convenient one.
-
-    A v1.16 state can be mid-acknowledgement: `pending_confirm_action` is
-    `branch_mismatch` and nobody recorded which branch. Inferring
-    `current_branch()` here would manufacture a consent the user never gave,
-    so the field arrives `null` and the guard asks again on the next
-    lifecycle-critical command. `pending_confirm_action` itself is left
-    exactly as it was — the migration invents nothing in either direction.
-    """
-    state = started.state()
-    state["workflow_version"] = "1.16"
-    state.pop("pending_branch_ack", None)
-    state["pending_confirm_action"] = "branch_mismatch"
-    started.write_state(state)
-
-    started.ok("migrate", session="n23c")
-
-    after = started.state()
-    assert after["pending_branch_ack"] is None
-    assert after["pending_confirm_action"] == "branch_mismatch"
-
-
-def test_n23_the_version_chain_gained_a_row_and_lost_none(started):
-    """D14 appends; it never replaces. The whole chain is still walkable from
-    the oldest version the engine knows."""
-    consts = sdle.load_constants(
-        sdle.resolve_paths(str(started.root), str(started.skill_root)))
-    chain = consts.version_chain
-    assert chain[-1] == ("1.16", "1.17")
-    assert chain[0][0] == "1.0"
-    # Contiguous: every row's `to` is the next row's `from`.
-    for (_, to), (frm, _) in zip(chain, chain[1:]):
-        assert to == frm, (to, frm)
-    assert len(chain) == 17
 

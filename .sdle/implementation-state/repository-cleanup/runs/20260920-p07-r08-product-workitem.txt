@@ -1,0 +1,4 @@
+R-08 product WorkItem recovery drill, 2026-09-20, on the replayed guide target (WorkItem todo-api at constitution_draft, GREENFIELD).
+Session A acquires the lock (warn=false) and "closes the terminal" without releasing it.
+Session B (new token, no memory): `lock acquire` -> warn=true (concurrent-session warning); `resume` reports flow GREENFIELD, next_phase gate_constitution, position 2, capabilities [modules/phase-execution.md] from disk alone.
+Refusals with no state change: `gate approve --gate gate_constitution` -> not_at_gate; `advance --to gate_spec` -> forward_jump. state.json and audit.md are byte-identical before and after. A second WorkItem's state.json hash is unchanged (isolation).

@@ -1,0 +1,17 @@
+........................................................................ [ 18%]
+........................................................................ [ 36%]
+........................................................................ [ 54%]
+........................................................................ [ 72%]
+........................................................................ [ 90%]
+F...................................                                     [100%]
+================================== FAILURES ===================================
+_____________ test_a_product_agent_with_the_fence_stripped_fires ______________
+tests\test_lint_skill.py:517: in test_a_product_agent_with_the_fence_stripped_fires
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+tests\test_lint_skill.py:55: in assert_only_failure
+    assert checks[expected] is False, f"{expected} should have fired"
+E   AssertionError: product_agents_declare_the_fence should have fired
+E   assert True is False
+=========================== short test summary info ===========================
+FAILED tests/test_lint_skill.py::test_a_product_agent_with_the_fence_stripped_fires
+1 failed, 395 passed in 352.05s (0:05:52)

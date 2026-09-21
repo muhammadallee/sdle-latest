@@ -5,11 +5,11 @@
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
 | **Covers software version** | SDLE v1.17 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
-| **Document version** | 1.5 |
+| **Document version** | 1.6 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
 | **Status** | Active |
-| **Last updated** | 2026-07-06 |
+| **Last updated** | 2026-09-11 |
 
 ---
 
@@ -35,15 +35,14 @@
 18. [Appendix A — Example End-to-End Run](#appendix-a--example-end-to-end-run)
 19. [Appendix B — State Schema Reference](#appendix-b--state-schema-reference)
 20. [Appendix C — Command Reference](#appendix-c--command-reference)
-21. [Document Revision History](#document-revision-history)
 
 ---
 
 ## 1. Executive Summary
 
-SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a fixed, auditable software delivery lifecycle*: requirements → constitution → specification → plan → checklist/tasks → analysis → design → implementation → security review, with eight mandatory human approval gates along the way.
+SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a governed, auditable software delivery lifecycle*. A WorkItem traverses exactly one of five flows, chosen from a 21-phase registry when it starts. The new-project flow, `GREENFIELD`, runs requirements → constitution → specification → plan → checklist/tasks → analysis → design → implementation → security review across 18 phases with eight human approval gates; the other four flows (`BROWNFIELD_DISCOVERY` 19 phases and 8 gates, `ITERATIVE` 16 and 7, `DEFECT_FIX` 14 and 6, `HOTFIX` 10 and 3) are shorter, never ungoverned, because each keeps the same ten-phase governance floor and ends at a required human decision.
 
-The problem SDLE solves is not "can an LLM write code" — it is **"can an organization trust, govern, and audit a workflow in which an LLM writes code."** Left unconstrained, an AI assistant will happily skip straight from a one-line prompt to a finished pull request, silently inventing scope, architecture, and security posture as it goes, with no record of what was decided, why, or who agreed to it. SDLE replaces that ad hoc path with a fixed sequence of small, reviewable, written artifacts, each one gated by an explicit human decision before the next is generated.
+The problem SDLE solves is not "can an LLM write code" — it is **"can an organization trust, govern, and audit a workflow in which an LLM writes code."** Left unconstrained, an AI assistant will happily skip straight from a one-line prompt to a finished pull request, silently inventing scope, architecture, and security posture as it goes, with no record of what was decided, why, or who agreed to it. SDLE replaces that ad hoc path with the bound flow's sequence of small, reviewable, written artifacts, each one gated by an explicit, recorded decision before the next is generated: a human approval or, where the governance policy permits it for that gate, an omission the audit records.
 
 Every phase exists to make a specific class of error cheap to catch. Every gate exists because at least one prior project — somewhere — shipped a defect that a five-minute review at that exact point would have caught. The phases are not ceremony; they are a deliberately ordered set of checkpoints, each placed where the cost of being wrong is lowest and the cost of skipping it is highest.
 
@@ -106,7 +105,7 @@ SDLE Orchestrator (Claude Code Skill)
 │
 ├── SKILL.md                         Always-loaded entry point
 │     • Core rules, the phase registry and FLOW_PHASES, internal constants (single source of truth)
-│     • State inspection, command dispatcher, state-file schema & migrations
+│     • State inspection, command dispatcher, state-file schema
 │
 ├── modules/phase-execution.md       Loaded when executing any non-gate phase
 │     • Per-phase generation logic, guidance injection, drift check,
@@ -162,21 +161,20 @@ SDLE Orchestrator (Claude Code Skill)
 | `workitems/<id>/.sdle/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `workitems/<id>/.sdle/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
 | `workitems/<id>/.sdle/completion-summary.json` | Gate 8 approval | Final, signed closure record |
-| `workitems/<id>/.sdle/execution.json` | `init`, `migrate-workflow` | Execution identity (`<3-letter-git-prefix>-<UTC>-<8 hex>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
-| `workitems/<id>/.sdle/evidence/migration-*.json` | `migrate-workflow` | Legacy state/audit SHAs and Git HEAD captured at migration |
+| `workitems/<id>/.sdle/execution.json` | `init` | Execution identity (`<3-letter-git-prefix>-<UTC>-<8 hex>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
 | `workitems/index.md`, `workitems/<id>/workitem.json` | `workitem create` | Append-only registry and immutable WorkItem identity |
-| `workitems/.active-context.json` | `init`, `migrate-workflow`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
+| `workitems/.active-context.json` | `init`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
 | `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 11 analyze prompt |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
 
 ### WorkItem identity
 
 A **WorkItem** is the durable name for a piece of work. It is created *before*
-the workflow is initialised, and it never changes afterwards. Since v1.14 it is
-also the **runtime scope**: all workflow state lives under
-`workitems/<id>/.sdle/`, `state.json` records which WorkItem it belongs to, and
-independent WorkItems share no state, no audit ledger and no lock. Every phase
-and gate behaves exactly as it did before WorkItems existed.
+the workflow is initialised, and it never changes afterwards. It is also the
+**runtime scope**: all workflow state lives under `workitems/<id>/.sdle/`,
+`state.json` records which WorkItem it belongs to, and independent WorkItems
+share no state, no audit ledger and no lock. WorkItem scoping decides where
+state lives; it does not change how any phase or gate behaves.
 
 Two id shapes are accepted:
 
@@ -215,14 +213,12 @@ order: an explicit `--workitem <id>`, which must be registered; otherwise the
 launch directory, when it sits inside `workitems/<x>/`; otherwise the sole
 registered WorkItem; otherwise a still-valid persisted active context;
 otherwise a unique Git-branch match. **There is no sixth rung.** With
-none registered the command refuses `workitem_required` — and when a
-repository-global `.workflow/state.json` is also on disk, that refusal names
-the two-step recovery (`workitem create`, then `migrate-workflow --workitem
-<id>`) in that order; with several plausible
-and none named it refuses `workitem_ambiguous` and lists the candidates. SDLE
-never picks one. `lint-skill`, `sha`, `constants`, `workitem`,
-`migrate-workflow` and `validate` touch no runtime state and need no
-resolution.
+none registered the command refuses `workitem_required`. A retired
+repository-global `.workflow/state.json` on disk never binds: the refusal says
+SDLE does not run or migrate it and points at `workitem create`. With several
+plausible and none named it refuses `workitem_ambiguous` and lists the
+candidates. SDLE never picks one. `lint-skill`, `sha`, `constants`,
+`workitem` and `validate` touch no runtime state and need no resolution.
 
 The launch rung refuses rather than falls through: inside `workitems/<x>/`
 where `<x>` is a real directory that the index does not know, the command
@@ -242,8 +238,8 @@ repository root, and anywhere inside it — resolve the same repository.
 
 The **persisted active context** is `workitems/.active-context.json`: a
 developer-local, gitignored file recording `workitem`, the branch it was set
-on, when, and by which command. Only `init`, `migrate-workflow` and
-`workitem use` ever write it. It is skipped, never fatal, when it is
+on, when, and by which command. Only `init` and `workitem use` ever
+write it. It is skipped, never fatal, when it is
 unreadable, names an unregistered WorkItem, points at a missing directory, or
 was set on a different branch — a stale context can never brick a repository,
 and `workitem use --clear` restores plain registry-based resolution. It is
@@ -259,40 +255,19 @@ the only input the orchestrator gets for the ask-the-user rung. The engine
 never infers and never returns an inferred answer; the user's choice re-enters
 as an explicit `--workitem <id>`.
 
-Up to v1.16 a sixth rung bound a pre-v1.14 repository-global `.workflow/`
-runtime directly, so such a repository stayed readable long enough to be
-migrated. **v1.17 deleted that rung** — and deleted it rather than replacing it
-with an inference: with zero WorkItems the ladder answers `none` whether or not
-legacy state exists, so it still never guesses. `.workflow/` is now a migration
-source and a project-root marker, and nothing else.
+**No rung binds a retired repository-global `.workflow/` runtime**, and none infers one: with zero
+WorkItems the ladder answers `none` whether or not legacy state exists, so it never guesses.
+`.workflow/` survives as detection only: a project-root marker and the thing a refusal points at.
 
-Nothing is stranded by the removal. `workitem create` and `migrate-workflow`
-are both runtime-free, so neither reaches the ladder, and every other command
-refuses `workitem_required` with a message naming those two steps in order.
-`init` refuses `legacy_workflow_present` while a repository-global
-`.workflow/state.json` exists, regardless of how many WorkItems are registered,
-because creating a second runtime beside it would leave the legacy workflow
-simultaneously unbindable and unmigratable.
-
-`migrate-workflow --workitem <id>` moves it, in an order chosen so that an
-interruption is always recoverable. It requires an already-registered
-WorkItem; refuses `target_exists` if that WorkItem already has a runtime;
-validates the legacy `state.json`; verifies the legacy audit chain and
-`audit_sha`, refusing `legacy_audit_broken` rather than carrying a break into
-the WorkItem; captures the legacy SHAs and the current Git HEAD as evidence;
-copies the ledger, manifest, completion summary, `evidence/migration-*.json`
-and `execution.json`; re-verifies the copied ledger at its new location;
-migrates the state in memory; appends a `workflow_migrated` entry to the
-**target** ledger; and only then writes the target `state.json` — the sole
-commit marker. A final re-read verifies phase, status, progress, approvals,
-artifact SHAs, rate limits, attempt counts, `implementation_base_ref` and
-`phase_history`, and rolls the commit marker back on mismatch. The migration is
-recorded on `workitem.json`. `.workflow/` is never written to, renamed or
-deleted, so recovery is simply deleting `workitems/<id>/.sdle/`.
+Nothing is stranded by that. `workitem create` is runtime-free, so it never reaches the ladder, and every
+other command refuses `workitem_required` with a message that points at it. `init` refuses
+`legacy_workflow_present` while a repository-global `.workflow/state.json` exists, regardless of how many
+WorkItems are registered, because creating a second runtime beside it would leave two competing records.
+SDLE never reads, migrates or writes the retired directory; remove it or move it aside.
 
 ### Execution identity
 
-Each `init` and each migration stamps `workitems/<id>/.sdle/execution.json`
+Each `init` stamps `workitems/<id>/.sdle/execution.json`
 with an execution id of the form
 `<3-letter-git-user-prefix>-<UTC datetime>-<8 hex>`, for example
 `muh-20260816T171501Z-1a2b3c4d`. The prefix is `git config user.name`,
@@ -303,8 +278,8 @@ never the WorkItem name.
 
 The trailing eight hex digits are random. The timestamp has one-second
 resolution, and an id is also a key: it names every evidence file
-(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`,
-`migration-<id>.json`) and de-duplicates the governance ledger entry. Without
+(`governance-<id>.json`, `review-<id>-<n>.json`, `discovery-<id>.json`) and
+de-duplicates the governance ledger entry. Without
 the suffix, two executions in the same second shared both, so the second
 overwrote the first one's evidence and never reached the ledger. Each evidence
 file is also claimed with an exclusive create before it is written, so an
@@ -317,7 +292,7 @@ The same file carries a `git` object — the branch, the starting SHA and the
 worktree path the run began on. Missing Git and a detached HEAD are never a
 refusal; they simply record `null`. This lives on the execution record rather
 than in `state.json` because it describes *this run*, not the workflow, so it
-needs no schema version and no migration row.
+needs no schema version.
 
 ### Branch and worktree rules
 
@@ -367,9 +342,9 @@ The two directories share a name and own nothing in common:
 |---|---|
 | `config.json` — global configuration (`configVersion`, `policyFormat`) | `state.json` — lifecycle state |
 | `policies/` — policy definitions | `execution.json` — execution identity |
-| `templates/` — shared templates | `audit.md` — append-only ledger |
-| `baseline.json` — the repository baseline; written once, at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem | `lock` — session lock |
-| `implementation-state/` — reserved for implementation-transition metadata | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
+| `baseline.json` — the repository baseline; written once, at the final gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem | `audit.md` — append-only ledger |
+| `implementation-state/` — records of repository-maintenance runs (no schema; no engine command reads it) | `lock` — session lock |
+| | `evidence/`, `implementation-manifest.md`, `completion-summary.json` |
 
 The split is a **derivation, not a path prefix test**: the repository members
 reference the project root and never the bound WorkItem, so rebinding moves
@@ -388,8 +363,8 @@ a malformed file, an unsupported `configVersion`, or a `policyFormat` other than
 `json` is refused as `config_malformed`.
 
 Nothing in any lifecycle flow reads this file. `configVersion` is a separate
-namespace from `workflow_version`: it is not workflow state and has no migration
-chain. The reasoning behind the boundary and the JSON policy-format decision is
+namespace from `workflow_version`: it is not workflow state and has no state
+schema of its own to upgrade. The reasoning behind the boundary and the JSON policy-format decision is
 recorded in `docs/architecture/ADR-002-repository-configuration-boundary.md`.
 
 ### 4.2.1 The repository baseline
@@ -518,7 +493,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ## 7. The 18-Phase Workflow — Detailed Reference
 
-> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one every workflow before v1.16 traversed. The heading keeps its wording so existing links still resolve.
+> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
 >
 > | Flow | Phases | Gates | What it is for |
 > |---|---:|---:|---|
@@ -886,13 +861,13 @@ Approved artifacts are ordinary files on disk. Nothing prevents a human from ope
 
 ### 12.1 `state.json` — the canonical state machine
 
-`state.json` is not a cache or a convenience log — it is the single source of truth for workflow position. It is read first on every turn, migrated forward through schema versions automatically, and validated against `phase_history` for consistency (catching both accidental rollback and unexplained forward jumps). No other source — not conversation history, not the AI's own recollection — is treated as authoritative. On load, two further checks run: the **Audit Integrity Check** (below) and a **repository staleness check** that warns — without halting — when the repo has commits newer than the latest gate approval, i.e. when approvals may reflect a stale view of the codebase.
+`state.json` is not a cache or a convenience log — it is the single source of truth for workflow position. It is read first on every turn, refused if it uses a state schema this SDLE does not read (`unsupported_state_version`, never rewritten), and validated against `phase_history` for consistency (catching both accidental rollback and unexplained forward jumps). No other source — not conversation history, not the AI's own recollection — is treated as authoritative. On load, two further checks run: the **Audit Integrity Check** (below) and a **repository staleness check** that warns — without halting — when the repo has commits newer than the latest gate approval, i.e. when approvals may reflect a stale view of the codebase.
 
 ### 12.2 `audit.md` — the append-only ledger
 
 Every gate decision, phase completion, rejection, remediation, drift event, and rate-limit trip is appended (never edited) to `audit.md` with: a UTC timestamp, the acting identity (resolved from git username/email), the action taken, the artifact involved, its SHA-256 fingerprint, the gate decision (if any), and any comments. This is the record an enterprise audit, post-incident review, or compliance check would consult.
 
-Since v1.12 the ledger is **tamper-evident**: after every append, the SHA-256 of the entire file is recorded in `state.json → audit_sha`, and verified on every load. A mismatch (edit, truncation, deletion, or a write from another session) halts the workflow until the operator explicitly re-baselines with `accept audit` — an action that is itself logged. Note the precise guarantee: tamper-*evident*, not tamper-*proof* — an actor who edits both `audit.md` and `audit_sha` in `state.json` defeats the check. The defense target is accidental or casual modification, not a determined adversary with full filesystem access. Concurrent-session writes, one common source of accidental corruption, are additionally warned about via the `workitems/<id>/.sdle/lock` session lock.
+The ledger is **tamper-evident**: after every append, the SHA-256 of the entire file is recorded in `state.json → audit_sha`, and verified on every load. A mismatch (edit, truncation, deletion, or a write from another session) halts the workflow until the operator explicitly re-baselines with `accept audit` — an action that is itself logged. Note the precise guarantee: tamper-*evident*, not tamper-*proof* — an actor who edits both `audit.md` and `audit_sha` in `state.json` defeats the check. The defense target is accidental or casual modification, not a determined adversary with full filesystem access. Concurrent-session writes, one common source of accidental corruption, are additionally warned about via the `workitems/<id>/.sdle/lock` session lock.
 
 ### 12.3 `workitems/<id>/.sdle/completion-summary.json` — the closure record
 
@@ -902,7 +877,7 @@ Written exactly once, when the bound flow's final gate is approved — Gate 8 un
 
 Three further WorkItem-scoped records carry the evidence that the work was *admitted* to the lifecycle on stated grounds, that its artifacts were *judged* rather than merely produced, and — for a brownfield WorkItem — that the repository was *read* before anything was drafted from it.
 
-`governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and — for the flow the record proposes — which gates would require a human approval and which would be omittable. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when `requirements/` changed after the assessment (`governance_stale`). `classification.flow` is the one value in the record that the lifecycle consumes: `init` binds it to `state.flow` once, and re-assessing later with a different flow is refused `flow_mismatch` at the next `advance`, `gate approve` or `skip` — ahead of the first ledger append, so a refused command leaves `audit.md` byte-identical.
+`governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and — for the flow the record proposes — which gates would require a human approval and which would be omittable. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when `requirements/` changed after the assessment (`governance_stale`). The record also pins **`pinnedPolicy`** — the merged policy document in force when the WorkItem was first assessed, with its source and SHA-256, carried forward verbatim by every later assessment. It is the one key of the record a gate decision reads back: a gate is omittable only if the live policy and the pinned policy both leave it omittable, so relaxing the repository policy part-way through a run cannot drop a gate it required at the start (ADR-011). Records at `governanceVersion` 1 and 2 carry no pin and derive from the live policy alone. `classification.flow` is the one value in the record that the lifecycle consumes: `init` binds it to `state.flow` once, and re-assessing later with a different flow is refused `flow_mismatch` at the next `advance`, `gate approve` or `skip` — ahead of the first ledger append, so a refused command leaves `audit.md` byte-identical.
 
 `reviews.json` is an append-only ledger of artifact reviews: path, content fingerprint at review time, review type, result, actor type and name, evidence id and timestamp. Freshness is **derived** — a review applies to the exact content version it was performed against, and nothing stores a "reviewed" boolean. A gate refuses to approve an artifact with no review (`review_missing`), a review of superseded content (`review_stale`), or a failing review of the current content (`review_failed`); drift re-approval is held to the same rule. Each review is linked into `audit.md` as its own entry, so the ledger answers "who judged this content, and which version" as well as "who approved it."
 
@@ -1177,23 +1152,26 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 ## Appendix B — State Schema Reference
 
-`workitems/<id>/.sdle/state.json` (v1.15):
+`workitems/<id>/.sdle/state.json`:
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_version` | string | Schema version; auto-migrated forward on load. |
-| `workitem` | string \| null | The WorkItem this state belongs to. `null` only in an unmigrated pre-v1.14 `.workflow/state.json`, which since v1.17 is a migration input and never a runtime. Makes a state file self-describing and a misplaced one detectable. |
+| `workflow_version` | string | State schema version (`1.17`). A state of any other version is refused `unsupported_state_version` and left untouched. |
+| `workitem` | string \| null | The WorkItem this state belongs to. Makes a state file self-describing and a misplaced one detectable. |
+| `flow` | string | The flow this WorkItem traverses: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init` from the governance record and never re-bound. |
 | `project_name` | string \| null | Inferred from requirements, else the WorkItem title, else asked of the user. |
 | `current_phase` | string | Current phase ID (e.g., `gate_plan`). |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed`. |
-| `progress` | string | `"N/18"`, derived only from the Progress Map — never computed independently. |
+| `progress` | string | `"N/M"` — the phase's position in the bound flow over that flow's phase count (`M` is 18 for `GREENFIELD`). Derived by the engine from the flow — never computed independently. |
 | `last_updated` | string | ISO-8601 timestamp, updated on every write. |
 | `current_artifact` | string \| null | Path to the most recently generated artifact. |
 | `current_artifact_sha` | string \| null | SHA-256 of `current_artifact` at last verification. |
 | `specKit` | object | SpecKit context for this WorkItem: `featureId`, `featureDirectory` (repo-relative, under `workitems/<id>/specs/`; set after Phase 4), and `workflowId` / `runId`, extension points SDLE creates and never writes. |
 | `security_review_artifact` | string \| null | Path to the timestamped security review file. |
+| `implementation_base_ref` | string \| null | HEAD SHA pinned when the implementation phase starts. The implementation manifest and the security review both measure the change from it. |
 | `phase_checkpoint` | string \| null | Sub-step marker for crash-recovery idempotency. |
-| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`). |
+| `pending_confirm_action` | string \| null | Tracks an outstanding confirmation (`restart:<N>`, `reset`, `skip`, `implement_dirty_tree`, `accept_state_jump`, `accept_content:<file>`, `accept_audit_mismatch`, `branch_mismatch`). |
+| `pending_branch_ack` | string \| null | The branch an outstanding branch-mismatch acknowledgement was given for. The second step of a two-step command refuses `branch_mismatch` if the checkout has moved since. |
 | `speckit_initialized` | boolean | Whether `.specify/` exists. |
 | `speckit_skill_prefix` | string \| null | Discovered SpecKit invocation prefix (`speckit-` or `speckit.`). |
 | `verbose` | boolean | Display-only verbosity toggle. |
@@ -1248,14 +1226,3 @@ The engine commands behind the governance and review records, for operators read
 | `baseline validate` | Exit 0 only when the baseline is sound; otherwise refuse `baseline_not_valid` and name why. Writes nothing and appends nothing. |
 
 ---
-
-## Document Revision History
-
-| Version | Date | Summary |
-|---|---|---|
-| 1.5 | 2026-09-07 | Updated for SDLE v1.17 — V1 convergence. The WorkItem runtime is the only runtime: the transitional sixth resolution rung is gone and `.workflow/` is now a migration source and project-root marker only, recovered with `workitem create` then `migrate-workflow --workitem <id>`. Spec Kit feature discovery fails closed on more than one candidate in a tier. A governance re-assessment that lowers a recorded level is audited as `governance_downgraded` and carried into later omission evidence. New `pending_branch_ack` state field closes the branch-guard fail-open. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`. |
-| 1.4 | 2026-08-24 | Updated for SDLE v1.15: SpecKit context is WorkItem-scoped. A WorkItem's feature directory moved from `.specify/specs/<feature-id>/` to `workitems/<id>/specs/<feature-id>/`, while repository-wide SpecKit scaffolding — `.specify/`, including `memory/constitution.md` — stays at the repository root. New `specKit` state object replacing `current_feature_id`, `feature bind` and `feature capabilities`, SpecKit capability detection that refuses rather than assumes, tiered feature discovery with an audited move into the WorkItem, and a gate that refuses to approve another WorkItem's artifact. |
-| 1.3 | 2026-08-23 | Updated for SDLE v1.14: runtime state is WorkItem-scoped. `state.json`, `execution.json`, `audit.md`, `lock`, `evidence/`, the implementation manifest and the completion summary moved from the repository-global `.workflow/` to `workitems/<id>/.sdle/`. New `workitem` state field, `--workitem` override and resolution ladder, `migrate-workflow` for a legacy runtime, and execution identity. |
-| 1.2 | 2026-08-10 | Updated for SDLE v1.13: the mechanical layer moved into `scripts/sdle.py`, a deterministic core that refuses rather than warns. Constants are parsed from SKILL.md rather than hand-synced; `lint-skill` verifies every cross-file rule; nine slash commands and four hooks; Gate 7 carries test evidence and refuses an incomplete manifest; the security diff is pinned to `implementation_base_ref`. See `docs/architecture/ADR-001-deterministic-core.md`. |
-| 1.1 | 2026-07-06 | Updated for SDLE v1.12: untrusted-content scan, secrets scan in the implementation manifest, tamper-evident audit log (`audit_sha`), session lock, dirty-tree guard, repo staleness warning, two-step `confirm skip`. |
-| 1.0 | 2026-06-20 | Initial enterprise reference guide, covering SDLE v1.11 (18-phase, 8-gate workflow). |

@@ -204,14 +204,6 @@ def test_a_documentation_readme_at_the_right_version_is_clean(repo):
     assert checks["version_string_consistent"] is True, checks
 
 
-def test_a_state_field_without_a_migration_row_fires(repo):
-    path = repo.skill_root / "templates" / "state.json"
-    template = json.loads(path.read_text(encoding="utf-8"))
-    template["brand_new_field"] = None
-    path.write_text(json.dumps(template, indent=2), encoding="utf-8")
-    assert_only_failure(repo, "migration_covers_every_state_field")
-
-
 def test_a_reintroduced_powershell_cmdlet_fires(repo):
     path = repo.skill_root / "modules" / "phase-execution.md"
     path.write_text(
@@ -511,8 +503,31 @@ def test_a_product_agent_with_the_fence_stripped_fires(repo):
     path = agent_path(repo)
     path.write_text(
         path.read_text(encoding="utf-8").replace(
-            "python .claude/hooks/hooks.py product-agent-fence",
-            "python .claude/hooks/hooks.py write-fence", 1),
+            r'run-hook.sh\" product-agent-fence',
+            r'run-hook.sh\" write-fence', 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_fence_registered_without_the_launcher_fires(repo):
+    """The registration must go through `run-hook.sh`: a bare `python
+    hooks.py` resolves against the session's current directory (F-013)."""
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            r'sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hook.sh\" ',
+            "python .claude/hooks/hooks.py ", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "product_agents_declare_the_fence")
+
+
+def test_a_fence_matcher_that_misses_powershell_fires(repo):
+    """Claude Code has a `PowerShell` tool beside `Bash`; a shell is all it
+    takes to run `gate approve`, so the fence must cover both (F-016)."""
+    path = agent_path(repo)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "|Bash|PowerShell", "|Bash", 1),
         encoding="utf-8")
     assert_only_failure(repo, "product_agents_declare_the_fence")
 
@@ -764,3 +779,23 @@ def test_n24_the_check_goes_absent_rather_than_passing_on_a_bare_tree(repo):
     names = [c["name"] for c in result.data["checks"]]
     assert "documentation_set_is_present" not in names
     assert result.data["failed"] == []
+
+
+def test_a_skill_frontmatter_with_no_version_is_clean(repo):
+    """The frontmatter version is an optional display copy. Absent, it is not
+    a mismatch: only the operational locations must agree."""
+    skill = repo.skill_root / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    assert "Lifecycle Engine v" not in text.split("\n---\n", 1)[0]
+    assert results(repo)["version_string_consistent"] is True
+
+
+def test_a_skill_frontmatter_pinning_the_wrong_version_still_fires(repo):
+    """Optional does not mean unchecked: when the frontmatter does state a
+    version, it must be the current one."""
+    skill = repo.skill_root / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    skill.write_text(text.replace(
+        "description: ", "description: Lifecycle Engine v1.13. ", 1),
+        encoding="utf-8")
+    assert_only_failure(repo, "version_string_consistent")

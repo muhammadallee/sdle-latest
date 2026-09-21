@@ -1,7 +1,5 @@
 # SDLE Dry-Run Conversation Transcripts
 
-**Applies to:** SDLE v1.17
-
 End-to-end conversation flows showing what the orchestrator says and does in each notable
 scenario, for **every one of the five shipped flows**, plus focused scenarios for the
 defects fixed in SDLE-DEFECT-STABILIZATION-01.
@@ -94,10 +92,7 @@ excluding the terminal `complete`, which is the number in the progress header.
 
 ## History
 
-Transcripts 01–09 were once byte-pinned against a historical commit. By
-SDLE-DEFECT-STABILIZATION-01 they described Spec Kit paths, fingerprints,
-bootstrap steps and a Gate 7 the engine no longer had, and a byte pin cannot
-tell a correct file from a merely unchanged one. The pins were released
-deliberately, and each transcript's claims are now recomputed from the engine
-instead. The record of that decision is in
-[`../verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
+Each transcript's claims (progress fractions, gate numbers, labels, refusals and the tests it cites) are
+recomputed from the engine by `tests/test_dry_run_contracts.py`. A byte comparison cannot tell a
+correct file from a merely unchanged one, so none is used. [`verification-matrix.md`](verification-matrix.md)
+maps each scenario to the tests that back it and to the runs that were actually executed.

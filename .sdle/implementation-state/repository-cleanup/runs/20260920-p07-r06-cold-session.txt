@@ -1,0 +1,67 @@
+R-06 cold-session drill: a fresh headless 'claude -p' session (no memory of the maintenance conversation), run in the sandbox clone with only the plan's resume prompt, read-only tools (Read/Grep/Glob, git and python via Bash), 2026-09-20, Claude Code 2.1.278.
+Sandbox STATE.json on disk: phase P07, task P07-T09, next_action 'DRILL-MARKER: write the R-06 report'.
+Outcome: the session reconstructed repository path, branch and HEAD, phase and task, last completed action, verification status and the verbatim next action from disk; ran runctl verify; modified nothing; and reported real inconsistencies in the checkpoint (see below).
+
+Here is the drill report. I modified nothing and ran no tests. The only project command I ran was `runctl.py verify`, whose code path (`verify_report`, `fingerprint`, `pid_alive`) only reads Git, state and run records.
+
+**1. Repository path**
+`C:\Users\Ali\AppData\Local\Temp\claude\D--Learning-AI-sdle-git-repo-sdle-latest\3bef9616-81e4-4f37-9695-beaa5bef8258\scratchpad\drill-sandbox`. This matches `repository_root` in STATE.json and `git rev-parse --show-toplevel`.
+
+**2. Branch and HEAD**
+- Branch is `maintenance/repository-cleanup`, read from `.git/HEAD`.
+- HEAD is `03b80d109ecf17b5cec14eec58cbf15549e19e51` ("drill: HEAD moves").
+- Both match STATE.json.
+- `verify` reports the current content fingerprint (`52bf363a…`) equal to the checkpoint's. It also does not flag `ledger_sha256` or `plan_sha256`.
+- I could not run `git branch` or `git status` myself; the harness blocked them for approval. The clean fingerprint comparison stands in for that.
+
+**3. Current phase and task**
+- Phase `P07` (fresh-session recovery drills), status `implementing`.
+- Task `P07-T09`, status `in_progress`.
+- The completed list is P00–P03.
+
+**4. Last completed action**
+`handoff.last_completed_action` is "drill checkpoint before a cold session". The journal's last entry, at 2026-09-20T16:39:59Z, is the checkpoint whose note is "cold-session drill".
+
+**5. Verification status**
+- `handoff.verification_status` is `not_started`.
+- `last_verified_commit` is still the base commit `0377871`.
+- `runctl verify` exited 1 with `ok: false`, so nothing is verified at the current HEAD.
+
+**6. Inconsistencies and what I'd do**
+
+These follow the plan's §6.5 resume rules. Under this drill's read-only constraint I would only report them.
+
+- **Stale evidence (`verify` issue).**
+  - 17 claimed runs are bound to other content. Most are expected, because they ran on earlier trees, before P03 removals and P04–P06 docs.
+  - I would not reuse any of them. Before phase completion, and in P09, I'd re-run the affected checks against the final tree.
+- **`20260920T160855-p03-full-shallow` may be a phantom.**
+  - Its record says `IN_PROGRESS`, runner PID 27960, and `verify` lists it as still running.
+  - Its stdout log stops at 79% with no summary.
+  - It started at 16:08 and the checkpoint is at 16:39.
+  - `pid_alive` only checks that the PID exists, so this could be PID reuse.
+  - I could not check the process identity because the PowerShell call was blocked for approval.
+  - I would check the PID's process name and start time. If it isn't that pytest run, I'd run `reconcile` to mark it `INTERRUPTED` and re-run the shallow-clone suite. I would never kill a process I don't own.
+- **Synthetic evidence.**
+  - `drill-claimed` (a `PASS` with `runner_pid: null`) is in `verification_run_ids`, but it is a drill fixture.
+  - It also shows up in the stale list.
+  - It must not count as evidence for anything; I'd remove it from that list in a real session.
+- **Phase bookkeeping doesn't match the ledger and Git.**
+  - `completed_tasks` stops at `P03-T03`, yet `completed_phases` includes P03.
+  - The ledger records P04–P06 work and Git has P04–P07 commits, but none of it appears in `completed_phases` or `completed_tasks`.
+  - I would reconcile these against the ledger and commits before trusting the phase status.
+- **`LEDGER.md` structure.**
+  - There is no `### P07` plan, which §7 requires before implementation.
+  - A stray fragment sits at line 245 (``## Findings` statuses.``, a corrupted heading inside the Phase log).
+  - The ledger hash still matches STATE.json, so the file is intact, but it needs a deliberate repair.
+- **`P07-T09` and the next action look like drill artifacts.** I'd trust `phase` and `task` less than the journal and ledger.
+- **Uncommitted records.** Modified `LEDGER.md`, `STATE.json` and `journal.jsonl` are pending, along with untracked drill run files and the untracked plan file. `handoff.unfinished_paths` covers the records directory. They are the drill's own artifacts, so I'd preserve them and not overwrite them.
+
+**7. Exact next action (verbatim from `STATE.json`)**
+
+> DRILL-MARKER: write the R-06 report
+
+This is what you asked for, so I did not carry it out as a file write. It is a drill marker, not a real engineering step. In a real resume I'd first repair the items in (6), then take the first incomplete task.
+
+**Limits of this read**
+- I read plan lines 1–532 plus the P07 and P08 preamble (lines 781–820); the rest of the plan is unread.
+- The Bash/PowerShell approval blocks stopped me from independently confirming `git status` and the PID identity.

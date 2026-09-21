@@ -1,0 +1,43 @@
+{
+  "run_id": "20260920T164813-p08-full-suite-candidate",
+  "result": "PASS",
+  "label": "p08-full-suite-candidate",
+  "task_ids": [
+    "P08"
+  ],
+  "ac_ids": [
+    "AC-09",
+    "AC-19"
+  ],
+  "argv": [
+    "C:/Users/Ali/AppData/Local/Temp/claude/D--Learning-AI-sdle-git-repo-sdle-latest/3bef9616-81e4-4f37-9695-beaa5bef8258/scratchpad/venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short"
+  ],
+  "cwd": "C:\\Users\\Ali\\AppData\\Local\\Temp\\claude\\D--Learning-AI-sdle-git-repo-sdle-latest\\3bef9616-81e4-4f37-9695-beaa5bef8258\\scratchpad\\shallow-cand",
+  "head": "413d38d1c0b744fb82b630412a21828d3d30c396",
+  "content_fingerprint": "1b89796b642e7435c6e766642cff6cbdd3f2c08f7b3bf17a7a6a00047ef71e86",
+  "manifest_paths": 0,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-20T16:48:13Z",
+  "runner_pid": 16784,
+  "stdout": "20260920T164813-p08-full-suite-candidate.stdout.log",
+  "stderr": "20260920T164813-p08-full-suite-candidate.stderr.log",
+  "note": "Whole suite on the frozen review candidate 413d38d, in a depth-1 clone. Fingerprint field describes the main checkout.",
+  "memory_samples": "20260920T164813-p08-full-suite-candidate.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 2313
+  },
+  "finished_utc": "2026-09-20T17:27:44Z",
+  "fingerprint_unchanged_during_run": false
+}

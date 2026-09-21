@@ -109,12 +109,10 @@ class Paths:
 
     ``project_root`` is the target project (the repository context).
     ``skill_root`` is the directory holding ``SKILL.md`` — the constants host.
-    ``workitem`` is the bound WorkItem id. After T11 a *bound* ``Paths``
-    always names one: ``None`` survives only before binding and in the
-    migration **source view** ``cmd_migrate_workflow`` constructs to read a
-    pre-v1.14 ``.workflow/``. It is still the *only* switch between the two
-    locations: every runtime path below derives from ``runtime``, so no
-    command ever concatenates a WorkItem-owned path of its own.
+    ``workitem`` is the bound WorkItem id. A *bound* ``Paths`` always names
+    one; ``None`` survives only before binding. Every runtime path below
+    derives from ``runtime``, so no command ever concatenates a WorkItem-owned
+    path of its own.
     """
 
     project_root: Path
@@ -128,13 +126,12 @@ class Paths:
 
     @property
     def legacy_workflow(self) -> Path:
-        """The pre-v1.14 repository-global directory.
+        """The retired repository-global runtime directory.
 
-        T11 removed the resolution rung that bound it as a *runtime*. It
-        survives as exactly two things and nothing more: a **migration
-        source** (``cmd_migrate_workflow`` reads it and never writes it) and a
-        **project-root marker**, without which a legacy-only repository could
-        not be discovered and therefore could not be migrated at all.
+        Nothing binds it as a runtime. It survives as detection only: a
+        **project-root marker**, and the thing a refusal points at, so a
+        repository that holds one is refused with an explanation instead of
+        being treated as empty. SDLE never runs, migrates or writes it.
         """
         return self.project_root / ".workflow"
 
@@ -158,7 +155,7 @@ class Paths:
         return str(self.runtime.relative_to(self.project_root)).replace(os.sep, "/")
 
     # `workflow` is retained as an alias so call sites that only ever meant
-    # "the runtime directory" did not have to move in T02.
+    # "the runtime directory" did not have to move.
     @property
     def workflow(self) -> Path:
         return self.runtime
@@ -223,10 +220,9 @@ class Paths:
     def speckit_specs_root(self) -> Path | None:
         """Where this WorkItem's Spec Kit feature directories live.
 
-        ``None`` only for an **unbound** ``Paths`` — the source view
-        ``cmd_migrate_workflow`` constructs, which has no WorkItem to scope
-        to. T11 removed the legacy runtime binding, so no *bound* ``Paths``
-        reaches this with ``workitem`` unset (R2). Derived here so no call
+        ``None`` only for an **unbound** ``Paths``, which has no WorkItem to scope
+        to; a *bound* ``Paths`` never reaches this with ``workitem`` unset.
+        Derived here so no call
         site ever concatenates a Spec Kit path of its own — the same
         discipline ``runtime`` established for the runtime.
         """
@@ -282,18 +278,10 @@ class Paths:
         return self.policies_dir / "governance-policy.json"
 
     @property
-    def shared_templates_dir(self) -> Path:
-        """Repository-shared templates.
-
-        Deliberately not named ``templates_dir``: ``skill_root/templates/``
-        already exists and a bare name would read as that one.
-        """
-        return self.config_root / "templates"
-
-    @property
     def baseline_file(self) -> Path:
-        """The §11 baseline slot. No engine path writes it at T05 — §14 owns
-        its schema."""
+        """The baseline slot, `.sdle/baseline.json`. Written once, by the final
+        gate of a `GREENFIELD` or `BROWNFIELD_DISCOVERY` WorkItem
+        (`establish_baseline`); read by `baseline show`, `init` and `validate`."""
         return self.config_root / "baseline.json"
 
     @property
@@ -336,10 +324,6 @@ class Paths:
         return self.modules_dir / "phase-execution.md"
 
     @property
-    def security_review_md(self) -> Path:
-        return self.modules_dir / "security-review.md"
-
-    @property
     def state_template(self) -> Path:
         return self.skill_root / "templates" / "state.json"
 
@@ -367,8 +351,7 @@ def _candidate_skill_roots(script_path: Path, project_root: Path) -> list[Path]:
 # §11), the mirror of `workitems/index.md`: without it, `config init` launched
 # from a subdirectory would write a second boundary there. Markers are tested
 # in the inner loop, so tuple order cannot change *which* directory is
-# returned — only which level stops the walk — and no repository predating T05
-# contains a `.sdle/config.json`, so appending it is a no-op for all of them.
+# returned — only which level stops the walk.
 PROJECT_ROOT_MARKERS = (
     ("workitems", "index.md"),
     (".workflow", "state.json"),
@@ -409,7 +392,7 @@ def resolve_paths(project_root: str | None, skill_root: str | None) -> Paths:
         proj = Path(explicit_root).resolve()
     else:
         # Fallback to the launch directory itself keeps a brand-new project
-        # with no markers working exactly as it did before T03.
+        # with no markers working.
         proj = (discover_project_root(launch) or launch).resolve()
 
     # A launch directory outside the project is not a location inside it, so
@@ -562,12 +545,10 @@ def parse_md_table(path: Path, heading: str) -> list[dict[str, str | None]]:
 # through an explicitly declared set (PHASE_TO_GATE_KEY), so a new registry row
 # adds no gate. Deriving GREENFIELD as *all of* the registry has the opposite
 # property: a stray row would silently join GREENFIELD and change what every
-# pre-v1.16 workflow is retroactively said to have traversed. This list is the
-# compatibility translation the contract requires, frozen: it is element-wise
-# the pre-T07 PHASE_SEQUENCE. The guarantee derivation used to give for free —
-# that no registry phase is orphaned — is restored by the
-# `every_registry_phase_is_used_by_some_flow` lint check, which fails loudly
-# instead of failing open.
+# GREENFIELD workflow is said to traverse. This list is therefore frozen. The
+# guarantee derivation would give for free — that no registry phase is
+# orphaned — is provided by the `every_registry_phase_is_used_by_some_flow`
+# lint check, which fails loudly instead of failing open.
 
 GREENFIELD_V1_PHASES: tuple[str, ...] = (
     "requirements_check",
@@ -740,7 +721,6 @@ class Constants:
     phase_label_template: dict[str, str] = field(default_factory=dict)
     progress: dict[str, str] = field(default_factory=dict)
     gate_to_execution_phase: dict[str, str] = field(default_factory=dict)
-    version_chain: list[tuple[str, str]] = field(default_factory=list)
     flow_phases: dict[str, list[str]] = field(default_factory=dict)
     # Which capability files each phase requires. Parsed, never inferred: the
     # engine decides what the prompt layer loads, so "load only the relevant
@@ -919,8 +899,8 @@ class Constants:
         """The GREENFIELD-rendered labels.
 
         The parsed templates carry a ``{gate_number}`` placeholder so a gate's
-        ordinal can be flow-relative; this view is the one every pre-T07
-        reader already expected, byte-identical under GREENFIELD.
+        ordinal can be flow-relative; this view is the GREENFIELD one, the same
+        under every flow that has that gate.
         """
         return {
             phase: self.render_label(phase)
@@ -1038,22 +1018,15 @@ def load_constants(paths: Paths) -> Constants:
         if key:
             consts.gate_to_execution_phase[key] = _column(row, "execution_phase") or ""
 
-    for row in parse_md_table(skill, "VERSION_MIGRATION"):
-        frm = _column(row, "from_version", "workflow_version")
-        to = _column(row, "to_version")
-        if frm:
-            consts.version_chain.append((frm, to or frm))
-
     return consts
 
 
 def flow_for_state(state: dict | None, consts: Constants) -> Flow:
     """The flow this workflow is traversing.
 
-    Bound once by ``init`` (or by migration, for a workflow that predates the
-    field) and never re-bound: there is deliberately no command that writes it.
-    A state with no ``flow`` is a pre-v1.16 state, and every pre-v1.16
-    workflow traversed exactly the pre-T07 registry, which is GREENFIELD.
+    Bound once by ``init`` and never re-bound: there is deliberately no
+    command that writes it. A state with no ``flow`` names no lifecycle, so it
+    is read as GREENFIELD, the default flow.
     """
     name = (state or {}).get("flow")
     return consts.flow(name if isinstance(name, str) and name else None)
@@ -1155,8 +1128,7 @@ def git(paths: Paths, *args: str) -> tuple[int, str]:
     # formats (` M path` is an unstaged change), and stripping it shifted the
     # first line by one character: `line[3:]` then cut the first letter of
     # the path, so an SDLE-owned file sorting first escaped the dirty-tree
-    # filter as a false `dirty_tree` (found reproducing D03,
-    # SDLE-DEFECT-STABILIZATION-01).
+    # filter as a false `dirty_tree`.
     return completed.returncode, (completed.stdout or "").rstrip()
 
 
@@ -1201,7 +1173,19 @@ STATUS_DISPLAY = {
 }
 
 
-def read_state(paths: Paths) -> dict:
+def read_state(paths: Paths, *, any_version: bool = False) -> dict:
+    """The WorkItem's state, parsed.
+
+    Refuses `unsupported_state_version` when the file was written under a state
+    schema other than `CURRENT_VERSION`. SDLE never reinterprets, upgrades or
+    resets such a file: it is left exactly as found and the remedy is a new
+    WorkItem. Two commands pass `any_version=True` because they read the file
+    without interpreting it: `state get` returns a stored field as it is, and
+    `audit verify` checks the ledger's hash chain, which does not depend on the
+    schema. Anything that derives a flow, a label or a verdict from the state
+    (`state dump`, `doctor`) refuses instead of applying today's rules to
+    yesterday's shape.
+    """
     relative = paths.runtime_relative
     if not paths.state_file.is_file():
         raise IntegrityError(
@@ -1211,7 +1195,7 @@ def read_state(paths: Paths) -> dict:
             {"path": str(paths.state_file)},
         )
     try:
-        return json.loads(paths.state_file.read_text(encoding="utf-8"))
+        state = json.loads(paths.state_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise IntegrityError(
             "state_unreadable",
@@ -1219,6 +1203,19 @@ def read_state(paths: Paths) -> dict:
             "Options: 'reset workflow' to start fresh, or inspect the file.",
             {"path": str(paths.state_file), "error": str(exc)},
         ) from None
+    version = state.get("workflow_version") if isinstance(state, dict) else None
+    if not any_version and version != CURRENT_VERSION:
+        raise Refused(
+            "unsupported_state_version",
+            f"{relative}/state.json uses state schema {version!r}, and this "
+            f"SDLE reads only {CURRENT_VERSION!r}. It never rewrites another "
+            "version; the file is left exactly as it is. Start a current "
+            "WorkItem with `workitem create --name <name>`, or inspect this "
+            "one with `state dump`.",
+            {"workflow_version": version, "supported": CURRENT_VERSION,
+             "path": str(paths.state_file)},
+        )
+    return state
 
 
 def save_state(paths: Paths, state: dict, session: str | None = None) -> None:
@@ -1231,10 +1228,9 @@ def save_state(paths: Paths, state: dict, session: str | None = None) -> None:
 # --------------------------------------------------------------------------
 # Spec Kit context (contract §10)
 #
-# v1.15 replaced the flat `current_feature_id` with a `specKit` object owned
-# by the WorkItem. Every read and every write goes through the two accessors
-# below, so a pre-1.15 state — which `read_state` does not migrate — degrades
-# to all-null instead of raising KeyError at an arbitrary call site.
+# The `specKit` object is owned by the WorkItem. Every read and every write
+# goes through the two accessors below, so a state without it degrades to
+# all-null instead of raising KeyError at an arbitrary call site.
 # --------------------------------------------------------------------------
 
 SPECKIT_REF_KEYS = ("featureId", "featureDirectory", "workflowId", "runId")
@@ -1396,9 +1392,10 @@ def append_audit(
 
     Ordering is load-bearing: append -> hash file -> save state.
 
-    ``review`` and ``evidence_id`` are TP-011's audit linkage (T06/D10). When
-    both are ``None`` the rendered block is **byte-identical** to every entry
-    written before T06, which is what lets a pre-T06 ledger keep verifying.
+    ``review`` and ``evidence_id`` are the audit linkage of a governed artifact
+    review. When both are ``None`` the rendered block is **byte-identical** to
+    an entry that carries neither, which is what lets an older ledger keep
+    verifying.
     When supplied they render as two extra lines placed **before** ``Prev``:
     the chain tail must stay the last line of the entry, and the review result
     must not be smuggled into ``decision``, which belongs to gate approval.
@@ -1450,8 +1447,8 @@ def cmd_audit_append(args, paths: Paths) -> int:
 def verify_audit_chain(entries: list[str]) -> tuple[bool, int | None]:
     """Walk the ``prev_sha`` chain. Returns ``(ok, first_broken_entry_number)``.
 
-    Extracted unchanged from ``cmd_audit_verify`` at T02 so `migrate-workflow`
-    can verify a ledger at a second location without restating the rule.
+    The one place the chain rule is stated: ``cmd_audit_verify`` and any other
+    caller verify a ledger through it instead of restating it.
     """
     prev = GENESIS
     for index, block in enumerate(entries, start=1):
@@ -1464,7 +1461,7 @@ def verify_audit_chain(entries: list[str]) -> tuple[bool, int | None]:
 
 
 def cmd_audit_verify(args, paths: Paths) -> int:
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     expected = state.get("audit_sha")
 
     if expected is None:
@@ -1568,290 +1565,6 @@ def cmd_audit_rebaseline(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
-# Migration
-# --------------------------------------------------------------------------
-
-
-def _add_missing(state: dict, **defaults) -> None:
-    for key, value in defaults.items():
-        state.setdefault(key, value)
-
-
-def _mig_1_0(state, paths, consts):
-    _add_missing(
-        state,
-        speckit_skill_prefix=None,
-        current_artifact_sha=None,
-        current_feature_id=None,
-    )
-
-
-def _mig_1_1(state, paths, consts):
-    _add_missing(state, current_feature_id=None)
-
-
-def _mig_1_2(state, paths, consts):
-    pass
-
-
-def _mig_1_3(state, paths, consts):
-    state.setdefault("approvals", {}).setdefault("gate_design", None)
-
-
-def _mig_1_4(state, paths, consts):
-    _add_missing(
-        state,
-        rate_limits={"max_remediation_attempts": 3, "max_retry_attempts": 3},
-        attempt_counts={},
-    )
-
-
-def _mig_1_5(state, paths, consts):
-    _add_missing(state, verbose=False)
-
-
-def _mig_1_6(state, paths, consts):
-    _add_missing(state, clarification_phase=None)
-
-
-def _mig_1_7(state, paths, consts):
-    _add_missing(state, artifact_shas={}, drift_queue=[], pending_phase=None)
-
-
-def _mig_1_8(state, paths, consts):
-    _add_missing(
-        state,
-        phase_checkpoint=None,
-        security_review_artifact=None,
-        pending_confirm_action=None,
-    )
-    approvals = state.setdefault("approvals", {})
-    approvals.setdefault("gate_tasks", None)
-    approvals.setdefault("gate_security", None)
-    phase = state.get("current_phase")
-    if phase in consts.progress:
-        state["progress"] = consts.progress[phase]
-    if phase in {"implement", "gate_implement", "security_review", "complete"}:
-        state.setdefault("_migration_warnings", []).append(
-            "This workflow was created under SDLE v1.8, which had a different "
-            "phase order. Phases gate_tasks (Gate 4), design_generation "
-            "(Phase 13), and gate_design (Gate 6) were not part of the "
-            "original run. You may continue from your current position or "
-            "`restart phase 13` to generate design documents before the "
-            "implementation review."
-        )
-
-
-def _mig_1_9(state, paths, consts):
-    _add_missing(state, pending_confirm_action=None)
-
-
-def _mig_1_10(state, paths, consts):
-    _add_missing(state, last_updated=None)
-
-
-def _mig_1_11(state, paths, consts):
-    _add_missing(state, audit_sha=None)
-
-
-def _mig_1_12(state, paths, consts):
-    """v1.13: pin the security diff range, and normalise SHA case.
-
-    v1.12 recorded PowerShell's uppercase Get-FileHash output. hashlib emits
-    lowercase. Without normalising, every approved gate false-drifts on the
-    first v1.13 run.
-    """
-    _add_missing(state, implementation_base_ref=None)
-
-    normalised = 0
-    shas = state.get("artifact_shas") or {}
-    for key, value in list(shas.items()):
-        if isinstance(value, str) and value != value.lower():
-            shas[key] = value.lower()
-            normalised += 1
-    for key in ("current_artifact_sha", "audit_sha"):
-        value = state.get(key)
-        if isinstance(value, str) and value != value.lower():
-            state[key] = value.lower()
-            normalised += 1
-    if normalised:
-        state.setdefault("_migration_notes", []).append(
-            f"Normalised {normalised} SHA value(s) to lowercase hex."
-        )
-
-
-def _mig_1_13(state, paths, consts):
-    """Add ``workitem``, bound from where the state file actually lives.
-
-    The state file becomes self-describing, so a file copied to the wrong
-    WorkItem is detectable. Derivation is deterministic, never a guess: a state
-    under ``workitems/<id>/.sdle/`` records ``<id>``; a state still at the
-    legacy ``.workflow/`` location keeps ``null`` until `migrate-workflow`
-    binds it.
-    """
-    _add_missing(state, workitem=None)
-    if state.get("workitem") is None:
-        parent = paths.state_file.parent
-        if parent.name == ".sdle":
-            state["workitem"] = parent.parent.name
-
-
-def _mig_1_14(state, paths, consts):
-    """Replace the flat `current_feature_id` with the `specKit` object.
-
-    Contract §10 makes Spec Kit context an object owned by the WorkItem. The
-    old value is *moved*, not mirrored: two fields for one fact would break
-    invariant 7. `featureDirectory` is read off the tree in a fixed order,
-    first hit wins, so it is a fact about disk rather than an inference:
-
-      1. `workitems/<workitem>/specs/<featureId>` when that directory exists;
-      2. `.specify/specs/<featureId>` when that one does — where a pre-v1.15
-         run's artifacts genuinely are, so an in-flight workflow keeps
-         resolving its gates instead of breaking at the next one;
-      3. otherwise null.
-
-    Nothing moves on disk here. Migration reports; `feature resolve` relocates.
-    """
-    feature = state.pop("current_feature_id", None)
-    if not isinstance(feature, str) or not feature:
-        feature = None
-
-    directory = None
-    if feature:
-        candidates = []
-        workitem = state.get("workitem")
-        if isinstance(workitem, str) and workitem:
-            candidates.append(f"workitems/{workitem}/specs/{feature}")
-        candidates.append(f".specify/specs/{feature}")
-        for candidate in candidates:
-            if (paths.project_root / candidate).is_dir():
-                directory = candidate
-                break
-
-    speckit_set(state, featureId=feature, featureDirectory=directory,
-                workflowId=None, runId=None)
-
-
-def _mig_1_15(state, paths, consts):
-    """Name the lifecycle a pre-flow workflow has been traversing all along.
-
-    Every workflow created before the flow model traversed exactly one phase
-    list — the pre-flow PHASE_SEQUENCE — and that list is GREENFIELD. The value
-    is therefore unconditional, and this migration deliberately does **not**
-    consult the governance record: a migration records what a workflow *has
-    been doing*, and re-deriving traversal from a classification assessed later
-    would silently reshape an in-flight run. A workflow whose record now
-    proposes a different flow is refused `flow_mismatch` at its next advance,
-    with a named remedy — which is correct, and is not this function's job.
-    """
-    if not isinstance(state.get("flow"), str) or not state["flow"]:
-        state["flow"] = DEFAULT_FLOW
-
-
-def _mig_1_16(state, paths, consts):
-    """Introduce ``pending_branch_ack`` (T11 D13).
-
-    ``None`` unconditionally, and that is the safe value rather than a
-    convenient one: a migrated workflow with an outstanding
-    ``pending_confirm_action == "branch_mismatch"`` has an acknowledgement
-    whose branch nobody recorded, so the guard must ask again on the next
-    critical command instead of honouring an acknowledgement it cannot
-    attribute. Guessing ``current_branch()`` here would manufacture consent
-    the user never gave.
-    """
-    _add_missing(state, pending_branch_ack=None)
-
-
-MIGRATIONS: list[tuple[str, str, object]] = [
-    ("1.0", "1.1", _mig_1_0),
-    ("1.1", "1.2", _mig_1_1),
-    ("1.2", "1.3", _mig_1_2),
-    ("1.3", "1.4", _mig_1_3),
-    ("1.4", "1.5", _mig_1_4),
-    ("1.5", "1.6", _mig_1_5),
-    ("1.6", "1.7", _mig_1_6),
-    ("1.7", "1.8", _mig_1_7),
-    ("1.8", "1.9", _mig_1_8),
-    ("1.9", "1.10", _mig_1_9),
-    ("1.10", "1.11", _mig_1_10),
-    ("1.11", "1.12", _mig_1_11),
-    ("1.12", "1.13", _mig_1_12),
-    ("1.13", "1.14", _mig_1_13),
-    ("1.14", "1.15", _mig_1_14),
-    ("1.15", "1.16", _mig_1_15),
-    ("1.16", "1.17", _mig_1_16),
-]
-
-
-def migrate_state(state: dict, paths: Paths, consts: Constants) -> list[str]:
-    version = state.get("workflow_version")
-    known = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
-    if version not in known:
-        raise Refused(
-            "unknown_version",
-            f"Unrecognized workflow_version: {version}. Options: "
-            "'reset workflow' to start fresh, or 'show state' to inspect.",
-            {"workflow_version": version, "known": sorted(known)},
-        )
-
-    steps: list[str] = []
-    guard = 0
-    while state.get("workflow_version") != CURRENT_VERSION:
-        guard += 1
-        if guard > len(MIGRATIONS) + 1:
-            raise IntegrityError(
-                "migration_loop",
-                "Migration chain did not terminate.",
-                {"workflow_version": state.get("workflow_version")},
-            )
-        current = state.get("workflow_version")
-        for frm, to, func in MIGRATIONS:
-            if frm == current:
-                func(state, paths, consts)
-                state["workflow_version"] = to
-                steps.append(f"{frm}->{to}")
-                break
-        else:
-            raise Refused(
-                "unknown_version",
-                f"No migration path from {current}.",
-                {"workflow_version": current},
-            )
-    return steps
-
-
-def cmd_migrate(args, paths: Paths) -> int:
-    consts = load_constants(paths)
-    state = read_state(paths)
-    before = state.get("workflow_version")
-    steps = migrate_state(state, paths, consts)
-    warnings = state.pop("_migration_warnings", [])
-    notes = state.pop("_migration_notes", [])
-    if steps:
-        append_audit(
-            paths,
-            state,
-            phase=state.get("current_phase", "unknown"),
-            event="migration",
-            message=f"State migrated {before} -> {CURRENT_VERSION} ({', '.join(steps)}).",
-        )
-        save_state(paths, state, args.session)
-    for text in warnings + notes:
-        print(text, file=sys.stderr)
-    emit(
-        "migrate",
-        {
-            "from": before,
-            "to": state.get("workflow_version"),
-            "steps": steps,
-            "warnings": warnings,
-            "notes": notes,
-        },
-    )
-    return EXIT_OK
-
-
-# --------------------------------------------------------------------------
 # init / state / header
 # --------------------------------------------------------------------------
 
@@ -1906,20 +1619,19 @@ def cmd_init(args, paths: Paths) -> int:
     state["project_name"] = name
     state["current_phase"] = "requirements_check"
     state["status"] = "in_progress"
-    # T07/D9 — the flow binds HERE, once, and nothing ever re-binds it. There
+    # The flow binds HERE, once, and nothing ever re-binds it. There
     # is deliberately no `flow set` / `flow select` command: a second writer of
     # traversal identity would let the model reshape the lifecycle by issuing a
-    # command, which is a governance bypass. Governance stays deliberately not
-    # an `init` precondition (T06), so the no-record case has to exist and has
-    # to be the safe one — GREENFIELD is the flow every workflow before v1.16
-    # traversed, so defaulting to it changes nothing for anybody.
+    # command, which is a governance bypass. Governance is deliberately not an
+    # `init` precondition, so the no-record case has to exist and has to be the
+    # safe one: GREENFIELD is the default flow.
     record = read_governance_record(paths) if paths.workitem else None
     classification = (record or {}).get("classification") or {}
     proposed = classification.get("flow")
     state["flow"] = (
         proposed if isinstance(proposed, str) and proposed else DEFAULT_FLOW
     )
-    # T08/§14 — R1 and R2, evaluated HERE because this is the single
+    # R1 and R2, evaluated HERE because this is the single
     # flow-binding site, and evaluated *before* the first `mkdir` below so a
     # refusal creates nothing at all. A pure reader: it returns the derived
     # baseline status and writes nothing. The status is recorded in the
@@ -1929,8 +1641,8 @@ def cmd_init(args, paths: Paths) -> int:
     baseline_at_binding = baseline_precondition(
         paths, state["flow"], bool(classification.get("rediscovery")))
     # `init` is the one mover that deliberately does NOT go through
-    # `apply_advance` — governance is not an `init` precondition (T06) — so it
-    # reads the flow directly, exactly as it read the registry chain before.
+    # `apply_advance` — governance is not an `init` precondition — so it
+    # reads the flow directly.
     flow = flow_for_state(state, consts)
     state["progress"] = flow.progress_for("requirements_check")
 
@@ -1985,9 +1697,9 @@ def cmd_init(args, paths: Paths) -> int:
     save_state(paths, state, args.session)
 
     # Strictly after the state commit, and deliberately non-fatal: the context
-    # is a disposable convenience (`workitem use --clear` recreates the
-    # pre-T03 posture), so a filesystem problem here must not report a
-    # successfully initialised workflow as a failure.
+    # is a disposable convenience (`workitem use --clear` recreates it), so a
+    # filesystem problem here must not report a successfully initialised
+    # workflow as a failure.
     context = None
     if paths.workitem:
         try:
@@ -2013,7 +1725,7 @@ def cmd_init(args, paths: Paths) -> int:
 
 
 def cmd_state_get(args, paths: Paths) -> int:
-    state = read_state(paths)
+    state = read_state(paths, any_version=True)
     if args.field:
         if args.field not in state:
             raise Refused(
@@ -2166,8 +1878,8 @@ def cmd_resume(args, paths: Paths) -> int:
     phase exists to defend against.
 
     It **writes nothing**: no state, no audit entry, no lock touch, and
-    deliberately no migration. A read-only command that silently migrates is
-    not read-only; a caller that needs `migrate` calls `migrate`.
+    no upgrade and no repair. A read-only command that silently changes state
+    is not read-only.
     """
     consts = load_constants(paths)
     state = read_state(paths)
@@ -2209,7 +1921,7 @@ def cmd_resume(args, paths: Paths) -> int:
             "pending": {
                 "drift_queue": state.get("drift_queue") or [],
                 "pending_confirm_action": state.get("pending_confirm_action"),
-                # T11 D13: the flag alone is no longer the whole fact. A
+                # The flag alone is not the whole fact. A
                 # session resuming from disk has to be able to see which
                 # checkout the outstanding acknowledgement was given for, or
                 # it would have to re-derive it from the ledger.
@@ -2298,9 +2010,9 @@ def cmd_state_dump(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 #
 # A WorkItem is an immutable identity created *before* a workflow is
-# initialised, and since v1.14 it is also the runtime scope: `init` requires a
-# resolved WorkItem and writes `workitems/<id>/.sdle/`. Identity is still
-# created first and never changes; the runtime is created under it.
+# initialised, and it is also the runtime scope: `init` requires a resolved
+# WorkItem and writes `workitems/<id>/.sdle/`. Identity is created first and
+# never changes; the runtime is created under it.
 
 WORKITEM_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 AUTO_ID_RE = re.compile(r"^WI-[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d{8}T\d{6}Z$")
@@ -2625,15 +2337,14 @@ def cmd_workitem_list(args, paths: Paths) -> int:
 # WorkItem resolution
 # --------------------------------------------------------------------------
 #
-# T02 implements the minimum ladder that makes the runtime addressable. CWD,
-# branch, persisted context and inference are T03. The ladder NEVER guesses:
+# The ladder is the minimum that makes the runtime addressable: an explicit
+# `--workitem`, the launch directory, a sole registered WorkItem, the persisted
+# active context, then a unique Git-branch match. The ladder NEVER guesses:
 # when more than one WorkItem could be meant it refuses and lists them.
 
 # Commands that touch no runtime state, so the ladder never runs for them.
-# `migrate-workflow` is here because it does its own explicit binding from a
-# mandatory --workitem.
 RUNTIME_FREE_COMMANDS = frozenset({
-    "lint-skill", "sha", "constants", "workitem", "migrate-workflow",
+    "lint-skill", "sha", "constants", "workitem",
     # `validate` exists to diagnose repositories that are too broken to
     # resolve, so it must never be gated on resolution succeeding. It runs the
     # ladder itself, speculatively, and turns a refusal into a finding.
@@ -2642,17 +2353,17 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # criterion is that it resolves *independently* of WorkItem runtime state,
     # so binding a WorkItem first would contradict the boundary it creates.
     "config",
-    # T06: `governance policy` reads a repository-scoped policy and must
+    # `governance policy` reads a repository-scoped policy and must
     # resolve with no WorkItem bound, exactly like `config`. The WorkItem-
     # scoped members of the group (`assess`, `show`, `gates`) bind explicitly
     # through `bind_workitem`, so the ladder is exercised, not bypassed.
     "governance",
-    # T08: `discovery schema` reports the closed §14 vocabulary and must be
+    # `discovery schema` reports the closed §14 vocabulary and must be
     # answerable before any workflow exists — it is what the prompt layer
     # reads instead of restating the category ids. `assess` and `show` bind
     # explicitly through `bind_for_discovery`.
     "discovery",
-    # T08: the baseline is repository-level by definition — §14's convergence
+    # The baseline is repository-level by definition — §14's convergence
     # invariant is a property of the repository, not of any WorkItem — so both
     # its readers resolve without one, exactly like `config`.
     "baseline",
@@ -2673,14 +2384,14 @@ def registered_workitem_ids(paths: Paths) -> list[str]:
 # construction rather than by coordination (TP-007, contract §9 "Do not
 # implement distributed locking").
 #
-# It is written by exactly three commands — `init`, `migrate-workflow` and
-# `workitem use` — and by nothing else. `bind_workitem` must never write it:
+# It is written by exactly two commands, `init` and `workitem use`, and by
+# nothing else. `bind_workitem` must never write it:
 # its purity is what lets `.claude/hooks/hooks.py::dirty_tree` call it
 # speculatively from a PreToolUse callback, and a hook that writes state is a
 # second writer (CLAUDE.md invariant 6).
 
 ACTIVE_CONTEXT_NAME = ".active-context.json"
-ACTIVE_CONTEXT_SETTERS = ("init", "use", "migrate-workflow")
+ACTIVE_CONTEXT_SETTERS = ("init", "use")
 
 
 def active_context_file(paths: Paths) -> Path:
@@ -2707,13 +2418,13 @@ def read_active_context(paths: Paths) -> dict | None:
 def write_active_context(paths: Paths, workitem_id: str, set_by: str) -> dict:
     """Persist the active context. **The only writer of that file.**
 
-    T11 D9 makes ``ACTIVE_CONTEXT_SETTERS`` load-bearing rather than
-    documentary (T03-4). The fact it encodes — that exactly three commands may
-    set the context — was true but unenforced, so a fourth writer could have
-    been added without anything objecting. This is a *programming* error, not
-    a user input error: no CLI argument can reach it, so it raises
-    ``ValueError`` rather than becoming a refusal with a reason string that
-    could never be triggered from outside.
+    ``ACTIVE_CONTEXT_SETTERS`` is load-bearing rather than documentary. The
+    fact it encodes — that exactly two commands (`init`, `use`) may set the
+    context — is enforced here, so a third writer cannot be added without
+    something objecting. This is a *programming* error, not a user input
+    error: no CLI argument can reach it, so it raises ``ValueError`` rather
+    than becoming a refusal with a reason string that could never be
+    triggered from outside.
     """
     if set_by not in ACTIVE_CONTEXT_SETTERS:
         raise ValueError(
@@ -2852,7 +2563,7 @@ def cmd_workitem_use(args, paths: Paths) -> int:
     with no upside. Validation precedes the write, so a refused `use` leaves
     any existing context byte-unchanged.
 
-    **T11 D8** (T03-5, T03-6). Two corrections, both about the CLI contract:
+    Two properties of the CLI contract:
 
     * an unwritable or undeletable context file is a **refusal**, not a
       traceback — every sibling command already turns `OSError` into a named
@@ -2978,8 +2689,8 @@ def resolve_decision(
     """Run contract §9's ladder and report the outcome. Pure.
 
     Nothing is printed and nothing is written — in particular the active
-    context is *read* here and only ever *written* by `init`,
-    `migrate-workflow` and `workitem use`. That purity is what lets
+    context is *read* here and only ever *written* by `init` and
+    `workitem use`. That purity is what lets
     ``.claude/hooks/hooks.py::dirty_tree`` call the ladder speculatively from a
     PreToolUse callback without becoming a second writer (invariant 6).
 
@@ -3001,19 +2712,15 @@ def resolve_decision(
     Rungs 4 and 5 are only reachable with two or more registered WorkItems, so
     the git subprocess of rung 5 never runs in a single-WorkItem repository.
 
-    **T11 deleted the transitional rung** that bound the repository-global
-    ``.workflow/`` runtime when nothing was registered. It was *deleted, not
-    replaced by an inference*: with zero WorkItems the answer is ``none``
-    whether or not legacy state exists, and the ladder still never guesses.
-    A legacy runtime is now a migration source and a project-root marker only.
-    ``bind_workitem`` names the two-step recovery in its refusal, and both
-    steps (`workitem create`, `migrate-workflow`) are RUNTIME_FREE, so neither
-    reaches this ladder and neither can be locked out by the removal.
+    **A retired ``.workflow/`` runtime never binds.** With zero WorkItems the
+    answer is ``none`` whether or not legacy state exists, and the ladder
+    still never guesses. ``bind_workitem`` says so in its refusal and points
+    at `workitem create`, which is RUNTIME_FREE and so never reaches this
+    ladder.
 
-    ``for_init`` is the one exception left. `init` reports ``legacy_present``
-    whenever legacy state exists, *whatever* the registered count. Proceeding
-    would create a second runtime beside a legacy one that `migrate-workflow`
-    would then refuse to move (`target_exists`).
+    ``for_init`` is the one exception. `init` reports ``legacy_present``
+    whenever legacy state exists, *whatever* the registered count:
+    proceeding would create a second runtime beside a retired one.
     """
     known = registered_workitem_ids(paths)
     decision = Resolution(known=known)
@@ -3067,9 +2774,9 @@ def resolve_decision(
             return decision
 
     if not known:
-        # Rung 6 — nothing is registered. A legacy `.workflow/` on disk does
-        # not change the answer (T11): it is a migration source, not a
-        # runtime, and `bind_workitem` names the recovery path in its refusal.
+        # Rung 6: nothing is registered. A retired `.workflow/` on disk does not
+        # change the answer: it is never a runtime, and `bind_workitem` names
+        # the way forward in its refusal.
         decision.reason = "none"
         return decision
 
@@ -3088,19 +2795,20 @@ def bind_workitem(
     The ladder itself lives in ``resolve_decision``; this function only turns
     a decision into a binding or into the refusal the contract names.
 
-    **T11 invariant (R2): every non-raising return names a WorkItem.** There
-    is no longer any return path that yields ``paths`` with ``workitem is
-    None``, so no command downstream needs a carve-out for one.
+    **Every non-raising return names a WorkItem.** There is no return path
+    that yields ``paths`` with ``workitem is None``, so no command downstream
+    needs a carve-out for one.
     """
     decision = resolve_decision(paths, explicit, for_init=for_init)
 
     if decision.reason == "legacy_present":
         raise Refused(
             "legacy_workflow_present",
-            "A repository-global workflow still exists at "
-            f"{paths.legacy_workflow.name}/state.json. Move it under a "
-            "WorkItem first: `migrate-workflow --workitem <id>`. SDLE will "
-            "not run two runtimes side by side.",
+            "A repository-global workflow from a retired runtime exists at "
+            f"{paths.legacy_workflow.name}/state.json. SDLE does not run or "
+            "migrate it, and will not run two runtimes side by side. It is "
+            "left exactly as it is: remove or move it aside, then create a "
+            "current WorkItem with `workitem create --name <name>`.",
             {"legacy_state": str(paths.legacy_workflow / "state.json")},
         )
 
@@ -3131,22 +2839,19 @@ def bind_workitem(
 
     if decision.reason == "none":
         if legacy_state_present(paths):
-            # A pre-v1.14 repository. T11 removed the transitional rung that
-            # bound `.workflow/` directly, so this refusal is now the *only*
-            # signpost such a repository ever gets. It must name both recovery
-            # steps, in order, or the repository looks bricked (T02 NB-2).
-            # Same reason string, same exit code: no CLI-contract break.
+            # A repository whose only runtime is the retired `.workflow/`. No
+            # rung binds it, so this refusal is the *only* signpost such a
+            # repository gets. It must name the way out, or the repository
+            # looks bricked. Same reason string, same exit code: no
+            # CLI-contract break.
             legacy = paths.legacy_workflow / "state.json"
             raise Refused(
                 "workitem_required",
-                "No WorkItem is registered, but a pre-v1.14 workflow still "
-                f"exists at {paths.legacy_workflow.name}/state.json. SDLE no "
-                "longer runs a repository-global runtime. Recover it in two "
-                "steps, in this order:\n"
-                "  1. `workitem create --name <name>`\n"
-                "  2. `migrate-workflow --workitem <id>`\n"
-                f"The migration never modifies {paths.legacy_workflow.name}/ "
-                "— it is left in place as an archive.",
+                "No WorkItem is registered, and a workflow from a retired "
+                f"runtime exists at {paths.legacy_workflow.name}/state.json. "
+                "SDLE does not run or migrate it and leaves it exactly as it "
+                "is. Start a current WorkItem instead: "
+                "`workitem create --name <name>`.",
                 {"workitems": [], "legacy_state": str(legacy)},
             )
         raise Refused(
@@ -3194,14 +2899,14 @@ def workitem_metadata(paths: Paths) -> dict | None:
 # `muh-20260816T171501Z`. This is execution/audit metadata — it is never the
 # WorkItem name, and nothing resolves a WorkItem from it.
 #
-# **D04 (SDLE-DEFECT-STABILIZATION-01)** appends a collision-resistant suffix,
+# The id carries a collision-resistant suffix,
 # `muh-20260816T171501Z-1a2b3c4d`. The readable prefix is unchanged. At second
-# resolution alone, two executions in one second shared an id, and the id is a
-# key: it names every evidence file (`governance-<id>.json`, …) and it is the
-# governance ledger's de-duplication marker. The second execution therefore
-# overwrote the first one's evidence and never reached the ledger at all. A
-# historical id without the suffix is still read everywhere, because nothing
-# parses an id — each one is compared whole, as an opaque key. See ADR-009.
+# resolution alone, two executions in one second would share an id, and the id
+# is a key: it names every evidence file (`governance-<id>.json`, …) and it is
+# the governance ledger's de-duplication marker. The second execution would
+# then overwrite the first one's evidence and never reach the ledger at all.
+# An id without the suffix is still read everywhere, because nothing parses an
+# id — each one is compared whole, as an opaque key. See ADR-009.
 
 
 # How many fresh ids an evidence writer tries before refusing. A collision needs
@@ -3405,14 +3110,14 @@ def branch_guard(args, paths: Paths, state: dict) -> None:
     inventing a bypass flag, so the acknowledgement is audited exactly like
     every other one. Advisory commands never reach here.
 
-    **T11 D13 closes the fail-open T03 recorded.** ``pending_confirm_action``
-    is a *flag*: it said an acknowledgement was outstanding, never what had
-    been acknowledged. So the second invocation could arrive on a **third**
-    branch and be waved through on an acknowledgement the user had given for a
-    different checkout — the guard's whole subject matter, unaudited. The new
-    ``pending_branch_ack`` field records the branch that was acknowledged, and
-    the second step must match it. A mismatch re-arms the guard against the
-    branch you are actually on and refuses again; it never silently proceeds.
+    ``pending_confirm_action`` is a *flag*: it says an acknowledgement is
+    outstanding, never what was acknowledged. On its own the second invocation
+    could arrive on a **third** branch and be waved through on an
+    acknowledgement the user gave for a different checkout — the guard's whole
+    subject matter, unaudited. So ``pending_branch_ack`` records the branch
+    that was acknowledged, and the second step must match it. A mismatch
+    re-arms the guard against the branch you are actually on and refuses
+    again; it never silently proceeds.
 
     Both fields are cleared together on acceptance, and ``pending_branch_ack``
     has exactly one writer — this function — so it cannot drift out of step
@@ -3446,7 +3151,7 @@ def branch_guard(args, paths: Paths, state: dict) -> None:
             save_state(paths, state, session)
             return
 
-        # T11 D13: the acknowledgement was for a different checkout. Re-arm
+        # The acknowledgement was for a different checkout. Re-arm
         # against the branch we are actually on rather than consuming it.
         state["pending_branch_ack"] = mismatch["current"]
         append_audit(
@@ -3538,15 +3243,14 @@ def _finding(check: str, severity: str, detail: str, *,
 # --------------------------------------------------------------------------
 #
 # `.sdle/` at the repository root holds global configuration, policy
-# definitions, shared templates, the future baseline and implementation-
-# transition metadata. It is a *different boundary* from `workitems/<id>/.sdle/`,
-# which holds lifecycle state, execution, audit, evidence and manifests.
+# definitions, the repository baseline and implementation-transition
+# metadata. It is a *different boundary* from `workitems/<id>/.sdle/`, which
+# holds lifecycle state, execution, audit, evidence and manifests.
 #
-# T05 establishes the boundary and moves **no lifecycle rule into it**: the
-# 18-phase behaviour stays authoritative and nothing in the lifecycle reads
-# `config.json`. `configVersion` is therefore a namespace of its own — it is
-# not `workflow_version`, it is not a state field, and it gets no
-# VERSION_MIGRATION row.
+# The boundary moves **no lifecycle rule into it**: the lifecycle flows stay
+# authoritative and nothing in them reads `config.json`. `configVersion` is
+# therefore a namespace of its own — it is not `workflow_version` and it is not
+# a state field.
 #
 # Policy format is JSON, decided explicitly (see
 # docs/architecture/ADR-002-repository-configuration-boundary.md): it keeps the
@@ -3561,17 +3265,15 @@ SUPPORTED_POLICY_FORMATS = ("json",)
 def read_repo_config(paths: Paths) -> dict:
     """The effective repository configuration. Reads; never writes. FAIL-CLOSED.
 
-    Absent `config.json` yields the defaults verbatim — which is why T05 is a
-    no-op for every repository that predates it, and which is safe because an
-    absent document is a real answer. An **unreadable** one is not, and until
-    T09 this reader returned the defaults from inside its exception handler.
-    That shape was defensible only because its one caller runs
-    `repo_config_findings` first and already refuses on every condition the
-    handler swallowed — a safety property held somewhere else, which is the
-    kind of arrangement that stops being true the first time a second caller
-    appears. §15's whole subject is not weakening governance silently, so the
-    shape goes: presence and readability are different questions, and only the
-    first of them has a default.
+    Absent `config.json` yields the defaults verbatim, which is safe because
+    an absent document is a real answer. An **unreadable** one is not, and this
+    reader does not answer it with the defaults from inside an exception
+    handler: that shape was only defensible while its one caller ran
+    `repo_config_findings` first and already refused on every condition the
+    handler swallowed — a safety property held somewhere else, which stops
+    being true the first time a second caller appears. §15's whole subject is
+    not weakening governance silently, so presence and readability are
+    different questions, and only the first of them has a default.
 
     Observable behaviour is unchanged. `repo_config_findings` remains the
     single predicate for soundness, it still fires first for both consumers,
@@ -3756,7 +3458,7 @@ def _validate_metadata(root: Path, value: str) -> dict | None:
 
 def _feature_directory_findings(bound: Paths, value: str, doc: dict,
                                 target: Path) -> list[dict]:
-    """v1.15: a WorkItem must not record a feature directory outside its own
+    """A WorkItem must not record a feature directory outside its own
     specs root.
 
     A null directory is **not** a finding — a workflow that has not reached its
@@ -3778,7 +3480,7 @@ def _feature_directory_findings(bound: Paths, value: str, doc: dict,
 def _validate_runtime_state(paths: Paths, value: str,
                             registered: set[str]) -> list[dict]:
     """§9 "runtime state outside active WorkItem", cases (a) and (b), plus the
-    v1.15 feature-directory containment check for a state that passed both."""
+    feature-directory containment check for a state that passed both."""
     bound = dataclass_replace(paths, workitem=value)
     target = bound.state_file
     if not target.is_file():
@@ -3800,9 +3502,8 @@ def _validate_runtime_state(paths: Paths, value: str,
             workitem=value, path=target,
         )]
     declared = doc.get("workitem") if isinstance(doc, dict) else None
-    # Only a *disagreement* is a finding. An absent field is a pre-1.14 state
-    # awaiting `migrate`, which `migrate` itself reports; calling that a
-    # misplaced runtime would be a false positive.
+    # Only a *disagreement* is a finding. An absent field is not evidence of a
+    # misplaced runtime, and calling it one would be a false positive.
     if isinstance(declared, str) and declared and declared != value:
         return [_finding(
             "runtime_state_outside_workitem", VALIDATE_ERROR,
@@ -3914,8 +3615,8 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
             "runtime_state_outside_workitem", VALIDATE_WARNING,
             f"a legacy repository-global runtime still exists at "
             f"{paths.legacy_workflow.name}/state.json while "
-            f"{len(indexed)} WorkItem(s) are registered; move it with "
-            "`migrate-workflow --workitem <id>`",
+            f"{len(indexed)} WorkItem(s) are registered; SDLE does not run it "
+            "and leaves it untouched, so remove it when it is no longer needed",
             path=paths.legacy_workflow / "state.json",
         ))
 
@@ -3928,14 +3629,12 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
         ))
 
     # 8. the repository configuration boundary (contract §11). Silent for
-    #    every repository with no `.sdle/`, which is every repository that
-    #    predates T05.
+    #    every repository with no `.sdle/`.
     findings.extend(repo_config_findings(paths))
 
     # 8b. the repository baseline (contract §14). Silent for every repository
-    #     that has none, which is every repository that predates T08. Reported
-    #     through the same single predicate `baseline show` uses, so the two
-    #     can never disagree.
+    #     that has none. Reported through the same single predicate
+    #     `baseline show` uses, so the two can never disagree.
     findings.extend(baseline_findings(paths))
 
     # 9. the leak detector, both directions. §11 splits ownership between the
@@ -3949,7 +3648,6 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
     config_names = (
         paths.config_file.name,
         paths.policies_dir.name,
-        paths.shared_templates_dir.name,
         paths.baseline_file.name,
         paths.implementation_state_dir.name,
     )
@@ -4059,8 +3757,7 @@ def cmd_config_init(args, paths: Paths) -> int:
     # `.gitkeep` exists because Git cannot version an empty directory, and §19
     # places `.sdle/policies/*` under "must eventually be versioned". An
     # existing directory keeps whatever it already holds.
-    for directory in (paths.policies_dir, paths.shared_templates_dir,
-                      paths.implementation_state_dir):
+    for directory in (paths.policies_dir, paths.implementation_state_dir):
         directory.mkdir(parents=True, exist_ok=True)
         keep = directory / ".gitkeep"
         if not keep.exists():
@@ -4104,8 +3801,7 @@ def cmd_config_show(args, paths: Paths) -> int:
         "members": {
             "config": relative(paths.config_file),
             "policies": relative(paths.policies_dir),
-            "templates": relative(paths.shared_templates_dir),
-            # Named, not created: §14 owns the baseline schema, not T05.
+            # Named, not created: §14 owns the baseline schema.
             "baseline": relative(paths.baseline_file),
             "implementation_state": relative(paths.implementation_state_dir),
         },
@@ -4151,7 +3847,6 @@ ENGINEERING_FLOWS = (
 # sound baseline — never less, so a model that proposes it cannot weaken
 # anything.
 CLASSIFICATION_KEYS = ("type", "flow", "rediscovery")
-CLASSIFICATION_REQUIRED_KEYS = ("type", "flow")
 
 GOVERNANCE_POLICY_BUILTIN = {
     "policyVersion": "1",
@@ -4202,7 +3897,7 @@ GOVERNANCE_POLICY_BUILTIN = {
         "concurrency_or_distributed_state": 2,
         "infrastructure_or_deployment": 2,
         "backward_incompatible_change": 3,
-        # T09/§15: four of §15's nine hard floors name a condition no existing
+        # Four of §15's nine hard floors name a condition no existing
         # signal's definition entails, plus blast radius which is orthogonal
         # to all of them. Each is appended rather than folded into a
         # neighbour, because widening an existing signal to cover a narrower
@@ -4626,17 +4321,24 @@ def cmd_governance_policy(args, paths: Paths) -> int:
 #
 # The record is a WorkItem runtime FILE, not a `state.json` field, because §12
 # places governance *before* planning: it must be writable before
-# `state.json` exists, so it cannot be owned by it. Same argument that put
-# branch/SHA in `execution.json` at T03.
+# `state.json` exists, so it cannot be owned by it. The same argument puts
+# branch and SHA in `execution.json`.
 # --------------------------------------------------------------------------
 
-GOVERNANCE_RECORD_VERSION = "2"
-# Every version this engine can READ. `"1"` records stay valid: their one
-# stale key is never consulted for a decision, because every decision
-# re-derives the requirement set from the policy on disk. An unrecognised
-# version is an integrity failure rather than a silent "assume the current
-# shape" — a version field nothing refuses on proves nothing.
-GOVERNANCE_RECORD_VERSIONS = ("1", "2")
+GOVERNANCE_RECORD_VERSION = "3"
+# Every version this engine can READ. An unrecognised version is an integrity
+# failure rather than a silent "assume the current shape" — a version field
+# nothing refuses on proves nothing.
+#
+# `"1"` and `"2"` records stay valid and carry no `pinnedPolicy`, so they
+# derive from the live policy alone, exactly as the engine did before ADR-011.
+# That is deliberate and it is the fail-OPEN direction, which needs saying:
+# refusing them would freeze every WorkItem that was in flight when the pin
+# shipped, and an older record is evidence of an older schema, not evidence of
+# a tighter policy. Such a WorkItem gains the pin the next time it is
+# assessed, and `revalidate_recorded_omissions` re-checks its earlier
+# omissions at the terminal gate.
+GOVERNANCE_RECORD_VERSIONS = ("1", "2", "3")
 GOVERNANCE_INPUT_VERSIONS = ("1",)
 QUALITY_RESULTS = ("PASS", "FAIL", "NOT_APPLICABLE")
 GOVERNANCE_INPUT_SECTIONS = ("governanceInputVersion", "quality",
@@ -4808,16 +4510,16 @@ def evaluate_quality(document: dict, policy: dict, relative: str) -> dict:
 def evaluate_classification(document: dict, relative: str) -> dict:
     """§12's WorkItem type and engineering flow, validated and recorded.
 
-    No longer advisory as of T07: `classification.flow` is what `init` binds
-    `state["flow"]` from, so it selects the phases the WorkItem traverses.
-    `classification.type` is still consumed by nothing — T09 owns making risk
-    and type drive gate *requirements*. One flag covers both keys, and the
-    binding one is what it now has to report.
+    `classification.flow` is what `init` binds `state["flow"]` from, so it
+    selects the phases the WorkItem traverses. `classification.type` is still
+    consumed by nothing: making risk and type drive gate *requirements* is the
+    gate policy's job. One flag covers both keys, and the binding one is what
+    it has to report.
 
-    T08 adds the third, optional key: `rediscovery`. §14 makes a sound
-    repository baseline refuse a second full brownfield discovery, and this is
-    the deliberate opt-in that asks for one anyway. It is monotone-safe — it
-    can only ask for more work — and it is a contradiction with any flow other
+    The third, optional key is `rediscovery`. §14 makes a sound repository
+    baseline refuse a second full brownfield discovery, and this is the
+    deliberate opt-in that asks for one anyway. It is monotone-safe — it can
+    only ask for more work — and it is a contradiction with any flow other
     than the one that performs discovery, so that combination is refused
     rather than ignored.
     """
@@ -4951,14 +4653,13 @@ def governance_downgrade(previous: dict | None, risk: dict) -> dict | None:
     """A re-assessment landing on a **lower** final level than one already
     recorded for this WorkItem, described — or ``None``.
 
-    **T11 D11** closes the asymmetry T09's verifier named (NB-2). *Within* one
-    assessment a lower proposal is already inert and already recorded:
-    ``final`` is the lattice maximum and ``loweringAttempted`` says an attempt
-    was made. *Across* two assessments there was no such record. Re-running
-    `governance assess` with a smaller signal set simply replaced the record,
-    so a gate that had been required could become omittable with nothing
-    anywhere stating that a level had fallen — which is the practical route to
-    omitting a gate that T09 flagged.
+    *Within* one assessment a lower proposal is already inert and already
+    recorded: ``final`` is the lattice maximum and ``loweringAttempted`` says
+    an attempt was made. *Across* two assessments that needs a record of its
+    own: without one, re-running `governance assess` with a smaller signal set
+    would simply replace the record, so a gate that had been required could
+    become omittable with nothing anywhere stating that a level had fallen —
+    the practical route to omitting a gate the policy had flagged.
 
     It **audits**; it does not refuse, and that is deliberate. A genuine
     re-scope (authentication dropped out of the WorkItem) legitimately lowers
@@ -5019,12 +4720,11 @@ def required_gate_set(classification: dict, final_level: str,
                       policy: dict) -> list[str]:
     """The gates the effective policy NAMES for this classification and level.
 
-    T06 wrote this to record "what the required gate set would be"; §15 is the
-    phase that consumes it, and it is consumed rather than duplicated. It is
-    still only half an answer on its own: a dictionary lookup cannot know
-    which gates the bound flow actually contains, and it cannot see the
-    derived terminal-gate rule. ``gate_requirements`` is the function that
-    decides anything.
+    This records "what the required gate set would be"; the gate policy
+    consumes it rather than duplicating it. It is only half an answer on its
+    own: a dictionary lookup cannot know which gates the bound flow actually
+    contains, and it cannot see the derived terminal-gate rule.
+    ``gate_requirements`` is the function that decides anything.
     """
     return sorted(_policy_gate_reasons(classification, final_level, policy))
 
@@ -5052,11 +4752,19 @@ def required_gate_set(classification: dict, final_level: str,
 # the current policy forbids (invariant 7), and it would need a state field, a
 # migration row and a template change. Deriving costs nothing and makes the
 # re-derivations at `advance` and at the terminal gate free.
+#
+# ONE stored value is read back, and it is the exception that keeps the rule:
+# `pinnedPolicy`, the policy the WorkItem started under (ADR-011). Live
+# derivation alone let a policy that required a gate at the start be relaxed
+# mid-run so the gate became omittable, which is F-024. The pin is applied as
+# an AND — omittable live AND omittable when it started — so it can only ever
+# refuse more. It authorises nothing, which is precisely why it is not the
+# second source of truth the paragraph above forbids.
 
 # The closed disposition vocabulary. Three values, each a different fact:
-# T07 introduced "the flow does not contain this phase" and T09 introduces
-# "the policy does not require this gate"; conflating them is how a report
-# comes to claim a guarantee nobody is enforcing.
+# "the flow does not contain this phase" and "the policy does not require this
+# gate"; conflating them is how a report comes to claim a guarantee nobody is
+# enforcing.
 GATE_DISPOSITIONS = ("required", "omittable", "not_in_flow")
 
 # The decision value a policy-permitted omission records. Deliberately NOT
@@ -5208,21 +4916,83 @@ def gate_requirements_for_state(paths: Paths, consts: Constants,
     Reads the policy from disk on every call, deliberately. A cached model
     would be the stored second source of truth this design refuses, and the
     whole point is that a recorded omission is re-derived rather than trusted.
+
+    The single place the ADR-011 pin is applied, so `gate omit`, `advance`'s
+    omission re-derivation, `revalidate_recorded_omissions`, `gate show` and
+    `resume` cannot answer "is this gate required" differently.
     """
     record = read_governance_record(paths)
     if record is None:
         return None
-    effective = read_governance_policy(paths, consts)
-    model = gate_requirements(
-        consts,
-        flow_for_state(state, consts),
+    return requirement_model(
+        consts, flow_for_state(state, consts),
         record.get("classification") or {},
         (record.get("risk") or {}).get("finalLevel"),
-        effective["policy"],
-    )
+        read_governance_policy(paths, consts), record)
+
+
+def requirement_model(consts: Constants, flow: Flow, classification: dict,
+                      final_level: str | None, effective: dict,
+                      record: dict | None) -> dict:
+    """The requirement model for ``flow``, narrowed by the ADR-011 pin.
+
+    The single home of the rule. `gate_requirements_for_state` resolves the
+    flow from `state.json`; `governance gates` has to answer *before* `init`
+    and resolves it from the record's proposed classification. Both arrive
+    here, because two derivations of "is this gate required" is precisely the
+    second source of truth invariant 7 forbids — and while the pin lived in
+    only one of them, `gate show` and `governance gates` disagreed.
+    """
+    model = gate_requirements(consts, flow, classification, final_level,
+                              effective["policy"])
     model["policy"] = {"source": effective["source"],
                        "sha256": effective["sha256"]}
+
+    pinned = (record or {}).get("pinnedPolicy")
+    model["pinned_policy"] = None if not isinstance(pinned, dict) else {
+        "source": pinned.get("source"), "sha256": pinned.get("sha256"),
+        "pinnedAt": pinned.get("pinnedAt")}
+    if isinstance(pinned, dict) and isinstance(pinned.get("policy"), dict):
+        # Re-derived against the LIVE classification and risk level, so a
+        # genuine re-scope still moves the answer. Only the policy is pinned;
+        # a risk downgrade stays legitimate, audited rather than refused, as
+        # `modules/gate-protocol.md` states.
+        at_start = gate_requirements(consts, flow, classification, final_level,
+                                     pinned["policy"])
+        _apply_policy_pin(model, at_start)
     return model
+
+
+def _apply_policy_pin(model: dict, at_start: dict) -> None:
+    """Narrow ``model`` in place by the requirements that held at the start.
+
+    An AND over the two flow-scoped models: a gate the live policy leaves
+    omittable but the pinned one required becomes required. Nothing moves the
+    other way, so no gate the live policy requires can be relaxed by the pin,
+    and a gate the bound flow does not contain is untouched — the pin narrows
+    what may be omitted, it does not invent a gate.
+
+    The promoted reasons keep the rule that produced them and are tagged
+    `pinned:` (``pinned:always``, ``pinned:risk:HIGH``), because
+    `modules/gate-protocol.md` displays `requirement_reasons` at the gate and a
+    user who cannot omit needs to see that it is the starting policy talking.
+    """
+    required_at_start = {entry["gate"]: entry["reasons"]
+                         for entry in at_start["dispositions"]
+                         if entry["disposition"] == "required"}
+    for entry in model["dispositions"]:
+        if entry["disposition"] != "omittable":
+            continue
+        pinned_reasons = required_at_start.get(entry["gate"])
+        if not pinned_reasons:
+            continue
+        entry["disposition"] = "required"
+        entry["reasons"] = entry["reasons"] + [
+            f"pinned:{reason}" for reason in pinned_reasons]
+    model["required_gates"] = sorted(
+        e["gate"] for e in model["dispositions"] if e["disposition"] == "required")
+    model["omittable_gates"] = sorted(
+        e["gate"] for e in model["dispositions"] if e["disposition"] == "omittable")
 
 
 def bind_for_governance(args, paths: Paths) -> Paths:
@@ -5230,10 +5000,9 @@ def bind_for_governance(args, paths: Paths) -> Paths:
     with no WorkItem. Its WorkItem-scoped members bind here — through the
     ladder, never around it.
 
-    T11 removed the second refusal this used to carry
-    (``governance_workitem_required``): with the legacy rung gone a
-    non-raising ``bind_workitem`` always names a WorkItem (R2), so the branch
-    was unreachable code, not a guard.
+    There is no ``governance_workitem_required`` refusal here: a non-raising
+    ``bind_workitem`` always names a WorkItem, so that branch would be
+    unreachable code, not a guard.
     """
     return bind_workitem(paths, args.workitem)
 
@@ -5264,18 +5033,34 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     classification = evaluate_classification(document, relative)
     risk = evaluate_risk(document, policy, relative)
 
-    # T11 D11: read the record this one replaces *before* it is overwritten.
+    # Read the record this one replaces *before* it is overwritten.
     # A pure read, and the only thing it can produce is evidence.
     superseded = read_governance_record(paths)
     downgrade = governance_downgrade(superseded, risk)
 
     stamp = now_iso()
-    # D04: claimed before `governance.json` is touched, so an id that cannot
+    # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
         paths, paths.evidence_dir, stamp,
         lambda eid: f"governance-{eid}.json")
     sources, digest = requirements_sources(paths)
+    # ADR-011. The policy this WorkItem started under, pinned at the FIRST
+    # governance record and carried forward verbatim by every later one.
+    #
+    # Carrying it forward is the whole mechanism, not bookkeeping: `assess`
+    # rewrites this file wholesale, so a pin re-derived here would be erased
+    # by the very sequence it exists to stop — relax the policy, re-assess,
+    # omit. Taken from the superseded record read above when there is one.
+    #
+    # The merged document is stored, not just its SHA: the SHA can say the
+    # policy changed, and only the document can say what it required.
+    pinned_policy = (superseded or {}).get("pinnedPolicy") or {
+        "policy": copy.deepcopy(effective["policy"]),
+        "source": effective["source"],
+        "sha256": effective["sha256"],
+        "pinnedAt": stamp,
+    }
     proposed_requirements = gate_requirements(
         consts, consts.flow(classification.get("flow")), classification,
         risk["finalLevel"], policy)
@@ -5292,10 +5077,15 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         # §15's dispositions for the flow this record PROPOSES. Recorded as
         # evidence of what the assessment implied, never read back for a
         # decision: `init` binds the flow, and every later decision re-derives
-        # the model against the bound one.
+        # the model against the bound one. Not to be confused with
+        # `pinnedPolicy` below, which IS read back — the difference is that
+        # these two are a flow-and-risk composite that a later re-assessment
+        # legitimately replaces, while the pin is the policy document itself.
         "requiredGates": proposed_requirements["required_gates"],
         "omittableGates": proposed_requirements["omittable_gates"],
-        # T11 D11. Always present, `null` when this assessment did not lower
+        # ADR-011, and the one part of this record a decision reads back.
+        "pinnedPolicy": pinned_policy,
+        # Always present, `null` when this assessment did not lower
         # anything, so the record is self-describing rather than making a
         # reader infer "no downgrade" from an absent key.
         "downgrade": downgrade,
@@ -5365,7 +5155,7 @@ def cmd_governance_show(args, paths: Paths) -> int:
     emit("governance show", {
         "workitem": paths.workitem,
         "record": record,
-        # T11 D11: promoted out of `record` so a reader does not have to know
+        # Promoted out of `record` so a reader does not have to know
         # the record schema to see that a level was lowered.
         "downgrade": record.get("downgrade"),
         "fresh": freshness["fresh"],
@@ -5410,8 +5200,8 @@ def cmd_governance_gates(args, paths: Paths) -> int:
         flow = consts.flow(classification.get("flow"))
         flow_source = "record"
 
-    model = gate_requirements(consts, flow, classification, final_level,
-                              effective["policy"])
+    model = requirement_model(consts, flow, classification, final_level,
+                              effective, record)
     emit("governance gates", {
         "workitem": paths.workitem,
         "classification": classification,
@@ -5429,6 +5219,10 @@ def cmd_governance_gates(args, paths: Paths) -> int:
         "registered_gates": sorted(consts.phase_to_gate_key.values()),
         "policy": {"source": effective["source"],
                    "sha256": effective["sha256"]},
+        # ADR-011. `null` for a record written before the pin existed, which
+        # is a different fact from "the built-in floor was pinned" and is
+        # reported as such.
+        "pinned_policy": model["pinned_policy"],
     })
     return EXIT_OK
 
@@ -5460,8 +5254,8 @@ def cmd_governance_gates(args, paths: Paths) -> int:
 # Those are claims by their author. Saying so is the point; a checker that
 # implied more than it checks would be worse than no checker.
 #
-# The split is T06's verbatim (Claude proposes, deterministic policy decides)
-# and is recorded in ADR-005.
+# The split is the governance one (Claude proposes, deterministic policy
+# decides) and is recorded in ADR-005.
 
 DISCOVERY_PHASE = "discovery"
 IMPACT_ANALYSIS_PHASE = "impact_analysis"
@@ -5801,8 +5595,9 @@ def discovery_accepted(paths: Paths) -> dict | None:
 def bind_for_discovery(args, paths: Paths) -> Paths:
     """`discovery` is runtime-free at the group level so `schema` can be read
     with no WorkItem. `assess` binds here — through the ladder, never around
-    it. The shape `bind_for_governance` established, including T11's removal
-    of the now-unreachable ``discovery_workitem_required`` refusal (R2).
+    it. The shape `bind_for_governance` established: there is no
+    ``discovery_workitem_required`` refusal, because a non-raising bind always
+    names a WorkItem.
     """
     return bind_workitem(paths, args.workitem)
 
@@ -5948,9 +5743,8 @@ def discovery_precondition(paths: Paths, state: dict | None = None) -> None:
 
     Only the phase is tested, not the flow: `discovery` is in exactly one
     flow's declared phases, so a WorkItem can only be standing here if that is
-    the flow it is traversing. **T11 removed the legacy-binding carve-out**:
-    there is no binding without a WorkItem, so the rule now applies
-    unconditionally.
+    the flow it is traversing. There is no binding without a WorkItem, so the
+    rule applies unconditionally.
     """
     if (state or {}).get("current_phase") != DISCOVERY_PHASE:
         return None
@@ -5985,7 +5779,7 @@ def discovery_precondition(paths: Paths, state: dict | None = None) -> None:
 # never prose — the record is the findings' one home.
 #
 # Reading is fail-closed, deliberately against `read_repo_config`'s
-# swallow-and-default (T05 NB-4): a silently defaulted baseline would make the
+# swallow-and-default: a silently defaulted baseline would make the
 # convergence invariant unprovable, which is the failure direction ADR-003 §3
 # already rejected once for the governance policy.
 
@@ -6285,7 +6079,7 @@ def baseline_status(findings: list[dict], present: bool) -> str:
 def baseline_commit(paths: Paths) -> str | None:
     """The commit the baseline was established at, or ``None``.
 
-    T11 N11. A baseline finding says *what* is wrong; without the commit it
+    A baseline finding says *what* is wrong; without the commit it
     was established at, a reader cannot tell *which* repository state the
     baseline's claims were ever true for. Deliberately swallowing to ``None``
     on an unreadable file: this is a decoration on a refusal that has already
@@ -6331,14 +6125,14 @@ def baseline_precondition(paths: Paths, flow: str, rediscovery: bool) -> str:
     cannot fix. The status it returns is recorded in the `flow_selected` audit
     entry, so the facts the decision was made on are auditable.
 
-    **T11 removed the legacy-binding carve-out**: there is no binding without
-    a WorkItem, so R1 and R2 now apply unconditionally.
+    There is no binding without a WorkItem, so R1 and R2 apply
+    unconditionally.
     """
     status, findings = baseline_state(paths)
     relative = f"{paths.config_root_relative}/{paths.baseline_file.name}"
     data = {"workitem": paths.workitem, "flow": flow, "baseline_status": status,
             "path": relative, "findings": findings,
-            # T11 N11: which repository state the baseline ever described.
+            # Which repository state the baseline ever described.
             "baseline_commit": baseline_commit(paths)}
 
     if flow == BASELINE_REDISCOVERY_FLOW and status in (BASELINE_VALID,
@@ -6436,7 +6230,7 @@ def cmd_baseline_validate(args, paths: Paths) -> int:
         "status": status,
         "path": f"{paths.config_root_relative}/{paths.baseline_file.name}",
         "findings": findings,
-        # T11 N11, the same fact in the same shape as `baseline_precondition`.
+        # The same fact in the same shape as `baseline_precondition`.
         "baseline_commit": baseline_commit(paths),
         "errors": len([f for f in findings if f["severity"] == VALIDATE_ERROR]),
         "warnings": len([f for f in findings
@@ -6458,249 +6252,6 @@ def cmd_baseline_validate(args, paths: Paths) -> int:
 
 
 # --------------------------------------------------------------------------
-# migrate-workflow — legacy .workflow/ to workitems/<id>/.sdle/
-# --------------------------------------------------------------------------
-#
-# Contract §20. The legacy runtime is NEVER written to, renamed or deleted
-# (§8.9): the only recovery a user ever needs is to delete the target
-# directory, after which resolution rung 3 binds the legacy runtime again.
-#
-# Crash safety: every write before the commit point is a whole-file overwrite,
-# so an interruption anywhere leaves no resolvable target workflow, keeps the
-# legacy authoritative, and makes a re-run safe. The target `state.json` is
-# written LAST and is the sole commit marker.
-
-# Fields whose survival the target verification asserts (contract §20.11).
-MIGRATION_VERIFIED_FIELDS = (
-    "current_phase", "status", "progress", "approvals", "artifact_shas",
-    "rate_limits", "attempt_counts", "implementation_base_ref", "phase_history",
-)
-
-
-def cmd_migrate_workflow(args, paths: Paths) -> int:
-    consts = load_constants(paths)
-
-    # Step 2 — an explicitly resolved, already-registered WorkItem. §20 says
-    # "resolve/create"; this narrows it to *resolve* so WorkItem creation keeps
-    # exactly one entry point, `workitem create`.
-    requested = getattr(args, "migrate_workitem", None) or args.workitem
-    if not requested:
-        # T11 D8: a missing flag is a *usage* error (exit 2) and must not
-        # share `workitem_required`, which is the resolution refusal (exit 1).
-        raise UsageError(
-            "workitem_flag_required",
-            "migrate-workflow needs a target: --workitem <id>.",
-            {},
-        )
-    known = registered_workitem_ids(paths)
-    if requested not in known:
-        raise Refused(
-            "workitem_unknown",
-            f"No WorkItem '{requested}' in workitems/index.md. Create it "
-            "first with `workitem create --name <name>`.",
-            {"requested": requested, "workitems": known},
-        )
-
-    legacy = dataclass_replace(paths, workitem=None)
-    target = dataclass_replace(paths, workitem=requested)
-
-    # Step 3 — re-run safety. No --force: that would be the fail-open option.
-    if target.state_file.is_file():
-        raise Refused(
-            "target_exists",
-            f"{target.runtime_relative}/state.json already exists. SDLE will "
-            "not overwrite a WorkItem's runtime; pick another WorkItem, or "
-            "remove that runtime deliberately first.",
-            {"path": str(target.state_file)},
-        )
-
-    # Step 4 — validate legacy state.
-    if not legacy.state_file.is_file():
-        raise IntegrityError(
-            "legacy_state_missing",
-            f"There is no {legacy.runtime_relative}/state.json to migrate.",
-            {"path": str(legacy.state_file)},
-        )
-    try:
-        state = json.loads(legacy.state_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise IntegrityError(
-            "legacy_state_invalid",
-            f"{legacy.runtime_relative}/state.json is not valid JSON: {exc}. "
-            "Nothing was written; repair or remove it and re-run.",
-            {"path": str(legacy.state_file), "error": str(exc)},
-        ) from None
-    known_versions = {frm for frm, _, _ in MIGRATIONS} | {CURRENT_VERSION}
-    if not isinstance(state, dict) or state.get("workflow_version") not in known_versions:
-        raise IntegrityError(
-            "legacy_state_invalid",
-            f"{legacy.runtime_relative}/state.json does not carry a known "
-            "workflow_version. Nothing was written.",
-            {
-                "path": str(legacy.state_file),
-                "workflow_version": (
-                    state.get("workflow_version") if isinstance(state, dict) else None
-                ),
-                "known": sorted(known_versions),
-            },
-        )
-
-    # Step 5 — legacy audit integrity, using the same verifier `audit verify`
-    # uses. A broken chain must not be laundered by copying it somewhere new.
-    expected_audit = state.get("audit_sha")
-    audit_text = (
-        legacy.audit_file.read_text(encoding="utf-8")
-        if legacy.audit_file.is_file() else None
-    )
-    if expected_audit is not None:
-        broken = None
-        if audit_text is None:
-            broken = f"{legacy.runtime_relative}/audit.md is missing"
-        else:
-            chain_ok, broken_at = verify_audit_chain(split_audit_entries(audit_text))
-            if not chain_ok:
-                broken = f"entry {broken_at} breaks the prev-hash chain"
-            elif sha256_file(legacy.audit_file) != expected_audit:
-                broken = "audit_sha does not match the ledger on disk"
-        if broken:
-            raise Refused(
-                "legacy_audit_broken",
-                f"The legacy audit ledger is not intact ({broken}). Migrating "
-                "it would carry the break into the WorkItem. Resolve it with "
-                "`audit rebaseline` first; nothing was written.",
-                {"detail": broken, "path": str(legacy.audit_file)},
-            )
-
-    # Step 6 — capture the source facts that become migration evidence.
-    stamp = now_iso()
-    execution_id, evidence_file = reserve_evidence(
-        paths, target.evidence_dir, stamp,
-        lambda eid: f"migration-{eid}.json")
-    facts = {
-        "migratedFrom": legacy.runtime_relative,
-        "at": stamp,
-        "executionId": execution_id,
-        "workitem": requested,
-        "legacyStateSha": sha256_file(legacy.state_file),
-        "legacyAuditSha": (
-            sha256_file(legacy.audit_file) if legacy.audit_file.is_file() else None
-        ),
-        "gitHead": _git_value(paths, "rev-parse", "HEAD"),
-        "sdleVersion": CURRENT_VERSION,
-    }
-
-    # Step 7 — copy, each via write_atomic, state.json deliberately excluded.
-    if audit_text is not None:
-        write_atomic(target.audit_file, audit_text)
-    for source, destination in (
-        (legacy.manifest_file, target.manifest_file),
-        (legacy.completion_file, target.completion_file),
-    ):
-        if source.is_file():
-            write_atomic(destination, source.read_text(encoding="utf-8"))
-    write_atomic(evidence_file, json.dumps(facts, indent=2) + "\n")
-    write_execution_file(target, execution_id, stamp)
-
-    # Step 8 — verify the copied ledger *at the new location* before anything
-    # commits, then migrate in memory, then append the migration entry, then
-    # write the target state.json LAST.
-    if audit_text is not None and expected_audit is not None:
-        copied_ok, _ = verify_audit_chain(
-            split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
-        )
-        if not copied_ok or sha256_file(target.audit_file) != expected_audit:
-            raise IntegrityError(
-                "migration_verify_failed",
-                "The audit ledger did not survive the copy intact. Nothing "
-                f"was committed; {legacy.runtime_relative}/ remains "
-                "authoritative.",
-                {"path": str(target.audit_file)},
-            )
-
-    migrated = json.loads(json.dumps(state))
-    steps = migrate_state(migrated, target, consts)
-    migrated.pop("_migration_warnings", None)
-    migrated.pop("_migration_notes", None)
-    migrated["workitem"] = requested
-
-    append_audit(
-        target, migrated,
-        phase=migrated.get("current_phase") or "unknown",
-        event="workflow_migrated",
-        message=f"Workflow migrated from {legacy.runtime_relative}/ to "
-                f"{target.runtime_relative}/ (execution {execution_id}). "
-                f"Legacy runtime left untouched.",
-    )
-    write_atomic(target.state_file, json.dumps(migrated, indent=2) + "\n")  # COMMIT
-
-    # Step 9 — verify the target. The anchor is the in-memory migrated state:
-    # when the version chain runs no steps it is byte-equal to the legacy
-    # values, which is the comparison contract §20.11 asks for; when the chain
-    # does run, the chain's own effect is not a migration defect.
-    reread = json.loads(target.state_file.read_text(encoding="utf-8"))
-    mismatch = [f for f in MIGRATION_VERIFIED_FIELDS
-                if reread.get(f) != migrated.get(f)]
-    if reread.get("workitem") != requested:
-        mismatch.append("workitem")
-    target_chain_ok, _ = verify_audit_chain(
-        split_audit_entries(target.audit_file.read_text(encoding="utf-8"))
-    )
-    if not target_chain_ok or sha256_file(target.audit_file) != reread.get("audit_sha"):
-        mismatch.append("audit")
-    if mismatch:
-        # Undo the commit marker: without state.json the target does not
-        # resolve, and the legacy runtime stays the only authority.
-        target.state_file.unlink(missing_ok=True)
-        raise IntegrityError(
-            "migration_verify_failed",
-            f"The migrated state did not verify ({', '.join(mismatch)}). The "
-            f"target was rolled back; {legacy.runtime_relative}/ remains "
-            "authoritative.",
-            {"fields": mismatch},
-        )
-
-    # Step 10 — record the migration on the WorkItem's identity metadata.
-    metadata_file = workitem_metadata_file(target)
-    metadata = workitem_metadata(target) or {}
-    metadata["migration"] = {
-        "migratedFrom": facts["migratedFrom"],
-        "at": stamp,
-        "executionId": execution_id,
-        "legacyStateSha": facts["legacyStateSha"],
-    }
-    write_atomic(metadata_file, json.dumps(metadata, indent=2) + "\n")
-
-    # Step 11 — point this working directory at the migrated WorkItem.
-    # Strictly after the commit write and its verification, so a crash can
-    # never leave a context naming a runtime that is not authoritative. Like
-    # `init`, a failure here is not allowed to fail an already-committed
-    # migration.
-    try:
-        write_active_context(target, requested, "migrate-workflow")
-    except OSError:
-        pass
-
-    def relative(path: Path) -> str:
-        return str(path.relative_to(paths.project_root)).replace(os.sep, "/")
-
-    # Step 12 — the legacy runtime is archival, never deleted by SDLE.
-    emit("migrate-workflow", {
-        "workitem": requested,
-        "from": legacy.runtime_relative,
-        "to": target.runtime_relative,
-        "execution_id": execution_id,
-        "migration_steps": steps,
-        "state_file": relative(target.state_file),
-        "evidence": relative(evidence_file),
-        "legacy_state_sha": facts["legacyStateSha"],
-        "legacy_audit_sha": facts["legacyAuditSha"],
-        "legacy_archive": legacy.runtime_relative,
-        "legacy_preserved": True,
-    })
-    return EXIT_OK
-
-
-# --------------------------------------------------------------------------
 # Artifact path resolution
 # --------------------------------------------------------------------------
 
@@ -6714,12 +6265,11 @@ def resolve_artifact_path(
     no comparable artifact yet — not that something failed.
 
     Two placeholders name a location only the active binding knows:
-    ``{workitem_runtime}`` is the WorkItem runtime (``.workflow`` under the
-    transitional legacy binding) and ``{speckit_feature_directory}`` is
-    ``specKit.featureDirectory``. ``paths`` is therefore a required argument —
-    an omitted binding could otherwise resolve a literal placeholder onto
-    disk. T02's transitional ``.workflow/`` prefix bridge is gone: the
-    templates themselves now carry the placeholder (finding NB-1).
+    ``{workitem_runtime}`` is the WorkItem runtime and
+    ``{speckit_feature_directory}`` is ``specKit.featureDirectory``. ``paths``
+    is therefore a required argument — an omitted binding could otherwise
+    resolve a literal placeholder onto disk. The templates themselves carry
+    the placeholder.
     """
     template = consts.artifact_ownership.get(gate_key)
     if not template or template == "(none)":
@@ -6740,8 +6290,9 @@ def resolve_artifact_path(
     return resolved, None
 
 
-# What resolves each ARTIFACT_OWNERSHIP binding, named in the D01 refusal so
-# the recovery is actionable rather than "something is missing".
+# What resolves each ARTIFACT_OWNERSHIP binding, named in the
+# `artifact_unresolved` refusal so the recovery is actionable rather than
+# "something is missing".
 ARTIFACT_BINDING_RECOVERY = {
     "speckit_feature_directory":
         "run `feature resolve` so this WorkItem's feature directory is "
@@ -6752,7 +6303,7 @@ ARTIFACT_BINDING_RECOVERY = {
 }
 
 # The last sentence of each `artifact_missing` refusal, by the command that
-# raised it. Approval and omission keep their pre-D01 wording verbatim.
+# raised it.
 ARTIFACT_MISSING_CONSEQUENCE = {
     "approve": "A gate is an approval of specific content.",
     "omit": "An omission is still a decision about specific content — the "
@@ -6767,21 +6318,21 @@ ARTIFACT_MISSING_CONSEQUENCE = {
 def required_gate_artifact(paths: Paths, state: dict, consts: Constants,
                            gate_key: str, action: str
                            ) -> tuple[str | None, str | None]:
-    """**D01 (SDLE-DEFECT-STABILIZATION-01).** Resolve the artifact a gate
-    decision is about, and fingerprint it, or refuse.
+    """Resolve the artifact a gate decision is about, and fingerprint it, or
+    refuse.
 
     Returns ``(resolved_path, sha)``. Both are ``None`` only for a gate that
     registers no artifact at all (an ARTIFACT_OWNERSHIP template of
     ``(none)``) — the one legitimate artifact-free gate.
 
-    Before D01 every caller treated an *unresolved* template the same way:
-    ``resolve_artifact_path`` answered ``(None, reason)`` and the gate was
-    decided with ``sha: null``. That approved a Spec Kit gate whose feature
-    directory had never been resolved, and completed a whole flow on a
-    security gate whose review file had never been named. A registered
-    artifact that cannot be resolved, found or read is now a refusal, raised
-    by a pure reader ahead of every write, so the refusal leaves the phase, the
-    approvals and the ledger exactly as they were.
+    An *unresolved* template must never be treated like a resolved one:
+    ``resolve_artifact_path`` answers ``(None, reason)``, and deciding the gate
+    with ``sha: null`` would approve a Spec Kit gate whose feature directory was
+    never resolved, or complete a whole flow on a security gate whose review
+    file was never named. A registered artifact that cannot be resolved, found
+    or read is therefore a refusal, raised by a pure reader ahead of every
+    write, so the refusal leaves the phase, the approvals and the ledger
+    exactly as they were.
 
     One place, three callers: `gate approve`, drift re-approval and `gate
     omit` are the three decisions that fingerprint an artifact.
@@ -6893,7 +6444,7 @@ def governance_audit_marker(execution_id: str) -> str:
 
 
 def governance_downgrade_marker(execution_id: str) -> str:
-    """The same idiom for the T11 D11 downgrade entry. A separate marker, so
+    """The same idiom for the downgrade entry. A separate marker, so
     the two entries de-duplicate independently and neither can suppress the
     other."""
     return f"(governance downgrade {execution_id})"
@@ -6933,7 +6484,7 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
     )
     # §15's gate evidence, APPENDED so every existing prefix reads the same.
     # Read off the record rather than re-derived: this sentence describes what
-    # the assessment implied, and a pre-T09 record simply has nothing to say.
+    # the assessment implied, and a record without it simply has nothing to say.
     required = record.get("requiredGates")
     dispositions = "" if required is None else (
         " Gate approvals this assessment requires: "
@@ -6961,7 +6512,7 @@ def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
 
 def _record_governance_downgrade_audit(paths: Paths, state: dict,
                                        record: dict) -> None:
-    """**T11 D11.** A second, distinct ledger entry when this assessment
+    """A second, distinct ledger entry when this assessment
     lowered a level that had already been recorded.
 
     Deliberately its own event rather than a clause inside
@@ -7008,7 +6559,7 @@ def _record_governance_downgrade_audit(paths: Paths, state: dict,
 
 
 # --------------------------------------------------------------------------
-# Governed artifact review (contract TP-011, §12; T06/D9)
+# Governed artifact review (contract TP-011, §12)
 #
 # "Artifact existence alone is not evidence of artifact quality." Registration
 # (`artifact record`) and approval (`gate approve`) already existed and each
@@ -7027,7 +6578,7 @@ def review_key(paths: Paths, raw: str) -> str:
 
     A backslash-separated path and its POSIX spelling name the same artifact,
     so they must not become two keys — that would let a second review "not
-    exist" and a stale one survive (the v1.12->v1.13 lesson).
+    exist" and a stale one survive.
     """
     text = str(raw).replace("\\", "/")
     if os.path.isabs(str(raw)) or (len(text) > 1 and text[1] == ":"):
@@ -7115,12 +6666,12 @@ def impact_analysis_precondition(paths: Paths,
     the whole point of the deterministic core is that it refuses rather than
     trusting the caller to have complied.
 
-    The two "understand before you draft" phases now behave alike: `discovery`
+    The two "understand before you draft" phases behave alike: `discovery`
     surveys a repository before a brownfield WorkItem specifies anything, and
     `impact_analysis` establishes a defect's blast radius before a fix is
-    specified. Leaving one enforced and the other not was an accident of
-    sequencing -- §14 demanded discovery's rule explicitly and nothing made
-    the same demand of T07's gateless phase.
+    specified. Leaving one enforced and the other not would be an accident of
+    sequencing: §14 demands discovery's rule explicitly, and the same demand
+    applies to the gateless `impact_analysis` phase.
 
     A **pure reader**: it writes no state and appends nothing to the ledger.
     Callers place it ahead of their first irreversible write so a refused
@@ -7179,8 +6730,7 @@ def review_precondition(paths: Paths, state: dict, gate_key: str,
     so the drift path is guarded too rather than trusted.
 
     Skipped only when the gate has no resolvable artifact — there is nothing
-    to review. **T11 removed the other half of this carve-out with the rung
-    itself**: E2 now applies to every bound WorkItem, unconditionally.
+    to review. E2 applies to every bound WorkItem, unconditionally.
     """
     if not resolved:
         return None
@@ -7367,8 +6917,7 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
     makes the early call side-effect free, so the facts still enter the
     ledger exactly once, from ``apply_advance``.
 
-    **T11 removed the legacy-binding carve-out along with the rung itself**:
-    there is no binding without a WorkItem, so E1 now applies unconditionally.
+    There is no binding without a WorkItem, so E1 applies unconditionally.
     """
     record = read_governance_record(paths)
     if record is None:
@@ -7425,7 +6974,7 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
 
 
 def flow_precondition(paths: Paths, state: dict | None = None) -> None:
-    """D10 — a flow cannot change under a workflow that has already started.
+    """A flow cannot change under a workflow that has already started.
 
     `init` binds `state["flow"]` from the governance record; re-assessing
     afterwards with a different flow would otherwise silently re-shape a
@@ -7438,8 +6987,8 @@ def flow_precondition(paths: Paths, state: dict | None = None) -> None:
     That is what keeps `audit.md` byte-identical across a refused advance,
     approval or skip (B1, and the ordering NB-6 recorded for `cmd_skip`).
 
-    **T11 removed the legacy-binding carve-out**: there is no binding without
-    a WorkItem, so D10 now applies unconditionally.
+    There is no binding without a WorkItem, so the flow check applies
+    unconditionally.
     """
     record = read_governance_record(paths)
     if record is None:
@@ -7469,7 +7018,7 @@ def apply_advance(
     """Move to ``target``, enforcing the refusals that matter.
 
     Refuses a forward jump (any target that is not NEXT_PHASE[current]),
-    refuses to leave a gate phase whose approval is not recorded, and (T06)
+    refuses to leave a gate phase whose approval is not recorded, and
     refuses to move at all without a passing, current governance record. These
     are the guardrails the model must not be able to reason its way around.
 
@@ -7543,7 +7092,7 @@ def apply_advance(
                 {"gate": gate_key, "phase": current, "decision": decision},
             )
 
-    # T07/D10's placement is load-bearing, and it is written out in three
+    # The placement is load-bearing, and it is written out in three
     # steps rather than two because `governance_precondition(paths, state)` is
     # not a pure reader — it records the governance facts in the ledger. So:
     #   1. validate the record with no `state`, which writes nothing, so a
@@ -7603,7 +7152,7 @@ def cmd_advance(args, paths: Paths) -> int:
 
 def revalidate_recorded_omissions(paths: Paths, state: dict,
                                   consts: Constants, gate_key: str) -> None:
-    """D10 — the terminal gate re-checks every omission taken before it.
+    """The terminal gate re-checks every omission taken before it.
 
     A gate already passed is never revisited, so an omission recorded at LOW
     would otherwise survive a later re-assessment that raised the level. The
@@ -7615,7 +7164,7 @@ def revalidate_recorded_omissions(paths: Paths, state: dict,
     readers, ahead of the first `append_audit`, so a refusal leaves `audit.md`
     byte-identical (the B1/NB-6 property). It reads the policy only when there
     is an omission to revalidate, so a run that approved everything pays
-    nothing and behaves exactly as it did before T09.
+    nothing.
     """
     omitted = sorted(
         key for key, entry in (state.get("approvals") or {}).items()
@@ -7720,13 +7269,12 @@ def write_completion_summary(paths: Paths, state: dict) -> str:
         "completed_at": now_iso(),
         "phases_completed": len(state.get("phase_history") or []),
         "security_review_artifact": state.get("security_review_artifact"),
-        # DERIVED at T09, where it used to be the literal `True`. Every gate
-        # is still passed by an explicit, recorded decision — but from T09
-        # that decision may be a policy-permitted omission, and a summary that
-        # went on claiming every gate was APPROVED would state a guarantee the
-        # run does not carry. Narrow on purpose: it reports `false` for the
-        # one fact this phase introduces and for nothing else, so a run that
-        # approved everything still reads `true` exactly as it always did.
+        # DERIVED, not the literal `True`. Every gate is passed by an
+        # explicit, recorded decision — but that decision may be a
+        # policy-permitted omission, and a summary that claimed every gate was
+        # APPROVED would state a guarantee the run does not carry. Narrow on
+        # purpose: it reports `false` for that one fact and for nothing else,
+        # so a run that approved everything reads `true`.
         "all_gates_approved": not any(
             isinstance(entry, dict)
             and entry.get("decision") == GATE_OMITTED_DECISION
@@ -7969,11 +7517,10 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         )
 
     # The requirement model, derived now rather than read from anywhere. The
-    # one remaining way it can be underivable is a refusal, because an
-    # omission nobody can justify is not one the engine will take. T11 deleted
-    # the second (the legacy binding) with the rung itself: `cmd_gate_omit` is
-    # reached only through `main()`'s `bind_workitem`, which after R2 never
-    # returns an unbound `Paths`.
+    # only way it can be underivable is a refusal, because an omission nobody
+    # can justify is not one the engine will take. `cmd_gate_omit` is reached
+    # only through `main()`'s `bind_workitem`, which never returns an unbound
+    # `Paths`.
     governance_record = read_governance_record(paths)
     if governance_record is None:
         raise Refused(
@@ -7983,12 +7530,12 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             "--input <path>` first.",
             {"workitem": paths.workitem, "path": str(paths.governance_file)},
         )
-    # T11 D11: if the level this omission rests on was reached by lowering an
+    # If the level this omission rests on was reached by lowering an
     # earlier one, the omission evidence says so. §15 wants an omitted gate
     # explainable; "the policy did not require it" is only half an
     # explanation when the input to the policy moved.
     downgrade = governance_record.get("downgrade")
-    # T11 N13: §15 requires an omitted gate to be explainable *later*, from
+    # §15 requires an omitted gate to be explainable *later*, from
     # what was written down. The policy sha said which rules applied; this
     # says which governance record supplied the level they were applied to.
     governance_sha = (sha256_file(paths.governance_file)
@@ -8008,14 +7555,23 @@ def cmd_gate_omit(args, paths: Paths) -> int:
             f"{args.gate} requires a human approval and cannot be omitted "
             f"(reasons: {', '.join(reasons) or 'not a gate of this flow'}; "
             f"final risk {(model or {}).get('final_risk')}; policy "
-            f"{((model or {}).get('policy') or {}).get('source')}). Approve "
-            "it, or reject it — a required gate has no third option.",
+            f"{((model or {}).get('policy') or {}).get('source')}"
+            + ("" if not any(r.startswith("pinned:") for r in reasons) else
+               "; required by the policy this WorkItem started under, sha "
+               f"{(((model or {}).get('pinned_policy')) or {}).get('sha256')}")
+            + "). Approve it, or reject it — a required gate has no third "
+            "option.",
             {"gate": args.gate, "phase": gate_phase,
              "final_risk": (model or {}).get("final_risk"),
              "reasons": reasons,
              "required_gates": (model or {}).get("required_gates"),
              "omittable_gates": (model or {}).get("omittable_gates"),
-             "policy": (model or {}).get("policy")},
+             "policy": (model or {}).get("policy"),
+             # ADR-011: which policy the run started under, so a refusal a
+             # reader did not expect can be diagnosed without re-deriving it.
+             "pinned_policy": (model or {}).get("pinned_policy"),
+             "pinned_policy_sha256": (((model or {}).get("pinned_policy"))
+                                      or {}).get("sha256")},
         )
 
     resolved, sha = required_gate_artifact(paths, state, consts, args.gate,
@@ -8044,10 +7600,16 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         "risk_level": model["final_risk"],
         "reasons": disposition["reasons"],
         "policy_sha256": model["policy"]["sha256"],
-        # T11 N13. The record the level was read from, fingerprinted, so a
+        # ADR-011. §15 wants an omitted gate explainable *later*, and after
+        # the pin that takes two policies: the one in force when the gate was
+        # passed, and the one the run started under. `null` when the record
+        # predates the pin.
+        "pinned_policy_sha256": ((model.get("pinned_policy") or {})
+                                 .get("sha256")),
+        # The record the level was read from, fingerprinted, so a
         # later reader can tell whether it is still the record on disk.
         "governance_sha256": governance_sha,
-        # T11 D11. `null` for the ordinary case; the whole block when the
+        # `null` for the ordinary case; the whole block when the
         # governing level was reached by lowering an earlier one.
         "governance_downgrade": downgrade,
     }
@@ -8214,7 +7776,7 @@ def compute_drift(paths: Paths, state: dict, consts: Constants,
             continue
         baseline = baselines.get(gate_key)
         if not baseline:
-            continue  # pre-v1.8 approval: no baseline to compare against
+            continue  # an approval recorded without a baseline: nothing to compare
         resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
         if not resolved:
             continue
@@ -8318,8 +7880,8 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 # Spec Kit capability detection (contract §10)
 #
-# The repository pins no Spec Kit version and installs from a moving Git HEAD,
-# so what a given installation supports cannot be known at design time. §10's
+# SDLE is verified against one pinned Spec Kit release, but an installation on
+# disk can differ from it, so what it supports cannot be assumed. §10's
 # rule is "capability-detect; do not hardcode undocumented internals": SDLE
 # probes the *target project's own* installation for the documented,
 # user-facing environment variables by name. It never executes Spec Kit and
@@ -8388,16 +7950,13 @@ def detect_speckit_capabilities(paths: Paths) -> dict:
     }
 
 
-# D05 (SDLE-DEFECT-STABILIZATION-01). The SpecKit release SDLE is verified
-# against, and the init command as it was actually run against it — in a
-# disposable project, through both script flavours — for the record in
-# `docs/verification/defect-stabilization-01.md`. The earlier
-# `specify init . --skills --here` is rejected by this release (`No such
-# option: --skills`): the Claude integration installs skills by default.
-# Pinned with `@v<version>` so a user reproduces what was tested rather than
-# whatever the default branch is today; an existing installation is never
-# upgraded by SDLE. README's Quick Start states the same command, and a unit
-# test holds the two together.
+# The Spec Kit release SDLE is verified against, and the init command that
+# installs it. The earlier `specify init . --skills --here` is rejected by
+# this release (`No such option: --skills`): the Claude integration installs
+# skills by default. Pinned with `@v<version>` so a user reproduces what was
+# tested rather than whatever the default branch is today; an existing
+# installation is never upgraded by SDLE. docs/GETTING-STARTED.md states the
+# same command, and a unit test holds the two together.
 SPECKIT_SUPPORTED_VERSION = "1.0.6"
 SPECKIT_INIT_COMMAND = (
     "uvx --from git+https://github.com/github/spec-kit.git"
@@ -8500,11 +8059,11 @@ def cmd_feature_capabilities(args, paths: Paths) -> int:
 def _feature_candidates(directory: Path) -> list[Path]:
     """Feature directories in one tier, in a stable order.
 
-    **T11 D10** removed the newest-mtime *selection* (T04 N-2), so this order
-    no longer picks a winner — it only makes the refusal's candidate list
-    deterministic. Sorted by name for exactly that reason: two directories
-    created in the same second have no meaningful mtime order, and an order
-    that decides nothing should not pretend to rank.
+    There is no newest-mtime *selection*, so this order does not pick a
+    winner — it only makes the refusal's candidate list deterministic. Sorted
+    by name for exactly that reason: two directories created in the same
+    second have no meaningful mtime order, and an order that decides nothing
+    should not pretend to rank.
     """
     if not directory.is_dir():
         return []
@@ -8518,7 +8077,7 @@ def feature_candidate_tier(paths: Paths) -> tuple[list[str], str | None,
 
     Returns ``(searched, chosen_tier, candidates)``. A pure reader, shared by
     `feature resolve` and by the gate precondition that refuses an unresolved
-    feature (D01), so both give the same answer and there is one tier list.
+    feature, so both give the same answer and there is one tier list.
     """
     tiers = [
         (paths.speckit_specs_relative, paths.speckit_specs_root),
@@ -8588,33 +8147,32 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     that yields anything is used:
 
       1. ``workitems/<id>/specs/*``  — already contained;
-      2. ``<project-root>/specs/*``  — where Spec Kit 0.15.0 actually creates
-         a feature, since it hardcodes ``repo_root/specs`` for *creation*;
-      3. ``.specify/specs/*``        — where pre-v1.15 SDLE assumed it was.
+      2. ``<project-root>/specs/*``  — where Spec Kit actually creates a
+         feature, since it hardcodes ``repo_root/specs`` for *creation*;
+      3. ``.specify/specs/*``        — where an older layout kept it.
 
-    That is precedence, not a tie-break between peers, and it is why T04
-    discovers the native directory instead of hardcoding a creation path no
-    unpinned Spec Kit install can guarantee. Nothing under another WorkItem is
-    ever a candidate: no tier reaches into ``workitems/<other-id>/``.
+    That is precedence, not a tie-break between peers, and it is why the
+    resolver discovers the native directory instead of hardcoding a creation
+    path no unpinned Spec Kit install can guarantee. Nothing under another
+    WorkItem is ever a candidate: no tier reaches into ``workitems/<other-id>/``.
 
     Within the chosen tier there is no selection rule left to get wrong.
-    **T11 D10** (T04 N-2): more than one candidate refuses `feature_ambiguous`
-    and lists them. Baseline picked the newest mtime and refused only on an
-    exact timestamp tie, which meant two WorkItems both standing at the
-    specification phase could cross-adopt through the repository-global
-    `specs/` tier — a silent wrong pick out of a shared staging area, which
-    §9 ("never silently pick one among multiple plausible") and §10 ("WorkItem
-    A's Spec Kit output cannot be mistaken for WorkItem B's") both forbid.
-    Recency is not evidence of ownership.
+    More than one candidate refuses `feature_ambiguous` and lists them. Picking
+    the newest mtime and refusing only on an exact timestamp tie would let two
+    WorkItems both standing at the specification phase cross-adopt through the
+    repository-global `specs/` tier — a silent wrong pick out of a shared
+    staging area, which §9 ("never silently pick one among multiple
+    plausible") and §10 ("WorkItem A's Spec Kit output cannot be mistaken for
+    WorkItem B's") both forbid. Recency is not evidence of ownership.
 
     There is no override flag, because there does not need to be one: tier 1
     is `workitems/<id>/specs/`, so *moving* the directory this WorkItem owns
     into its own tier resolves the ambiguity by precedence, deterministically
     and without SDLE guessing. The refusal names that remedy.
 
-    **T11 D1/D2** removed the legacy binding, so `speckit_specs_root` is never
-    `None` here: `feature` is not `RUNTIME_FREE`, so `bind_workitem` has
-    already returned a bound `Paths` (R2, pinned by N25).
+    `speckit_specs_root` is never `None` here: `feature` is not
+    `RUNTIME_FREE`, so `bind_workitem` has already returned a bound `Paths`
+    (R2, pinned by N25).
     """
     state = read_state(paths)
     specs_root = paths.speckit_specs_root
@@ -8629,7 +8187,7 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
             {"searched": searched},
         )
 
-    # T11 D10. Pure reader, and placed ahead of every write below, so a
+    # Pure reader, and placed ahead of every write below, so a
     # refused `feature resolve` leaves state.json and audit.md untouched.
     if len(candidates) > 1:
         names = sorted(p.name for p in candidates)
@@ -8682,10 +8240,16 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
 
 def cmd_security_review_begin(args, paths: Paths) -> int:
     """Pin the review filename before generation, so crash recovery and drift
-    detection both know the target path."""
+    detection both know the target path. The name is never one that already
+    exists: a second call in the same minute, or another WorkItem sharing
+    `reviews/`, takes the next `-2`, `-3` suffix instead of overwriting."""
     state = read_state(paths)
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
     filename = f"reviews/security-review-{stamp}.md"
+    suffix = 2
+    while (paths.project_root / filename).exists():
+        filename = f"reviews/security-review-{stamp}-{suffix}.md"
+        suffix += 1
     state["security_review_artifact"] = filename
     state["phase_checkpoint"] = "security_review_started"
     save_state(paths, state, args.session)
@@ -8706,13 +8270,13 @@ REQUIRED_MANIFEST_SECTIONS = (
 )
 
 
-# **D02 (SDLE-DEFECT-STABILIZATION-01).** Gate 7's verification evidence.
+# Gate 7's verification evidence.
 #
 # `manifest build` writes one structured record per build beside the manifest
 # and names it from a line in the manifest. Gate 7 reads it back and binds it
 # to the exact manifest bytes, the pinned implementation base and the bound
 # WorkItem, then requires a runner that actually ran and exited 0. The prose
-# statuses are unchanged; what changed is that one of them is now required.
+# statuses are for the reader; the record is what Gate 7 requires.
 IMPLEMENTATION_EVIDENCE_KIND = "implementation"
 MANIFEST_EVIDENCE_LINE = re.compile(r"^Evidence: (\S+)\s*$", re.MULTILINE)
 TEST_STATUS_PASSED = "passed"
@@ -8855,8 +8419,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     The four Spec Kit gates carry a second such refusal. Spec Kit keeps a
     single repository-global feature slot, so a stale one can point this
     WorkItem at another's directory; a WorkItem's gate must never approve
-    another WorkItem's artifact. **T11 removed the legacy-binding carve-out
-    with the rung itself**, so the containment rule now applies to every
+    another WorkItem's artifact. The containment rule applies to every
     resolvable Spec Kit gate.
     """
     if gate_key in SPECKIT_GATE_KEYS:
@@ -8901,7 +8464,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
             "the moment of decision.",
             {"path": resolved, "missing": missing},
         )
-    # D02: the headings prove the sections exist; this proves what the test
+    # The headings prove the sections exist; this proves what the test
     # section reports is a passing run of *this* implementation.
     implementation_evidence_precondition(paths, state, gate_key, resolved,
                                          body)
@@ -8912,8 +8475,8 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
 # Attempt counters
 #
 # Retries are keyed by the phase that failed. Remediations are keyed by the
-# EXECUTION phase behind a gate, not the gate phase itself — v1.12 reports
-# "spec_draft has been remediated 3/3" while current_phase is gate_spec.
+# EXECUTION phase behind a gate, not the gate phase itself, so the count reads
+# "spec_draft has been remediated 3/3" even while current_phase is gate_spec.
 # --------------------------------------------------------------------------
 
 
@@ -9007,8 +8570,8 @@ def cmd_artifact_record(args, paths: Paths) -> int:
 
 
 def cmd_limit_set(args, paths: Paths) -> int:
-    """Replaces v1.12's 'edit state.json by hand' instruction with an audited
-    command — hand-editing defeats the audit chain this version hardens."""
+    """An audited change of a rate limit, in place of editing state.json by
+    hand — hand-editing defeats the audit chain."""
     state = read_state(paths)
     limits = state.setdefault("rate_limits", {})
     changed = {}
@@ -9639,12 +9202,12 @@ def cmd_guidance_path(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 
 # Paths the dirty-tree guard treats as SDLE's own bookkeeping rather than the
-# user's implementation. T11 D5 adds `.sdle/`, closing T08's finding: the
+# user's implementation. It includes `.sdle/`: the
 # repository-global configuration root is written by `config` and by
 # `baseline`, both of which already produce their own audited records, so
 # excluding it loses no evidence — while *not* excluding it let one WorkItem's
 # `baseline.json` write trip another WorkItem's guard, which is the
-# cross-WorkItem isolation §8/§9 do guarantee. `workitems/<id>/.sdle/` was
+# cross-WorkItem isolation §8/§9 do guarantee. `workitems/<id>/.sdle/` is
 # already covered by the `workitems/` entry.
 SDLE_OWNED_PREFIXES = (
     ".workflow/", ".sdle/", "workitems/", ".specify/", "design/", "reviews/",
@@ -9717,9 +9280,11 @@ SECRET_PATTERNS = [
     ("AWS access key", r"AKIA[0-9A-Z]{16}"),
     ("private key material", r"-----BEGIN [A-Z ]*PRIVATE KEY"),
     ("GitHub token", r"ghp_[A-Za-z0-9]{36}"),
-    # v1.12 used sk-[A-Za-z0-9]{20,}, which misses the current sk-proj-...
-    # format: the hyphen ends the character class four characters in.
-    ("secret API key", r"sk-[A-Za-z0-9_-]{20,}"),
+    # The character class includes `-` and `_` so the current sk-proj-... format
+    # is matched whole. The key must not continue a word, or any hyphenated
+    # word ending in "sk" (risk-adaptive-gate-policy, task-management-...) is
+    # reported as a credential.
+    ("secret API key", r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"),
     ("hardcoded credential assignment",
      r"(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}"),
     ("bearer token", r"Bearer [A-Za-z0-9\-_.]{20,}"),
@@ -9768,7 +9333,7 @@ def run_tests(paths: Paths, timeout: int,
     exactly like a detected runner — never through a shell, split with
     ``shlex`` on POSIX and handed to the C runtime's own parser on Windows —
     and its exit code is recorded the same way. It supplies evidence; it
-    cannot waive the need for it (D02).
+    cannot waive the need for it.
     """
     if command_text:
         name = "custom command"
@@ -9811,12 +9376,11 @@ def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
 
     One list for both consumers of the implementation change set — Gate 7's
     manifest and the security-review evidence — so they cannot disagree about
-    what the implementation is (D03). It stays an explicit, narrow list and is
+    what the implementation is. It stays an explicit, narrow list and is
     deliberately **not** SDLE_OWNED_PREFIXES: that would silently drop
-    requirements/ and design/ edits from the manifest. T11 D6 (T04 N-7) gave
-    the manifest this relocation/ownership exclusion; before D03 the
-    security-review evidence carried a narrower copy that missed the
-    repository-global configuration root.
+    requirements/ and design/ edits from the manifest. It carries the
+    relocation/ownership exclusions, including the repository-global
+    configuration root, so both consumers exclude the same paths.
     """
     excluded = [
         paths.runtime_relative + "/",       # this WorkItem's runtime
@@ -9834,15 +9398,15 @@ def _nul_fields(text: str) -> list[str]:
 
 
 def implementation_changes(paths: Paths, state: dict) -> list[dict]:
-    """**D03.** The implementation change set, measured from the pinned base.
+    """The implementation change set, measured from the pinned base.
 
     ``implementation_base_ref`` is the commit `implement preflight` pinned
     before any implementation was written. Everything the implementation did
     since is the diff from that commit to the *working tree* — which covers
     changes committed after the base, staged changes and unstaged changes in
-    one comparison — plus untracked files, which no diff reports. Before D03
-    the manifest compared against the current ``HEAD``, so a change committed
-    during implementation vanished from Gate 7 and from the secrets scan.
+    one comparison — plus untracked files, which no diff reports. Comparing
+    against the current ``HEAD`` instead would make a change committed during
+    implementation vanish from Gate 7 and from the secrets scan.
 
     Each entry is ``{path, status, old_path, binary, untracked}``; ``status``
     is git's letter (A, M, D, R, T). Paths are POSIX, de-duplicated, sorted,
@@ -9960,7 +9524,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     ).replace(os.sep, "/")
 
     if git_available(paths):
-        # D03: measured from the pinned base, committed + staged + unstaged
+        # Measured from the pinned base, committed + staged + unstaged
         # + untracked, through the one selector the security review also
         # reads. A missing or invalid base refuses rather than falling back.
         changes = implementation_changes(paths, state)
@@ -10004,8 +9568,8 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                     break
 
     if args.skip_tests:
-        # Kept, and recorded as exactly what it is. Since D02 it can no longer
-        # carry Gate 7: the gate refuses any result but a run that passed.
+        # Kept, and recorded as exactly what it is. It cannot carry Gate 7:
+        # the gate refuses any result but a run that passed.
         tests = {"runner": None, "command": None, "exit_code": None,
                  "output": None, "status": "skipped by caller"}
     else:
@@ -10024,7 +9588,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
             + (f"\n\n```\n{tests['output']}\n```" if tests["output"] else "")
         )
 
-    # D02: the structured record Gate 7 reads. Claimed before the manifest is
+    # The structured record Gate 7 reads. Claimed before the manifest is
     # written so the manifest can name it; filled after, so it can carry the
     # manifest's own fingerprint and nothing can be edited in between unseen.
     stamp = now_iso()
@@ -10103,11 +9667,10 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
               "note": "Git not available — diff analysis skipped."})
         return EXIT_OK
 
-    # D03: the same change set Gate 7's manifest lists, from the same pinned
-    # base. Before D03 an unpinned base silently became `HEAD~1` — a range
-    # nobody chose — and this command carried its own, narrower exclusion
-    # list. A missing or invalid base now refuses, exactly as the manifest
-    # does, because a review of the wrong range is worse than no review.
+    # The same change set Gate 7's manifest lists, from the same pinned
+    # base. An unpinned base is a refusal, exactly as for the manifest — never
+    # a silent `HEAD~1`, a range nobody chose — because a review of the wrong
+    # range is worse than no review.
     changes = implementation_changes(paths, state)
     # The diff is taken with the selector's own exclusions as a pathspec, so
     # it covers exactly the tracked entries of `changes` without passing every
@@ -10131,7 +9694,7 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
 
     emit("security-review evidence", {
         "base_ref": base,
-        # Always true since D03: an unpinned base is a refusal now, never a
+        # Always true: an unpinned base is a refusal, never a
         # fallback. Kept so a caller reading the field still reads the truth.
         "pinned": True,
         "stat": stat or None,
@@ -10272,8 +9835,7 @@ def check_tables_wellformed(paths: Paths) -> tuple[list[Check], Constants | None
                 "tables_wellformed",
                 True,
                 f"Parsed {len(consts.phase_sequence)} phases, "
-                f"{len(consts.phase_to_gate_key)} gates, "
-                f"{len(consts.version_chain)} migration rows.",
+                f"{len(consts.phase_to_gate_key)} gates.",
             )
         ],
         consts,
@@ -10360,9 +9922,8 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.append(Check("next_phase_chains_sequence", chain_ok, chain_msg))
 
     # PROGRESS_MAP denominators all equal GREENFIELD's non-terminal count,
-    # which is what those strings have always meant. It is no longer the
-    # registry's phase count: after T07 the registry may hold phases that
-    # GREENFIELD does not run.
+    # which is what those strings have always meant. It is not the registry's
+    # phase count: the registry holds phases that GREENFIELD does not run.
     denominators = {
         value.split("/")[-1] for value in consts.progress.values() if "/" in value
     }
@@ -10466,7 +10027,6 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
     checks.extend(_check_discovery(paths, consts))
     checks.append(_check_single_state_template(paths))
     checks.append(_check_version_consistency(paths))
-    checks.append(_check_migration_covers_state_fields(paths, consts))
     checks.append(_check_no_powershell(paths))
     checks.append(_check_no_hardcoded_progress(paths, consts))
     checks.extend(_check_doc_phase_tables(paths, consts))
@@ -10694,12 +10254,15 @@ def _check_capability_map(paths: Paths, consts: Constants) -> list[Check]:
 # become an independent workflow controller. Every one of those four is denied
 # by taking away the tools that would perform it.
 PRODUCT_AGENT_TOOLS = ("Read", "Grep", "Glob")
-FORBIDDEN_AGENT_TOOLS = ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit",
-                         "Agent", "Task")
-# The tools the frontmatter fence must match. `Bash` is on the list because a
-# shell is all it takes to run `gate approve`.
-FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash")
-PRODUCT_AGENT_FENCE = "hooks.py product-agent-fence"
+FORBIDDEN_AGENT_TOOLS = ("Bash", "PowerShell", "Write", "Edit", "MultiEdit",
+                         "NotebookEdit", "Agent", "Task")
+# The tools the frontmatter fence must match. `Bash` and `PowerShell` are on the
+# list because a shell is all it takes to run `gate approve`. The hook module
+# carries the same set as `FILE_WRITE_TOOLS + SHELL_TOOLS`; a test pins the two.
+FENCED_AGENT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash",
+                      "PowerShell")
+PRODUCT_AGENT_FENCE = "product-agent-fence"
+PRODUCT_AGENT_FENCE_LAUNCHER = "run-hook.sh"
 PRODUCT_AGENT_NON_APPROVAL_CLAUSE = (
     "This subagent inspects and reports. It never mutates lifecycle state, "
     "never runs `gate approve`, `gate omit` or `advance`, and never decides "
@@ -10714,8 +10277,8 @@ _AGENT_MATCHER_RE = re.compile(r'^\s*-\s*matcher:\s*"([^"]*)"', re.MULTILINE)
 def agent_frontmatter(body: str) -> str:
     """The frontmatter block of an agent file, as text. Empty when absent.
 
-    Read with two narrow regexes rather than parsed: the engine has been
-    standard-library only since v1.13 and §11's policy-format decision
+    Read with two narrow regexes rather than parsed: the engine is
+    standard-library only and §11's policy-format decision
     explicitly refuses a hand-rolled YAML parser. One line, one shape — and a
     file that does not match declares nothing, which *fails* the checks below
     rather than passing them.
@@ -10746,7 +10309,7 @@ def _check_product_agents(paths: Paths) -> list[Check]:
       fires. The engine cannot assert either from inside the suite.
     * Nothing at all guarantees that the parent delegates to the right agent,
       or that `--actor-name` truthfully names who produced a finding. Those
-      are convention, and they predate T10.
+      are convention.
 
     Emitted only when product agent files exist, mirroring the documentation
     checks' tolerance of a project with no README.md — an installed skill need
@@ -10780,8 +10343,10 @@ def _check_product_agents(paths: Paths) -> list[Check]:
     unfenced = []
     for path in agents:
         front = agent_frontmatter(bodies[path])
-        if PRODUCT_AGENT_FENCE not in front:
-            unfenced.append(f"{path.name} registers no {PRODUCT_AGENT_FENCE}")
+        if (PRODUCT_AGENT_FENCE not in front
+                or PRODUCT_AGENT_FENCE_LAUNCHER not in front):
+            unfenced.append(f"{path.name} registers no {PRODUCT_AGENT_FENCE} "
+                            f"through {PRODUCT_AGENT_FENCE_LAUNCHER}")
             continue
         covered = " ".join(_AGENT_MATCHER_RE.findall(front))
         gaps = [tool for tool in FENCED_AGENT_TOOLS if tool not in covered]
@@ -10803,7 +10368,7 @@ def _check_product_agents(paths: Paths) -> list[Check]:
 
 
 def _check_discovery(paths: Paths, consts: Constants) -> list[Check]:
-    """T08's cross-file rules for the `discovery` registry phase.
+    """The cross-file rules for the `discovery` registry phase.
 
     Three decisions ADR-005 pins, each turned into a named failure so a later
     edit that reverses one has to do it visibly.
@@ -10874,13 +10439,12 @@ REPO_DOCS = ("README.md", "docs/SDLE-Reference-Guide.md")
 # Every document that states a flow's phase or gate count in a table row or a
 # headline. The counts are a *derived view* of the engine and drifted once
 # already: `docs/lifecycle/README.md` counted the terminal `complete` while the
-# tutorials, START-HERE, README and the Reference Guide did not, so the
+# tutorials, README and the Reference Guide did not, so the
 # document named "the lifecycle" contradicted the other five. Listing the files
 # here and checking them is the repo's standing answer to that class of bug --
 # a checklist rots, a lint rule does not.
 FLOW_COUNT_DOCS = (
     "README.md",
-    "docs/START-HERE.md",
     "docs/SDLE-Reference-Guide.md",
     "docs/lifecycle/README.md",
     "docs/tutorials/README.md",
@@ -10898,8 +10462,8 @@ FLOW_HEADLINE_DOCS = {
     "docs/tutorials/hotfix.md": "HOTFIX",
 }
 
-# T11 D16. Transition contract §17 "Documentation" names nine targets that the
-# V1 documentation set must cover. A checklist in a plan rots; a lint rule does
+# Transition contract §17 "Documentation" names nine targets that the
+# documentation set must cover. A checklist in a plan rots; a lint rule does
 # not, so the list lives here and is checked, not remembered. A trailing "/"
 # means a directory that must hold at least one non-empty `.md`.
 DOCUMENTATION_TARGETS = (
@@ -10979,8 +10543,8 @@ def _repo_root(paths: Paths) -> Path:
 def _check_single_state_template(paths: Paths) -> Check:
     """The template must exist in exactly one place.
 
-    v1.12 kept a second copy embedded in SKILL.md Step 9 and the two had
-    already diverged (project_name and last_updated). One fact, one file.
+    A second copy embedded in SKILL.md would drift from the template. One
+    fact, one file.
     """
     if not paths.state_template.is_file():
         return Check("single_state_template", False,
@@ -10997,13 +10561,15 @@ def _check_single_state_template(paths: Paths) -> Check:
 
 
 def _check_version_consistency(paths: Paths) -> Check:
-    """One version string, six locations.
+    """The state schema version, and every display copy of it that exists.
 
-    T11 F6 anticipated a sixth turning up during the v1.17 bump, and one did:
-    ``sdle.py``'s own ``CURRENT_VERSION``, which decides when `migrate` stops
-    and which nothing was checking against the template it must agree with.
-    Added here rather than checked by hand, so this rule stays the single
-    authority for the version string (invariant 7).
+    The operational fact is the state schema: the template's
+    `workflow_version` and `CURRENT_VERSION` must agree, and they are required.
+    A display copy of the version (the SKILL.md heading, the README title, the
+    Reference Guide header, a documentation page's `Applies to` line, the
+    optional frontmatter mention) is not required to exist, and a page that
+    states no version is not a mismatch. A copy that *is* present must equal
+    the schema version, so the number cannot drift where it is repeated.
     """
     template = json.loads(paths.state_template.read_text(encoding="utf-8"))
     version = template.get("workflow_version")
@@ -11015,30 +10581,31 @@ def _check_version_consistency(paths: Paths) -> Check:
     skill = paths.skill_md.read_text(encoding="utf-8")
     frontmatter = re.search(r"Lifecycle Engine v([0-9]+\.[0-9]+)", skill)
     heading = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", skill, re.MULTILINE)
-    found["SKILL.md frontmatter"] = frontmatter.group(1) if frontmatter else None
-    found["SKILL.md heading"] = heading.group(1) if heading else None
+    if frontmatter:  # an optional display copy: absent is fine, wrong is not
+        found["SKILL.md frontmatter"] = frontmatter.group(1)
+    if heading:
+        found["SKILL.md heading"] = heading.group(1)
 
     root = _repo_root(paths)
     readme = root / "README.md"
     if readme.is_file():
         text = readme.read_text(encoding="utf-8")
         title = re.search(r"^# SDLE.*\(v([0-9]+\.[0-9]+)\)", text, re.MULTILINE)
-        row = re.search(r"\*\*v([0-9]+\.[0-9]+)\*\*", text)
-        found["README title"] = title.group(1) if title else None
-        found["README version table"] = row.group(1) if row else None
+        if title:
+            found["README title"] = title.group(1)
 
     guide = root / "docs" / "SDLE-Reference-Guide.md"
     if guide.is_file():
         header = re.search(r"SDLE v([0-9]+\.[0-9]+)",
                            guide.read_text(encoding="utf-8"))
-        found["Reference Guide header"] = header.group(1) if header else None
+        if header:
+            found["Reference Guide header"] = header.group(1)
 
-    # T11 NB-1. The six documentation-set READMEs each open with an
-    # `**Applies to:** SDLE vX.Y` line. They were written by the same phase
-    # that twice fixed this exact class -- an unchecked restatement of a
-    # constant -- and promptly created six more of it, so the next bump would
-    # have left six documents claiming the old version. Derived by glob, not
-    # listed: a seventh directory added later is covered without an edit here.
+    # The documentation-set READMEs may open with an
+    # `**Applies to:** SDLE vX.Y` line. An unchecked restatement of the version
+    # is how a bump leaves documents claiming the old one, so any that carries
+    # the line is compared. Derived by glob, not listed: a directory added
+    # later is covered without an edit here.
     for readme in sorted((root / "docs").glob("*/README.md")):
         applies = re.search(r"\*\*Applies to:\*\*\s*SDLE v([0-9]+\.[0-9]+)",
                             readme.read_text(encoding="utf-8"))
@@ -11052,33 +10619,6 @@ def _check_version_consistency(paths: Paths) -> Check:
         not mismatched,
         f"all {len(found)} locations report v{version}" if not mismatched
         else f"expected v{version}, found {mismatched}",
-    )
-
-
-def _check_migration_covers_state_fields(paths: Paths, consts: Constants) -> Check:
-    """Every field in the template is introduced by the chain.
-
-    Without this, a new state field ships with no upgrade path and older
-    state.json files break on load.
-    """
-    template = json.loads(paths.state_template.read_text(encoding="utf-8"))
-    rows = parse_md_table(paths.skill_md, "VERSION_MIGRATION")
-    actions = " ".join((_column(r, "action") or "") for r in rows)
-
-    base = {
-        "workflow_version", "project_name", "current_phase", "status",
-        "progress", "current_artifact", "speckit_initialized", "phase_history",
-        "approvals",
-    }
-    missing = [
-        key for key in template
-        if key not in base and key not in actions
-    ]
-    return Check(
-        "migration_covers_every_state_field",
-        not missing,
-        "every field has a migration row" if not missing
-        else f"no migration row introduces {missing}",
     )
 
 
@@ -11144,10 +10684,10 @@ def _check_no_hardcoded_progress(paths: Paths, consts: Constants) -> Check:
 def _check_repo_config_defaults_documented(paths: Paths) -> Check:
     """The documented configuration defaults must BE the shipped ones.
 
-    T05 left `REPO_CONFIG_DEFAULTS` restated as a fenced JSON literal in
-    `README.md` with nothing binding the two together — a documented default
-    that can drift from the engine's, which for a boundary is a documented
-    lie waiting to happen. Deleting the example was rejected: it is genuinely
+    `README.md` restates `REPO_CONFIG_DEFAULTS` as a fenced JSON literal, and
+    nothing but this check binds the two together — a documented default that
+    can drift from the engine's, which for a boundary is a documented lie
+    waiting to happen. Deleting the example was rejected: it is genuinely
     useful, and the linter exists precisely so a useful restatement can be
     *bound* rather than forbidden (CLAUDE.md: run the linter, do not check by
     hand).
@@ -11214,7 +10754,7 @@ def _check_repo_config_defaults_documented(paths: Paths) -> Check:
 
 
 def _check_documentation_set(paths: Paths) -> list[Check]:
-    """T11 D16 — §17's nine documentation targets exist and say something.
+    """§17's nine documentation targets exist and say something.
 
     Emitted only when the tree carries **both** `README.md` and `CLAUDE.md` at
     its root, which is what distinguishes the SDLE source repository from a
@@ -11262,8 +10802,8 @@ def _check_documentation_index(paths: Paths) -> list[Check]:
 
     `documentation_set_is_present` proves the directories exist. Existing is
     not the same as being findable: the six subject directories §17 mandates
-    were created by T11 and, until the index was written, were linked from
-    nowhere at all -- present, lint-green, and invisible to every reader.
+    could be present, lint-green and linked from nowhere — invisible to every
+    reader.
 
     A seventh added later would be equally invisible, so this is derived from
     `DOCUMENTATION_TARGETS` rather than listing the directories again
@@ -11509,7 +11049,6 @@ def cmd_constants(args, paths: Paths) -> int:
             # inspectable. `Constants.flow()` is what refuses.
             "flows": {name: built.as_dict()
                       for name, built in sorted(consts.flows.items())},
-            "version_chain": [list(pair) for pair in consts.version_chain],
             "skill_root": str(paths.skill_root),
             "project_root": str(paths.project_root),
         },
@@ -11557,19 +11096,6 @@ def build_parser() -> argparse.ArgumentParser:
              "(read-only).",
     )
     sub.set_defaults(handler=cmd_resume)
-
-    sub = subparsers.add_parser("migrate", help="Apply the version migration chain.")
-    sub.set_defaults(handler=cmd_migrate)
-
-    sub = subparsers.add_parser(
-        "migrate-workflow",
-        help="Move a legacy .workflow/ runtime under a WorkItem.",
-    )
-    # Distinct dest so `--workitem` works on either side of the subcommand:
-    # argparse would otherwise clobber the global value with this one's default.
-    sub.add_argument("--workitem", dest="migrate_workitem",
-                     help="Target WorkItem id (required, must be registered).")
-    sub.set_defaults(handler=cmd_migrate_workflow)
 
     sub = subparsers.add_parser(
         "validate", help="Check the WorkItem registry and runtime placement."
@@ -11678,8 +11204,8 @@ def build_parser() -> argparse.ArgumentParser:
     wi_use = workitem_sub.add_parser(
         "use", help="Persist this working directory's active WorkItem."
     )
-    # Distinct dest, following the `migrate-workflow` precedent: argparse
-    # would otherwise clobber the global --workitem with this one's default.
+    # Distinct dest: argparse would otherwise clobber the global --workitem
+    # with this one's default.
     wi_use.add_argument("--workitem", dest="use_workitem",
                         help="WorkItem id to make active (must be registered).")
     wi_use.add_argument("--clear", action="store_true",

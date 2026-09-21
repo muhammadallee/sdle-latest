@@ -1,7 +1,5 @@
 # Tutorial — `BROWNFIELD_DISCOVERY`: the first WorkItem in an existing codebase
 
-**Applies to:** SDLE v1.17
-
 **19 phases, 8 gates.** Use this flow the first time you run SDLE against a
 repository that already contains code and has no baseline.
 

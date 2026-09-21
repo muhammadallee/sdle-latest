@@ -212,3 +212,26 @@ def test_d01_a_flow_without_the_constitution_needs_no_constitution(
     state = git_project.state()
     assert state["current_phase"] == "complete"
     assert state["approvals"]["gate_constitution"] is None
+
+
+# -- follow-up round F-CX-002: a review file is never named twice --------------
+
+
+def test_fcx002_security_review_begin_does_not_reuse_an_existing_review_path(started):
+    """Two calls in one minute produced one name, so a remediation could
+    overwrite the review it was reacting to, and two WorkItems sharing
+    `reviews/` could overwrite each other's. The first unused name is taken."""
+    first = started.ok("security-review", "begin").data["review_filename"]
+    started.write_artifact(first)
+    second = started.ok("security-review", "begin").data["review_filename"]
+    assert second != first, second
+    assert second.startswith("reviews/security-review-") and second.endswith(".md")
+    started.write_artifact(second)
+    third = started.ok("security-review", "begin").data["review_filename"]
+    assert third not in (first, second), third
+
+
+def test_fcx002_an_unused_name_is_taken_as_it_is(started):
+    name = started.ok("security-review", "begin").data["review_filename"]
+    assert not name.rsplit("-", 1)[-1].startswith("2."), name
+    assert not (started.root / name).exists()

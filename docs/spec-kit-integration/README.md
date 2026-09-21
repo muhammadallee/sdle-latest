@@ -1,6 +1,5 @@
 # Spec Kit integration
 
-**Applies to:** SDLE v1.17
 **Authority:** `scripts/sdle.py` (`feature` subcommands,
 `detect_speckit_capabilities`). See also
 `docs/architecture/ADR-007-progressive-capabilities-and-product-subagents.md`.
@@ -25,12 +24,7 @@ all of them.
 
 SDLE does not pin or install Spec Kit; it **detects** what the installed copy
 supports rather than assuming it. The release it is *verified* against is
-**v1.0.6**, installed with the exact command in the README's Quick Start. That
-verification ran it in disposable projects through both script flavours,
-confirming the `speckit-*` skill names SDLE probes for and the
-`SPECIFY_INIT_DIR` / `SPECIFY_FEATURE_DIRECTORY` behaviour through the installed
-scripts themselves. The results are recorded in
-[`docs/verification/defect-stabilization-01.md`](../verification/defect-stabilization-01.md).
+**v1.0.6**, installed with the exact command in [GETTING-STARTED.md](../GETTING-STARTED.md#4-install-the-spec-kit-integration). It was run in disposable projects through the Bash flavour and the `speckit-*` skill names SDLE probes for were confirmed, as were the `SPECIFY_INIT_DIR` / `SPECIFY_FEATURE_DIRECTORY` behaviours through the installed scripts.
 Other releases may work, but they are not what was tested.
 
 | Command | Behaviour |
@@ -55,7 +49,7 @@ deciding are different jobs.
 
 ## 3. Where a feature directory lives
 
-Since v1.15, the active WorkItem's feature directory is
+The active WorkItem's feature directory is
 `workitems/<id>/specs/<feature-id>/`, not the repository-global
 `.specify/specs/<feature-id>/`. That is what makes it impossible for two
 WorkItems in one repository to be handed each other's specification.
@@ -67,8 +61,8 @@ Repository-wide Spec Kit scaffolding — `.specify/`, including
 artifacts are Spec Kit's own, SDLE neither writes nor governs them, so fencing
 them would block legitimate work. Nothing else under `workitems/` is exempt —
 the registry, `workitem.json` and the whole `<id>/.sdle/` runtime stay denied.
-Since v1.17 the carve-out is matched against a **normalised** path, so
-`workitems/<id>/specs/../.sdle/state.json` no longer slips through it.
+The carve-out is matched against a **normalised** path, so
+`workitems/<id>/specs/../.sdle/state.json` does not slip through it.
 
 ---
 
@@ -81,20 +75,19 @@ first tier that yields anything:
 2. `<project-root>/specs/*` — where Spec Kit actually creates a feature, since
    its `create-new-feature` script builds `<repo root>/specs/<branch>`
    (observed in 0.15.0, and again in v1.0.6 with `SPECIFY_INIT_DIR` set);
-3. `.specify/specs/*` — where pre-v1.15 SDLE assumed it was.
+3. `.specify/specs/*` — the legacy repository-global location, searched so that
+   an older workflow's artifacts can still be found and moved into the WorkItem.
 
 That is **precedence, not a tie-break between peers**. No tier ever reaches into
 `workitems/<other-id>/`.
 
 ### Inside the chosen tier: more than one candidate refuses
 
-Before v1.17, the newest directory by mtime won, and only an exact timestamp tie
-refused. That meant two WorkItems both standing at the specification phase could
-cross-adopt through the shared repository-global `specs/` staging area — a
-silent wrong pick.
-
-Since v1.17, **more than one candidate refuses `feature_ambiguous`** and lists
-them. Recency is not evidence of ownership.
+**More than one candidate refuses `feature_ambiguous`** and lists them. SDLE
+never picks the newest directory: recency is not evidence of ownership, and two
+WorkItems both standing at the specification phase could otherwise cross-adopt
+through the shared repository-global `specs/` staging area — a silent wrong
+pick.
 
 There is no override flag, because none is needed: tier 1 is
 `workitems/<id>/specs/`, so *moving* the directory this WorkItem owns into its

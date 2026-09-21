@@ -1,0 +1,235 @@
+{
+  "ok": true,
+  "command": "lint-skill",
+  "reason": null,
+  "data": {
+    "checks": [
+      {
+        "name": "tables_wellformed",
+        "passed": true,
+        "message": "Parsed 21 phases, 8 gates, 17 migration rows."
+      },
+      {
+        "name": "phase_set_matches_next_phase",
+        "passed": true,
+        "message": "identical to PHASE_SEQUENCE"
+      },
+      {
+        "name": "phase_set_matches_phase_label_map",
+        "passed": true,
+        "message": "identical to PHASE_SEQUENCE"
+      },
+      {
+        "name": "phase_set_matches_progress_map",
+        "passed": true,
+        "message": "identical to the GREENFIELD flow"
+      },
+      {
+        "name": "next_phase_chains_sequence",
+        "passed": true,
+        "message": "chains PHASE_SEQUENCE in order"
+      },
+      {
+        "name": "progress_denominator_matches_phase_count",
+        "passed": true,
+        "message": "denominators=['18'] expected={18}"
+      },
+      {
+        "name": "gate_registered_gate_constitution",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_spec",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_plan",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_tasks",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_analyze",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_design",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_implement",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "gate_registered_gate_security",
+        "passed": true,
+        "message": "registered everywhere"
+      },
+      {
+        "name": "every_phase_has_execution_block",
+        "passed": true,
+        "message": "all present"
+      },
+      {
+        "name": "execution_block_numbers_are_the_greenfield_positions",
+        "passed": true,
+        "message": "all 17 block ordinals are GREENFIELD positions"
+      },
+      {
+        "name": "flow_table_covers_the_required_flows",
+        "passed": true,
+        "message": "5 flows: ['BROWNFIELD_DISCOVERY', 'DEFECT_FIX', 'GREENFIELD', 'HOTFIX', 'ITERATIVE']"
+      },
+      {
+        "name": "every_flow_is_an_ordered_subset_of_the_registry",
+        "passed": true,
+        "message": "5 flows are ordered subsets of PHASE_SEQUENCE"
+      },
+      {
+        "name": "every_flow_retains_the_mandatory_phases",
+        "passed": true,
+        "message": "every flow keeps all 10 mandatory phases"
+      },
+      {
+        "name": "progress_map_and_gate_numbers_are_the_derived_greenfield_views",
+        "passed": true,
+        "message": "PROGRESS_MAP and the gate-number column match GREENFIELD"
+      },
+      {
+        "name": "every_registry_phase_is_used_by_some_flow",
+        "passed": true,
+        "message": "every registry phase is named by at least one flow"
+      },
+      {
+        "name": "gate_labels_are_flow_relative",
+        "passed": true,
+        "message": "all 8 gate labels are flow-relative"
+      },
+      {
+        "name": "capability_map_covers_every_registry_phase",
+        "passed": true,
+        "message": "all 21 registry phases have a row"
+      },
+      {
+        "name": "every_capability_file_exists",
+        "passed": true,
+        "message": "all 5 named capability files exist"
+      },
+      {
+        "name": "capability_map_never_names_the_orchestrator",
+        "passed": true,
+        "message": "SKILL.md is the always-loaded orchestrator, never a capability"
+      },
+      {
+        "name": "every_capability_file_is_linted",
+        "passed": true,
+        "message": "5 capability files, all linted, no orphan module"
+      },
+      {
+        "name": "every_row_is_a_strict_subset_of_the_capability_set",
+        "passed": true,
+        "message": "every row is a strict subset of the 5 capabilities"
+      },
+      {
+        "name": "capability_cross_references_are_mapped_files",
+        "passed": true,
+        "message": "every capability cross-reference resolves and is itself mapped"
+      },
+      {
+        "name": "product_agents_are_read_only",
+        "passed": true,
+        "message": "all 4 product agents grant only ['Read', 'Grep', 'Glob']"
+      },
+      {
+        "name": "product_agents_declare_the_fence",
+        "passed": true,
+        "message": "all 4 product agents fence ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash']"
+      },
+      {
+        "name": "product_agents_declare_the_non_approval_clause",
+        "passed": true,
+        "message": "all 4 product agents carry the invariant-8 clause"
+      },
+      {
+        "name": "discovery_is_gateless",
+        "passed": true,
+        "message": "no gate machinery names the discovery phase"
+      },
+      {
+        "name": "discovery_is_declared_by_exactly_one_flow",
+        "passed": true,
+        "message": "BROWNFIELD_DISCOVERY is its only carrier"
+      },
+      {
+        "name": "discovery_vocabulary_is_not_restated_in_prompt_files",
+        "passed": true,
+        "message": "none of the 13 vocabulary identifiers appears in a prompt file"
+      },
+      {
+        "name": "single_state_template",
+        "passed": true,
+        "message": "templates/state.json is the only host"
+      },
+      {
+        "name": "version_string_consistent",
+        "passed": true,
+        "message": "all 15 locations report v1.17"
+      },
+      {
+        "name": "migration_covers_every_state_field",
+        "passed": true,
+        "message": "every field has a migration row"
+      },
+      {
+        "name": "no_powershell_only_cmdlets",
+        "passed": true,
+        "message": "none found"
+      },
+      {
+        "name": "no_hardcoded_progress_outside_progress_map",
+        "passed": true,
+        "message": "none found"
+      },
+      {
+        "name": "doc_lists_every_phase_README",
+        "passed": true,
+        "message": "all phases present"
+      },
+      {
+        "name": "doc_lists_every_phase_SDLE-Reference-Guide",
+        "passed": true,
+        "message": "all phases present"
+      },
+      {
+        "name": "doc_flow_counts_match_engine",
+        "passed": true,
+        "message": "25 stated flow count(s) equal the engine's"
+      },
+      {
+        "name": "documentation_set_is_present",
+        "passed": true,
+        "message": "all 9 documentation targets present"
+      },
+      {
+        "name": "documentation_index_links_every_directory",
+        "passed": true,
+        "message": "every documentation directory is linked from the index"
+      },
+      {
+        "name": "repo_config_defaults_match_documentation",
+        "passed": true,
+        "message": "1 documented configuration block(s) equal REPO_CONFIG_DEFAULTS"
+      }
+    ],
+    "failed": []
+  }
+}

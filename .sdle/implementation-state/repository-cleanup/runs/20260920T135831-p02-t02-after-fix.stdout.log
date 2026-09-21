@@ -1,0 +1,11 @@
+..........................................................F............. [ 50%]
+........................................................................ [100%]
+================================== FAILURES ===================================
+______________ test_write_fence_explains_the_single_writer_rule _______________
+tests\test_hooks.py:360: in test_write_fence_explains_the_single_writer_rule
+    assert "sdle.py" in reason(output)
+E   assert 'sdle.py' in "SDLE write fence: '.workflow/' holds a legacy runtime that SDLE no longer runs. It is write-protected so its state and audit stay exactly as they were found; nothing in a current WorkItem reads or writes it."
+E    +  where "SDLE write fence: '.workflow/' holds a legacy runtime that SDLE no longer runs. It is write-protected so its state and audit stay exactly as they were found; nothing in a current WorkItem reads or writes it." = reason({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': "SDLE...-protected so its state and audit stay exactly as they were found; nothing in a current WorkItem reads or writes it."}})
+=========================== short test summary info ===========================
+FAILED tests/test_hooks.py::test_write_fence_explains_the_single_writer_rule
+1 failed, 143 passed in 170.75s (0:02:50)

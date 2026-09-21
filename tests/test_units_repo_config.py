@@ -37,7 +37,6 @@ CONFIG_MEMBERS = (
     "config_root_relative",
     "config_file",
     "policies_dir",
-    "shared_templates_dir",
     "baseline_file",
     "implementation_state_dir",
     # T06: the first executable policy under `.sdle/policies/`. It is a
@@ -116,7 +115,6 @@ def test_repository_configuration_is_derived_from_the_project_root_alone(
     assert unbound.config_root_relative == ".sdle"
     assert unbound.config_file == root / ".sdle" / "config.json"
     assert unbound.policies_dir == root / ".sdle" / "policies"
-    assert unbound.shared_templates_dir == root / ".sdle" / "templates"
     assert unbound.baseline_file == root / ".sdle" / "baseline.json"
     assert (unbound.implementation_state_dir
             == root / ".sdle" / "implementation-state")
@@ -305,7 +303,7 @@ def test_config_init_creates_exactly_the_boundary(bare_project):
     assert json.loads((root / "config.json").read_text(encoding="utf-8")) == {
         "configVersion": "1", "policyFormat": "json",
     }
-    for name in ("policies", "templates", "implementation-state"):
+    for name in ("policies", "implementation-state"):
         assert (root / name).is_dir()
         assert (root / name / ".gitkeep").is_file()
 
@@ -313,7 +311,6 @@ def test_config_init_creates_exactly_the_boundary(bare_project):
         "config.json",
         "implementation-state/.gitkeep",
         "policies/.gitkeep",
-        "templates/.gitkeep",
     ]
     # The slot is named by `Paths.baseline_file`; §14 owns the file.
     assert not (root / "baseline.json").exists()
@@ -453,7 +450,6 @@ def test_config_show_reports_the_defaults_and_creates_nothing(bare_project):
     assert result.data["members"] == {
         "config": ".sdle/config.json",
         "policies": ".sdle/policies",
-        "templates": ".sdle/templates",
         "baseline": ".sdle/baseline.json",
         "implementation_state": ".sdle/implementation-state",
     }
@@ -643,7 +639,7 @@ RUNTIME_MEMBER_NAMES = sdle.workitem_runtime_member_names(
 CONFIG_MEMBER_NAMES = tuple(
     getattr(sdle.Paths(project_root=Path("/probe-root"),
                        skill_root=Path("/probe-skill")), member).name
-    for member in ("config_file", "policies_dir", "shared_templates_dir",
+    for member in ("config_file", "policies_dir",
                    "baseline_file", "implementation_state_dir")
 )
 
@@ -690,7 +686,7 @@ def test_the_runtime_member_names_are_derived_from_paths():
         "discovery.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
-        "config.json", "policies", "templates", "baseline.json",
+        "config.json", "policies", "baseline.json",
         "implementation-state",
     }
     assert not set(RUNTIME_MEMBER_NAMES) & set(CONFIG_MEMBER_NAMES)
@@ -1174,3 +1170,18 @@ def test_the_documented_defaults_are_the_shipped_defaults(project):
     assert blocks, "the README example this rule binds has gone missing"
     for block in blocks:
         assert block == sdle.REPO_CONFIG_DEFAULTS, block
+
+
+def test_a_leftover_templates_directory_is_tolerated_not_an_error(bare_project):
+    """`config init` no longer creates `.sdle/templates/` (nothing reads it).
+    A repository that still has one is not broken by that."""
+    bare_project.ok("config", "init")
+    leftover = config_root(bare_project) / "templates"
+    leftover.mkdir()
+    (leftover / "note.md").write_text("kept", encoding="utf-8")
+
+    assert bare_project.ok("config", "show").data["members"].get(
+        "templates") is None
+    findings = bare_project.ok("validate").data["findings"]
+    assert not [f for f in findings if f["severity"] == "error"], findings
+    assert (leftover / "note.md").read_text(encoding="utf-8") == "kept"

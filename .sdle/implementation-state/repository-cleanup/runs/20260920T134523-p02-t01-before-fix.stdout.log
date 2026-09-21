@@ -1,0 +1,20 @@
+.FFF........                                                             [100%]
+================================== FAILURES ===================================
+E   AssertionError: assert '.claude/settings.local.json' not in ['.claude/agents/sdle-code-review.md', '.claude/agents/sdle-design-review.md', '.claude/agents/sdle-discovery.md', '.claude/agents/sdle-security-review.md', '.claude/commands/sdle-approve.md', '.claude/commands/sdle-continue.md', ...]
+     +  where ['.claude/agents/sdle-code-review.md', '.claude/agents/sdle-design-review.md', '.claude/agents/sdle-discovery.md', '.claude/agents/sdle-security-review.md', '.claude/commands/sdle-approve.md', '.claude/commands/sdle-continue.md', ...] = tracked('.claude')
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:48: AssertionError: assert '.claude/settings.local.json' not in ['.claude/agents/sdle-code-review.md', '.claude/agents/sdle-design-review.md', '.claude/agents/sdle-discovery.md', '.claude/agents/sdle-security-review.md', '.claude/commands/sdle-approve.md', '.claude/commands/sdle-continue.md', ...]
+E   AssertionError: assert 1 == 0
+     +  where 1 = CompletedProcess(args=['git', 'check-ignore', '-q', '.claude/settings.local.json'], returncode=1).returncode
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:56: AssertionError: assert 1 == 0
+E   AssertionError: {'.claude/hooks/hooks.py': ['C:/proj/']}
+    assert {'.claude/hoo... ['C:/proj/']} == {}
+      
+      Left contains 1 more item:
+      {'.claude/hooks/hooks.py': ['C:/proj/']}
+      Use -v to get more diff
+D:\Learning\AI\sdle-git-repo\sdle-latest\tests\test_units_shipped_surface.py:69: AssertionError: {'.claude/hooks/hooks.py': ['C:/proj/']}
+=========================== short test summary info ===========================
+FAILED tests/test_units_shipped_surface.py::test_developer_local_settings_are_not_tracked
+FAILED tests/test_units_shipped_surface.py::test_developer_local_settings_are_ignored
+FAILED tests/test_units_shipped_surface.py::test_no_tracked_shipped_file_carries_a_developer_path
+3 failed, 9 passed in 6.00s

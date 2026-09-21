@@ -1,0 +1,35 @@
+P07 recovery drills - sandbox clone of the maintenance branch (records isolated from the real run)
+environment: win32, Python 3.13.0
+
+R-00 baseline after a checkpoint: exit=1 issues=['claimed_evidence_bound_to_other_content']
+R-01 (plan saved, before edits): STATE alone gives phase=P07 task=P07-T01 next_action='drill: run the next task' handoff.verification_status=not_started
+      a new session resumes the same first incomplete task: True
+
+R-02 uncommitted file edited after the last checkpoint: exit=1 issues=['content_changed_since_checkpoint', 'claimed_evidence_bound_to_other_content']
+      the checkpoint's changed_paths does not list README.md: True
+      -> resume compares `git status` with changed_paths, finishes or repairs the slice, never overwrites unknown edits
+
+R-03 implementation finished, verification not started: verification_status=not_started next_action='run verification BEFORE anything else'
+      the phase is not marked complete: completed_phases=['P00', 'P01', 'P02', 'P03']
+
+R-04 a long run is IN_PROGRESS with runner pid 31848 (alive)
+      while it runs: issues=['claimed_evidence_bound_to_other_content'] runs_still_running=['20260920T160855-p03-full-shallow', '20260920T163934-drill-long']
+      after killing the drill's own runner tree: issues=['run_in_progress_but_runner_gone', 'claimed_evidence_bound_to_other_content']
+      reconcile -> {"marked_interrupted": ["20260920T163934-drill-long"]}
+      record now: result=INTERRUPTED exit_code=None reason='runner process is gone (found by reconcile); no result is claimed'
+      verify after reconcile: no in-progress issue: True
+
+R-05a a crash left a temp file (write died before the rename): issues=['interrupted_write_leftover', 'claimed_evidence_bound_to_other_content']
+      STATE.json itself is still the last complete version: phase=P07
+R-05b STATE.json truncated to half: issues=['state_corrupt']
+      reconstructed candidate (from journal + git, UNKNOWN where unproven): {"phase": "P07", "task_id": "P07-T01", "phase_status": "UNKNOWN", "last_journal_event": "checkpoint"}
+R-05c ledger edited after the last checkpoint: issues=['ledger_changed_since_last_checkpoint', 'claimed_evidence_bound_to_other_content']
+      (never trust partial JSON; an unconfirmed ledger write is compared with git and the journal)
+
+R-07 a PASS run is claimed as current verification; verify now: issues=['claimed_evidence_bound_to_other_content']
+      product file changed: issues=['content_changed_since_checkpoint', 'claimed_evidence_bound_to_other_content']
+      plan edited: issues=['plan_changed', 'claimed_evidence_bound_to_other_content']
+      HEAD moved: issues=['head_moved', 'plan_changed', 'claimed_evidence_bound_to_other_content']
+      -> affected evidence is invalidated and re-run; nothing is reused across a changed source identity
+
+R-06 state left on disk for a fresh session: phase=P07 task=P07-T09 next_action='DRILL-MARKER: write the R-06 report'

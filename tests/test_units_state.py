@@ -1,8 +1,12 @@
-"""State core: init, state get/dump, header, migrate, audit, lock."""
+"""State core: init, state get/dump, header, audit, lock, and the refusal of a state schema SDLE does not read."""
 
 from __future__ import annotations
 
 import json
+
+import pytest
+
+from conftest import sdle
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
@@ -135,85 +139,6 @@ def test_header_maps_every_status_to_its_display_text(started):
 
 
 # -- migrate ----------------------------------------------------------------
-
-
-def test_migrate_walks_the_whole_chain_from_1_0(started):
-    state = started.state()
-    state["workflow_version"] = "1.0"
-    started.write_state(state)
-
-    result = started.ok("migrate")
-    assert result.data["from"] == "1.0"
-    assert result.data["to"] == "1.17"
-    assert result.data["steps"][0] == "1.0->1.1"
-    assert result.data["steps"][-1] == "1.16->1.17"
-    assert started.state()["workflow_version"] == "1.17"
-
-
-def test_migrate_is_idempotent(started):
-    first = started.ok("migrate")
-    assert first.data["steps"] == []
-    second = started.ok("migrate")
-    assert second.data["steps"] == []
-
-
-def test_migrate_refuses_unknown_version(started):
-    state = started.state()
-    state["workflow_version"] = "9.9"
-    started.write_state(state)
-    result = started.run("migrate")
-    assert result.exit_code == EXIT_REFUSED
-    assert result.reason == "unknown_version"
-
-
-def test_migrate_adds_implementation_base_ref(started):
-    state = started.state()
-    state["workflow_version"] = "1.12"
-    del state["implementation_base_ref"]
-    started.write_state(state)
-
-    started.ok("migrate")
-    assert started.state()["implementation_base_ref"] is None
-
-
-def test_migrate_normalizes_uppercase_shas_from_powershell(started):
-    """v1.12 recorded Get-FileHash output, which is uppercase. hashlib is
-    lowercase. Without normalisation every approved gate false-drifts on the
-    first v1.13 run."""
-    upper = "3C9A61B2" + "F" * 56
-    state = started.state()
-    state["workflow_version"] = "1.12"
-    state["artifact_shas"] = {"gate_constitution": upper}
-    state["current_artifact_sha"] = upper
-    started.write_state(state)
-
-    result = started.ok("migrate")
-
-    migrated = started.state()
-    assert migrated["artifact_shas"]["gate_constitution"] == upper.lower()
-    assert migrated["current_artifact_sha"] == upper.lower()
-    assert "Normalised" in " ".join(result.data["notes"])
-
-
-def test_migrate_1_8_warns_about_reordered_phases(started):
-    state = started.state()
-    state["workflow_version"] = "1.8"
-    state["current_phase"] = "implement"
-    started.write_state(state)
-
-    result = started.ok("migrate")
-    assert any("v1.8" in w for w in result.data["warnings"])
-
-
-def test_migrate_1_8_recomputes_progress(started):
-    state = started.state()
-    state["workflow_version"] = "1.8"
-    state["current_phase"] = "gate_design"
-    state["progress"] = "6/14"
-    started.write_state(state)
-
-    started.ok("migrate")
-    assert started.state()["progress"] == "14/18"
 
 
 # -- audit ------------------------------------------------------------------
@@ -362,3 +287,100 @@ def test_every_response_is_a_json_envelope(started):
     result = started.ok("header")
     payload = json.loads(result.stdout)
     assert set(payload) >= {"ok", "command", "reason", "data"}
+
+
+# ==========================================================================
+# A state written under another schema is refused, never reinterpreted
+# ==========================================================================
+#
+# SDLE reads exactly one state schema. A file of another version is left
+# exactly as found: no upgrade, no reset, no partial reading. Only the two
+# commands that read without interpreting (`state get`, `audit verify`) still
+# look at it.
+
+
+def with_version(project, version):
+    state = project.state()
+    if version is None:
+        state.pop("workflow_version", None)
+    else:
+        state["workflow_version"] = version
+    project.write_state(state)
+
+
+@pytest.mark.parametrize("version", ["1.15", "0.9", "2.0", None])
+def test_a_state_of_another_version_is_refused_and_left_untouched(started,
+                                                                  version):
+    with_version(started, version)
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    for invocation in (("header",), ("resume",), ("state", "set", "--field",
+                                                   "verbose", "--value", "true"),
+                       ("advance", "--to", "spec_draft")):
+        result = started.run(*invocation)
+        assert result.exit_code == EXIT_REFUSED, (invocation, result)
+        assert result.reason == "unsupported_state_version", (invocation, result)
+        assert result.data["supported"] == sdle.CURRENT_VERSION
+
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_the_refusal_names_the_way_forward(started):
+    with_version(started, "1.15")
+    result = started.run("resume")
+    message = result.envelope["message"]
+    assert "workitem create" in message
+    assert "'1.15'" in message
+
+
+@pytest.mark.parametrize("invocation", [("state", "dump"), ("doctor",)])
+def test_the_commands_that_interpret_state_refuse_another_version(started,
+                                                                   invocation):
+    """`state dump` and `doctor` derive a flow, a label and a verdict from the
+    state. Doing that to another schema's file would apply today's rules to
+    yesterday's shape, so they refuse like every other interpreting command."""
+    with_version(started, "1.15")
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run(*invocation)
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "unsupported_state_version", result
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_state_get_returns_a_stored_field_of_another_version_untouched(started):
+    with_version(started, "1.15")
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run("state", "get", "--field", "workflow_version")
+
+    assert result.exit_code == EXIT_OK, result
+    assert "1.15" in json.dumps(result.data), result.data
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_audit_verify_reads_the_ledger_of_another_version_untouched(started):
+    """The ledger's hash chain does not depend on the state schema, so
+    verifying it is a read that interprets nothing."""
+    with_version(started, "1.15")
+    state_before = started.state_file.read_bytes()
+    audit_before = started.audit_file.read_bytes()
+
+    result = started.run("audit", "verify")
+
+    assert result.reason != "unsupported_state_version", result
+    assert result.exit_code in (EXIT_OK, EXIT_INTEGRITY), result
+    assert started.state_file.read_bytes() == state_before
+    assert started.audit_file.read_bytes() == audit_before
+
+
+def test_the_current_version_is_accepted(started):
+    assert started.state()["workflow_version"] == sdle.CURRENT_VERSION
+    assert started.ok("header").exit_code == EXIT_OK
