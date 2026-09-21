@@ -22,7 +22,8 @@ import re
 
 import pytest
 
-from conftest import FIXTURE_WORKITEM_ID, SDLE_PY, Project, sdle, create_wi
+from conftest import (FIXTURE_WORKITEM_ID, SDLE_PY, Project, create_wi,
+                      create_wi_unbound, sdle)
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
@@ -165,7 +166,7 @@ def test_a_lock_on_one_workitem_never_blocks_another(project):
 
 
 def test_rung1_an_explicit_workitem_binds_even_when_several_exist(project):
-    create_wi(project, "Wi B")
+    create_wi_unbound(project, "Wi B")
     result = project.run("--workitem", FIXTURE_WORKITEM_ID, "init", session="s")
     assert result.exit_code == EXIT_OK, result
     assert result.data["workitem"] == FIXTURE_WORKITEM_ID
@@ -238,8 +239,8 @@ def test_rung4_no_workitem_and_no_legacy_state_is_refused(bare_project):
 
 
 def test_rung5_two_workitems_and_no_flag_refuses_and_never_picks(bare_project):
-    create_wi(bare_project, "Wi A")
-    create_wi(bare_project, "Wi B")
+    create_wi_unbound(bare_project, "Wi A")
+    create_wi_unbound(bare_project, "Wi B")
 
     result = bare_project.run("init", session="s")
     assert result.exit_code == EXIT_REFUSED, result
@@ -288,7 +289,7 @@ def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project)
     runtime while the legacy one became simultaneously unbindable — rung 3
     needs *zero* WorkItems — and unmigratable, because `migrate-workflow`
     would then refuse `target_exists`."""
-    create_wi(bare_project, "Wi A")
+    create_wi_unbound(bare_project, "Wi A")
     legacy_state(bare_project)
 
     result = bare_project.run("--workitem", "wi-a", "init", session="s")
@@ -508,7 +509,7 @@ def test_n25_every_bound_runtime_command_names_a_workitem(bare_project):
     bound_commands = sorted(registered - sdle.RUNTIME_FREE_COMMANDS)
     assert bound_commands, "some command must still bind"
 
-    workitem = create_wi(bare_project, "Only One").data["id"]
+    workitem = create_wi(bare_project, "Only One")
     paths = sdle.resolve_paths(str(bare_project.root),
                                str(bare_project.skill_root))
     for command in bound_commands:

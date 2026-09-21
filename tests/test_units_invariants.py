@@ -86,7 +86,10 @@ WRITE_PRIMITIVE_COUNTS = {
     '.write_text(': 0,
     '.write_bytes(': 0,
     'os.replace': 3,
-    '.mkdir(': 7,
+    # 7 -> 8: `requirements bind` creates the WorkItem's runtime directory
+    # if it is not there yet, exactly as `governance assess` does — both
+    # write into the runtime before `init` exists.
+    '.mkdir(': 8,
 }
 
 COMMANDS = (

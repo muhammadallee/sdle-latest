@@ -1270,10 +1270,11 @@ def test_two_worktrees_drive_two_workitems_with_no_flag(
     """Contract §9 exit criterion: two developers on separate worktrees operate
     two different WorkItems with no shared SDLE state and no global lock."""
     bare_project.init_git()
-    # Each WorkItem binds in the worktree that drives it. Binding creates the
-    # runtime directory, and what this test asserts is that neither worktree
-    # writes into the other's WorkItem *in its own working directory*.
-    wi_a = create_wi(bare_project, "Alpha")
+    # Both are created unbound and committed, so the worktree below inherits
+    # neither runtime; each then binds in the worktree that drives it. Binding
+    # creates the runtime directory, and what this test asserts is that neither
+    # worktree writes into the other's WorkItem in its own working directory.
+    wi_a = create_wi_unbound(bare_project, "Alpha")
     wi_b = create_wi_unbound(bare_project, "Bravo")
     bare_project.git("add", "-A")
     bare_project.git("commit", "-q", "-m", "register workitems")
@@ -1286,6 +1287,8 @@ def test_two_worktrees_drive_two_workitems_with_no_flag(
     second = Project(second_root, bare_project.skill_root)
 
     monkeypatch.chdir(bare_project.root)
+    bare_project.as_workitem(wi_a).ok("requirements", "bind",
+                                      "--source", "requirements/todo-api.md")
     used_a = run_here(bare_project, "workitem", "use", "--workitem", wi_a)
     assert used_a.exit_code == EXIT_OK, used_a
     a_init = run_here(bare_project, "init", session="dev-a")
