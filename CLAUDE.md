@@ -122,7 +122,7 @@ The engine is cross-platform. Embedded commands in prompt files must be too — 
 | `README.md` | The product, end to end |
 | `CLAUDE.md` | This file — how to work on the repository |
 | `docs/GETTING-STARTED.md` | The one end-to-end setup guide: prerequisites, installing SDLE and Spec Kit, the first `start workflow` |
-| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-012 |
+| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-013 |
 | `docs/workitems/` | WorkItem identity, the registry, the resolution ladder, the retired `.workflow/` |
 | `docs/lifecycle/` | The phase registry, the five flows, gates and gate discipline |
 | `docs/risk-and-gates/` | How the required gate set is derived from governance, and the floors |

@@ -1,0 +1,54 @@
+## 1. Where I am wrong
+
+Ranked strongest first:
+
+1. Point 3 overclaims what the constitution and baseline preserve. The baseline schema has no requirements reference. Its references are limited to constitution, architecture, ADRs, and the discovery record; non-negotiables are merely IDs into discovery findings ([scripts/sdle.py:5770](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:5770>), [scripts/sdle.py:5793](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:5793>), [scripts/sdle.py:5911](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:5911>)). The constitution and design are derived artifacts, not a canonical home for raw product requirements. The current setup guide actually calls root requirements “your ground truth” ([docs/GETTING-STARTED.md:163](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/GETTING-STARTED.md:163>), [docs/GETTING-STARTED.md:301](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/GETTING-STARTED.md:301>)). Therefore A cannot be justified by saying durable product requirements already live elsewhere. They do not.
+
+2. Point 2 is materially wrong about both exceptional flows. `BROWNFIELD_DISCOVERY` is product-scoped: its declared purpose is to inspect the whole repository once and establish a baseline inherited by later WorkItems ([ADR-005:19](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/architecture/ADR-005-brownfield-discovery-and-baseline.md:19>), [ADR-005:24](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/architecture/ADR-005-brownfield-discovery-and-baseline.md:24>), [ADR-005:34](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/architecture/ADR-005-brownfield-discovery-and-baseline.md:34>)). Its phase reads both `requirements/` and the entire repository ([phase-execution.md:47](</D:/Learning/AI/sdle-git-repo/sdle-latest/.claude/skills/sdle/modules/phase-execution.md:47>)). It is carried by one WorkItem, but its subject is the product.
+
+   `GREENFIELD` also does not imply exactly one WorkItem. The engine restricts baseline presence only for `BROWNFIELD_DISCOVERY` and `ITERATIVE`; it does not refuse another `GREENFIELD` WorkItem ([scripts/sdle.py:6138](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:6138>)). More decisively, an isolation test completes two full default 18-phase runs sequentially in the same repository ([test_units_workitem_runtime.py:83](</D:/Learning/AI/sdle-git-repo/sdle-latest/tests/test_units_workitem_runtime.py:83>)); that helper records default governance and initializes the default flow ([test_integration_01_happy_path.py:50](</D:/Learning/AI/sdle-git-repo/sdle-latest/tests/test_integration_01_happy_path.py:50>)). “Exactly one” contradicts executable behavior.
+
+3. A assumes every requirement has exactly one WorkItem owner. That is unproven and clashes with the repository’s own shared-artifact rule: genuinely repository-wide artifacts may remain global, while WorkItem-specific artifacts must be attributable to their WorkItem. TR25 does not exempt requirements; it requires classifying them correctly rather than relocating everything aesthetically ([ADR-008:325](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md:325>)). A has no clean answer for a regulatory constraint, product-wide availability target, or common API invariant that intentionally governs several WorkItems. Putting it under the first WorkItem lies about ownership; copying it violates §10.
+
+4. “Four engine sites plus a `Paths` property” understates the change. The hooks classify both `workitems` and `requirements` as special roots, with different ownership explanations and a single `specs/` carve-out ([hooks.py:63](</D:/Learning/AI/sdle-git-repo/sdle-latest/.claude/hooks/hooks.py:63>), [hooks.py:92](</D:/Learning/AI/sdle-git-repo/sdle-latest/.claude/hooks/hooks.py:92>), [hooks.py:111](</D:/Learning/AI/sdle-git-repo/sdle-latest/.claude/hooks/hooks.py:111>)). A nested user-authored requirements directory would currently be reported as engine-owned `workitems/`, not as user ground truth.
+
+   More importantly, Gate 7 computes changes repository-wide from the pinned base ([scripts/sdle.py:9400](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:9400>)), while its exclusions do not exclude other WorkItems generally ([scripts/sdle.py:9374](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:9374>), [scripts/sdle.py:9481](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:9481>)). Merely moving requirements means another WorkItem’s requirements change can still enter A’s implementation manifest and security evidence. A fixes governance freshness but does not by itself complete WorkItem isolation.
+
+5. The argument against B’s overlap behavior is wrong. If two assessments intentionally consumed the same document, editing that document should stale both; that is dependency tracking, not accidental coupling. B’s real weakness is that assessment still selects the whole root directory ([scripts/sdle.py:4356](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:4356>)). It fixes later unrelated additions but not two unrelated documents already present when both WorkItems are assessed. B is incomplete, but not for the reason stated.
+
+6. The recent stabilization is not a reason to preserve a known false model. It is, however, a reason not to call A a four-site patch. The freshly established baseline is substantial—3,033 tests, three launcher lint runs, and Linux/Windows CI across Python 3.11 and 3.13 ([verification-matrix.md:13](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/dry-runs/verification-matrix.md:13>)). A layout change invalidates part of that setup replay and documentation evidence. It should be a bounded architecture iteration with a new verification matrix, not an opportunistic post-stabilization edit.
+
+## 2. Where I am right
+
+The demonstrated behavior is a real isolation defect. An unrelated file added for WorkItem B must not freeze WorkItem A merely because both happen to use the same directory. The existing test explicitly enshrines the opposite assumption—“a new document cannot slip past an assessment that never saw it”—without testing whether that document belongs to another WorkItem ([test_units_governance.py:1177](</D:/Learning/AI/sdle-git-repo/sdle-latest/tests/test_units_governance.py:1177>)).
+
+“No users” genuinely removes migration and compatibility as arguments. This is the right time to correct the model rather than fossilize the root layout.
+
+A is also directionally right for change requirements. `DEFECT_FIX` and `HOTFIX` read the requirements immediately before analyzing the affected code ([phase-execution.md:60](</D:/Learning/AI/sdle-git-repo/sdle-latest/.claude/skills/sdle/modules/phase-execution.md:60>)); `ITERATIVE` produces a WorkItem-owned specification. Those inputs naturally belong to the WorkItem.
+
+There is no engine-level chicken-and-egg problem. `start workflow` already creates the WorkItem before preflight, governance assessment, and `init` ([docs/GETTING-STARTED.md:359](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/GETTING-STARTED.md:359>)). The setup guide currently asks users to create root requirements beforehand and says `workitems/` must be absent ([docs/GETTING-STARTED.md:294](</D:/Learning/AI/sdle-git-repo/sdle-latest/docs/GETTING-STARTED.md:294>)), so A changes the interaction order, but it does not create a logical cycle. `infer_project_name` would simply run after the bound WorkItem’s requirements exist. Indeed, scoping it would stop one WorkItem from inheriting the heading of the alphabetically first unrelated document ([scripts/sdle.py:1572](</D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py:1572>)).
+
+Finally, B alone is not enough. Rehashing recorded paths fixes your exact temporal reproduction, but without explicit source selection it leaves pre-existing unrelated documents coupled.
+
+## 3. Your recommendation
+
+Choose C, but not “local takes precedence.” Use an explicit two-scope union: root `requirements/` means repository-wide requirements, `workitems/<id>/requirements/` means requirements owned by that WorkItem, and a WorkItem’s effective assessment input is the union of those two sets. Additions or edits in the local directory stale only that WorkItem; changes to the explicitly shared root set stale every WorkItem that depends on it. Record both source roots and exact source paths, so intentional sharing is visible rather than inferred from directory coincidence. This reflects the domain the repository already has: repository-wide baseline/discovery concerns and WorkItem-specific change specifications. A is the runner-up. The single fact that would flip me to A is an explicit product decision that raw repository-level requirements are not supported—that after WorkItem creation every requirement belongs to exactly one WorkItem and repository-wide truth exists only as constitution, baseline, discovery, and ADR artifacts.
+
+## 4. What you would verify before committing
+
+First settle the ontology with concrete examples: classify the sample greenfield document, a regulatory constraint, a product-wide SLO, a defect report, and an iterative feature request as shared or WorkItem-owned. If reasonable engineers cannot classify them consistently, neither A nor C is ready.
+
+Then prove these behaviors:
+
+- Two local requirement sets exist before either assessment; each record contains only its own local files plus shared files.
+- Adding, editing, or deleting B’s local file never changes A’s freshness.
+- Adding, editing, or deleting A’s local file stales A.
+- Changing an intentionally shared root requirement stales both.
+- Two WorkItems deliberately sharing one source both stale when it changes.
+- Two concurrent and two sequential `GREENFIELD` WorkItems remain supported.
+- `BROWNFIELD_DISCOVERY → ITERATIVE`, `DEFECT_FIX`, and `HOTFIX` consume the intended effective source set.
+- Fresh setup becomes: create WorkItem identity, place or select its requirements, preflight, assess, then initialize; project-name inference remains intentional.
+- Nested requirements receive the requirements-specific write-fence explanation and untrusted-content scan.
+- A requirement change belonging to another WorkItem cannot enter this WorkItem’s implementation manifest or security evidence.
+- Path traversal, symlinks, Windows case folding, deleted files, and malformed recorded paths fail closed.
+- The revised getting-started guide is replayed from an empty target, followed by the full suite, all launcher lint checks, and the same cross-platform CI matrix that `cb9a183` just established.
