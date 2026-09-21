@@ -23,9 +23,11 @@ flow comes from, and the baseline it leaves behind.
 
 ## 1. Before you start
 
-Set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes. You need a `requirements/` directory with at least one document in it. `init`
-refuses `requirements_missing` otherwise, and it refuses before it creates
-anything.
+Set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes. You need a
+`requirements/` directory with at least one document in it, and the WorkItem
+must **bind** the documents it is about (`requirements bind`). `init` refuses
+`requirements_unbound` if nothing was bound and `requirements_source_missing`
+if a bound document is not there, and it refuses before it creates anything.
 
 Requirements quality is not a formality here. Twelve structured checks are
 evaluated against what you wrote, and all twelve block — a FAIL on any of them
