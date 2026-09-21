@@ -2145,11 +2145,17 @@ def read_index(paths: Paths) -> list[dict[str, str]]:
     path = workitem_index_file(paths)
     if not path.is_file():
         return []
+    return parse_index(path.read_text(encoding="utf-8"), path)
 
-    lines = [
-        line for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+
+def parse_index(text: str, path: Path) -> list[dict[str, str]]:
+    """The registry table parser, over text rather than a file.
+
+    Separated from ``read_index`` so the registry as it stood at another commit
+    can be parsed by exactly the same rules (F-102). ``path`` names the file
+    only for the refusal message.
+    """
+    lines = [line for line in text.splitlines() if line.strip()]
     if not lines or lines[0].strip() != INDEX_HEADING:
         raise _index_malformed(path, f"first line must be '{INDEX_HEADING}'")
     if len(lines) < 3:
@@ -9371,8 +9377,70 @@ def run_tests(paths: Paths, timeout: int,
     }
 
 
-def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
-    """Path prefixes that are engine bookkeeping, never implementation.
+@dataclass(frozen=True)
+class Exclusions:
+    """What is engine bookkeeping rather than implementation, frozen once.
+
+    Two kinds, because they are matched differently and conflating them was a
+    defect: ``files`` are exact paths compared with equality, ``prefixes`` are
+    directories compared with ``startswith``. Matching an exact path as a
+    prefix silently hid its siblings — ``workitems/index.md`` also hid
+    ``workitems/index.md.backup``.
+
+    Frozen and passed by value because both evidence commands need the *same*
+    answer: `security-review evidence` selects changes and then renders a diff,
+    and re-deriving between the two let a registry write land in the middle and
+    give the two halves different boundaries.
+    """
+
+    files: tuple[str, ...]
+    prefixes: tuple[str, ...]
+
+    def hides(self, path: str) -> bool:
+        return path in self.files or path.startswith(self.prefixes)
+
+    def pathspecs(self) -> list[str]:
+        """Git exclusions for the same set.
+
+        ``literal`` is load-bearing: without it a registry cell containing a
+        glob character would be interpreted by git while Python compared it
+        literally, and the change list and the rendered diff would disagree.
+        """
+        return [f":(exclude,literal){item}" for item in
+                (*self.files, *(prefix.rstrip("/") for prefix in self.prefixes))]
+
+
+def registry_ids_at(paths: Paths, ref: str) -> set[str]:
+    """Well-formed WorkItem ids in the registry as it stood at ``ref``.
+
+    Absent is empty, matching `read_index`'s contract for an absent file: a
+    base commit predating the registry is an ordinary history, not a fault.
+    Unparseable is an integrity failure rather than a silent fallback — either
+    fallback (this registry only, or exclude everything) yields evidence that
+    looks trustworthy and is not.
+    """
+    relative = workitem_index_file(paths).relative_to(
+        paths.project_root).as_posix()
+    code, text = git(paths, "show", f"{ref}:{relative}")
+    if code != 0:
+        return set()
+    try:
+        rows = parse_index(text, workitem_index_file(paths))
+    except IntegrityError as exc:
+        raise IntegrityError(
+            "index_malformed_at_base",
+            f"The WorkItem registry as it stood at the pinned implementation "
+            f"base {ref} cannot be parsed ({exc.message}), so which WorkItems "
+            "existed then cannot be established, and the implementation change "
+            "set cannot be trusted to be this WorkItem's.",
+            {"base_ref": ref, "path": relative},
+        ) from None
+    return {row["WorkItem"].strip() for row in rows
+            if workitem_id_wellformed(row.get("WorkItem", "").strip())}
+
+
+def implementation_exclusions(paths: Paths, state: dict) -> Exclusions:
+    """Paths that are engine bookkeeping, never implementation.
 
     One list for both consumers of the implementation change set — Gate 7's
     manifest and the security-review evidence — so they cannot disagree about
@@ -9407,6 +9475,14 @@ def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
     during implementation no longer surfaces here; its controls are the write
     fence and `validate`, which is where a registry edit is a governance
     question rather than an implementation one.
+
+    The owning ids are the union of the registry **now** and the registry at
+    the pinned base. Reading only the current one reproduced the defect in
+    reverse: delete a WorkItem's row and directory during an implementation and
+    every one of its deletions is reported as this WorkItem's work, with the
+    registry change that would have explained it hidden by the rule above. A
+    row whose id is not well formed is given no directory to own, so a
+    malformed cell cannot hide a tree.
     """
     excluded = [
         paths.runtime_relative + "/",       # this WorkItem's runtime
@@ -9418,13 +9494,18 @@ def implementation_exclusions(paths: Paths, state: dict) -> list[str]:
         excluded.append(feature_directory.rstrip("/") + "/")
 
     root = workitems_root(paths).relative_to(paths.project_root).as_posix()
-    excluded.append(
-        workitem_index_file(paths).relative_to(paths.project_root).as_posix())
-    for row in read_index(paths):
-        other = (row.get("WorkItem") or "").strip()
-        if other and other != paths.workitem:
-            excluded.append(f"{root}/{other}/")
-    return excluded
+    owning = {row["WorkItem"].strip() for row in read_index(paths)
+              if workitem_id_wellformed(row.get("WorkItem", "").strip())}
+    base = state.get("implementation_base_ref")
+    if base and git_available(paths):
+        owning |= registry_ids_at(paths, base)
+    excluded += [f"{root}/{other}/" for other in sorted(owning)
+                 if other != paths.workitem]
+    return Exclusions(
+        files=(workitem_index_file(paths)
+               .relative_to(paths.project_root).as_posix(),),
+        prefixes=tuple(excluded),
+    )
 
 
 def _nul_fields(text: str) -> list[str]:
@@ -9517,7 +9598,27 @@ def implementation_changes(paths: Paths, state: dict) -> list[dict]:
     for path in sorted(changes):
         entry = changes[path]
         normal = path.replace("\\", "/")
-        if any(normal.startswith(prefix) for prefix in excluded):
+        old = (entry.get("old_path") or "").replace("\\", "/")
+        # A rename has two sides and either may be excluded. Filtering on the
+        # destination alone dropped the whole entry, so moving application code
+        # *into* another WorkItem's tree erased the fact that it left `src/` —
+        # a silent omission of a deletion, which is the failure this exclusion
+        # exists to prevent. Each side is projected on its own:
+        #
+        #   visible  -> visible    R old -> new
+        #   visible  -> excluded   D old   (it went somewhere out of scope)
+        #   excluded -> visible    A new   (it arrived from out of scope)
+        #   excluded -> excluded   omitted
+        if entry.get("status") == "R" and old:
+            hidden_old, hidden_new = excluded.hides(old), excluded.hides(normal)
+            if hidden_old and hidden_new:
+                continue
+            if hidden_new:
+                entry = {**entry, "path": old, "status": "D", "old_path": None}
+                normal = old
+            elif hidden_old:
+                entry = {**entry, "status": "A", "old_path": None}
+        elif excluded.hides(normal):
             continue
         entry["path"] = normal
         entry.setdefault("untracked", False)
@@ -9709,8 +9810,7 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
     # The diff is taken with the selector's own exclusions as a pathspec, so
     # it covers exactly the tracked entries of `changes` without passing every
     # path on the command line.
-    excludes = [f":(exclude){prefix.rstrip('/')}"
-                for prefix in implementation_exclusions(paths, state)]
+    excludes = implementation_exclusions(paths, state).pathspecs()
     _, stat = git(paths, "diff", "--stat", "-M", base, "--", ".", *excludes)
     _, diff = git(paths, "diff", "-M", base, "--", ".", *excludes)
     # No diff shows an untracked file. They are listed so the review reads

@@ -16,6 +16,8 @@ the manifest and `security-review evidence` consume it.
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from conftest import FIXTURE_WORKITEM_ID, PASSING_TEST_COMMAND
@@ -308,3 +310,131 @@ def test_f102_the_registry_itself_is_excluded(git_project):
     files = build(mine(git_project)).data["files"]
 
     assert "workitems/index.md" not in files, files
+
+
+# -- review round 2: the boundary cases the first fix got wrong ---------------
+
+
+def test_f102_a_sibling_of_the_registry_is_not_hidden_by_it(git_project):
+    """`workitems/index.md` is an exact path, not a prefix. Matching it with
+    `startswith` also hid `workitems/index.md.backup`."""
+    at_implement(git_project)
+    (git_project.root / "workitems" / "index.md.backup").write_text(
+        "a copy someone made\n" + "x\n" * 30, encoding="utf-8", newline="\n")
+
+    files = build(git_project).data["files"]
+
+    assert "workitems/index.md.backup" in files, files
+
+
+def test_f102_a_deregistered_workitem_does_not_become_this_ones_work(git_project):
+    """The exclusion is the union of the registry now and at the pinned base.
+    Reading only the current registry reproduced the defect in reverse: delete
+    a WorkItem during an implementation and all of its deletions are reported
+    as this WorkItem's work."""
+    at_implement(git_project)
+    foreign = second_workitem_activity(git_project)
+    other = foreign[0].split("/")[1]
+    view = mine(git_project)
+    view.git("add", "-A")
+    view.git("commit", "-q", "-m", "second workitem exists")
+    view.ok("implement", "preflight", "--bypass")   # re-pin with B present
+
+    shutil.rmtree(git_project.root / "workitems" / other)
+    index = git_project.root / "workitems" / "index.md"
+    index.write_text(
+        "\n".join(line for line in index.read_text("utf-8").splitlines()
+                  if other not in line) + "\n",
+        encoding="utf-8", newline="\n")
+
+    files = build(mine(git_project)).data["files"]
+
+    leaked = [f for f in files if f.startswith(f"workitems/{other}/")]
+    assert leaked == [], (
+        "a deregistered WorkItem's deletions are reported as this WorkItem's "
+        f"implementation: {leaked}")
+
+
+def test_f102_a_malformed_registry_id_cannot_hide_a_tree_from_the_diff(
+        git_project):
+    """A structurally valid row whose cell is not an id owns no directory.
+
+    The Python filter compares prefixes literally, so a glob in a cell never
+    bit there — it bit in the git pathspec, where `:(exclude)workitems/*`
+    removed every WorkItem tree from the reviewer's diff, including files the
+    change list still listed. Asserted on the diff for that reason.
+    """
+    at_implement(git_project)
+    index = git_project.root / "workitems" / "index.md"
+    row = "| 2026-09-21 | * | feature | Bad | - |\n"
+    index.write_text(index.read_text("utf-8").rstrip("\n") + "\n" + row,
+                     encoding="utf-8", newline="\n")
+    stray = git_project.root / "workitems" / "kept-visible"
+    stray.mkdir()
+    (stray / "note.md").write_text("visible to the reviewer\n" + "x\n" * 30,
+                                   encoding="utf-8", newline="\n")
+    git_project.git("add", "-A")
+    git_project.git("commit", "-q", "-m", "a row that is not an id")
+
+    evidence = git_project.ok("security-review", "evidence").data
+
+    assert "workitems/kept-visible/note.md" in evidence["diff"], evidence["diff"][:400]
+    assert "workitems/kept-visible/note.md" in [
+        c["path"] for c in evidence["changes"]]
+
+
+@pytest.mark.parametrize("destination, expect_status, expect_path", [
+    ("src/moved.py", "R", "src/moved.py"),
+    (None, "D", "src/rename_me.py"),          # into another WorkItem's tree
+])
+def test_f102_a_rename_is_projected_by_both_of_its_sides(
+        git_project, destination, expect_status, expect_path):
+    """Filtering a rename on its destination alone erased the fact that the
+    file left `src/`. Each side is projected on its own."""
+    at_implement(git_project)
+    foreign = second_workitem_activity(git_project)
+    other = foreign[0].split("/")[1]
+    target = destination or f"workitems/{other}/adopted.py"
+    view = mine(git_project)
+    (git_project.root / target).parent.mkdir(parents=True, exist_ok=True)
+    view.git("mv", "src/rename_me.py", target)
+
+    changes = {c["path"]: c for c in build(view).data["changes"]}
+
+    assert expect_path in changes, changes
+    assert changes[expect_path]["status"] == expect_status, changes[expect_path]
+    if expect_status == "D":
+        assert target not in changes, "the destination is out of scope"
+
+
+def test_f102_a_tracked_foreign_record_is_absent_from_stat_and_diff(git_project):
+    """The security consumer renders a diff as well as selecting changes, and
+    the contract is that the diff covers exactly the selection. The foreign
+    records are committed here so a pathspec error cannot hide behind them
+    being untracked."""
+    at_implement(git_project)
+    foreign = second_workitem_activity(git_project)
+    other = foreign[0].split("/")[1]
+    view = mine(git_project)
+    view.git("add", "-A")
+    view.git("commit", "-q", "-m", "second workitem records")
+    git_project.write_artifact("src/edit_me.py", IMPLEMENTATION)
+
+    evidence = view.ok("security-review", "evidence").data
+
+    assert other not in evidence["stat"], evidence["stat"]
+    assert other not in evidence["diff"], evidence["diff"][:400]
+    assert "src/edit_me.py" in evidence["diff"]
+
+
+def test_f102_the_bound_workitems_own_non_runtime_files_stay_visible(git_project):
+    """Non-vacuity for the narrow exclusion: a blanket `workitems/` prefix
+    would pass every other test here and silently hide this."""
+    at_implement(git_project)
+    own = git_project.runtime.parent / "notes.md"
+    own.write_text("my own note\n" + "x\n" * 30, encoding="utf-8", newline="\n")
+
+    files = build(git_project).data["files"]
+
+    relative = own.relative_to(git_project.root).as_posix()
+    assert relative in files, files

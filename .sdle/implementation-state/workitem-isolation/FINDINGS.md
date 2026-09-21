@@ -173,3 +173,33 @@ and is not proposed here.
 
 **Neither is written yet.** Until the owner chooses, the documentation keeps its current wording, which
 is now wrong only about application code and which this finding records as wrong.
+
+---
+
+## F-102 — independent review, and what it changed
+
+Reviewed by Codex (`codex exec`, read-only) against the first fix, then one round of discussion. Six
+findings, **all accepted**; no disagreement survived the round. Packet and both outputs are beside this
+file (`review-f102*.md`).
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | high | Exclusions read only the *current* registry, so deleting a WorkItem's row and directory during an implementation reported every one of its deletions as this WorkItem's work — the same leak in reverse, with the registry change that would explain it hidden by the rule below | **Accepted.** Owning ids are the union of the registry now and at the pinned base |
+| 2 | medium | `workitems/index.md` was appended to a list matched with `startswith`, so it also hid `workitems/index.md.backup` | **Accepted.** Exact files and directory prefixes are now separate kinds, matched by equality and by prefix |
+| 3 | medium | A rename was filtered on its destination alone, so moving application code *into* an excluded tree erased the fact that it left `src/` | **Accepted**, and shipped here rather than deferred: my change widened the excluded set, so it converts visible evidence into a silent omission. Four-way projection |
+| 4 | medium | Registry cells reached git pathspecs unquoted, so a row whose id was `*` became a glob in git while Python compared it literally — the change list and the rendered diff then disagreed | **Accepted.** `:(exclude,literal)`, and a row whose id is not well formed owns no directory |
+| 5 | medium | `security-review evidence` derived the exclusions twice, so a registry write between the two gave selection and diff different boundaries | **Accepted.** One frozen `Exclusions` per command |
+| 6 | low | The non-vacuity test wrote `src/keep.py`, not a file under the bound WorkItem's tree, so a blanket `workitems/` exclusion would have passed it; the security test never asserted over `stat`/`diff` and its foreign records were untracked | **Accepted.** Both closed |
+
+I proposed deferring finding 3 and was argued out of it, correctly: before the fix the rename was a
+noisy-but-present `R` entry, and after it the entry vanished, so shipping without it would have been a
+regression I introduced.
+
+**One test of my own was vacuous and the review's own reasoning caught it.** My first test for finding 4
+asserted on the manifest, where a glob never bites, because the Python filter compares literally. It
+passed on the unfixed engine. Rewritten to assert on the security-review diff, where the glob actually
+corrupted the pathspec; it now fails on the parent and passes on the fix.
+
+Every regression test was run against the parent commit to confirm it fails there. Three of the six
+round-2 tests do; the other three are non-vacuity and regression guards and are labelled as such rather
+than presented as defect demonstrations.
