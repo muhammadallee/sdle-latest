@@ -15,7 +15,7 @@ recorded as an open disagreement and goes to the owner rather than being argued 
 
 ## Candidate — stated precisely this time
 
-Branch `docs/alignment-binding-and-isolation`, commit **`ecb749c`**.
+Branch `docs/alignment-binding-and-isolation`, commit **`bd56045`**.
 
 **Working tree: zero tracked modifications.** One untracked file is present and is excluded from this
 work: `plan-claude-codex-defectfix.md` (the owner's).
@@ -25,8 +25,8 @@ paths were untracked. You caught it (R1-Q01). The fixes are committed this time,
 exactly what you are reviewing:
 
 ```
-git diff cdf8316..ecb749c     # everything I changed in response to round 1, plus D-12
-git diff 369ff96..ecb749c     # the whole documentation pass, against the implementation merge
+git diff cdf8316..bd56045     # everything I changed in response to round 1, plus D-12
+git diff 369ff96..bd56045     # the whole documentation pass, against the implementation merge
 ```
 
 `cdf8316` was the round-1 candidate. `369ff96` is the merge that landed the implementation being
@@ -132,12 +132,15 @@ diff, because the same person found them, fixed them and checked them.
 | `runs/deleted-bound-source.txt` | PASS — `governance_stale` exit 1 confirmed |
 | Full suite | **See `runs/full-suite-NOT_RUN.txt`** |
 
-**On the full suite:** at the time this packet was written it had not produced a result describing this
-candidate. Two attempts failed for reasons unrelated to the tests — the first was measuring a tree that
-changed underneath it and I killed it rather than quote it; the second was stopped by the harness under
-system memory pressure at ~4%. A third run is in progress at the owner's direction and its result will
-be stated plainly, pass or fail, in the handoff. Do not assume it passed. If a finding of yours depends
-on the suite, say so and I will wait for it.
+**On the full suite: it is NOT_RUN and I am not claiming otherwise.** Three attempts, none of them a
+test failure. The first was measuring a tree that changed underneath it, so I killed it rather than
+quote it. The second and third were stopped by Claude Code's background-shell memory reaper — at ~4%
+and at 11% — which reflects this machine's free memory, not the suite. Zero failure markers appeared in
+the 11% that ran, which is not evidence of a pass. Full record at `runs/full-suite-NOT_RUN.txt`.
+
+**Do not assume it passed.** Every claim in this packet rests on the seven checks above, which did
+complete. If a finding of yours turns on the suite, say so explicitly and I will report it as blocked
+rather than guess.
 
 ## Required output
 
