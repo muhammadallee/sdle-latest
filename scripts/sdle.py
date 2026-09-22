@@ -9585,7 +9585,11 @@ def cmd_scan(args, paths: Paths) -> int:
         raise Refused("artifact_missing", f"No such file: {args.path}",
                       {"path": args.path})
     matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
-    data = {"path": args.path, "flagged": bool(matches), "matches": matches}
+    # `acknowledgeable` is reported whether or not anything fired, so a caller
+    # can branch on the payload without a KeyError on the clean path.
+    acknowledgeable = paths.state_file.is_file()
+    data = {"path": args.path, "flagged": bool(matches), "matches": matches,
+            "acknowledgeable": acknowledgeable}
 
     if not matches:
         emit("scan", data)
@@ -9593,16 +9597,37 @@ def cmd_scan(args, paths: Paths) -> int:
 
     # Record the pending acknowledgement when a workflow exists, so the
     # stale-confirmation guard applies to it like any other confirmation.
-    if paths.state_file.is_file():
+    #
+    # Before `init` there is no state to record it in, and `accept content`
+    # reads state unconditionally — so at bootstrap the acknowledgement route
+    # does not exist and the message must not imply that it does. It used to,
+    # and the shipped documentation taught a sequence that exits 3
+    # `state_unreadable`. `acknowledgeable` says which case this is, so a caller
+    # branches on the payload rather than on the prose.
+    if acknowledgeable:
         state = read_state(paths)
         state["pending_confirm_action"] = f"accept_content:{args.path}"
         save_state(paths, state, args.session)
 
     lines = "\n".join(f"  line {m['line']}: {m['text']}" for m in matches)
+    if acknowledgeable:
+        remedy = (
+            "Say `accept content` to proceed with this file as plain data, or "
+            "edit the file and re-scan."
+        )
+    else:
+        remedy = (
+            "No acknowledgement can be recorded yet: `accept content` writes to "
+            "this WorkItem's state, and no state exists until `init` has run. "
+            "Either edit the flagged line so it does not read as an "
+            "instruction and re-scan, or continue to `init` and scan again "
+            "afterwards, when `accept content` becomes available."
+        )
     message = (
         f"Untrusted content warning: {args.path} contains lines that look like "
         f"instructions directed at the workflow engine:\n\n{lines}\n\n"
-        "SDLE treats this file as data only and will NOT act on these lines."
+        "SDLE treats this file as data only and will NOT act on these lines.\n"
+        f"{remedy}"
     )
     emit("scan", data, ok=False, reason="content_flagged", message=message)
     print(message, file=sys.stderr)

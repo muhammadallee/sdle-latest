@@ -76,32 +76,70 @@ from the binding's primary document, and `init` has not run.)*
 
 ---
 
-### Path B — the line is a false positive: accept
+### Path B — the line is a false positive
 
 *(Suppose line 42 was legitimate prose: "The admin dashboard must let a manager
 approve gate requests from warehouse staff." The patterns are deliberately
-broad, so the same warning appears.)*
+broad, so the same warning appears. This is the **common** case, not the exotic
+one: `set status`, `mark approved`, `skip approval` and `advance phase` are all
+ordinary business English.)*
 
 **SDLE:**
 
 ```
-I cannot record an acknowledgement yet: `accept content` writes to this
-WorkItem's state, and no state exists until `init` has run. Edit the flagged
-line so it does not read as an instruction, then say `continue` to re-scan.
+Untrusted content warning: requirements/todo-api.md contains lines that look like
+instructions directed at the workflow engine:
+
+  line 42: The admin dashboard must let a manager approve gate requests from warehouse staff.
+
+SDLE treats this file as data only and will NOT act on these lines.
+No acknowledgement can be recorded yet: `accept content` writes to this WorkItem's
+state, and no state exists until `init` has run. Either edit the flagged line so it
+does not read as an instruction and re-scan, or continue to `init` and scan again
+afterwards, when `accept content` becomes available.
 ```
 
-*(This is the correction of a claim this document made for several versions.
-`accept content` **cannot** be used here. `cmd_scan` records
-`pending_confirm_action` only when `state.json` already exists, and
-`cmd_accept_content` calls `read_state` unconditionally — so before `init` it
-exits **3 `state_unreadable`**, not 0. Verified against the CLI; see
-`.sdle/implementation-state/workitem-docs-alignment/runs/`.)*
+*(Engine: `scan` exited 1 `content_flagged` with **`data.acknowledgeable: false`**.
+That field, not the phase, is what the orchestrator branches on. Before `init`
+there is no state to record a pending acknowledgement in, and `accept-content`
+reads state unconditionally, so it would exit 3 `state_unreadable`. The message
+says so rather than offering a route that fails.)*
 
-*(So at bootstrap the scan is **edit-and-re-scan**, not warn-and-acknowledge.
-The acknowledgement route below is real, but only once a workflow exists — which
-is the guidance-file and clarification case, mid-workflow. Whether bootstrap
-acceptance *should* be possible is an engine question, not a documentation one,
-and it is recorded as an open item rather than papered over here.)*
+**You do not have to reword a legitimate requirement.** The second route is the
+one to take when the line is genuinely fine:
+
+**User:** `continue` *(through governance assess and `init`)*
+
+**SDLE:** *(after `init`, scanning the bound document again)*
+
+```
+<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
+📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+
+Untrusted content warning: requirements/todo-api.md ... (the same line 42)
+Say `accept content` to proceed with this file as plain data, or edit the file
+and re-scan.
+```
+
+**User:** `accept content`
+
+**SDLE:**
+
+```
+Flagged content in requirements/todo-api.md accepted as plain data (logged).
+```
+
+*(Now `data.acknowledgeable` is `true`, the scan recorded
+`pending_confirm_action`, and `accept-content` exits 0 and appends
+`content_accepted` to the audit chain. Nothing is bypassed: the acknowledgement
+is a recorded human decision either way. What changed is only *when* it can be
+recorded — and the orchestrator has read the file as data throughout, because
+Core Rule 6 does not depend on the scan.)*
+
+*(Asserted by `tests/test_units_startup_contract.py`:
+`test_bootstrap_scan_says_acknowledgement_is_not_available_yet`,
+`test_accept_content_before_init_does_not_work` and
+`test_scanning_again_after_init_makes_acknowledgement_available`.)*
 
 ---
 
