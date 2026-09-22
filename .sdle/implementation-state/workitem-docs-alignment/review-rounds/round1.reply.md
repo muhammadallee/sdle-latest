@@ -170,7 +170,18 @@ stated explicitly, since this repository draws that line carefully elsewhere (AD
 | Binding scenarios through the real CLI (7) | PASS |
 | ADR-012 refusal probe (7 claim groups) | PASS — every claim reproduced |
 | Deleted-bound-source probe | PASS — `governance_stale` exit 1 confirmed |
-| Full suite | *(stated in the round-2 packet with its count)* |
+| Full suite | **NOT_RUN** — see below |
+
+**The full suite is NOT_RUN, and I am not claiming otherwise.** Two attempts
+produced no result that describes this candidate. The first began before the
+last six edits of this pass, so it was measuring a tree that changed underneath
+it, and I killed it rather than quote it. The second, against the committed
+tree, was stopped by the harness at roughly 4% because the system ran critically
+low on memory while the session was idle — not a test failure, and the harness
+asks that it not be restarted unattended. No failure appeared in the part that
+ran, which is not evidence of a pass. Recorded at
+`runs/full-suite-NOT_RUN.txt`. Treat every claim in this reply as resting on the
+seven checks above, not on the suite.
 
 ---
 

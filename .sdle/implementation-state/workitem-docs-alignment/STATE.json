@@ -3,13 +3,13 @@
   "branch": "docs/alignment-binding-and-isolation",
   "baseline_sha": "369ff96336e0f068833ec1a77ecdf7b18c3e94c2",
   "baseline_branch_point": "main",
-  "current_sha": "cdf8316",
-  "candidate_is_commit_plus_worktree": true,
+  "current_sha": "b83cf4a",
+  "candidate_is_commit_plus_worktree": false,
   "preexisting_untracked_not_ours": [
     "plan-claude-codex-defectfix.md"
   ],
   "phase": "P5",
-  "phase_status": "round_1_fixes_implemented_reply_pending",
+  "phase_status": "round_1_fixes_committed; reply drafted; full suite NOT_RUN",
   "completed_phases": [
     "P0",
     "P1",
@@ -26,7 +26,9 @@
     "D-05",
     "D-06",
     "D-07",
-    "D-09"
+    "D-09",
+    "D-10",
+    "D-11"
   ],
   "runtime_defects_found": [],
   "review_rounds": {
@@ -37,13 +39,15 @@
       "accepted": 8,
       "partially_accepted": 0,
       "disputed": 0,
-      "status": "fixes implemented; reply to Codex pending"
+      "status": "fixes committed at b83cf4a; reply drafted at review-rounds/round1.reply.md; not yet sent"
     },
     "round_2": "not_started"
   },
   "open_disagreements": [],
-  "blockers": [],
-  "next_action": "Send the round-1 reply to Codex asking for closure, then run round 2.",
+  "blockers": [
+    "Full suite NOT_RUN. The harness asks that it not be restarted unattended after a memory-pressure stop. Needs the user's go-ahead."
+  ],
+  "next_action": "Ask the user whether to re-run the full suite, then send the round-1 reply and run round 2.",
   "verification": {
     "lint_skill": "PASS",
     "dry_run_contracts": "PASS (118)",
@@ -52,6 +56,6 @@
     "binding_scenarios": "PASS (7)",
     "adr012_refusal_probe": "PASS (6/6 Codex claims confirmed)",
     "deleted_bound_source_probe": "PASS (D-09 confirmed)",
-    "full_suite": "running"
+    "full_suite": "NOT_RUN - stopped by the harness at ~4% for system memory pressure while idle; not a test failure; see runs/full-suite-NOT_RUN.txt"
   }
 }
