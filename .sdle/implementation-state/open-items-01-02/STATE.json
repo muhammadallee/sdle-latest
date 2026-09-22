@@ -6,14 +6,17 @@
   "current_sha": "27c3be0",
   "scope_note": "Unlike the alignment pass, this IS authorised to change engine behaviour and test design - the owner asked for these two items to be fixed.",
   "phase": "review",
-  "phase_status": "implemented; round 1 packet pending",
+  "phase_status": "implemented; round 1 ATTEMPTED and killed by the harness memory reaper",
   "review_rounds": {
-    "round_1": "not_started",
+    "round_1": "attempted at candidate 70f169e; the Codex process was stopped by Claude Code's background-shell memory reaper before it emitted a response. No output file was produced. Not a review failure and not a finding - nothing was learned either way.",
     "round_2": "not_started"
   },
   "open_disagreements": [],
-  "blockers": [],
-  "next_action": "Freeze candidate, run Codex round 1.",
+  "blockers": [
+    "Round 1 has not produced a review. The harness asks that a reaped command not be restarted unattended. Needs the owner: re-run in the background, re-run in the FOREGROUND (not subject to the reaper, blocks the session), or restart Claude Code with CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1.",
+    "The full suite has not run on this candidate; it runs on CI at push, and the branch is not pushed."
+  ],
+  "next_action": "Ask the owner how to re-run round 1, and whether to push for CI.",
   "verification": {
     "lint_skill": "PASS",
     "startup_contract": "PASS (14 new tests)",
