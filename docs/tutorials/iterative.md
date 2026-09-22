@@ -56,13 +56,19 @@ Between `workitem create` and `preflight` the WorkItem declares which requiremen
 documents it concerns. Skipping it makes `preflight` refuse `requirements_unbound`:
 
 ```
-$ sdle.sh --workitem low-stock-alerts requirements bind --source requirements/low-stock-alerts.md
+$ sdle.sh --workitem low-stock-alerts requirements bind \
+    --source requirements/low-stock-alerts.md \
+    --source requirements/reservations.md \
+    --primary requirements/low-stock-alerts.md
 {
   "ok": true,
   "command": "requirements bind",
   "data": {
     "workitem": "low-stock-alerts",
-    "sources": ["requirements/low-stock-alerts.md"],
+    "sources": [
+      "requirements/low-stock-alerts.md",
+      "requirements/reservations.md"
+    ],
     "primary": "requirements/low-stock-alerts.md",
     "rebound": false
   }
@@ -70,8 +76,11 @@ $ sdle.sh --workitem low-stock-alerts requirements bind --source requirements/lo
 --- exit 0 ---
 ```
 
-`--primary` is inferred because exactly one document is bound; binding several
-requires naming it. A document in `requirements/` that this WorkItem does not
+Two documents, because the alerting work genuinely answers to the reservation
+rules as well: an alert that ignores reserved stock is wrong. Binding more than
+one **requires** `--primary` — the engine refuses `requirements_primary_required`
+rather than choosing, and the primary's first `#` heading becomes the project
+name. Bind one document and `--primary` is inferred instead. A document in `requirements/` that this WorkItem does not
 bind governs nothing here. See
 [ADR-012](../architecture/ADR-012-requirements-source-binding.md).
 
@@ -190,8 +199,8 @@ $ sdle.sh init
     "active_context": "low-stock-alerts",
     "execution_id": "sdl-20260908T101230Z",
     "requirements": [
-      "low-stock-alerts.md",
-      "reservations.md"
+      "requirements/low-stock-alerts.md",
+      "requirements/reservations.md"
     ],
     "current_phase": "spec_draft",
     "status": "pending",
@@ -225,7 +234,7 @@ one never bound it. Before ADR-012 the digest covered the whole directory, so an
 new document refused every in-flight WorkItem's next advance.
 
 Three distinct facts can make an assessment stale, and `governance show` names
-which: a bound document changed, the binding itself changed (`rebound`), or the
+which: a bound document changed, the bound source set changed (`rebound`), or the
 record predates the binding (`assessed_without_a_binding`). The remedy differs —
 restore the document, or re-assess, or bind and then re-assess. See
 [ADR-012](../architecture/ADR-012-requirements-source-binding.md) and
@@ -500,9 +509,7 @@ $ sdle.sh init
     "active_context": "movement-archival",
     "execution_id": "sdl-20260908T103200Z",
     "requirements": [
-      "low-stock-alerts.md",
-      "movement-archival.md",
-      "reservations.md"
+      "requirements/movement-archival.md"
     ],
     "current_phase": "spec_draft",
     "status": "pending",

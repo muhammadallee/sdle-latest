@@ -34,7 +34,7 @@ a failing regression test that reproduces the defect. The executable form uses
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/14 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
 WorkItem created: login-reset-defect, bound to requirements/login-reset-defect.md. Preflight passed.
 Content scan passed.

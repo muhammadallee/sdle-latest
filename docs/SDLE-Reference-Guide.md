@@ -311,9 +311,9 @@ repository-global `.sdle/`, `.specify/`, its Spec Kit feature directory, every
 records are therefore already invisible here (F-102).
 
 What remains shared is the repository-level set — `requirements/`, `design/`,
-`reviews/` and `clarifications/` are deliberately kept *in*, because they are
-real inputs and outputs of an implementation, and git cannot attribute them to a
-WorkItem. So during that window no other WorkItem should be writing to those
+`reviews/`, `clarifications/` and `guidance/` are deliberately kept *in*,
+because they are real inputs and outputs of an implementation, and git cannot
+attribute them to a WorkItem. So during that window no other WorkItem should be writing to those
 paths in the same working directory, whatever phase it is in: a second WorkItem
 generating a design into `design/` contaminates the first one's evidence as
 surely as one writing code.
@@ -1042,14 +1042,19 @@ SDLE's audit trail can support a compliance review; it does not, by itself, cons
 ```
 User: start workflow
 
-SDLE: <!-- SDLE_STATE phase=requirements_check status=in_progress progress=1/18 -->
-      📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+SDLE: (No status header: `init` has not run, so no state exists to assert.)
 
-      Found requirements/feature.md (2.1 KB). Inferred project name: "Order
-      Tracking Service".
+      Bound to requirements/feature.md (2.1 KB). Preflight and scan passed.
+      I'll now assess governance and initialise. Shall I proceed?
 
-      Requirements look good. I'll now generate the project constitution.
-      Shall I proceed?
+User: yes
+
+SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
+      📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+
+      Project name: "Order Tracking Service", from the primary document's
+      heading. `requirements_check` completed during `init`; this is the first
+      phase a header can report.
 
 User: yes
 

@@ -40,7 +40,7 @@ nothing to discover (`Project.record_discovery` in `tests/conftest.py`).
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/19 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
 WorkItem created: reporting-export. Preflight passed.
 

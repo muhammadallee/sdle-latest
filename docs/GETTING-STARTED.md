@@ -391,8 +391,14 @@ A repository can hold many WorkItems, and their records never interact. One rule
 applies while they are **implementing**:
 
 > While one WorkItem is between `implement preflight` and the end of its
-> security review, no other WorkItem should be writing in that same working
-> directory at all.
+> security review, no other WorkItem should be writing to a **non-excluded**
+> path in that same working directory.
+
+In practice the simple rule — nobody else writes here during that window — is
+the one to follow, because judging "is this path excluded?" while working is how
+mistakes happen. The precise rule is the one above, and the difference matters
+in exactly one case: another WorkItem writing **inside its own
+`workitems/<its-id>/` tree** is excluded and genuinely harmless.
 
 The rule is about the evidence, not the phase the other WorkItem happens to be
 in. The implementation change set is a diff of the working tree against a pinned
@@ -402,11 +408,11 @@ whole tree** and the registry file. Everything else counts.
 
 So a second WorkItem working inside `workitems/<its-id>/` is invisible here —
 that much is solved. What is not excluded is the repository-level set:
-`requirements/`, `design/`, `reviews/` and `clarifications/` are deliberately
-kept in, because they are real inputs and outputs of an implementation. A second
-WorkItem generating a design into `design/` or saving a clarification therefore
-lands in the first one's Gate 7 manifest and security-review diff just as code
-would.
+`requirements/`, `design/`, `reviews/`, `clarifications/` and `guidance/` are
+deliberately kept in, because they are real inputs and outputs of an
+implementation. A second WorkItem generating a design into `design/`, saving a
+clarification or dropping a file into `guidance/` therefore lands in the first
+one's Gate 7 manifest and security-review diff just as code would.
 
 `implement preflight` pins the commit your implementation is measured from, and
 everything after it — the Gate 7 manifest, the secrets scan, the security-review

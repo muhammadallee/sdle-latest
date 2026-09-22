@@ -8,7 +8,7 @@
 | **Defect IDs** | D05 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6, the version the install command pins |
 | **Starting conditions** | Each part starts from an independent fresh project (no WorkItem runtime), and varies by what is missing |
-| **Guardrails exercised** | The supported bootstrap order (identity → preflight → scan → governance → `init`), `preflight`'s prerequisite checks, the fail-safe rule, and the tested SpecKit command |
+| **Guardrails exercised** | The supported bootstrap order (identity → **bind** → preflight → scan → governance → `init`), `preflight`'s prerequisite checks, the fail-safe rule, and the tested SpecKit command |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
 > It was written from the skill files and the engine's real messages; the
@@ -85,11 +85,22 @@ SpecKit v1.0.6. The form earlier versions of this document gave,
 After the user runs it, `start workflow` proceeds:)*
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
 Preflight passed. This WorkItem is bound to:
   • requirements/todo-api.md (2.4 KB)
 ```
+
+*(After `governance assess` and `init`, the first header a real run can show:)*
+
+```
+<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
+📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+```
+
+*(Not `1/18 — Requirements Check`. `init` completes `requirements_check` within
+itself and persists the flow's first generation phase, so no state ever holds
+phase 1 and no header can report it.)*
 
 ---
 
@@ -134,7 +145,12 @@ bound document is indistinguishable, to the record, from rewriting it. The way
 out is to restore the document, or to re-bind and re-assess against what the
 WorkItem is actually about now. It is **not** true that the approved constitution
 and specification let the run continue without the requirements: the governance
-record is checked on every advance, whatever phase it is in.*
+record is checked on every **otherwise-valid** phase transition, at whatever
+phase it is in. Structural refusals still win first — an `advance --to` naming a
+phase out of order refuses `forward_jump`, and an unapproved gate refuses
+`gate_not_approved`, both before `governance_precondition` runs. So the halt you
+see depends on what else is wrong; what you will never get is an advance that
+succeeds.*
 
 *A file deleted from `requirements/` that this WorkItem never bound changes
 nothing — only bound documents are hashed.)*
@@ -146,8 +162,12 @@ nothing — only bound documents are hashed.)*
 - Parts 1–3 halt **before** `state.json` exists. Nothing is initialised, so
   there is nothing to clean up after a false start. The WorkItem identity
   created in Part 1 stays registered and is reused on the next `start workflow`.
-- Preflight's check order is SpecKit installed, then skills discoverable, then
-  requirements present. Each failure names the exact command or action.
+- Preflight's `reason` names the first problem that stops it: SpecKit installed,
+  then skills discoverable, then `requirements_unbound`, then
+  `requirements_source_missing`. `data.problems` lists **all** of them, so a
+  caller that wants the whole picture reads that rather than fixing one thing to
+  learn about the next. A malformed binding pre-empts the order entirely at
+  exit 3.
 
 ## Negative cases
 

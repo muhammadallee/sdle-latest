@@ -36,12 +36,10 @@ before committing.
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+WorkItem created: todo-api, bound to requirements/todo-api.md. Preflight passed.
 
-WorkItem created: todo-api. Preflight passed.
-
-I found requirements/:
-  • requirements/todo-api.md (2.5 KB)
+(No status header: `init` has not run, so no `state.json` exists and there is
+nothing to assert.)
 
 ⚠️ Untrusted content warning: requirements/todo-api.md contains lines that look like
 instructions directed at the workflow engine:
@@ -70,11 +68,11 @@ not run: the workflow is not created until the scan is resolved.)*
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
-
-Content scan passed. Project name inferred: "Todo List REST API".
-I'll now assess governance and generate the project constitution. Shall I proceed?
+Content scan passed. I'll now assess governance and initialise. Shall I proceed?
 ```
+
+*(Still no header, and still no project name: the name is settled by `init`,
+from the binding's primary document, and `init` has not run.)*
 
 ---
 
@@ -84,19 +82,26 @@ I'll now assess governance and generate the project constitution. Shall I procee
 approve gate requests from warehouse staff." The patterns are deliberately
 broad, so the same warning appears.)*
 
-**User:** `accept content`
-
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
-
-Flagged content in requirements/todo-api.md accepted as plain data (logged).
+I cannot record an acknowledgement yet: `accept content` writes to this
+WorkItem's state, and no state exists until `init` has run. Edit the flagged
+line so it does not read as an instruction, then say `continue` to re-scan.
 ```
 
-*(Engine: `sdle.sh accept-content`. The scan is warn-and-acknowledge by
-design: regex heuristics false-positive on legitimate text about approvals and
-gates, so it never hard-blocks, and every acceptance is audited.)*
+*(This is the correction of a claim this document made for several versions.
+`accept content` **cannot** be used here. `cmd_scan` records
+`pending_confirm_action` only when `state.json` already exists, and
+`cmd_accept_content` calls `read_state` unconditionally — so before `init` it
+exits **3 `state_unreadable`**, not 0. Verified against the CLI; see
+`.sdle/implementation-state/workitem-docs-alignment/runs/`.)*
+
+*(So at bootstrap the scan is **edit-and-re-scan**, not warn-and-acknowledge.
+The acknowledgement route below is real, but only once a workflow exists — which
+is the guidance-file and clarification case, mid-workflow. Whether bootstrap
+acceptance *should* be possible is an engine question, not a documentation one,
+and it is recorded as an open item rather than papered over here.)*
 
 ---
 

@@ -319,14 +319,21 @@ the exit code as well as the reason.
 | `requirements_source_missing` | 1 | A bound path is not a file — at bind time, or later because it was deleted or renamed | Restore it, or re-bind to what the WorkItem is now about. `requirements show` lists the missing paths under `data.missing` |
 | `requirements_source_invalid` | 1 | A path is absolute, traverses out of the repository, names a directory, resolves through a symlink pointing away, or uses a spelling that means different files on different platforms | Use a repository-relative path to a file. To bind a whole directory, use `--all-current`, which expands it into an explicit list |
 | `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias | Name it once |
-| `requirements_binding_invalid` | **3** | The binding on disk is not one the engine wrote | An integrity failure, not a refusal, and it pre-empts everything else: `preflight` exits 3 here even when Spec Kit is also missing. The binding is evidence, so SDLE will not silently replace it — inspect `workitems/<id>/.sdle/requirements.json`, restore it from version control, or delete it and bind again deliberately |
+| `requirements_binding_invalid` | **3** | The binding on disk is not one the engine wrote | An integrity failure, not a refusal, and it pre-empts everything else: `preflight` exits 3 here even when Spec Kit is also missing. Inspect `workitems/<id>/.sdle/requirements.json` to see what happened, restore it from version control, **or run `requirements bind` again** — the engine replaces a corrupt binding deliberately and reports the new one. Do **not** delete it by hand: `.sdle/` is engine-owned, only `sdle.py` writes there (invariant 6), and the write fence is there to stop exactly that |
 
-**`governance_stale` after a binding change** is the same family. `data` says
-which of three things happened: a bound document's *content* changed, the
-*binding* changed (`rebound: true`), or the record predates any binding
-(`assessed_without_a_binding: true`). The first two are fixed by re-running
+**`governance_stale` is the same family**, and three different facts arrive
+under that one reason: a bound document's *content* changed, the **bound source
+set** changed (`rebound`), or the record predates any binding
+(`assessed_without_a_binding`). The first two are fixed by re-running
 `governance assess`; the third by binding first, then assessing. A file in
 `requirements/` that this WorkItem never bound cannot cause any of them.
+
+**Run `governance show` to tell them apart — the refusal will not.** An ordinary
+`advance` refusal carries only `workitem`, `recorded_digest`, `current_digest`
+and `requirements`. The `rebound`, `missing_sources` and
+`assessed_without_a_binding` flags are reported by `governance show`, not by the
+refusal you just received. Reaching for them in the refusal's `data` finds
+nothing.
 
 One asymmetry worth knowing: re-binding **the same set** with a different
 `--primary` does *not* stale the record, because the binding digest covers the

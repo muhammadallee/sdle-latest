@@ -41,9 +41,11 @@ argument-hint: "[--verbose]"
    registered and never initialised, or was `reset`. This is **not** a new
    workflow and step 3 must not run — `workitem create` would refuse
    `workitem_exists`. Say which WorkItem resolved, run
-   `sdle.sh --workitem <id> requirements show` to report what it has bound
-   (exit 1 `requirements_unbound` means nothing), then pick up at the binding
-   paragraph in step 3 and continue through steps 4 and 5 with that id.
+   `sdle.sh --workitem <id> requirements show` to report what it has bound.
+   It **exits 0 either way**: branch on `data.bound`, which is `false` with an
+   empty `sources` when nothing is bound. It does not refuse. Then pick up at
+   the binding paragraph in step 3 and continue through steps 4 and 5 with that
+   id.
 3. Otherwise this is a new workflow, and identity comes before initialisation.
    Ask `WorkItem name?` and run
    `sdle.sh workitem create --name "<what the user typed>"`.
@@ -57,8 +59,10 @@ argument-hint: "[--verbose]"
      repaired by hand; SDLE never rewrites it.
    Then bind the documents this WorkItem is about. **Which documents those are
    is the user's decision, not yours** — list what is under `requirements/`,
-   ask which of them this WorkItem is about, and offer `all of them` as one of
-   the answers. Never bind a set the user did not choose: an unbound document
+   ask which of them this WorkItem is about, and offer both `all of them` and
+   *another path in this repository* as answers. A bound source may be **any**
+   file in the repository; `requirements/` is only where `--all-current` looks,
+   so do not present that directory as the limit of what can be bound. Never bind a set the user did not choose: an unbound document
    governs nothing, so binding the wrong set silently drops constraints or
    silently imports someone else's. Then run
    `sdle.sh --workitem <id> requirements bind --source <path>` (repeatable),

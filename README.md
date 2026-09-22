@@ -451,7 +451,7 @@ is an error, because the baseline can no longer be checked against anything.
 ```
 User: start workflow
 
-SDLE: 📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+SDLE: (no status header yet — `init` has not run)
 
       I found requirements/:
         • requirements/feature.md (2.1 KB)

@@ -18,9 +18,10 @@ shapes are refused by name, and this tutorial drives all six.
 The worked example is a small on-call duty roster service: shifts, assignments,
 swap requests, and a read API answering "who is on duty now".
 
-None of the knobs below change how a WorkItem begins. It is still `workitem
-create`, then `requirements bind --source <path>` (or `--all-current`), then
-`governance assess`, then `init` — the binding is not policy-configurable, and
+None of the knobs below change how a WorkItem begins. The sequence is
+`workitem create` → `requirements bind --source <path>` (or `--all-current`) →
+`requirements show` → `preflight` → `scan --path <each bound document>` →
+`governance assess` → `init`. None of those steps is policy-configurable, and
 there is no override that makes `requirements_unbound` go away.
 [greenfield.md](greenfield.md) walks those steps; this tutorial picks up at the
 assessment.

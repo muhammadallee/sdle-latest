@@ -40,7 +40,10 @@ separate clone.
 doing.** Its boundary is the evidence, not the phase name: while a WorkItem is
 between `implement preflight` and the end of its security review, anything
 another WorkItem writes in that directory to a path the exclusion does not cover
-lands in the first WorkItem's manifest and diff.
+lands in the first WorkItem's manifest and diff. Writes **inside** another
+registered WorkItem's own tree are excluded and are genuinely harmless; the
+working rule below is deliberately stricter than that, because deciding
+path-by-path while you work is how the mistake gets made.
 
 What the exclusion covers, read from `implementation_exclusions` in
 `scripts/sdle.py`:
@@ -52,16 +55,17 @@ What the exclusion covers, read from `implementation_exclusions` in
 | Spec Kit's tree, `.specify/` | `design/` |
 | This WorkItem's Spec Kit feature directory | `reviews/` |
 | **Every other WorkItem's whole tree**, `workitems/<other>/` (F-102) | `clarifications/` |
-| The registry file, `workitems/index.md` | Application code, which is the point |
+| The registry file, `workitems/index.md` | `guidance/` |
+| | Application code, which is the point |
 
 So a second WorkItem working *inside its own directory* is invisible to the
 first one's evidence — that is what F-102 fixed. What is still shared is the
-repository-level set on the right: `requirements/`, `design/`, `reviews/` and
-`clarifications/` are deliberately kept in, because they are genuine
-implementation inputs and outputs and dropping them would hide real work. A
-second WorkItem generating a design into `design/`, saving a clarification or
-recording a review therefore lands in the first one's manifest and diff just as
-an implementation would.
+repository-level set on the right: `requirements/`, `design/`, `reviews/`,
+`clarifications/` and `guidance/` are deliberately kept in, because they are
+genuine implementation inputs and outputs and dropping them would hide real
+work. A second WorkItem generating a design into `design/`, saving a
+clarification, dropping a file into `guidance/` or recording a review therefore
+lands in the first one's manifest and diff just as an implementation would.
 
 **There are two path lists and they disagree on purpose.** This is the detail
 that makes the behaviour above look inconsistent until you know it:
@@ -139,7 +143,11 @@ boundary — see §7.
 
 ## 3. Isolation
 
-Two WorkItems share nothing. Concretely:
+**Two WorkItems share no *records*.** That is the precise claim, and the word
+"records" is load-bearing: everything listed below is per WorkItem, while the
+repository-level directories in §1 — `requirements/`, `design/`, `reviews/`,
+`clarifications/`, `guidance/` — are shared by every WorkItem in the checkout
+and are *not* isolated by anything. Concretely, what is isolated:
 
 - separate `state.json`, so a phase advance in one does not move the other;
 - separate `audit.md`, each verifying independently — neither chain contains the

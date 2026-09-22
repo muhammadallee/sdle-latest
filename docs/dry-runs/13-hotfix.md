@@ -34,7 +34,7 @@ incident. The executable form assesses the same governance input,
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/10 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
 WorkItem created: checkout-500, bound to requirements/checkout-500.md. Preflight passed.
 Content scan passed.

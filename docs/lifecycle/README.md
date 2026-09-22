@@ -70,7 +70,14 @@ Every gate is reported with one of exactly three dispositions: `required`,
 
 ### Gate discipline
 
-- No phase advances past a gate without an explicit human `approve`.
+- No phase advances past a gate without an explicit **recorded decision**: a
+  human `approve` where the gate is `required`, or `gate omit` where the policy
+  leaves it `omittable`. There is no third way past, and nothing advances by
+  silence or by timeout. An omission is recorded as `omitted_by_policy` with the
+  rule that permitted it, and the completion summary reports `false` for "all
+  gates approved" when any gate was passed that way — so the two are never
+  confused after the fact. `gate omit` on a `required` gate refuses
+  `gate_required`.
 - **No forward jumps.** `advance` moves exactly one step along the bound flow.
 - **Gate content is displayed in conversation.** The user approves what they can
   see; they are never asked to open a file.

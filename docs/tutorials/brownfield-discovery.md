@@ -26,7 +26,8 @@ modules, one behavioural test, and one accepted ADR.
 ```
 inventory-api/
 ├── README.md
-├── requirements.txt
+├── requirements.txt                          ← Python dependencies, not SDLE's
+├── requirements/stock-reservations.md        ← what you write before starting
 ├── docs/adr/0001-movements-not-levels.md
 ├── src/inventory/{__init__,app,stock,models,db}.py
 └── tests/test_stock.py
@@ -37,7 +38,15 @@ level by summing them, because a stored level is a cache that fails silently.
 Remember that document — the flow finds it on its own, at the end.
 
 The new requirement is stock reservations: hold a quantity of a SKU for an
-order, without writing a movement.
+order, without writing a movement. You write that up as
+`requirements/stock-reservations.md` before anything below runs; it is the
+document the WorkItem binds in §2, and without it the bind refuses
+`requirements_source_missing`.
+
+> Note the two unrelated names. `requirements.txt` is pip's dependency file and
+> SDLE never reads it. `requirements/` is the conventional home for the
+> documents a WorkItem binds. Neither is derived from the other, and a bound
+> source may in fact be any file in the repository.
 
 ---
 
@@ -115,9 +124,6 @@ $ sdle.sh --workitem stock-reservations requirements bind --source requirements/
 requires naming it. A document in `requirements/` that this WorkItem does not
 bind governs nothing here. See
 [ADR-012](../architecture/ADR-012-requirements-source-binding.md).
-
-```
-```
 
 The governance input differs from a greenfield one in exactly one field —
 `classification.flow` — plus a more honest risk assessment, because
@@ -200,7 +206,7 @@ $ sdle.sh init
     "active_context": "stock-reservations",
     "execution_id": "sdl-20260908T034417Z",
     "requirements": [
-      "reservations.md"
+      "requirements/stock-reservations.md"
     ],
     "current_phase": "discovery",
     "status": "pending",

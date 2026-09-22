@@ -256,7 +256,7 @@ $ sdle.sh init
     "active_context": "link-shortener",
     "execution_id": "sdl-20260908T041037Z",
     "requirements": [
-      "link-shortener.md"
+      "requirements/link-shortener.md"
     ],
     "current_phase": "constitution_draft",
     "status": "pending",

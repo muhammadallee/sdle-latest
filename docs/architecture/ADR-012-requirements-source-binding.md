@@ -159,7 +159,7 @@ conflates them.
 | `requirements_source_invalid` | 1 | A path is absolute, traverses out, names a directory, resolves through a symlink out of the tree, or uses a spelling that means different files on different platforms (a `:` stream, a trailing dot or space) |
 | `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias |
 | `requirements_binding_invalid` | 3 | The binding on disk is not one the engine wrote: it does not parse, declares an unreadable version, carries a non-string or duplicate source, names a primary it does not bind, belongs to another WorkItem, or does not match its own digest. An integrity failure rather than a refusal, because the file is evidence rather than input |
-| `governance_stale` | 1 | A bound document changed, was renamed or was deleted after the assessment; or the binding itself changed; or the record predates any binding. `governance show` reports which |
+| `governance_stale` | 1 | A bound document changed, was renamed or was deleted after the assessment; or the bound **source set** changed (`rebound` — see the §5 table for what does *not* count); or the record predates any binding. The refusal carries only the two digests; `governance show` is what reports which |
 
 `--all-current` is how a directory becomes an exact file list; a directory named with `--source` is
 refused.

@@ -153,7 +153,7 @@ $ sdle.sh init --project "Cross warehouse disclosure"
     "active_context": "cross-warehouse-disclosure",
     "execution_id": "sdl-20260908T101625Z",
     "requirements": [
-      "cross-warehouse-disclosure.md"
+      "requirements/cross-warehouse-disclosure.md"
     ],
     "current_phase": "impact_analysis",
     "status": "pending",

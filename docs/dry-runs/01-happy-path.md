@@ -58,7 +58,7 @@ first.)*
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+(No status header yet: `init` has not run, so there is no state to assert.)
 
 WorkItem created: todo-api.
 Preflight passed: SpecKit found, skills discovered (speckit-), requirements found.

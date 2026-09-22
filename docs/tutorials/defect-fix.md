@@ -193,7 +193,7 @@ $ sdle.sh init --project "Movement order"
     "active_context": "movement-order",
     "execution_id": "sdl-20260908T101548Z",
     "requirements": [
-      "movement-order.md"
+      "requirements/movement-order.md"
     ],
     "current_phase": "impact_analysis",
     "status": "pending",
