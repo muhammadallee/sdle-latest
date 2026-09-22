@@ -1,0 +1,19 @@
+{
+  "task": "documentation alignment — WorkItem binding, isolation and setup",
+  "branch": "docs/alignment-binding-and-isolation",
+  "baseline_sha": "369ff96336e0f068833ec1a77ecdf7b18c3e94c2",
+  "baseline_branch_point": "main",
+  "current_sha": "369ff96336e0f068833ec1a77ecdf7b18c3e94c2",
+  "preexisting_untracked": ["plan-claude-codex-defectfix.md"],
+  "phase": "P1",
+  "phase_status": "planned",
+  "completed_phases": [],
+  "drift_open": ["D-01", "D-02", "D-03", "D-04", "D-05", "D-06", "D-07"],
+  "drift_closed": [],
+  "runtime_defects_found": [],
+  "review_rounds": {"round_1": "not_started", "round_2": "not_started"},
+  "open_disagreements": [],
+  "blockers": [],
+  "next_action": "Implement P1: iterative tutorial freshness text, --primary CLI help, ADR-012 refusal table.",
+  "verification": "not_started"
+}
