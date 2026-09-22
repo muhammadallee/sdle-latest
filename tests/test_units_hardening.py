@@ -711,6 +711,8 @@ def worktree_pair(bare_project, tmp_path):
     bare_project.init_git()
     a_id = bare_project.ok("workitem", "create", "--name", "Alpha").data["id"]
     b_id = bare_project.ok("workitem", "create", "--name", "Bravo").data["id"]
+    # ADR-012: each WorkItem declares its requirement documents before it runs.
+    bare_project.as_workitem(a_id).ok("requirements", "bind", "--source", "requirements/todo-api.md")
     bare_project.git("add", "-A")
     bare_project.git("commit", "-q", "-m", "register workitems")
 
@@ -721,6 +723,8 @@ def worktree_pair(bare_project, tmp_path):
 
     a = Project(bare_project.root, bare_project.skill_root, a_id, pin=True)
     b = Project(second_root, bare_project.skill_root, b_id, pin=True)
+    # B binds in its own worktree, so neither writes into the other's tree.
+    b.ok("requirements", "bind", "--source", "requirements/todo-api.md")
     return a, b
 
 
@@ -848,6 +852,7 @@ def test_t11_n2_a_full_run_moves_no_byte_of_another_workitems_sdle(
     git_project.ok("workitem", "create", "--name", "Wi B")
     a = git_project.as_workitem(FIXTURE_WORKITEM_ID)
     b = git_project.as_workitem("wi-b")
+    b.ok("requirements", "bind", "--source", "requirements/todo-api.md")
 
     # Give B a runtime that exercises the later phases' artifacts.
     b.record_governance()

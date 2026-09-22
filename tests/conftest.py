@@ -403,6 +403,33 @@ def bare_project(tmp_path: Path) -> Project:
     return Project(root, skill_root)
 
 
+
+def create_wi(project: "Project", name: str) -> str:
+    """Register a WorkItem, bind the fixture requirements, return its id.
+
+    One copy, shared: six modules each had their own, and after ADR-012 added a
+    step between `workitem create` and `preflight` all six needed the same edit.
+
+    The binding is part of what makes a WorkItem ready to start, so it belongs
+    here. A test that wants the *unbound* state calls `workitem create`
+    directly, which is what `test_09_a_workitem_that_never_bound_halts` does.
+    """
+    workitem = create_wi_unbound(project, name)
+    project.as_workitem(workitem).ok(
+        "requirements", "bind", "--source", "requirements/todo-api.md")
+    return workitem
+
+
+def create_wi_unbound(project: "Project", name: str) -> str:
+    """Register a WorkItem and nothing else.
+
+    `requirements bind` creates the WorkItem's runtime directory, exactly as
+    `governance assess` does. A test that observes whether `.sdle/` exists —
+    the resolution ladder's do, because directory presence is one of the
+    signals it reads — has to create without it.
+    """
+    return project.ok("workitem", "create", "--name", name).data["id"]
+
 @pytest.fixture
 def project(bare_project: Project) -> Project:
     """A scratch project with exactly one registered WorkItem.
@@ -414,6 +441,13 @@ def project(bare_project: Project) -> Project:
     """
     bare_project.ok("workitem", "create", "--name", FIXTURE_WORKITEM_NAME)
     bare_project.workitem = FIXTURE_WORKITEM_ID
+    # ADR-012: a WorkItem declares the requirement documents it is about, and
+    # every consumer from `preflight` onwards reads that binding. The real
+    # lifecycle binds between `workitem create` and `preflight`, so the fixture
+    # does too; tests that exercise the binding itself start from
+    # `bare_project` and bind explicitly.
+    bare_project.ok("requirements", "bind",
+                    "--source", "requirements/todo-api.md")
     return bare_project
 
 

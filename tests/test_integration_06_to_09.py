@@ -476,21 +476,33 @@ def test_08_a_pending_reset_is_cancelled_by_any_other_command(project):
 # ===========================================================================
 
 
-def test_09_no_requirements_directory_halts(project):
+def test_09_a_bound_document_that_is_gone_halts(project):
+    """ADR-012 renamed what this asserts. `requirements_missing` meant "that
+    directory is empty", which was never the question a user needed answered;
+    the refusal now names the document this WorkItem said it was about."""
     import shutil
     shutil.rmtree(project.root / "requirements")
 
     result = project.run("preflight")
     assert result.exit_code == EXIT_REFUSED
-    assert result.reason == "requirements_missing"
+    assert result.reason == "requirements_source_missing"
     assert not project.state_file.exists(), "nothing is initialised on a false start"
 
 
-def test_09_empty_requirements_directory_halts(project):
+def test_09_an_emptied_requirements_directory_halts(project):
     for path in (project.root / "requirements").iterdir():
         path.unlink()
     result = project.run("preflight")
-    assert result.reason == "requirements_missing"
+    assert result.reason == "requirements_source_missing"
+
+
+def test_09_a_workitem_that_never_bound_halts(bare_project):
+    """The other half of the split: nothing is missing, the step was skipped."""
+    bare_project.ok("workitem", "create", "--name", "Unbound")
+    result = bare_project.run("preflight")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "requirements_unbound", result
+    assert "requirements bind" in result.envelope["message"]
 
 
 def test_09_missing_speckit_halts_first(project):
@@ -518,7 +530,9 @@ def test_09_undiscoverable_skills_halt(project):
 def test_09_healthy_project_passes_preflight(project):
     result = project.ok("preflight")
     assert result.data["speckit_present"] is True
-    assert result.data["requirements"] == ["todo-api.md"]
+    # ADR-012: the bound documents, by their repository-relative path, not
+    # the bare names of whatever sat in a directory.
+    assert result.data["requirements"] == ["requirements/todo-api.md"]
     assert result.data["python_version"].startswith("3.")
 
 

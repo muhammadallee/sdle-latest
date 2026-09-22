@@ -261,6 +261,7 @@ def test_preflight_in_a_repository_with_no_workitem_asks_for_one_first(
     assert result.reason == "workitem_required", result
 
     bare_project.ok("workitem", "create", "--name", "Todo API")
+    bare_project.ok("--workitem", "todo-api", "requirements", "bind", "--source", "requirements/todo-api.md")
     assert bare_project.ok("--workitem", "todo-api", "preflight").data[
         "problems"] == []
 

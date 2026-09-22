@@ -509,7 +509,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 1 — Requirements Check (`requirements_check`)
 
-**What it does:** Validates that a `requirements/` directory exists and contains at least one document; runs the Untrusted Content Scan on each file (flagging instruction-like lines directed at the orchestrator, which require an explicit `accept content` acknowledgement); infers a project name from it.
+**What it does:** Validates that this WorkItem has bound its requirement documents (`requirements_unbound` otherwise) and that each bound document is present (`requirements_source_missing`); runs the Untrusted Content Scan on each bound file (flagging instruction-like lines directed at the orchestrator, which require an explicit `accept content` acknowledgement); infers a project name from it.
 
 **Why it matters:** This is the only phase whose input is guaranteed to be human-authored, unmediated by the AI. Every subsequent artifact ultimately traces back to this one.
 

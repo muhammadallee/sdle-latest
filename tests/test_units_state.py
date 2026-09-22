@@ -45,7 +45,7 @@ def test_init_refuses_without_requirements(project):
         path.unlink()
     result = project.run("init")
     assert result.exit_code == EXIT_REFUSED
-    assert result.reason == "requirements_missing"
+    assert result.reason == "requirements_source_missing"
     assert not project.state_file.exists(), "nothing is written on a refused bootstrap"
 
 

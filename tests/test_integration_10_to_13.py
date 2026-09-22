@@ -193,6 +193,7 @@ def test_11_brownfield_then_iterative_reuses_the_baseline_without_rewriting_it(
 
     git_project.ok("workitem", "create", "--name", "Export CSV")
     second = git_project.as_workitem("export-csv")
+    second.ok("requirements", "bind", "--source", "requirements/todo-api.md")
     seen = drive(second, "ITERATIVE")
 
     assert seen[-1] == "complete"

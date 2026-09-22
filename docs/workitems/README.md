@@ -14,8 +14,31 @@ the unit SDLE runs: a phase, a flow, a gate ledger and an audit chain all belong
 to a WorkItem, never to the repository.
 
 The runtime is **WorkItem-scoped**, and that is the only runtime there is. A
-repository can carry as many WorkItems as you like, concurrently, on the same
-branch or on different ones, and they do not interact.
+repository can carry as many WorkItems as you like, and their **records** never
+interact: state, audit, evidence, locks and identity are per WorkItem, and one
+WorkItem's records are excluded from another's Gate 7 manifest and security
+evidence.
+
+**Give each WorkItem its own branch or Git worktree while it is implementing.**
+That is a real constraint, not advice. From `implement preflight` — which pins
+the commit the work is measured from — until the security review is complete,
+SDLE measures the implementation as a diff of the working tree against that
+commit. Git cannot say which WorkItem wrote a given line of application code, so
+two WorkItems implementing in one checkout put each other's code into each
+other's manifest, secrets scan and security-review diff. A reviewer would then
+be approving changes that belong to a gate they are not standing at.
+
+Outside that window there is no such constraint: any number of WorkItems can sit
+at any other phase in one checkout without interacting.
+
+```bash
+git worktree add ../feature-b -b feature-b
+cd ../feature-b          # drive WorkItem B here; A keeps its own checkout
+```
+
+The resolution ladder is built for this — each worktree resolves its own
+WorkItem with no `--workitem` flag — and two worktrees driving two WorkItems to
+completion with independent ledgers is covered by the suite.
 
 ---
 

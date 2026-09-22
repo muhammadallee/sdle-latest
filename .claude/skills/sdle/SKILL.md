@@ -274,7 +274,9 @@ Run these in order. Each is one script call; each refusal halts the turn.
 
 For a **new workflow** (no state file), **the identity comes first, then preflight**: create the WorkItem as described under *Identity comes before initialisation* below, then run **`sdle.sh --workitem <id> preflight`** — the global `--workitem` goes before the subcommand. `preflight` resolves a WorkItem like every runtime command, so in a repository with none registered it refuses `workitem_required` before checking anything else; that refusal means "create the identity first", not "stop". Once bound, it refuses with the exact message to show when SpecKit is missing, its skills are undiscoverable, or `requirements/` is absent or empty. Nothing is initialised on a refusal.
 
-Then scan each requirements file (`sdle.sh scan --path <file>`) before doing anything with it, and if `guidance/*.md` files exist, list them and invite the user to edit before starting.
+**Bind the requirement documents before `preflight`.** A WorkItem declares which documents it is about: `sdle.sh --workitem <id> requirements bind --source <path>` (repeatable), or `--all-current` to take every document under `requirements/` exactly as it stands. A document nobody binds governs nothing and can never make another WorkItem's assessment stale, which is how one `requirements/` directory serves several WorkItems. `preflight` refuses `requirements_unbound` if this was skipped, and `requirements_source_missing` if a bound document is not there. **Show the user what was bound** — `requirements show` reports it — before writing the governance proposal: a binding that can be forgotten has to be visible, and a document left out is a constraint that silently did not apply.
+
+Then scan each **bound** document (`sdle.sh scan --path <file>`) before doing anything with it, and if `guidance/*.md` files exist, list them and invite the user to edit before starting.
 
 **Identity comes before initialisation.** Ask `WorkItem name?` and run **`sdle.sh workitem create --name "<what the user typed>"`** before `init`. The engine normalises the name to kebab-case and writes an immutable identity — `workitems/<id>/workitem.json` plus a row in the append-only `workitems/index.md`. Only if the user explicitly says `auto generate` do you infer a concise name yourself and add `--auto-generate`. On exit 1 `workitem_exists`, ask `Resume existing WorkItem? or Provide another name?` — never invent a suffix. On exit 3 `index_malformed`, show the message and stop; the registry is repaired by hand and never rewritten by SDLE. Keep the id the command returns and pass it to `init` as `--workitem <id>`. A **resume** (state file already present) never asks for a WorkItem name.
 
@@ -284,7 +286,7 @@ Three refusals follow from it, and each is final:
 
 - `governance_missing` — the WorkItem has no record. Run `governance assess`.
 - `governance_blocked` — a blocking requirements-quality check is `FAIL`. Fix the requirements and re-assess. Do not argue the finding away.
-- `governance_stale` — `requirements/` changed after the assessment. Re-assess.
+- `governance_stale` — a **bound** requirement document changed, was renamed or was deleted after the assessment, or the binding itself changed, or the record predates the binding. `data` says which. Re-assess (after `requirements bind`, when it is the last of those).
 - `gate_required` — `gate omit` was asked for a gate the policy requires approved. Show the reasons in the payload and ask for a decision.
 - `gate_omission_invalidated` — a recorded omission is no longer permitted. Approve that gate, or `restart` to it and decide again.
 
@@ -398,7 +400,7 @@ Approval is never delegated. Human approval gates stay in this conversation, and
 | A generation step produced nothing usable | `sdle.sh artifact record` refuses. Offer `retry` or `skip with warning`. Status is already frozen at `failed`. |
 | Retry or remediation limit reached | The refusal message names the options. Raise a limit with `sdle.sh limit set`, or reset a counter with `sdle.sh limit reset` — both audited. Never hand-edit state. |
 | `state.json` unreadable | Exit 3. Offer `reset workflow` (artifacts are preserved) or inspection. |
-| `requirements/` deleted mid-workflow | Warn, continue. The constitution and spec already captured it. |
+| A bound requirement document deleted mid-workflow | Refused: `governance_stale`, naming the document. The assessment rests on it, so it is restored or the WorkItem re-binds and re-assesses. |
 | Git not initialized | Drift diffs, staleness and the dirty-tree guard degrade gracefully. Note it in the security review. |
 | `phase_history` ≥ 10 entries | Suggest `/clear` between phases once — SDLE reloads from state on the next turn. |
 

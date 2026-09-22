@@ -24,7 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SDLE_PY, Project, sdle, searchable_files
+from conftest import (SDLE_PY, Project, create_wi, create_wi_unbound,
+                      sdle, searchable_files)
 from test_integration_01_happy_path import EXPECTED_TRAVERSAL, run_happy_path
 from test_units_artifact_review import review_for_gate
 
@@ -107,9 +108,7 @@ def sha_map(root: Path, skip: tuple[str, ...] = (".git",)) -> dict[str, str]:
     return out
 
 
-def create_wi(project: Project, name: str) -> str:
-    project.ok("workitem", "create", "--name", name)
-    return project.run("workitem", "list").data["workitems"][-1]["id"]
+
 
 
 def policy_file(project: Project) -> Path:
@@ -727,8 +726,18 @@ def test_governance_show_reports_the_record_and_its_freshness(project):
     assert shown.data["record"] == record_of(project)
     assert shown.data["recorded_digest"] == shown.data["current_digest"]
 
+    # ADR-012: a document this WorkItem never bound is not part of its
+    # assessment, so it cannot move its freshness.
     (project.root / "requirements" / "extra.md").write_text(
         "# Extra\n", encoding="utf-8", newline="\n")
+    unrelated = project.ok("governance", "show")
+    assert unrelated.data["fresh"] is True
+    assert unrelated.data["recorded_digest"] == unrelated.data["current_digest"]
+
+    # Editing a document it *did* bind still does.
+    bound = project.root / "requirements" / "todo-api.md"
+    bound.write_text(bound.read_text("utf-8") + "\n## Added later\n",
+                     encoding="utf-8", newline="\n")
     stale = project.ok("governance", "show")
     assert stale.data["fresh"] is False
     assert stale.data["recorded_digest"] != stale.data["current_digest"]
@@ -1174,22 +1183,45 @@ def test_editing_a_requirement_after_the_assessment_is_stale(project):
     assert project.state()["current_phase"] == "gate_constitution"
 
 
-def test_adding_a_requirement_file_is_also_stale(project):
-    """N11(c). The digest covers the requirement *set*, not one file, so a
-    new document cannot slip past an assessment that never saw it."""
+def test_an_unbound_document_does_not_stale_this_workitem(project):
+    """Replaces `test_adding_a_requirement_file_is_also_stale`, deliberately.
+
+    That test pinned the behaviour F-101 turned out to be: the digest covered
+    everything under `requirements/`, so a document written for a *different*
+    WorkItem refused this one's next advance. The property it protected — a new
+    document cannot slip past an assessment that never saw it — is kept and
+    made precise: what must not slip past is a change to a document this
+    WorkItem **bound**, which the test below and the two staleness tests above
+    assert.
+    """
     assert assess(project).exit_code == EXIT_OK
     project.ok("init", session="stale2")
 
+    (project.root / "requirements" / "billing.md").write_text(
+        "# Billing\n\nAnother WorkItem's requirement document.\n",
+        encoding="utf-8", newline="\n")
+
+    assert project.ok("advance", "--to", "gate_constitution").exit_code == EXIT_OK
+
+
+def test_binding_that_document_then_does_stale_it(project):
+    """The other half: the document is inert until this WorkItem declares it is
+    about it, and re-binding is a different fact from the content changing."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="stale3")
     (project.root / "requirements" / "billing.md").write_text(
         "# Billing\n\nA second requirement document.\n",
         encoding="utf-8", newline="\n")
     before = frozen(project)
 
+    project.ok("requirements", "bind",
+               "--source", "requirements/todo-api.md",
+               "--source", "requirements/billing.md",
+               "--primary", "requirements/todo-api.md")
     result = project.run("advance", "--to", "gate_constitution")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "governance_stale", result
-    assert "requirements/billing.md" in result.data["requirements"]
     assert frozen(project) == before
 
 
@@ -1226,6 +1258,7 @@ def test_e1_now_applies_unconditionally_because_nothing_binds_without_a_workitem
     workitem = create_wi(bare_project, "Wi A")
     shutil.rmtree(legacy)
     bound = bare_project.as_workitem(workitem)
+    bound.ok("requirements", "bind", "--source", "requirements/todo-api.md")
     bound.ok("init", session="contrast")
 
     refused = bound.run("advance", "--to", "gate_constitution")
@@ -2085,6 +2118,10 @@ def _alpha(bare_project):
     """One registered WorkItem, bound through the ladder (no --workitem)."""
     workitem = create_wi(bare_project, "Alpha")
     bare_project.workitem = workitem
+    # ADR-012: an assessment is about the documents the WorkItem declared, so
+    # a WorkItem made here binds them exactly as the lifecycle does.
+    bare_project.ok("requirements", "bind",
+                    "--source", "requirements/todo-api.md")
     return bare_project
 
 
@@ -2319,3 +2356,176 @@ def test_n12_the_downgrade_event_is_logged_once_however_often_it_is_consumed(
     project.ok("advance", "--to", "gate_analyze")
     assert project.audit_file.read_text(encoding="utf-8").count(marker) == 1
 
+
+# ==========================================================================
+# ADR-012 independent review — the defects it found, each pinned
+# ==========================================================================
+
+REQ = "requirements/todo-api.md"
+
+
+def bind(project, *sources, primary=None):
+    args = ["requirements", "bind"]
+    for source in sources or (REQ,):
+        args += ["--source", source]
+    if primary:
+        args += ["--primary", primary]
+    return project.run(*args)
+
+
+def test_r1_a_deleted_document_cannot_be_healed_by_reassessing(project):
+    """Review finding 1. A missing source was recorded with a null SHA, which
+    then became the baseline: delete a bound document, re-assess, and freshness
+    matched null against null. An assessment may not be *recorded* against a
+    document that is not there."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="r1")
+    (project.root / REQ).unlink()
+
+    stale = project.run("advance", "--to", "gate_constitution")
+    assert stale.reason == "governance_stale", stale
+
+    healed = assess(project)
+
+    assert healed.exit_code == EXIT_REFUSED, healed
+    assert healed.reason == "requirements_source_missing", healed
+    assert REQ in healed.envelope["message"]
+
+
+def test_r7_a_refused_unbound_assessment_reserves_no_evidence(bare_project):
+    """Review finding 7. `reserve_evidence` ran before the binding was read, so
+    a refusal left an evidence file for a decision that was never taken."""
+    workitem = create_wi_unbound(bare_project, "Unbound")
+    view = bare_project.as_workitem(workitem)
+
+    result = assess(view)
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "requirements_unbound", result
+    evidence = view.runtime / "evidence"
+    assert not evidence.exists() or not list(evidence.iterdir()), \
+        "a refused assessment reserved an evidence file"
+
+
+@pytest.mark.parametrize("spelling", [
+    "requirements/todo-api.md::$DATA",
+    "requirements/todo-api.md.",
+    "requirements./todo-api.md",
+])
+def test_r6_a_platform_specific_spelling_is_refused(project, spelling):
+    """Review finding 6. Windows resolves these to the ordinary file while the
+    recorded string stays distinct, so one document could be bound twice."""
+    result = bind(project, spelling)
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "requirements_source_invalid", result
+
+
+def test_r10_two_different_bindings_cannot_share_a_digest():
+    """Review finding 10. Newline-joined framing hashed `["a\nb", "c"]` and
+    `["a", "b\nc"]` alike, so a re-bind between them was invisible."""
+    assert sdle.binding_digest(["a\nb", "c"]) != sdle.binding_digest(["a", "b\nc"])
+
+
+def test_r8_the_project_name_comes_only_from_the_primary_document(project):
+    """Review finding 8. Inference fell through to the other bound documents, so
+    a headingless product document handed the name to a regulatory annex."""
+    (project.root / "requirements" / "product.md").write_text(
+        "No heading here.\n" + "detail\n" * 30, encoding="utf-8", newline="\n")
+    (project.root / "requirements" / "regulatory.md").write_text(
+        "# PCI DSS\n\n" + "clause\n" * 30, encoding="utf-8", newline="\n")
+    assert bind(project, "requirements/product.md", "requirements/regulatory.md",
+                primary="requirements/product.md").exit_code == EXIT_OK
+    assert assess(project).exit_code == EXIT_OK
+
+    project.ok("init", session="r8")
+
+    assert project.state()["project_name"] != "PCI DSS"
+
+
+def test_r3_a_binding_edited_after_it_was_written_is_an_integrity_failure(project):
+    """Review finding 3. Only the version and the list type were checked, so a
+    hand-edited binding was trusted. The write fence is a tripwire, not a
+    guarantee."""
+    target = project.runtime / "requirements.json"
+    document = json.loads(target.read_text(encoding="utf-8"))
+    document["sources"] = ["../../outside.md"]
+    target.write_text(json.dumps(document, indent=2), encoding="utf-8",
+                      newline="\n")
+
+    result = project.run("requirements", "show")
+
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "requirements_binding_invalid", result
+
+
+@pytest.mark.parametrize("mutate, why", [
+    (lambda d: d.update(sources=[]), "an empty source list"),
+    (lambda d: d.update(sources=[1]), "a non-string source"),
+    (lambda d: d.update(workitem="somebody-else"), "another WorkItem's binding"),
+    (lambda d: d.update(primary="requirements/not-bound.md"), "an unbound primary"),
+])
+def test_r3_every_malformed_binding_is_refused_not_trusted(project, mutate, why):
+    target = project.runtime / "requirements.json"
+    document = json.loads(target.read_text(encoding="utf-8"))
+    mutate(document)
+    target.write_text(json.dumps(document, indent=2), encoding="utf-8",
+                      newline="\n")
+
+    result = project.run("requirements", "show")
+
+    assert result.exit_code == EXIT_INTEGRITY, (why, result)
+    assert result.reason == "requirements_binding_invalid", (why, result)
+
+
+def test_r3_a_tampered_digest_is_detected(project):
+    """The digest is what makes an edit detectable rather than merely invalid:
+    a well-formed substitution of one bound document for another."""
+    (project.root / "requirements" / "other.md").write_text(
+        "# Other\n" + "x\n" * 30, encoding="utf-8", newline="\n")
+    target = project.runtime / "requirements.json"
+    document = json.loads(target.read_text(encoding="utf-8"))
+    document["sources"] = ["requirements/other.md"]
+    document["primary"] = "requirements/other.md"
+    target.write_text(json.dumps(document, indent=2), encoding="utf-8",
+                      newline="\n")
+
+    result = project.run("requirements", "show")
+
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert "digest" in result.envelope["message"], result
+
+
+def test_r3_binding_several_documents_requires_naming_the_primary(project):
+    """Review round 2, Q3. The primary names the project, so with more than one
+    document the engine does not guess: an alphabetical default made
+    `00-regulatory.md` speak for the work."""
+    (project.root / "requirements" / "00-regulatory.md").write_text(
+        "# PCI DSS\n" + "clause\n" * 30, encoding="utf-8", newline="\n")
+
+    result = project.run("requirements", "bind", "--all-current")
+
+    assert result.exit_code == EXIT_USAGE, result
+    assert result.reason == "requirements_primary_required", result
+    assert project.ok("requirements", "bind", "--all-current",
+                      "--primary", REQ).exit_code == EXIT_OK
+
+
+def test_r2_a_record_written_before_the_binding_is_stale(project):
+    """Review finding 2. A record with no `bindingDigest` predates ADR-012, so
+    nothing says which documents it was about. Treating that as "nothing to
+    compare" let the WorkItem advance unbound."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="r2")
+    target = project.runtime / "governance.json"
+    record = json.loads(target.read_text(encoding="utf-8"))
+    del record["requirements"]["bindingDigest"]
+    target.write_text(json.dumps(record, indent=2), encoding="utf-8",
+                      newline="\n")
+
+    shown = project.ok("governance", "show")
+    assert shown.data["fresh"] is False
+    assert shown.data["assessed_without_a_binding"] is True
+
+    refused = project.run("advance", "--to", "gate_constitution")
+    assert refused.reason == "governance_stale", refused
+    assert "requirements bind" in refused.envelope["message"]

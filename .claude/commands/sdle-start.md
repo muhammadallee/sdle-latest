@@ -45,10 +45,15 @@ argument-hint: "[--verbose]"
    - On exit 1 `workitem_name_invalid`, print `message` and ask again.
    - On exit 3 `index_malformed`, print `message` and stop. The registry is
      repaired by hand; SDLE never rewrites it.
+   Then bind the documents this WorkItem is about:
+   `sdle.sh --workitem <id> requirements bind --source <path>` (repeatable),
+   or `--all-current` for every document under `requirements/` as it stands
+   now. Report what was bound; a document nobody binds governs nothing.
    Then run `sdle.sh --workitem <id> preflight`, naming the id just
    returned — the global `--workitem` goes before the subcommand. On exit 1
-   print `message` and stop: SpecKit, its skills or the requirements are
-   missing, and nothing has been initialised.
+   print `message` and stop: SpecKit, its skills are missing, nothing was
+   bound (`requirements_unbound`), or a bound document is not there
+   (`requirements_source_missing`), and nothing has been initialised.
 4. Then assess governance for that WorkItem: write the structured
    proposal the skill describes and run
    `sdle.sh --workitem <id> governance assess --input <path>`.

@@ -298,7 +298,7 @@ Every **required** path in this table exists at this point; the optional rows ex
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|
 | `.git/` | project root and Git evidence | required | `git init` | `git rev-parse --show-toplevel` |
-| `requirements/<your files>` | your ground truth | required | you | `ls requirements` |
+| `requirements/<your files>` | your ground truth; each WorkItem binds the ones it is about | required | you | `ls requirements` |
 | `scripts/sdle.py`, `sdle.sh`, `sdle.ps1` | the engine and its launchers | required | section 5 | `sh scripts/sdle.sh constants` |
 | `.claude/skills/sdle/` (`SKILL.md`, `modules/`, `templates/state.json`) | the orchestrator prompts | required | section 5 | file exists |
 | `.claude/commands/` | the `/sdle-*` slash commands | required | section 5 | files exist |
@@ -362,15 +362,42 @@ Say `start workflow` (or `/sdle-start`). This is the sequence the prompt files i
 
 1. SDLE checks for an existing WorkItem. A brand-new project has none.
 2. **You** are asked for a WorkItem name (`WorkItem name?`). Type one, or say `auto generate` to have SDLE infer a short name. SDLE runs `workitem create`, which writes the identity and a registry row.
-3. SDLE runs `preflight` for that WorkItem. It stops, with the exact message, if Spec Kit, its skills or `requirements/` are missing. Nothing is initialised on a refusal.
-4. SDLE scans each requirements file for text that tries to instruct it (the file is treated as data), and lists any `guidance/` files.
-5. SDLE writes a structured governance proposal (twelve requirements-quality answers, a WorkItem type and flow, risk signals) and runs `governance assess`. The engine scores it deterministically; the model cannot lower a floor. A failed blocking check stops the workflow until you fix the requirements.
-6. SDLE runs `init`, which binds the WorkItem's flow once and creates its runtime, then shows the header and summarises your requirements.
-7. It proposes the first phase. Under `GREENFIELD` that is generating the project constitution, followed by the first human gate.
+3. SDLE binds the WorkItem's requirement documents — the ones *this* piece of work is about — with `requirements bind`. A document you do not bind is inert: it governs nothing and can never stale this WorkItem's assessment, which is how two WorkItems share one `requirements/` directory without disturbing each other. Bind several with repeated `--source`, or take everything currently there with `--all-current`; either way the record is an exact list of files, never a live folder.
+4. SDLE runs `preflight` for that WorkItem. It stops, with the exact message, if Spec Kit or its skills are missing, if nothing was bound (`requirements_unbound`), or if a bound document is not there (`requirements_source_missing`). Nothing is initialised on a refusal.
+5. SDLE scans each **bound** document for text that tries to instruct it (the file is treated as data), and lists any `guidance/` files.
+6. SDLE writes a structured governance proposal (twelve requirements-quality answers, a WorkItem type and flow, risk signals) and runs `governance assess`. The engine scores it deterministically; the model cannot lower a floor. A failed blocking check stops the workflow until you fix the requirements. The assessment records which documents it was made from, so editing one of them later is `governance_stale` and editing an unrelated one is not.
+7. SDLE runs `init`, which binds the WorkItem's flow once and creates its runtime, then shows the header and summarises your requirements. The project's name comes from the heading of the binding's primary document.
+8. It proposes the first phase. Under `GREENFIELD` that is generating the project constitution, followed by the first human gate.
 
-**What SDLE does for you, and what is yours.** SDLE creates the identity, runs the checks and writes all state. The name, the fixes to your requirements, and every approval are yours. At each gate SDLE shows the artifact **in the conversation**; you answer `approve`, or `reject` with feedback. Nothing is approved for you, and an assistant must not type `approve` on your behalf.
+**Which documents are bound is a decision, not a detail.** Leaving one out means the assessment was not made from it, so a constraint you meant to apply silently did not. `sdle.sh requirements show` reports the binding at any time, and SDLE displays it before the governance proposal for that reason.
+
+**What SDLE does for you, and what is yours.** SDLE creates the identity, runs the checks and writes all state. The name, which documents are bound, the fixes to your requirements, and every approval are yours. At each gate SDLE shows the artifact **in the conversation**; you answer `approve`, or `reject` with feedback. Nothing is approved for you, and an assistant must not type `approve` on your behalf.
 
 **Check where you are** at any time: say `status` (or `/sdle-status`). To pick up after an interruption, say `continue` (or `/sdle-continue`).
+
+## 11b. Running more than one WorkItem
+
+A repository can hold many WorkItems, and their records never interact. One rule
+applies while they are **implementing**:
+
+> Give each WorkItem its own branch or Git worktree from `implement preflight`
+> until its security review is complete.
+
+`implement preflight` pins the commit your implementation is measured from, and
+everything after it — the Gate 7 manifest, the secrets scan, the security-review
+diff — is a comparison between that commit and your working tree. Git cannot
+attribute a line of application code to a WorkItem, so two implementations in
+one checkout appear in each other's evidence, and a reviewer at one gate would
+be shown changes belonging to another.
+
+```bash
+git worktree add ../feature-b -b feature-b
+cd ../feature-b
+claude          # this checkout drives its own WorkItem, with no --workitem flag
+```
+
+Outside that window, two WorkItems in one checkout are fine: everything else
+SDLE writes is per WorkItem and is excluded from the other's evidence.
 
 ## 12. What exists after the first start
 
@@ -398,7 +425,8 @@ The specification, plan and task files appear only when their phases run, under 
 | `no_interpreter` | Python 3.11 or newer is not found | Install it, or install `uv` |
 | `workitem_required` from `preflight` before `start workflow` | Normal on a fresh project | Say `start workflow`; do not create files by hand |
 | `speckit_missing`, `speckit_skills_missing` | Spec Kit not installed, or a different version | Run section 4 exactly as written |
-| `requirements_missing` | `requirements/` is empty or absent | Add your documents (section 6) |
+| `requirements_unbound` | The WorkItem has not declared which documents it is about | `sdle.sh requirements bind --all-current`, or name them with `--source` (section 11) |
+| `requirements_source_missing` | A document the WorkItem bound is not in the repository | `sdle.sh requirements show` lists them; restore them or re-bind |
 | `workitem_ambiguous` | Several WorkItems and none named | Name one: `sdle.sh --workitem <id> …`, or `sdle.sh workitem use --workitem <id>` |
 | `unsupported_state_version` | A state file from another schema | Start a new WorkItem; the old one is left untouched |
 | `Permission denied` running `scripts/sdle.sh` | The executable bit was lost in the copy | `chmod +x scripts/sdle.sh` |
