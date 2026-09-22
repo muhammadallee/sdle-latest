@@ -296,12 +296,21 @@ needs no schema version.
 
 ### Branch and worktree rules
 
-One active WorkItem per developer branch or worktree; different WorkItems may
-run concurrently; two developers are not expected to drive the same WorkItem in
-parallel. There is no distributed locking and no cross-worktree coordination —
-the session lock is per-WorkItem, and two `git worktree`s of one repository
-each keep their own runtime, their own ledger, their own lock and their own
-active context.
+Different WorkItems may run concurrently, and their records never interact:
+the session lock is per-WorkItem, and two `git worktree`s of one repository each
+keep their own runtime, ledger, lock and active context. There is no distributed
+locking and no cross-worktree coordination, and two developers are not expected
+to drive the same WorkItem in parallel.
+
+One constraint applies to the **implement** phase only. From `implement
+preflight` until the security review is complete, the implementation change set
+is a diff of the working tree against the pinned commit, and git cannot attribute
+application code to a WorkItem — so two WorkItems may not be implementing in the
+same working directory at once. A branch does not substitute for a working
+directory here: one directory has one branch checked out, so two branches mean
+taking turns rather than working simultaneously. Use a second `git worktree` or a
+separate clone. Outside that window any number of WorkItems can sit at any phase
+in one directory. See `docs/workitems/README.md`.
 
 A **branch mismatch** is a non-null recorded branch that differs from the
 current one while Git is available. A missing Git, a detached HEAD, a null

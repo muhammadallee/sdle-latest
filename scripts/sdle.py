@@ -11935,7 +11935,8 @@ def build_parser() -> argparse.ArgumentParser:
              "recorded as an exact list.")
     req_bind.add_argument(
         "--primary",
-        help="Which bound document names the project (default: the first).")
+        help="Which bound document names the project. Inferred when exactly "
+             "one document is bound; required for more than one.")
     req_bind.set_defaults(handler=cmd_requirements_bind)
     req_show = req_sub.add_parser("show", help="Report the binding.")
     req_show.set_defaults(handler=cmd_requirements_show)

@@ -187,13 +187,22 @@ Phase 2 of 16 is `spec_draft`. In `GREENFIELD` that position holds
 the work starts at the specification, because the two phases those flows spend
 first were spent already.
 
-`requirements` lists **both** documents. The requirements directory is
-repository-level and accumulates: the reservations requirement that the first
-WorkItem was written from is still there, and the requirements digest this
-assessment recorded covers the directory as it now stands. That is intended —
-it is the same repository — but it does mean an edit to an *old* requirement
-document makes the *current* WorkItem's governance stale — `governance_stale`,
-and the remedy is to re-assess. See
+`requirements` lists the documents **this WorkItem bound** — here both, because
+this WorkItem was bound to both. `requirements/` is repository-level and does
+accumulate, but accumulating is not inheriting: a document sitting in that
+directory governs nothing until a WorkItem declares it.
+
+That distinction is the point of the binding. Editing `reservations.md` makes
+*this* WorkItem's governance stale, because this WorkItem said it is about that
+document. Adding a third document for some later WorkItem does not, because this
+one never bound it. Before ADR-012 the digest covered the whole directory, so any
+new document refused every in-flight WorkItem's next advance.
+
+Three distinct facts can make an assessment stale, and `governance show` names
+which: a bound document changed, the binding itself changed (`rebound`), or the
+record predates the binding (`assessed_without_a_binding`). The remedy differs —
+restore the document, or re-assess, or bind and then re-assess. See
+[ADR-012](../architecture/ADR-012-requirements-source-binding.md) and
 [§12 of the Reference Guide](../SDLE-Reference-Guide.md#12-state-audit-trail--traceability).
 
 ```

@@ -19,21 +19,29 @@ interact: state, audit, evidence, locks and identity are per WorkItem, and one
 WorkItem's records are excluded from another's Gate 7 manifest and security
 evidence.
 
-**Give each WorkItem its own branch or Git worktree while it is implementing.**
-That is a real constraint, not advice. From `implement preflight` — which pins
-the commit the work is measured from — until the security review is complete,
-SDLE measures the implementation as a diff of the working tree against that
-commit. Git cannot say which WorkItem wrote a given line of application code, so
-two WorkItems implementing in one checkout put each other's code into each
-other's manifest, secrets scan and security-review diff. A reviewer would then
-be approving changes that belong to a gate they are not standing at.
+**Two WorkItems may not implement in the same working directory at the same
+time.** That is a real constraint, not advice. From `implement preflight` —
+which pins the commit the work is measured from — until the security review is
+complete, SDLE measures the implementation as a diff of the *working tree*
+against that commit. Git cannot say which WorkItem wrote a given line of
+application code, so two implementations sharing one directory put each other's
+code into each other's manifest, secrets scan and security-review diff. A
+reviewer would then be approving changes belonging to a gate they are not
+standing at.
+
+**A branch is not a workspace.** Two branch names do not give you two
+workspaces: a working directory has exactly one branch checked out, so switching
+between them is taking turns, not working concurrently. Taking turns is fine —
+the constraint is about *simultaneous* implementation. What gives you two
+workspaces at once is a second working directory: a `git worktree`, or a
+separate clone.
 
 Outside that window there is no such constraint: any number of WorkItems can sit
 at any other phase in one checkout without interacting.
 
 ```bash
-git worktree add ../feature-b -b feature-b
-cd ../feature-b          # drive WorkItem B here; A keeps its own checkout
+git worktree add ../feature-b -b feature-b   # a second working directory
+cd ../feature-b                              # drive WorkItem B here
 ```
 
 The resolution ladder is built for this — each worktree resolves its own

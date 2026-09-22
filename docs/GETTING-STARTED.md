@@ -380,8 +380,9 @@ Say `start workflow` (or `/sdle-start`). This is the sequence the prompt files i
 A repository can hold many WorkItems, and their records never interact. One rule
 applies while they are **implementing**:
 
-> Give each WorkItem its own branch or Git worktree from `implement preflight`
-> until its security review is complete.
+> Two WorkItems may not be in the `implement` phase in the same working
+> directory at the same time. The window runs from `implement preflight` until
+> that WorkItem's security review is complete.
 
 `implement preflight` pins the commit your implementation is measured from, and
 everything after it — the Gate 7 manifest, the secrets scan, the security-review
@@ -390,10 +391,15 @@ attribute a line of application code to a WorkItem, so two implementations in
 one checkout appear in each other's evidence, and a reviewer at one gate would
 be shown changes belonging to another.
 
+A branch on its own does not satisfy this: a working directory has one branch
+checked out at a time, so two branches mean taking turns. To work on both at
+once you need a second **working directory** — a `git worktree` or a separate
+clone.
+
 ```bash
-git worktree add ../feature-b -b feature-b
+git worktree add ../feature-b -b feature-b   # a second working directory
 cd ../feature-b
-claude          # this checkout drives its own WorkItem, with no --workitem flag
+claude          # this directory drives its own WorkItem, with no --workitem flag
 ```
 
 Outside that window, two WorkItems in one checkout are fine: everything else

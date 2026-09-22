@@ -115,7 +115,9 @@ because the root is empty while the bound sources live elsewhere. It reads the b
 | `requirements_primary_required` | More than one document is bound and none was named primary |
 | `requirements_source_invalid` | A path escapes the repository, is absolute, traverses, or resolves through a symlink out of the tree |
 | `requirements_source_duplicate` | The same file is named twice, including by a Windows case alias |
-| `governance_stale` | A bound document changed, was renamed or was deleted after the assessment |
+| `requirements_binding_ambiguous` | A bind passes both `--source` and `--all-current` |
+| `requirements_binding_invalid` | The binding on disk is not one the engine wrote: it does not parse, declares an unreadable version, carries a non-string or duplicate source, names a primary it does not bind, belongs to another WorkItem, or does not match its own digest. An **integrity failure** (exit 3), not a refusal, because the file is evidence rather than input |
+| `governance_stale` | A bound document changed, was renamed or was deleted after the assessment; or the binding itself changed; or the record predates the binding. `governance show` reports which |
 
 A directory as a source is refused; `--all-current` is how a directory becomes an exact file list.
 
