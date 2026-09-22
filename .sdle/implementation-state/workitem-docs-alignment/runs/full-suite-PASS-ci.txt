@@ -1,3 +1,38 @@
+=== Full test suite - PASS (GitHub Actions) ===
+candidate : 7477e9f317673f52ea42c8de02136ab376535c1e
+branch    : docs/alignment-binding-and-isolation
+event     : push
+run       : https://github.com/muhammadallee/sdle-latest/actions/runs/35727873456
+started   : 2026-09-22T12:33:14Z
+finished  : 2026-09-22T12:56:34Z
+status    : completed / success
+
+RESULT: PASS on all four matrix jobs. This resolves OPEN-03.
+
+| job                            | conclusion |
+|--------------------------------|------------|
+| ubuntu-latest  / Python 3.11   | success    |
+| ubuntu-latest  / Python 3.13   | success    |
+| windows-latest / Python 3.11   | success    |
+| windows-latest / Python 3.13   | success    |
+
+Each job runs `python scripts/sdle.py lint-skill` and the full `python -m pytest
+-q` suite. The only non-success steps are the two platform-inappropriate
+launcher checks, skipped by design: the POSIX launcher check is skipped on
+Windows and the PowerShell launcher check on Linux. Every job runs the other.
+
+This is stronger evidence than the local foreground run that was the
+alternative: that would have covered one combination (Windows, Python 3.13) on a
+memory-constrained machine, where CI covers four on clean runners.
+
+The step logs need an authenticated request, so the per-job passed-test count is
+not recorded here; the run's own page carries it. What is recorded is what the
+API reports without authentication: four jobs, all `success`, at this exact sha.
+
+The three local attempts that produced no result are preserved below for the
+record.
+
+------------------------------------------------------------------------------
 === Full test suite - NOT_RUN ===
 final candidate : a669b03 (the attempts below predate it; see OPEN-03)
 command         : python -m pytest tests/ -q -p no:randomly

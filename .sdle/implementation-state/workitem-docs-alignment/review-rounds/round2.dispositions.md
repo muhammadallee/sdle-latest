@@ -151,15 +151,18 @@ These are not disagreements. Codex and I agree on all three; they are decisions 
 - **Recommended resolution.** Worth building, as its own task. It is the single highest-value follow-up
   from either round.
 
-### OPEN-03 (medium) — the full suite has not run
+### OPEN-03 — RESOLVED by CI, not locally
 
 - **The question.** Three attempts; none produced a result. The first was measuring a tree that changed
   underneath it and was killed deliberately. The second and third were stopped by Claude Code's
   background-shell memory reaper at ~4% and 11%.
 - **User impact.** Seven checks pass against this candidate, but the full suite is the repository's
   stated gate and it is unmet.
-- **Recommended resolution.** A foreground run, which the reaper does not target, or a restart with
-  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`. Recorded at `runs/full-suite-NOT_RUN.txt`.
+- **Resolution.** The owner pushed the branch instead, which was the better answer and not one I could
+  take unilaterally. `.github/workflows/ci.yml` triggers on every branch, so GitHub Actions ran the full
+  suite plus `lint-skill` on **four** combinations — ubuntu-latest and windows-latest × Python 3.11 and
+  3.13 — and **all four passed** at `7477e9f`, the exact candidate. That is strictly stronger than the
+  single-combination local run it replaced. Recorded at `runs/full-suite-PASS-ci.txt`.
 
 ---
 
@@ -174,7 +177,7 @@ These are not disagreements. Codex and I agree on all three; they are decisions 
 | ADR-012 refusal probe | PASS — 7 claim groups |
 | Deleted-bound-source probe | PASS |
 | Round-2 claim probe | PASS — 9 of 9 reproduced |
-| **Full suite** | **NOT_RUN** — OPEN-03 |
+| **Full suite** | **PASS** — CI run 35727873456 at `7477e9f`: 4 jobs (ubuntu + windows × Python 3.11 + 3.13), all success |
 
 Two of those were caught *by* the checks rather than by review: removing dry-run 09's last progress
 fraction broke `test_dry_run_contracts.py`, and the contract tests were re-run after the final dry-run

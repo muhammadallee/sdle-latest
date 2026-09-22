@@ -9,7 +9,7 @@
     "plan-claude-codex-defectfix.md"
   ],
   "phase": "P6",
-  "phase_status": "both review rounds complete; handoff pending",
+  "phase_status": "both review rounds complete; suite green on CI; handoff pending",
   "completed_phases": [
     "P0",
     "P1",
@@ -76,16 +76,14 @@
     },
     {
       "id": "OPEN-03",
-      "severity": "medium",
-      "question": "The full test suite is NOT_RUN after three attempts, two of them stopped by the harness memory reaper. It needs a foreground run or CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1.",
-      "reproduction": "python -m pytest tests/ -q",
-      "evidence": "runs/full-suite-NOT_RUN.txt"
+      "severity": "resolved",
+      "question": "The full suite had not produced a result after three local attempts.",
+      "resolution": "Resolved by CI rather than locally. The owner pushed the branch; GitHub Actions ran the full suite plus lint-skill on four platform/version combinations and all four passed at 7477e9f, the exact candidate. Stronger evidence than the single-combination local run it replaced.",
+      "evidence": "runs/full-suite-PASS-ci.txt"
     }
   ],
-  "blockers": [
-    "OPEN-03: the full suite has not produced a result."
-  ],
-  "next_action": "Hand off. The owner decides OPEN-01..03; nothing is pushed.",
+  "blockers": [],
+  "next_action": "Hand off. OPEN-01 and OPEN-02 remain the owner's decisions. The branch is pushed and CI is green; nothing is merged.",
   "verification": {
     "lint_skill": "PASS",
     "dry_run_contracts": "PASS (118)",
@@ -95,6 +93,13 @@
     "adr012_refusal_probe": "PASS (7 claim groups)",
     "deleted_bound_source_probe": "PASS",
     "round2_claim_probe": "PASS (9 of 9 reviewer claims reproduced)",
-    "full_suite": "NOT_RUN - see runs/full-suite-NOT_RUN.txt and OPEN-03"
+    "full_suite": "PASS - GitHub Actions run 35727873456 at 7477e9f, four jobs (ubuntu-latest and windows-latest x Python 3.11 and 3.13), all success. See runs/full-suite-PASS-ci.txt"
+  },
+  "branch_pushed": true,
+  "ci": {
+    "run": "https://github.com/muhammadallee/sdle-latest/actions/runs/35727873456",
+    "sha": "7477e9f317673f52ea42c8de02136ab376535c1e",
+    "conclusion": "success",
+    "jobs": 4
   }
 }

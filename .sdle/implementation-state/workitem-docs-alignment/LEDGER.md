@@ -236,3 +236,30 @@ rather than what it states wrongly — D-10 and D-12 — and a keyword scan find
 from checking a claim I had already written down: my exclusion enumeration in round 1 and my diff sizes
 in round 2 were both wrong in the same way, stated from memory of a measurement rather than from the
 measurement. Codex caught the second; I caught the first.
+
+## Full suite — PASS, on CI
+
+The repository's stated gate is met. Three local attempts produced no result: the first was measuring a
+tree that changed underneath it and was killed deliberately; the second and third were stopped by Claude
+Code's background-shell memory reaper at ~4% and 11%.
+
+The owner pushed the branch instead, which was the better answer and not one I could take unilaterally —
+the brief reserved push authority explicitly. `.github/workflows/ci.yml` triggers on `push` to every
+branch, so GitHub Actions ran the full suite plus `lint-skill` on **four** combinations at `7477e9f`,
+the exact candidate:
+
+| job | conclusion |
+|---|---|
+| ubuntu-latest / Python 3.11 | success |
+| ubuntu-latest / Python 3.13 | success |
+| windows-latest / Python 3.11 | success |
+| windows-latest / Python 3.13 | success |
+
+Run: https://github.com/muhammadallee/sdle-latest/actions/runs/35727873456
+
+The only non-success steps are the two platform-inappropriate launcher checks, skipped by design. This
+is strictly stronger than the single-combination local run it replaced, and it closes **OPEN-03**.
+
+**OPEN-01** and **OPEN-02** remain the owner's decisions. The branch is pushed; nothing is merged and
+`main` is untouched.
+
