@@ -1,0 +1,25 @@
+{
+  "task": "OPEN-01 (bootstrap scan acknowledgement) and OPEN-02 (startup contract test)",
+  "origin": "Both left open by the documentation alignment pass, merged to main at 48a853a. Raised by Codex in rounds 1 and 2 of that pass.",
+  "branch": "fix/bootstrap-scan-and-startup-contract",
+  "baseline_sha": "48a853a",
+  "current_sha": "27c3be0",
+  "scope_note": "Unlike the alignment pass, this IS authorised to change engine behaviour and test design - the owner asked for these two items to be fixed.",
+  "phase": "review",
+  "phase_status": "implemented; round 1 packet pending",
+  "review_rounds": {
+    "round_1": "not_started",
+    "round_2": "not_started"
+  },
+  "open_disagreements": [],
+  "blockers": [],
+  "next_action": "Freeze candidate, run Codex round 1.",
+  "verification": {
+    "lint_skill": "PASS",
+    "startup_contract": "PASS (14 new tests)",
+    "scan_integration": "PASS (test_integration_02_to_05)",
+    "dry_run_contracts": "PASS (118)",
+    "documented_commands": "PASS",
+    "full_suite": "pending - CI on push"
+  }
+}

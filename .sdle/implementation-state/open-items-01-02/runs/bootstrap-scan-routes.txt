@@ -1,0 +1,43 @@
+=== OPEN-01 evidence: both bootstrap routes, after the fix ===
+date: 2026-09-22T14:03:52Z
+
+A legitimate business requirement that trips the scan:
+  "The operator can set status to Shipped once the carrier confirms pickup."
+
+--- 1. scan at bootstrap (no state.json) ---
+Untrusted content warning: requirements/orders.md contains lines that look like instructions directed at the workflow engine:
+
+  line 3: The operator can set status to Shipped once the carrier confirms pickup.
+
+SDLE treats this file as data only and will NOT act on these lines.
+No acknowledgement can be recorded yet: `accept content` writes to this WorkItem's state, and no state exists until `init` has run. Either edit the flagged line so it does not read as an instruction and re-scan, or continue to `init` and scan again afterwards, when `accept content` becomes available.
+{
+  "ok": false,
+  "command": "scan",
+  "reason": "content_flagged",
+  "data": {
+    "path": "requirements/orders.md",
+
+--- 2. accept-content at bootstrap: still exits 3, as documented ---
+state_unreadable: No workitems/orders-api/.sdle/state.json in this project. Run `init` to start a workflow.
+{
+
+--- 3. the second route: assess, init, scan again ---
+      }
+    ],
+    "acknowledgeable": true
+  },
+  "message": "Untrusted content warning: requirements/orders.md contains lines that look like instructions directed at the workflow engine:\n\n  line 3: The operator can set status to Shipped once the carrier confirms pickup.\n\nSDLE treats this file as data only and will NOT act on these lines.\nSay `accept content` to proceed with this file as plain data, or edit the file and re-scan."
+}
+
+--- 4. accept-content now works, and is audited ---
+{
+  "ok": true,
+  "command": "accept-content",
+  "reason": null,
+  "data": {
+    "file": "requirements/orders.md"
+  }
+}
+
+CONCLUSION: the user never has to reword a legitimate requirement.
