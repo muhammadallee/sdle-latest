@@ -1,32 +1,46 @@
-=== Full test suite — NOT_RUN ===
-candidate : b83cf4a (committed, clean working tree apart from the owner's
-            untracked plan-claude-codex-defectfix.md)
-command   : python -m pytest tests/ -q -p no:randomly
-date      : 2026-09-22
+=== Full test suite - NOT_RUN ===
+command : python -m pytest tests/ -q -p no:randomly
+date    : 2026-09-22
 
-RESULT: NOT_RUN.
+RESULT: NOT_RUN, after three attempts. No attempt was a test failure.
 
-Two attempts, neither of which produced a result that describes this candidate:
+1. Candidate b83cf4a. Started before the last six edits of the round-1 pass, so
+   it was measuring a tree that changed underneath it. Killed deliberately
+   rather than quoted. Its log is empty; its "exit code 0" notification is the
+   kill, not a pass.
+2. Candidate b83cf4a, re-run against the committed tree. Stopped by the harness
+   at roughly 4% because the system was critically low on memory while the
+   session was idle.
+3. Candidate 44c5d24, re-run at the owner's explicit direction. Stopped by the
+   same harness memory reaper at 11%. Partial output below.
 
-1. Started before the last six edits of the round-1 pass, so it was running
-   against a tree that changed underneath it. Its result would not have
-   described any candidate, so it was killed deliberately. Its log is empty and
-   its "exit code 0" notification is the kill, not a pass.
-2. Re-run against the committed tree b83cf4a. Stopped by the harness at roughly
-   4% because the system was critically low on memory while the session was
-   idle. This is not a test failure and says nothing about the suite; the
-   harness's own note asks that it not be restarted unattended.
+Attempts 2 and 3 were stopped by Claude Code's background-shell memory reaper,
+which is a property of this machine's free memory at the time, not of the suite.
+The harness asks that such a command not be restarted unattended.
 
-No failure was observed in the ~4% that did run. That is not evidence of a pass
-and is not recorded as one.
+No failure was observed in the 11% that ran on attempt 3 (zero F or E markers).
+That is not evidence of a pass and is not recorded as one.
 
-Passing checks that DID complete against this candidate are recorded separately:
-lint-skill, test_dry_run_contracts.py (118), test_units_documented_commands.py +
-test_units_invariants.py (935), the guide replay, the binding scenarios, the
-ADR-012 refusal probe and the deleted-bound-source probe.
+Two options remain untried and both need the owner:
+  - run it in the FOREGROUND, which is not subject to the background-shell
+    reaper, accepting that it blocks the session for roughly 38 minutes; or
+  - restart Claude Code with CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 in its
+    environment (it cannot be set from inside a shell command) and re-run in the
+    background.
 
-Partial output before the stop follows.
+Checks that DID complete against this candidate are recorded separately and all
+passed: lint-skill; test_dry_run_contracts.py (118);
+test_units_documented_commands.py + test_units_invariants.py (935); the guide
+replay; the binding scenarios; the ADR-012 refusal probe; the
+deleted-bound-source probe.
 
+Partial output of attempt 3 follows.
+
+candidate: 44c5d24 (clean apart from the owner's untracked file)
+started:   2026-09-22T10:07:42Z
 ........................................................................ [  2%]
 ........................................................................ [  4%]
-.....................................
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+......................
