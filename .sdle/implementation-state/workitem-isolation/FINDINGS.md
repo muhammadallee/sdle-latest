@@ -203,3 +203,41 @@ corrupted the pathspec; it now fails on the parent and passes on the fix.
 Every regression test was run against the parent commit to confirm it fails there. Three of the six
 round-2 tests do; the other three are non-vacuity and regression guards and are labelled as such rather
 than presented as defect demonstrations.
+
+---
+
+## F-101 — fixed, and independently reviewed
+
+ADR-012 implemented: the binding store, `requirements bind` / `requirements show`, and the consumers
+that used to read a directory. Reviewed by Codex (`codex exec`, read-only) against the implementation,
+then one round of discussion. **Ten findings, all accepted**; packet and both outputs are beside this
+file (`review-adr012*.md`).
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | high | A deleted bound document was *healed* by re-assessing: `requirements_sources` recorded it with a `null` SHA and assessment stored that as the new baseline, which freshness then matched | **Accepted.** Assessment is strict — `requirements_source_missing` — so a record is never made against a document that is not there |
+| 2 | high | A governance record with no `bindingDigest` was treated as "nothing to compare", so a WorkItem could stay unbound and still advance — the implicit default ADR-012 §6 refuses | **Accepted.** Such a record is stale until re-assessed, reported as its own fact because the remedy differs |
+| 3 | high | The binding was not revalidated on read: only its type and version were checked, so a merged or hand-edited file naming `../../outside.md` was trusted, and a non-string entry raised a traceback rather than a refusal | **Accepted.** One `validated_binding` re-checks schema, syntax, containment, uniqueness, primary membership, WorkItem ownership and its own digest, on every read |
+| 4 | high | Containment was checked only at bind time, so a symlink bound while it pointed inside could be retargeted outside and every consumer would follow it | **Accepted.** Containment is rechecked at every read; an escape is `requirements_source_invalid` wherever it is found |
+| 5 | med | The prompt layer did not consistently consume the binding: discovery and impact analysis still read every document under `requirements/` | **Accepted.** Both read the bound documents; discovery then reads the repository, which is its subject |
+| 6 | med | Windows aliases evaded validation — `todo-api.md::$DATA` and trailing-dot spellings resolve to the same file while the recorded string differs, so one document could be bound twice | **Accepted.** Rejected as syntax rather than normalised |
+| 7 | med | A refused unbound assessment still wrote an evidence file, because `reserve_evidence` ran before the binding was read | **Accepted.** The binding is read and hashed first; a refusal reserves nothing |
+| 8 | low | Project-name inference fell through from the primary to the other bound documents, so a headingless product document handed the name to a regulatory annex | **Accepted** for the inference; see the disagreement below for the second half |
+| 9 | low | Live guidance still described the old semantics in SKILL.md and the Reference Guide | **Accepted.** Corrected |
+| 10 | low | `binding_digest` joined paths with newlines, so `["a\nb", "c"]` and `["a", "b\nc"]` hashed alike and a re-bind between them was invisible | **Accepted.** Canonical JSON |
+
+**The one disagreement, and I lost it.** I pushed back on requiring `--primary` when several documents
+are bound, arguing the inference fix was sufficient and that a mandatory flag was scope creep. The
+counter-example settled it: with `--all-current`, `00-regulatory.md` sorts first and *is already
+primary* before inference runs, so primary-only inference still names the project "PCI DSS". The
+alphabetical default is now gone and `requirements_primary_required` refuses instead. ADR-012 §10
+records both changes as amendments to its own first draft.
+
+**What the review confirmed rather than found.** The reviewer independently checked that the adaptation
+of 59 tests did not weaken anything, and that the two snapshot numbers (26 `write_atomic` occurrences,
+74 command names) are *correct* rather than merely made to agree. That is the part of my own change I
+could not check myself.
+
+Thirteen regression tests cover the findings, each failing on the pre-review engine where the finding
+was a behaviour rather than a validation gap.
+

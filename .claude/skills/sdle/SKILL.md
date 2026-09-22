@@ -286,7 +286,7 @@ Three refusals follow from it, and each is final:
 
 - `governance_missing` — the WorkItem has no record. Run `governance assess`.
 - `governance_blocked` — a blocking requirements-quality check is `FAIL`. Fix the requirements and re-assess. Do not argue the finding away.
-- `governance_stale` — `requirements/` changed after the assessment. Re-assess.
+- `governance_stale` — a **bound** requirement document changed, was renamed or was deleted after the assessment, or the binding itself changed, or the record predates the binding. `data` says which. Re-assess (after `requirements bind`, when it is the last of those).
 - `gate_required` — `gate omit` was asked for a gate the policy requires approved. Show the reasons in the payload and ask for a decision.
 - `gate_omission_invalidated` — a recorded omission is no longer permitted. Approve that gate, or `restart` to it and decide again.
 
@@ -400,7 +400,7 @@ Approval is never delegated. Human approval gates stay in this conversation, and
 | A generation step produced nothing usable | `sdle.sh artifact record` refuses. Offer `retry` or `skip with warning`. Status is already frozen at `failed`. |
 | Retry or remediation limit reached | The refusal message names the options. Raise a limit with `sdle.sh limit set`, or reset a counter with `sdle.sh limit reset` — both audited. Never hand-edit state. |
 | `state.json` unreadable | Exit 3. Offer `reset workflow` (artifacts are preserved) or inspection. |
-| `requirements/` deleted mid-workflow | Warn, continue. The constitution and spec already captured it. |
+| A bound requirement document deleted mid-workflow | Refused: `governance_stale`, naming the document. The assessment rests on it, so it is restored or the WorkItem re-binds and re-assesses. |
 | Git not initialized | Drift diffs, staleness and the dirty-tree guard degrade gracefully. Note it in the security review. |
 | `phase_history` ≥ 10 entries | Suggest `/clear` between phases once — SDLE reloads from state on the next turn. |
 

@@ -112,6 +112,7 @@ because the root is empty while the bound sources live elsewhere. It reads the b
 | `requirements_unbound` | A consumer needs the binding and none exists |
 | `requirements_source_missing` | A bound path is not a file, at bind time or later |
 | `requirements_binding_empty` | A bind names no source |
+| `requirements_primary_required` | More than one document is bound and none was named primary |
 | `requirements_source_invalid` | A path escapes the repository, is absolute, traverses, or resolves through a symlink out of the tree |
 | `requirements_source_duplicate` | The same file is named twice, including by a Windows case alias |
 | `governance_stale` | A bound document changed, was renamed or was deleted after the assessment |
@@ -129,3 +130,23 @@ A directory as a source is refused; `--all-current` is how a directory becomes a
   directory is no longer an implicit claim on anything.
 - This closes F-101 only. F-102 and F-103 are cross-WorkItem isolation in the *implementation* change
   set and are addressed separately; a requirements binding must not be described as fixing them.
+
+## 10. Amended by its own review
+
+Two decisions changed after the implementation was reviewed independently, and the ADR records the
+outcome rather than the first draft:
+
+- **There is no default primary.** Binding more than one document without `--primary` is refused. The
+  first draft took the alphabetically first source, which quietly made `00-regulatory.md` speak for a
+  project whose product document was `product.md`. The primary names the project; that is a decision,
+  and an arbitrary one is not better than asking.
+- **A governance record with no `bindingDigest` is stale, not exempt.** Such a record predates the
+  binding, so nothing says which documents it was assessed against. Treating a missing digest as
+  "nothing to compare" would have let an existing WorkItem advance unbound — the implicit default §6
+  refuses — so it is stale until re-assessed, and `governance show` reports that as its own fact
+  because the remedy is to bind and re-assess rather than to restore a file.
+
+Containment is rechecked on **every** read, not only at bind time: a symlink bound while it pointed
+inside the repository can be retargeted afterwards. An escaping path is `requirements_source_invalid`
+wherever it is found, including on the `advance` path, because "this is not where you said it was" is a
+different fact from "it changed".

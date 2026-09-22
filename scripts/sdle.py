@@ -1590,21 +1590,28 @@ def infer_project_name(paths: Paths) -> str | None:
     document, dropped in beside the first, could rename somebody else's
     project. The binding names which document speaks for this WorkItem.
     """
-    binding = read_requirements_binding(paths)
-    if binding is None:
+    try:
+        binding = validated_binding(paths)
+    except (Refused, IntegrityError):
+        # Naming the project is a convenience, and the caller already falls
+        # back to the WorkItem title. The refusal belongs to the commands whose
+        # decisions rest on the binding, not to this.
         return None
     primary = binding.get("primary")
-    candidates = [primary] if primary else []
-    candidates += [s for s in sorted(binding["sources"]) if s != primary]
-    for relative in candidates:
-        target = paths.project_root / relative
-        if not target.is_file():
-            continue
-        for line in target.read_text(encoding="utf-8",
-                                     errors="replace").splitlines():
-            match = re.match(r"^#\s+(.+?)\s*$", line)
-            if match:
-                return match.group(1)
+    if not primary:
+        return None
+    target = paths.project_root / primary
+    if not target.is_file():
+        return None
+    # Only the primary. Falling through to the other bound documents let a
+    # headingless product document hand the project's name to whichever
+    # secondary happened to have one — a regulatory annex naming the project.
+    # No heading here means the caller's existing fallback (the WorkItem
+    # title), which is a worse name but an honest one.
+    for line in target.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = re.match(r"^#\s+(.+?)\s*$", line)
+        if match:
+            return match.group(1)
     return None
 
 
@@ -4400,7 +4407,7 @@ def _binding_refused(reason: str, message: str, **data) -> Refused:
     return Refused(reason, message, data)
 
 
-def _binding_source(paths: Paths, raw: str) -> str:
+def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     """One bound path, validated and canonicalised, or a refusal.
 
     Every rule here exists because the binding decides what a governance
@@ -4409,6 +4416,24 @@ def _binding_source(paths: Paths, raw: str) -> str:
     recorded set mean something other than what it says.
     """
     text = str(raw).strip().replace(chr(92), "/")
+    # Windows resolves `file.md::$DATA` and `file.md.` to the ordinary file
+    # while the stored string stays distinct, so the same document could be
+    # bound twice and one spelling would not match the other. Rejected as
+    # syntax rather than normalised: a path SDLE records must mean one file on
+    # every platform, and a colon or a trailing dot in a component means it
+    # does not.
+    for part in text.split("/"):
+        if ":" in part or part != part.rstrip(". "):
+            raise _binding_refused(
+                "requirements_source_invalid",
+                f"'{raw}' uses a spelling that names different files on "
+                "different platforms (a ':' stream, or a trailing dot or "
+                "space). Bind the document by its plain path.", source=raw)
+    if any(ord(ch) < 32 for ch in text):
+        raise _binding_refused(
+            "requirements_source_invalid",
+            f"'{raw}' contains a control character. A requirements source is "
+            "an ordinary repository path.", source=raw)
     if not text:
         raise _binding_refused(
             "requirements_source_invalid",
@@ -4442,7 +4467,7 @@ def _binding_source(paths: Paths, raw: str) -> str:
             "recorded set cannot change without the binding changing — "
             "`requirements bind --all-current` expands a directory into the "
             "exact files present now.", source=raw)
-    if not target.is_file():
+    if must_exist and not target.is_file():
         raise _binding_refused(
             "requirements_source_missing",
             f"'{raw}' is not a file in this repository, so it cannot be a "
@@ -4457,7 +4482,11 @@ def binding_digest(sources: list[str]) -> str:
     bound is a different fact, and the governance record carries this digest so
     the two can be told apart.
     """
-    return hashlib.sha256("\n".join(sorted(sources)).encode("utf-8")).hexdigest()
+    # Canonical JSON, not newline-joined: `["a\nb", "c"]` and `["a", "b\nc"]`
+    # join to the same text, so two different bindings would hash alike and a
+    # re-bind between them would be invisible.
+    payload = json.dumps(sorted(sources), ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def read_requirements_binding(paths: Paths) -> dict | None:
@@ -4495,8 +4524,19 @@ def read_requirements_binding(paths: Paths) -> dict | None:
     return document
 
 
-def bound_sources(paths: Paths) -> list[str]:
-    """The bound paths, or a refusal naming the step that was skipped."""
+def validated_binding(paths: Paths) -> dict:
+    """The binding, revalidated, or a refusal. **The one read path.**
+
+    `read_requirements_binding` checks only that the file parses and declares a
+    version it can read. That is not enough for a file every governance
+    decision rests on: the write fence is a tripwire, not a guarantee, and a
+    merge, a restored backup or a skipped hook can leave a binding that parses
+    and still says something the engine must not act on.
+
+    So every read revalidates, and containment is rechecked **here** rather
+    than only at bind time: a symlink bound while it pointed inside the
+    repository can be retargeted afterwards, and nothing else would notice.
+    """
     binding = read_requirements_binding(paths)
     if binding is None:
         raise _binding_refused(
@@ -4506,11 +4546,66 @@ def bound_sources(paths: Paths) -> list[str]:
             "measure against. Run `requirements bind --source <path>` "
             "(or `--all-current`) first.",
             workitem=paths.workitem)
-    return list(binding["sources"])
+
+    sources = binding["sources"]
+    if not sources or not all(isinstance(item, str) for item in sources):
+        raise IntegrityError(
+            "requirements_binding_invalid",
+            f"{paths.runtime_relative}/{paths.requirements_binding_file.name} "
+            "declares no usable source list. Re-run `requirements bind`.",
+            {"path": str(paths.requirements_binding_file)})
+    owner = binding.get("workitem")
+    if owner != paths.workitem:
+        raise IntegrityError(
+            "requirements_binding_invalid",
+            f"{paths.runtime_relative}/{paths.requirements_binding_file.name} "
+            f"belongs to WorkItem {owner!r}, not {paths.workitem!r}. A binding "
+            "moved between WorkItems says nothing trustworthy about either.",
+            {"path": str(paths.requirements_binding_file), "declares": owner})
+    if binding.get("digest") != binding_digest(sources):
+        raise IntegrityError(
+            "requirements_binding_invalid",
+            f"{paths.runtime_relative}/{paths.requirements_binding_file.name} "
+            "does not match its own digest, so it was edited after it was "
+            "written. Re-run `requirements bind`.",
+            {"path": str(paths.requirements_binding_file)})
+
+    seen: list[str] = []
+    for item in sources:
+        # The same syntax and containment rules the bind applied, applied
+        # again. A path that was legal when bound is not therefore legal now.
+        canonical = _binding_source(paths, item, must_exist=False)
+        if any(canonical.lower() == other.lower() for other in seen):
+            raise IntegrityError(
+                "requirements_binding_invalid",
+                f"{paths.runtime_relative}/"
+                f"{paths.requirements_binding_file.name} binds '{item}' twice.",
+                {"path": str(paths.requirements_binding_file), "source": item})
+        seen.append(canonical)
+    primary = binding.get("primary")
+    if primary not in sources:
+        raise IntegrityError(
+            "requirements_binding_invalid",
+            f"{paths.runtime_relative}/{paths.requirements_binding_file.name} "
+            f"names {primary!r} as its primary document, which it does not "
+            "bind.",
+            {"path": str(paths.requirements_binding_file), "primary": primary})
+    return binding
 
 
-def requirements_sources(paths: Paths) -> tuple[list[dict], str]:
+def bound_sources(paths: Paths) -> list[str]:
+    """The bound paths, validated on every read."""
+    return list(validated_binding(paths)["sources"])
+
+
+def requirements_sources(paths: Paths, strict: bool = False
+                        ) -> tuple[list[dict], str]:
     """Every **bound** requirement document with its SHA, plus one digest.
+
+    ``strict`` is what `governance assess` passes: an assessment may not be
+    *recorded* against a document that is not there. Without it, deleting a
+    bound document and re-assessing wrote a ``null`` SHA as the new baseline,
+    and freshness then matched that null — the deletion healed itself.
 
     The set is the WorkItem's binding (ADR-012), not a listing of a directory.
     Globbing `requirements/` made one WorkItem's document freeze another: a
@@ -4522,12 +4617,23 @@ def requirements_sources(paths: Paths) -> tuple[list[dict], str]:
     path — instead of quietly resting on a smaller set than it was made from.
     """
     sources: list[dict] = []
+    missing: list[str] = []
     for relative in bound_sources(paths):
         target = paths.project_root / relative
+        if not target.is_file():
+            missing.append(relative)
         sources.append({
             "path": relative,
             "sha256": sha256_file(target) if target.is_file() else None,
         })
+    if strict and missing:
+        raise _binding_refused(
+            "requirements_source_missing",
+            "This WorkItem is bound to requirement documents that are not in "
+            f"the repository: {', '.join(missing)}. An assessment cannot be "
+            "recorded against a document that is not there. Restore them, or "
+            "re-run `requirements bind` with the documents it is about.",
+            workitem=paths.workitem, missing=missing)
     sources.sort(key=lambda entry: entry["path"])
     return sources, _sources_digest(sources)
 
@@ -5082,19 +5188,27 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
     current.sort(key=lambda entry: entry["path"])
     digest = _sources_digest(current)
 
-    binding = read_requirements_binding(paths)
-    bound_now = sorted(binding["sources"]) if binding else []
+    binding = validated_binding(paths)
+    bound_now = sorted(binding["sources"])
     recorded_binding = recorded_block.get("bindingDigest")
-    rebound = (recorded_binding is not None
+    # A record with no `bindingDigest` was written before a binding existed, so
+    # nothing says which documents it was about. Treating that as "no binding
+    # to compare" let such a WorkItem advance unbound — the implicit default
+    # ADR-012 refuses. It is stale until it is re-assessed against a binding,
+    # and it is reported as its own fact rather than as a digest mismatch,
+    # because the remedy is different: re-assess, not restore a file.
+    unbound_record = recorded_binding is None
+    rebound = (not unbound_record
                and recorded_binding != binding_digest(bound_now))
 
     return {
-        "fresh": recorded == digest and not rebound,
+        "fresh": recorded == digest and not rebound and not unbound_record,
         "recorded_digest": recorded,
         "current_digest": digest,
         "current_sources": [entry["path"] for entry in current],
         "missing_sources": missing,
         "rebound": rebound,
+        "assessed_without_a_binding": unbound_record,
     }
 
 
@@ -5234,12 +5348,17 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     downgrade = governance_downgrade(superseded, risk)
 
     stamp = now_iso()
+    # The binding is read and the documents hashed BEFORE an evidence file is
+    # claimed. Reserving first left `evidence/governance-<id>.json` behind when
+    # the assessment then refused `requirements_unbound` — an artifact of a
+    # decision that was never taken, which is exactly what refusal atomicity
+    # exists to prevent.
+    sources, digest = requirements_sources(paths, strict=True)
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
         paths, paths.evidence_dir, stamp,
         lambda eid: f"governance-{eid}.json")
-    sources, digest = requirements_sources(paths)
     # ADR-011. The policy this WorkItem started under, pinned at the FIRST
     # governance record and carried forward verbatim by every later one.
     #
@@ -5366,6 +5485,12 @@ def cmd_governance_show(args, paths: Paths) -> int:
         "recorded_digest": freshness["recorded_digest"],
         "current_digest": freshness["current_digest"],
         "requirements": freshness["current_sources"],
+        # Why it is not fresh, when it is not: the documents changed, the
+        # binding changed, or the record predates the binding entirely. Three
+        # different remedies, so a reader is told which.
+        "missing_sources": freshness["missing_sources"],
+        "rebound": freshness["rebound"],
+        "assessed_without_a_binding": freshness["assessed_without_a_binding"],
     })
     return EXIT_OK
 
@@ -7158,6 +7283,17 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
 
     freshness = governance_freshness(paths, record)
     if not freshness["fresh"]:
+        if freshness.get("assessed_without_a_binding"):
+            raise Refused(
+                "governance_stale",
+                f"The governance record for '{paths.workitem}' was written "
+                "before this WorkItem declared which requirement documents it "
+                "is about, so nothing says what it was assessed against. Bind "
+                "them with `requirements bind`, then re-run `governance "
+                "assess`.",
+                {"workitem": paths.workitem,
+                 "assessed_without_a_binding": True},
+            )
         raise Refused(
             "governance_stale",
             f"The governance record for '{paths.workitem}' was assessed "
@@ -8489,15 +8625,32 @@ def cmd_requirements_bind(args, paths: Paths) -> int:
                 "the recorded set says what it means.", source=raw)
         sources.append(canonical)
 
-    primary = _binding_source(paths, args.primary) if args.primary \
-        else sorted(sources)[0]
+    if args.primary:
+        primary = _binding_source(paths, args.primary)
+    elif len(sources) == 1:
+        primary = sources[0]
+    else:
+        # No alphabetical default. The primary names the project, so picking
+        # the first by sort order silently names it after whichever document
+        # sorts first — `00-regulatory.md` over `product.md`. Which document
+        # speaks for the work is a decision, and the engine does not have it.
+        raise UsageError(
+            "requirements_primary_required",
+            "More than one document is being bound, so name which one speaks "
+            "for this WorkItem: --primary <path>. It is the document the "
+            "project's name is read from.")
     if primary not in sources:
         raise _binding_refused(
             "requirements_source_invalid",
             f"The primary document '{args.primary}' is not one of the bound "
             "sources.", source=args.primary, sources=sources)
 
-    previous = read_requirements_binding(paths)
+    try:
+        previous = read_requirements_binding(paths)
+    except IntegrityError:
+        # `bind` is how a corrupt binding is repaired, so it must not refuse on
+        # the file it is about to replace. `rebound` below is only evidence.
+        previous = None
     document = {
         "bindingVersion": REQUIREMENTS_BINDING_VERSION,
         "workitem": paths.workitem,
@@ -8528,7 +8681,12 @@ def cmd_requirements_show(args, paths: Paths) -> int:
     The orchestrator displays this before the governance proposal: a binding
     that can be forgotten is a binding that has to be visible (ADR-012 §5).
     """
-    binding = read_requirements_binding(paths)
+    try:
+        binding = validated_binding(paths)
+    except Refused as exc:
+        if exc.reason != "requirements_unbound":
+            raise
+        binding = None
     if binding is None:
         emit("requirements show", {
             "workitem": paths.workitem, "bound": False, "sources": [],
