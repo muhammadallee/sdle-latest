@@ -34,9 +34,10 @@ incident. The executable form assesses the same governance input,
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/10 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
-WorkItem created: checkout-500. Preflight passed. Content scan passed.
+WorkItem created: checkout-500, bound to requirements/checkout-500.md. Preflight passed.
+Content scan passed.
 
 Bound to HOTFIX: 10 phases, 3 gates — exactly the mandatory governance floor plus the
 impact analysis. There is no admissible flow below it: the flow loader refuses a flow
@@ -44,6 +45,14 @@ missing a mandatory phase rather than traversing it.
 
 Shall I proceed?
 ```
+
+---
+
+*(Engine: `sdle.sh workitem create ...`, then
+`sdle.sh --workitem checkout-500 requirements bind --source requirements/checkout-500.md`. Under time pressure
+this is the step people reach for skipping; `preflight` refuses
+`requirements_unbound` instead. Then `preflight`, `scan` and `governance
+assess`.)*
 
 ---
 

@@ -73,8 +73,27 @@ The binding is therefore a recorded, inspectable decision and not a command-line
 
 - it is written by the engine, into the WorkItem's runtime, and never hand-edited (invariant 6);
 - `requirements show` reports it, and the orchestrator displays it before the governance proposal;
-- the governance record carries the binding's digest, so a proposal is tied to the set it analysed;
-- re-binding is explicit and immediately makes the existing assessment stale.
+- the governance **record** carries the binding's digest, so a recorded assessment is tied to the set it
+  analysed. The digest is computed by the engine at assess time; the model's proposal does not and cannot
+  supply it (§7);
+- re-binding is explicit, and re-binding to a **different set** makes the existing assessment stale
+  (`governance_stale`, with `rebound: true`).
+
+The last point is narrower than it first appears, and the narrowness is deliberate. `binding_digest`
+hashes the sorted list of source paths and nothing else, so:
+
+| What changed | Stales the assessment? | Why |
+|---|---|---|
+| A bound document's **content** | Yes | The sources digest hashes each file's SHA-256 |
+| **Which documents** are bound | Yes, `rebound: true` | The binding digest changes |
+| A bound document is deleted or renamed | Yes | Its hash becomes absent, so the sources digest moves |
+| The **primary** alone, same set | **No** | The primary is not in the binding digest |
+| The `boundAt` timestamp | **No** | Not in the digest either |
+| An unbound file appears or changes | **No** | Only bound documents are hashed — this is the point of ADR-012 |
+
+Re-binding the same set with a different primary is therefore silent. That is defensible — the primary
+selects the project name and does not change what was analysed — but it means "I re-bound, so the record
+must be stale" is not a safe assumption. `governance show` reports the facts; do not infer them.
 
 ## 6. No implicit default
 
@@ -96,28 +115,71 @@ workitem create
   → requirements bind --source <path> [--source <path> …]
   → preflight            (checks the binding, not a directory listing)
   → untrusted scan       (over exactly the bound sources)
-  → governance proposal  (carries the binding digest)
+  → governance proposal  (the model's 4-key input; it does NOT carry the digest)
   → governance assess
   → init                 (project name from the binding's primary source)
 ```
 
-`preflight` today reports `requirements_missing` from a bare listing of the root directory, which under a
-binding would be wrong in both directions: passing because some unrelated document exists, or failing
-because the root is empty while the bound sources live elsewhere. It reads the binding instead.
+The proposal a model writes has exactly four top-level keys — `governanceInputVersion`, `quality`,
+`classification`, `risk` — and a fifth is refused `governance_input_malformed` rather than ignored. So
+the binding digest cannot travel in the proposal even in principle: `governance assess` reads the
+binding from the WorkItem's runtime itself and writes `requirements.sources`, `requirements.digest` and
+`requirements.bindingDigest` into the record. The tie between an assessment and the set it analysed is
+made by the engine, which is what makes it evidence rather than a claim.
+
+`preflight` before this ADR reported `requirements_missing` from a bare listing of the root directory,
+which under a binding would be wrong in both directions: passing because some unrelated document exists,
+or failing because the root is empty while the bound sources live elsewhere. It reads the binding
+instead.
+
+**The project name** comes from the binding's primary, but only as the second link in a chain:
+`--project` if given, else the primary document's first `#` heading, else the WorkItem's title, else the
+project root's directory name. Naming a primary is what makes the second link deterministic, which is
+why `requirements_primary_required` refuses rather than defaulting to the alphabetically first
+document (§10).
 
 ## 8. Refusals
 
-| Reason | When |
-|---|---|
-| `requirements_unbound` | A consumer needs the binding and none exists |
-| `requirements_source_missing` | A bound path is not a file, at bind time or later |
-| `requirements_binding_empty` | A bind names no source |
-| `requirements_primary_required` | More than one document is bound and none was named primary |
-| `requirements_source_invalid` | A path escapes the repository, is absolute, traverses, or resolves through a symlink out of the tree |
-| `requirements_source_duplicate` | The same file is named twice, including by a Windows case alias |
-| `governance_stale` | A bound document changed, was renamed or was deleted after the assessment |
+Exit codes are the engine's contract (`0` success · `1` refused · `2` usage · `3` integrity). The codes
+below were read from the running CLI, not from intent.
 
-A directory as a source is refused; `--all-current` is how a directory becomes an exact file list.
+One reason carries **two** exit codes, because it covers two different failures: `requirements_binding_empty`
+is a usage error when the command names no selector at all, and a refusal when `--all-current` is a
+well-formed request that the repository cannot satisfy. Reading the reason without the exit code
+conflates them.
+
+| Reason | Exit | When |
+|---|---|---|
+| `requirements_binding_empty` | 2 | A bind names neither `--source` nor `--all-current` |
+| `requirements_binding_empty` | 1 | `--all-current` over a `requirements/` that holds no documents |
+| `requirements_binding_ambiguous` | 2 | A bind passes both `--source` and `--all-current` |
+| `requirements_primary_required` | 2 | More than one document is bound and none was named primary. Exit 2 but **not** early: every source is resolved and validated first, so a bind with two sources one of which is missing refuses `requirements_source_missing` (exit 1), not this |
+| `requirements_unbound` | 1 | A consumer needs the binding and none exists |
+| `requirements_source_missing` | 1 | A bound path is not a file, at bind time or later |
+| `requirements_source_invalid` | 1 | A path is absolute, traverses out, names a directory, resolves through a symlink out of the tree, or uses a spelling that means different files on different platforms (a `:` stream, a trailing dot or space) |
+| `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias |
+| `requirements_binding_invalid` | 3 | The binding on disk is not one the engine wrote: it does not parse, declares an unreadable version, carries a non-string or duplicate source, names a primary it does not bind, belongs to another WorkItem, or does not match its own digest. An integrity failure rather than a refusal, because the file is evidence rather than input |
+| `governance_stale` | 1 | A bound document changed, was renamed or was deleted after the assessment; or the bound **source set** changed (`rebound` — see the §5 table for what does *not* count); or the record predates any binding. The refusal carries only the two digests; `governance show` is what reports which |
+
+`--all-current` is how a directory becomes an exact file list; a directory named with `--source` is
+refused.
+
+**Precedence in `preflight`**, as observed. Two things are true at once and must not be confused:
+
+- **`reason` names one problem** — Spec Kit and its skills first, then `requirements_unbound`, then
+  `requirements_source_missing`. That is the headline, and it is what a caller branching on `reason`
+  sees.
+- **`data.problems` lists them all.** A WorkItem with neither Spec Kit nor a binding refuses
+  `speckit_missing` with `problems: ["speckit_missing", "requirements_unbound"]`. So preflight does
+  *not* hide the second problem behind the first; a reader who wants the whole picture reads
+  `data.problems`, and a presenter should show it rather than making the user fix one thing to learn
+  about the next.
+
+**A malformed binding pre-empts all of it.** `requirements_binding_invalid` is an integrity failure
+(exit 3) raised when the binding is read, which happens before the precedence above applies: `preflight`
+with an unparseable `requirements.json` exits 3 even when Spec Kit is also absent. Integrity failures
+are not ranked against ordinary refusals — the engine stops rather than reporting which of several
+things is wrong with a record it no longer trusts.
 
 ## 9. Consequences
 

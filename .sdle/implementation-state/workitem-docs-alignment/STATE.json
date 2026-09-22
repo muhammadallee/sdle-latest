@@ -1,0 +1,105 @@
+{
+  "task": "documentation alignment - WorkItem binding, isolation and setup",
+  "branch": "docs/alignment-binding-and-isolation",
+  "baseline_sha": "369ff96336e0f068833ec1a77ecdf7b18c3e94c2",
+  "baseline_branch_point": "main",
+  "current_sha": "a669b03",
+  "note_on_current_sha": "This record is committed, so the commit that carries it is necessarily one later than the sha it names. The delta is this file and the round-2 disposition record; nothing under review.",
+  "preexisting_untracked_not_ours": [
+    "plan-claude-codex-defectfix.md"
+  ],
+  "phase": "P6",
+  "phase_status": "both review rounds complete; suite green on CI; handoff pending",
+  "completed_phases": [
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5 (round 1)",
+    "P6 (round 2)"
+  ],
+  "drift_open": [],
+  "drift_closed": [
+    "D-01",
+    "D-02",
+    "D-03",
+    "D-04",
+    "D-05",
+    "D-06",
+    "D-07",
+    "D-09",
+    "D-10",
+    "D-11",
+    "D-12"
+  ],
+  "runtime_defects_found": [],
+  "review_rounds": {
+    "round_1": {
+      "candidate": "cdf8316 + modified STATE.json + untracked runs/",
+      "findings": 8,
+      "questions": 2,
+      "accepted": 8,
+      "partially_accepted": 0,
+      "disputed": 0,
+      "reviewer_claims_independently_verified": "6 of 6 held",
+      "status": "complete; reply at review-rounds/round1.reply.md"
+    },
+    "round_2": {
+      "candidate": "bd56045 (clean tree)",
+      "findings": 9,
+      "preferences": 3,
+      "questions": 0,
+      "accepted": 9,
+      "partially_accepted": 0,
+      "disputed": 0,
+      "preferences_adopted": 3,
+      "reviewer_claims_independently_verified": "9 of 9 held",
+      "status": "complete; dispositions at review-rounds/round2.dispositions.md"
+    }
+  },
+  "open_disagreements": [],
+  "open_items_for_the_owner": [
+    {
+      "id": "OPEN-01",
+      "severity": "medium",
+      "question": "Should `accept content` be usable at bootstrap, before `init`? Today it is not, so a scan false positive on a requirement document can only be resolved by editing the file. Documentation now describes the real behaviour; changing it is an engine change and the owner's call.",
+      "reproduction": "workitem create; requirements bind; scan --path <a document with instruction-like text> -> exit 1 content_flagged, and no state.json is written; accept-content -> exit 3 state_unreadable.",
+      "evidence": "runs/bootstrap-accept-content.txt"
+    },
+    {
+      "id": "OPEN-02",
+      "severity": "low",
+      "question": "The conftest fixture auto-binds, so the suite cannot catch a documented startup sequence that omits `requirements bind`. Codex raised it in round 1 and recommends an executable end-to-end startup contract in round 2. Both are test-design changes, out of scope for a documentation pass.",
+      "reproduction": "tests/conftest.py binds during fixture setup.",
+      "evidence": "round1.response.md R1-D03; round2.response.md closing paragraph"
+    },
+    {
+      "id": "OPEN-03",
+      "severity": "resolved",
+      "question": "The full suite had not produced a result after three local attempts.",
+      "resolution": "Resolved by CI rather than locally. The owner pushed the branch; GitHub Actions ran the full suite plus lint-skill on four platform/version combinations and all four passed at 7477e9f, the exact candidate. Stronger evidence than the single-combination local run it replaced.",
+      "evidence": "runs/full-suite-PASS-ci.txt"
+    }
+  ],
+  "blockers": [],
+  "next_action": "Hand off. OPEN-01 and OPEN-02 remain the owner's decisions. The branch is pushed and CI is green; nothing is merged.",
+  "verification": {
+    "lint_skill": "PASS",
+    "dry_run_contracts": "PASS (118)",
+    "documented_commands_invariants_lint": "PASS (1124 across four modules)",
+    "guide_replay": "PASS (13 blocks, exit 0)",
+    "binding_scenarios": "PASS (7)",
+    "adr012_refusal_probe": "PASS (7 claim groups)",
+    "deleted_bound_source_probe": "PASS",
+    "round2_claim_probe": "PASS (9 of 9 reviewer claims reproduced)",
+    "full_suite": "PASS - GitHub Actions run 35727873456 at 7477e9f, four jobs (ubuntu-latest and windows-latest x Python 3.11 and 3.13), all success. See runs/full-suite-PASS-ci.txt"
+  },
+  "branch_pushed": true,
+  "ci": {
+    "run": "https://github.com/muhammadallee/sdle-latest/actions/runs/35727873456",
+    "sha": "7477e9f317673f52ea42c8de02136ab376535c1e",
+    "conclusion": "success",
+    "jobs": 4
+  }
+}

@@ -50,6 +50,41 @@ $ sdle.sh workitem create --name "Low stock alerts" --type enhancement --synopsi
   }
 }
 --- exit 0 ---
+```
+
+Between `workitem create` and `preflight` the WorkItem declares which requirement
+documents it concerns. Skipping it makes `preflight` refuse `requirements_unbound`:
+
+```
+$ sdle.sh --workitem low-stock-alerts requirements bind \
+    --source requirements/low-stock-alerts.md \
+    --source requirements/reservations.md \
+    --primary requirements/low-stock-alerts.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "low-stock-alerts",
+    "sources": [
+      "requirements/low-stock-alerts.md",
+      "requirements/reservations.md"
+    ],
+    "primary": "requirements/low-stock-alerts.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+Two documents, because the alerting work genuinely answers to the reservation
+rules as well: an alert that ignores reserved stock is wrong. Binding more than
+one **requires** `--primary` — the engine refuses `requirements_primary_required`
+rather than choosing, and the primary's first `#` heading becomes the project
+name. Bind one document and `--primary` is inferred instead. A document in `requirements/` that this WorkItem does not
+bind governs nothing here. See
+[ADR-012](../architecture/ADR-012-requirements-source-binding.md).
+
+```
 
 $ sdle.sh workitem list
 {
@@ -164,8 +199,8 @@ $ sdle.sh init
     "active_context": "low-stock-alerts",
     "execution_id": "sdl-20260908T101230Z",
     "requirements": [
-      "low-stock-alerts.md",
-      "reservations.md"
+      "requirements/low-stock-alerts.md",
+      "requirements/reservations.md"
     ],
     "current_phase": "spec_draft",
     "status": "pending",
@@ -187,13 +222,22 @@ Phase 2 of 16 is `spec_draft`. In `GREENFIELD` that position holds
 the work starts at the specification, because the two phases those flows spend
 first were spent already.
 
-`requirements` lists **both** documents. The requirements directory is
-repository-level and accumulates: the reservations requirement that the first
-WorkItem was written from is still there, and the requirements digest this
-assessment recorded covers the directory as it now stands. That is intended —
-it is the same repository — but it does mean an edit to an *old* requirement
-document makes the *current* WorkItem's governance stale — `governance_stale`,
-and the remedy is to re-assess. See
+`requirements` lists the documents **this WorkItem bound** — here both, because
+this WorkItem was bound to both. `requirements/` is repository-level and does
+accumulate, but accumulating is not inheriting: a document sitting in that
+directory governs nothing until a WorkItem declares it.
+
+That distinction is the point of the binding. Editing `reservations.md` makes
+*this* WorkItem's governance stale, because this WorkItem said it is about that
+document. Adding a third document for some later WorkItem does not, because this
+one never bound it. Before ADR-012 the digest covered the whole directory, so any
+new document refused every in-flight WorkItem's next advance.
+
+Three distinct facts can make an assessment stale, and `governance show` names
+which: a bound document changed, the bound source set changed (`rebound`), or the
+record predates the binding (`assessed_without_a_binding`). The remedy differs —
+restore the document, or re-assess, or bind and then re-assess. See
+[ADR-012](../architecture/ADR-012-requirements-source-binding.md) and
 [§12 of the Reference Guide](../SDLE-Reference-Guide.md#12-state-audit-trail--traceability).
 
 ```
@@ -451,9 +495,37 @@ something went wrong. Treating it as invalidation would push the third WorkItem
 in every repository back into full rediscovery — which is precisely the cost
 this flow exists to avoid.
 
-So the third WorkItem starts normally:
+So the third WorkItem starts normally — and "normally" includes binding, which
+is per WorkItem and inherits nothing from the two that ran before it:
 
 ```
+$ sdle.sh workitem create --name "Movement archival"
+$ sdle.sh --workitem movement-archival requirements bind \
+    --source requirements/movement-archival.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "movement-archival",
+    "sources": ["requirements/movement-archival.md"],
+    "primary": "requirements/movement-archival.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+One document, so `--primary` is inferred. Note what this WorkItem is **not**
+bound to: `low-stock-alerts.md` and `reservations.md` are still sitting in
+`requirements/`, and the first WorkItem bound both — but a directory is not an
+inheritance. `movement-archival` is about archival, so editing either of the
+other two leaves its governance record fresh, and editing *its* document stales
+only it.
+
+```
+$ sdle.sh --workitem movement-archival preflight   # passes: one bound document, present
+$ sdle.sh --workitem movement-archival scan --path requirements/movement-archival.md
+$ sdle.sh --workitem movement-archival governance assess --input governance-input.json
 $ sdle.sh init
 {
   "ok": true,
@@ -465,9 +537,7 @@ $ sdle.sh init
     "active_context": "movement-archival",
     "execution_id": "sdl-20260908T103200Z",
     "requirements": [
-      "low-stock-alerts.md",
-      "movement-archival.md",
-      "reservations.md"
+      "requirements/movement-archival.md"
     ],
     "current_phase": "spec_draft",
     "status": "pending",

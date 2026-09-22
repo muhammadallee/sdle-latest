@@ -1,0 +1,30 @@
+SCENARIO 1 — one source: primary inferred
+  bind one                                             exit=0 reason=None sources=['requirements/product.md'] primary=requirements/product.md
+
+SCENARIO 2 — several sources need a primary
+  bind two without --primary                           exit=2 reason=requirements_primary_required 
+  bind two with --primary                              exit=0 reason=None sources=['requirements/product.md', 'requirements/regulatory.md'] primary=requirements/product.md
+
+SCENARIO 3 — a shared document, bound by two WorkItems, not copied
+  alpha=['requirements/product.md']
+  bravo=['requirements/product.md', 'requirements/regulatory.md']
+  shared without copying: ['requirements/product.md']
+  only one copy on disk: ['product.md', 'regulatory.md', 'unrelated.md']
+
+SCENARIO 4 — --all-current is a snapshot, not a live glob
+  bind --all-current                                   exit=0 reason=None sources=['requirements/product.md', 'requirements/regulatory.md', 'requirements/unrelated.md']
+  after a new file appears, charlie still binds: ['requirements/product.md', 'requirements/regulatory.md', 'requirements/unrelated.md']
+
+SCENARIO 5 — an unrelated document does not stale another WorkItem
+  alpha preflight with unrelated.md present            exit=0 reason=None requirements=['requirements/product.md']
+
+SCENARIO 6 — rebinding, and a missing source
+  alpha rebinds to include regulatory                  exit=0 reason=None rebound=True
+  alpha preflight, bound document deleted              exit=1 reason=requirements_source_missing 
+  requirements show names it: missing=['requirements/regulatory.md']
+
+SCENARIO 7 — invalid sources
+  bind absolute                                        exit=1 reason=requirements_source_invalid 
+  bind traversal                                       exit=1 reason=requirements_source_invalid 
+  bind directory                                       exit=1 reason=requirements_source_invalid 
+  bind stream alias                                    exit=1 reason=requirements_source_invalid 

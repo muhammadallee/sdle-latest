@@ -34,9 +34,10 @@ a failing regression test that reproduces the defect. The executable form uses
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/14 — Requirements Check [IN PROGRESS]
+(No status header: `init` has not run.)
 
-WorkItem created: login-reset-defect. Preflight passed. Content scan passed.
+WorkItem created: login-reset-defect, bound to requirements/login-reset-defect.md. Preflight passed.
+Content scan passed.
 
 This WorkItem is classified as a defect, so it is bound to DEFECT_FIX: 14 phases,
 6 gates. It opens with an impact analysis rather than a specification, and it drops the
@@ -46,6 +47,14 @@ is how a one-line fix becomes an outage.
 
 Shall I proceed?
 ```
+
+---
+
+*(Engine: `sdle.sh workitem create ...`, then
+`sdle.sh --workitem login-reset-defect requirements bind --source requirements/login-reset-defect.md` — a defect report is a
+requirement document like any other, and `preflight` refuses
+`requirements_unbound` until one is bound — then `preflight`, `scan` and
+`governance assess`.)*
 
 ---
 

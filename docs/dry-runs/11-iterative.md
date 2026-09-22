@@ -33,7 +33,11 @@ through the real CLI in one fixture repository.
 
 **User:** `start workflow` → **SDLE:** `WorkItem name?` → **User:** `Export CSV`
 
-*(The orchestrator's first governance proposal for the new WorkItem reads the
+*(`sdle.sh workitem create --name "Export CSV"` registered the identity and
+`sdle.sh --workitem export-csv requirements bind --source requirements/export-csv.md`
+bound what it is about — binding is per WorkItem, so `export-csv` binds its own
+document and is unaffected by the one `reporting-export` bound. The
+orchestrator's first governance proposal for the new WorkItem then reads the
 repository as "existing code, so brownfield". `init` checks the baseline before
 anything is created:)*
 

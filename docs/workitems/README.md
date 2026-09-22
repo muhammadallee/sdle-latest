@@ -19,21 +19,84 @@ interact: state, audit, evidence, locks and identity are per WorkItem, and one
 WorkItem's records are excluded from another's Gate 7 manifest and security
 evidence.
 
-**Give each WorkItem its own branch or Git worktree while it is implementing.**
-That is a real constraint, not advice. From `implement preflight` — which pins
-the commit the work is measured from — until the security review is complete,
-SDLE measures the implementation as a diff of the working tree against that
-commit. Git cannot say which WorkItem wrote a given line of application code, so
-two WorkItems implementing in one checkout put each other's code into each
-other's manifest, secrets scan and security-review diff. A reviewer would then
-be approving changes that belong to a gate they are not standing at.
+**Two WorkItems may not implement in the same working directory at the same
+time.** That is a real constraint, not advice. From `implement preflight` —
+which pins the commit the work is measured from — until the security review is
+complete, SDLE measures the implementation as a diff of the *working tree*
+against that commit. Git cannot say which WorkItem wrote a given line of
+application code, so two implementations sharing one directory put each other's
+code into each other's manifest, secrets scan and security-review diff. A
+reviewer would then be approving changes belonging to a gate they are not
+standing at.
 
-Outside that window there is no such constraint: any number of WorkItems can sit
-at any other phase in one checkout without interacting.
+**A branch is not a workspace.** Two branch names do not give you two
+workspaces: a working directory has exactly one branch checked out, so switching
+between them is taking turns, not working concurrently. Taking turns is fine —
+the constraint is about *simultaneous* implementation. What gives you two
+workspaces at once is a second working directory: a `git worktree`, or a
+separate clone.
+
+**The window is about what other WorkItems write, not only about what they are
+doing.** Its boundary is the evidence, not the phase name: while a WorkItem is
+between `implement preflight` and the end of its security review, anything
+another WorkItem writes in that directory to a path the exclusion does not cover
+lands in the first WorkItem's manifest and diff. Writes **inside** another
+registered WorkItem's own tree are excluded and are genuinely harmless; the
+working rule below is deliberately stricter than that, because deciding
+path-by-path while you work is how the mistake gets made.
+
+What the exclusion covers, read from `implementation_exclusions` in
+`scripts/sdle.py`:
+
+| Excluded | Not excluded |
+|---|---|
+| This WorkItem's own runtime, `workitems/<id>/.sdle/` | Anything else under its own directory |
+| The repository-global configuration root, `.sdle/` | `requirements/` |
+| Spec Kit's tree, `.specify/` | `design/` |
+| This WorkItem's Spec Kit feature directory | `reviews/` |
+| **Every other WorkItem's whole tree**, `workitems/<other>/` (F-102) | `clarifications/` |
+| The registry file, `workitems/index.md` | `guidance/` |
+| | Application code, which is the point |
+
+So a second WorkItem working *inside its own directory* is invisible to the
+first one's evidence — that is what F-102 fixed. What is still shared is the
+repository-level set on the right: `requirements/`, `design/`, `reviews/`,
+`clarifications/` and `guidance/` are deliberately kept in, because they are
+genuine implementation inputs and outputs and dropping them would hide real
+work. A second WorkItem generating a design into `design/`, saving a
+clarification, dropping a file into `guidance/` or recording a review therefore
+lands in the first one's manifest and diff just as an implementation would.
+
+**There are two path lists and they disagree on purpose.** This is the detail
+that makes the behaviour above look inconsistent until you know it:
+
+| List | Used by | `requirements/`, `design/`, `reviews/`, `clarifications/`, `guidance/` |
+|---|---|---|
+| `SDLE_OWNED_PREFIXES` | `implement preflight`'s dirty-tree check | **Filtered out** — an uncommitted design does not make the tree dirty |
+| `implementation_exclusions` | Gate 7's manifest and the security-review evidence | **Kept in** — a design written during implementation is part of the change set |
+
+So an uncommitted artifact in one of those directories will *not* stop you
+entering the implement phase, and *will* appear in the evidence at the end of
+it. That asymmetry is deliberate: those directories are SDLE's own outputs, so
+blocking on them at the start would make the dirty-tree check fire on every
+normal run — but they are also real implementation inputs and outputs, so
+dropping them from the manifest would hide work a reviewer must see. The
+practical consequence is the one above: the tree being clean enough to start
+implementing is not a promise that nobody else's artifacts will end up in your
+evidence.
+
+Outside that window, runtime **records** never interact: state, audit, evidence,
+locks and identity are per WorkItem. The repository-level directories above are
+still shared — `design/app/app-design.md` has one path, whichever WorkItem
+writes it — so two WorkItems that both reach a design phase overwrite each
+other's artifact wherever they share a working directory. That is a known
+limitation of those shared paths, not something the binding changes: the
+binding says which *requirement documents* a WorkItem is about, and has no
+bearing on where generated artifacts land.
 
 ```bash
-git worktree add ../feature-b -b feature-b
-cd ../feature-b          # drive WorkItem B here; A keeps its own checkout
+git worktree add ../feature-b -b feature-b   # a second working directory
+cd ../feature-b                              # drive WorkItem B here
 ```
 
 The resolution ladder is built for this — each worktree resolves its own
@@ -80,7 +143,11 @@ boundary — see §7.
 
 ## 3. Isolation
 
-Two WorkItems share nothing. Concretely:
+**Two WorkItems share no *records*.** That is the precise claim, and the word
+"records" is load-bearing: everything listed below is per WorkItem, while the
+repository-level directories in §1 — `requirements/`, `design/`, `reviews/`,
+`clarifications/`, `guidance/` — are shared by every WorkItem in the checkout
+and are *not* isolated by anything. Concretely, what is isolated:
 
 - separate `state.json`, so a phase advance in one does not move the other;
 - separate `audit.md`, each verifying independently — neither chain contains the

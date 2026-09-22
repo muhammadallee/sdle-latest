@@ -32,6 +32,19 @@ one-predicate fix: the `warehouse` column already exists and is populated. This
 is what a hotfix is supposed to look like — a small, well-understood change to
 a boundary that is currently wrong.
 
+A hotfix is fast, not exempt. It starts where every flow starts: `sdle.sh
+workitem create --name "Cross warehouse disclosure"`, then
+
+```
+$ sdle.sh --workitem cross-warehouse-disclosure requirements bind --source requirements/cross-warehouse-disclosure.md
+```
+
+Binding under time pressure is the step people want to skip, and it is the one
+the engine will not let them: `preflight` and `init` refuse
+`requirements_unbound`, and `governance assess` has nothing to hash without it.
+Writing the one document that states what is wrong and what "fixed" means is
+also the thing that makes the security gate below reviewable at 3am.
+
 ---
 
 ## 1. The risk floor fires whether you like it or not
@@ -140,7 +153,7 @@ $ sdle.sh init --project "Cross warehouse disclosure"
     "active_context": "cross-warehouse-disclosure",
     "execution_id": "sdl-20260908T101625Z",
     "requirements": [
-      "cross-warehouse-disclosure.md"
+      "requirements/cross-warehouse-disclosure.md"
     ],
     "current_phase": "impact_analysis",
     "status": "pending",

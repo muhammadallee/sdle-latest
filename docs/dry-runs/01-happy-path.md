@@ -58,7 +58,7 @@ first.)*
 **SDLE:**
 
 ```
-📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+(No status header yet: `init` has not run, so there is no state to assert.)
 
 WorkItem created: todo-api.
 Preflight passed: SpecKit found, skills discovered (speckit-), requirements found.
@@ -76,6 +76,8 @@ I'll now generate the project constitution. Shall I proceed?
 ```
 
 *(Engine: `sdle.sh workitem create --name "Todo API"` →
+`sdle.sh --workitem todo-api requirements bind --source requirements/todo-api.md`
+— without it `preflight` refuses `requirements_unbound` →
 `sdle.sh --workitem todo-api preflight` →
 `sdle.sh --workitem todo-api scan --path requirements/todo-api.md` →
 `sdle.sh --workitem todo-api governance assess --input governance-input.json`.)*

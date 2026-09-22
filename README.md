@@ -22,7 +22,7 @@ In short: SDLE runs inside *your* application repository. You need Python 3.11 o
 ## The GREENFIELD Flow — 18 Phases, 8 Gates
 
 ```
-Phase  1  Requirements Check       requirements_check   Validates requirements/
+Phase  1  Requirements Check       requirements_check   Validates the bound documents
 Phase  2  Generate Constitution    constitution_draft   SpecKit: constitution
 Phase  3  ★ GATE 1: Constitution   gate_constitution    Await your approval
 Phase  4  Generate Specification   spec_draft           SpecKit: specify
@@ -240,7 +240,8 @@ in `scripts/sdle.py` and deliberately restated nowhere else.
 
 `advance` then refuses `governance_missing` when there is no record,
 `governance_blocked` when a blocking requirements-quality check failed, and
-`governance_stale` when `requirements/` changed after the assessment. A
+`governance_stale` when a **bound** requirement document changed, when the
+bound set itself changed, or when the record predates the binding. A
 WorkItem started before this version has no record and will refuse at its next
 `advance`; the remedy is one `governance assess` run.
 
@@ -372,7 +373,7 @@ belong to the Claude Code runtime, and which are convention only.
 ### In your target project (runtime state):
 ```
 <target-project>/
-├── requirements/              ← Your input (required)
+├── requirements/              ← Your input (conventional home; each WorkItem binds what it is about)
 ├── workitems/                 ← WorkItem identity (versioned, not runtime state)
 │   ├── index.md               ← Append-only creation registry
 │   └── <workitem-id>/
@@ -450,7 +451,7 @@ is an error, because the baseline can no longer be checked against anything.
 ```
 User: start workflow
 
-SDLE: 📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+SDLE: (no status header yet — `init` has not run)
 
       I found requirements/:
         • requirements/feature.md (2.1 KB)
@@ -555,7 +556,7 @@ The workflow continues through Checklist/Tasks (Gate 4), Analyze (Gate 5), Desig
 | `workflow_version` | string | State schema version (`1.17`). A state of any other version is refused `unsupported_state_version` and left untouched |
 | `workitem` | string\|null | The WorkItem this state belongs to; Makes a state file self-describing and a misplaced one detectable |
 | `flow` | string | The flow this WorkItem traverses — `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init`, never re-bound |
-| `project_name` | string\|null | Inferred from requirements |
+| `project_name` | string\|null | Set at `init`: `--project` if given, else the first `#` heading in the binding's **primary** document, else the WorkItem's title, else the project root's directory name |
 | `current_phase` | string | Phase ID (e.g., `gate_plan`) |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed` |
 | `progress` | string | `"N/M"` — position in the bound flow over that flow's phase count (`M` is 18 for `GREENFIELD`) |

@@ -296,12 +296,36 @@ needs no schema version.
 
 ### Branch and worktree rules
 
-One active WorkItem per developer branch or worktree; different WorkItems may
-run concurrently; two developers are not expected to drive the same WorkItem in
-parallel. There is no distributed locking and no cross-worktree coordination —
-the session lock is per-WorkItem, and two `git worktree`s of one repository
-each keep their own runtime, their own ledger, their own lock and their own
-active context.
+Different WorkItems may run concurrently, and their records never interact:
+the session lock is per-WorkItem, and two `git worktree`s of one repository each
+keep their own runtime, ledger, lock and active context. There is no distributed
+locking and no cross-worktree coordination, and two developers are not expected
+to drive the same WorkItem in parallel.
+
+One constraint applies while a WorkItem is gathering implementation evidence.
+From `implement preflight` until its security review is complete, the change set
+is a diff of the working tree against the pinned commit, minus the paths
+`implementation_exclusions` removes: this WorkItem's runtime, the
+repository-global `.sdle/`, `.specify/`, its Spec Kit feature directory, every
+**other** WorkItem's whole tree, and `workitems/index.md`. Another WorkItem's
+records are therefore already invisible here (F-102).
+
+What remains shared is the repository-level set — `requirements/`, `design/`,
+`reviews/`, `clarifications/` and `guidance/` are deliberately kept *in*,
+because they are real inputs and outputs of an implementation, and git cannot
+attribute them to a WorkItem. So during that window no other WorkItem should be writing to those
+paths in the same working directory, whatever phase it is in: a second WorkItem
+generating a design into `design/` contaminates the first one's evidence as
+surely as one writing code.
+
+A branch does not substitute for a working directory: one directory has one
+branch checked out, so two branches mean taking turns rather than working
+simultaneously. Use a second `git worktree` or a separate clone.
+
+Outside that window the runtime **records** are isolated — state, audit,
+evidence, lock and active context are per WorkItem — but the repository-level
+directories above remain shared, so two WorkItems reaching a design phase in one
+directory overwrite the same artifact. See `docs/workitems/README.md`.
 
 A **branch mismatch** is a non-null recorded branch that differs from the
 current one while Git is available. A missing Git, a detached HEAD, a null
@@ -509,7 +533,12 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ### Phase 1 — Requirements Check (`requirements_check`)
 
-**What it does:** Validates that this WorkItem has bound its requirement documents (`requirements_unbound` otherwise) and that each bound document is present (`requirements_source_missing`); runs the Untrusted Content Scan on each bound file (flagging instruction-like lines directed at the orchestrator, which require an explicit `accept content` acknowledgement); infers a project name from it.
+**What it does:** Validates that this WorkItem has bound its requirement documents (`requirements_unbound` otherwise) and that each bound document is present (`requirements_source_missing`), and reports the bound list as `data.requirements`.
+
+Two things it does **not** do, both of which this guide previously attributed to it:
+
+- **It does not infer a project name.** That happens at `init`; preflight's payload carries no name.
+- **It does not run the Untrusted Content Scan.** `scan` is a separate command taking `--path`, and it scans exactly the file it is given. The orchestrator is what invokes it once per bound document — a prompt-file instruction (SKILL.md), not an engine guarantee. So a caller driving the engine directly gets no scan unless it asks for one, per file. The scan's *effect* is enforced: a flagged file sets `pending_confirm_action` and requires an explicit `accept content`.
 
 **Why it matters:** This is the only phase whose input is guaranteed to be human-authored, unmediated by the AI. Every subsequent artifact ultimately traces back to this one.
 
@@ -877,7 +906,7 @@ Written exactly once, when the bound flow's final gate is approved — Gate 8 un
 
 Three further WorkItem-scoped records carry the evidence that the work was *admitted* to the lifecycle on stated grounds, that its artifacts were *judged* rather than merely produced, and — for a brownfield WorkItem — that the repository was *read* before anything was drafted from it.
 
-`governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and — for the flow the record proposes — which gates would require a human approval and which would be omittable. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when `requirements/` changed after the assessment (`governance_stale`). The record also pins **`pinnedPolicy`** — the merged policy document in force when the WorkItem was first assessed, with its source and SHA-256, carried forward verbatim by every later assessment. It is the one key of the record a gate decision reads back: a gate is omittable only if the live policy and the pinned policy both leave it omittable, so relaxing the repository policy part-way through a run cannot drop a gate it required at the start (ADR-011). Records at `governanceVersion` 1 and 2 carry no pin and derive from the live policy alone. `classification.flow` is the one value in the record that the lifecycle consumes: `init` binds it to `state.flow` once, and re-assessing later with a different flow is refused `flow_mismatch` at the next `advance`, `gate approve` or `skip` — ahead of the first ledger append, so a refused command leaves `audit.md` byte-identical.
+`governance.json` is written by `governance assess` before `init` and holds the requirements-quality result over the structured check set, the WorkItem classification, the observed risk signals, the deterministic score and level, the hard floors that fired, the final level, the recorded uncertainty, and — for the flow the record proposes — which gates would require a human approval and which would be omittable. Severity, weights, thresholds and floors are read from policy, never from the assessing model's input, and a proposed level below the computed one is recorded as an attempt and has no effect. Run `governance policy` to read the effective values. The lifecycle refuses to advance without a record (`governance_missing`), with a blocking quality failure (`governance_blocked`), or when the assessment no longer describes the requirements on disk (`governance_stale`). That last refusal covers three distinct facts, and the record tells them apart: the **content** of a bound document changed (the sources digest moved), the **binding** changed — a different set of documents is bound now (`rebound`) — or the record was written before this WorkItem bound anything at all (`assessed_without_a_binding`, whose remedy is to bind and re-assess, not to restore a file). Only bound documents are hashed: an unrelated file appearing in or disappearing from `requirements/` does not stale anyone's record, and **deleting a bound document does** — its hash becomes absent, the digest moves, and the next `advance` refuses. The record also pins **`pinnedPolicy`** — the merged policy document in force when the WorkItem was first assessed, with its source and SHA-256, carried forward verbatim by every later assessment. It is the one key of the record a gate decision reads back: a gate is omittable only if the live policy and the pinned policy both leave it omittable, so relaxing the repository policy part-way through a run cannot drop a gate it required at the start (ADR-011). Records at `governanceVersion` 1 and 2 carry no pin and derive from the live policy alone. `classification.flow` is the one value in the record that the lifecycle consumes: `init` binds it to `state.flow` once, and re-assessing later with a different flow is refused `flow_mismatch` at the next `advance`, `gate approve` or `skip` — ahead of the first ledger append, so a refused command leaves `audit.md` byte-identical.
 
 `reviews.json` is an append-only ledger of artifact reviews: path, content fingerprint at review time, review type, result, actor type and name, evidence id and timestamp. Freshness is **derived** — a review applies to the exact content version it was performed against, and nothing stores a "reviewed" boolean. A gate refuses to approve an artifact with no review (`review_missing`), a review of superseded content (`review_stale`), or a failing review of the current content (`review_failed`); drift re-approval is held to the same rule. Each review is linked into `audit.md` as its own entry, so the ledger answers "who judged this content, and which version" as well as "who approved it."
 
@@ -1013,14 +1042,19 @@ SDLE's audit trail can support a compliance review; it does not, by itself, cons
 ```
 User: start workflow
 
-SDLE: <!-- SDLE_STATE phase=requirements_check status=in_progress progress=1/18 -->
-      📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
+SDLE: (No status header: `init` has not run, so no state exists to assert.)
 
-      Found requirements/feature.md (2.1 KB). Inferred project name: "Order
-      Tracking Service".
+      Bound to requirements/feature.md (2.1 KB). Preflight and scan passed.
+      I'll now assess governance and initialise. Shall I proceed?
 
-      Requirements look good. I'll now generate the project constitution.
-      Shall I proceed?
+User: yes
+
+SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
+      📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+
+      Project name: "Order Tracking Service", from the primary document's
+      heading. `requirements_check` completed during `init`; this is the first
+      phase a header can report.
 
 User: yes
 
@@ -1159,7 +1193,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `workflow_version` | string | State schema version (`1.17`). A state of any other version is refused `unsupported_state_version` and left untouched. |
 | `workitem` | string \| null | The WorkItem this state belongs to. Makes a state file self-describing and a misplaced one detectable. |
 | `flow` | string | The flow this WorkItem traverses: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init` from the governance record and never re-bound. |
-| `project_name` | string \| null | Inferred from requirements, else the WorkItem title, else asked of the user. |
+| `project_name` | string \| null | Set once at `init`: `--project` if given, else the first `#` heading in the binding's **primary** document, else the WorkItem's title, else the project root's directory name. The user is never asked for it. |
 | `current_phase` | string | Current phase ID (e.g., `gate_plan`). |
 | `status` | string | `pending \| in_progress \| awaiting_approval \| awaiting_reapproval \| completed \| rejected \| failed`. |
 | `progress` | string | `"N/M"` — the phase's position in the bound flow over that flow's phase count (`M` is 18 for `GREENFIELD`). Derived by the engine from the flow — never computed independently. |
