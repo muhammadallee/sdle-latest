@@ -15,7 +15,7 @@ recorded as an open disagreement and goes to the owner rather than being argued 
 
 ## Candidate — stated precisely this time
 
-Branch `docs/alignment-binding-and-isolation`, commit **`44c5d24`**.
+Branch `docs/alignment-binding-and-isolation`, commit **`ecb749c`**.
 
 **Working tree: zero tracked modifications.** One untracked file is present and is excluded from this
 work: `plan-claude-codex-defectfix.md` (the owner's).
@@ -25,16 +25,16 @@ paths were untracked. You caught it (R1-Q01). The fixes are committed this time,
 exactly what you are reviewing:
 
 ```
-git diff cdf8316..44c5d24     # everything I changed in response to round 1
-git diff 369ff96..44c5d24     # the whole documentation pass, against the implementation merge
+git diff cdf8316..ecb749c     # everything I changed in response to round 1, plus D-12
+git diff 369ff96..ecb749c     # the whole documentation pass, against the implementation merge
 ```
 
 `cdf8316` was the round-1 candidate. `369ff96` is the merge that landed the implementation being
 documented (F-102 cross-WorkItem evidence isolation, F-101/ADR-012 requirements binding, F-103
 concurrency boundary).
 
-Sizes: **34 files, +1243/-86** for the whole pass since `369ff96`; **31 files, +1043/-87** for the
-round-1 response alone since `cdf8316`.
+Sizes, measured not estimated — whole pass since `369ff96`: `35 files changed, 1423 insertions(+), 86 deletions(-)`; since the round-1
+candidate `cdf8316`: `32 files changed, 1223 insertions(+), 87 deletions(-)`.
 
 ## My round-1 dispositions, in full
 
@@ -58,7 +58,7 @@ reply, with your findings and mine side by side. Your original response is prese
 I did not take D-05, D-06 or D-07 on your word. Each was driven through the running CLI first, and all
 six of your factual claims held. The probe and its output are at `runs/adr012-refusal-verification.txt`.
 
-## Three defects I found while verifying yours — these have had NO independent review
+## Four defects I found myself — these have had NO independent review
 
 Judge these exactly as you would judge your own findings. They are the least-trustworthy part of the
 diff, because the same person found them, fixed them and checked them.
@@ -74,6 +74,15 @@ diff, because the same person found them, fixed them and checked them.
 - **D-11 (medium)** — the Reference Guide attributed the Untrusted Content Scan to `preflight`.
   `cmd_preflight` contains no call to `scan_text`; `scan` is a separate per-path command the
   orchestrator drives — a SKILL.md instruction, not an engine guarantee.
+- **D-12 (medium)** — found sweeping the documents neither of us had opened. SDLE carries **two** path
+  lists with opposite membership for the same five directories: `SDLE_OWNED_PREFIXES` filters
+  `implement preflight`'s dirty-tree check and *includes* `requirements/`, `design/`, `reviews/`,
+  `clarifications/`, `guidance/`; `implementation_exclusions` drives Gate 7's manifest and the
+  security-review evidence and deliberately *excludes* them. So an uncommitted design does not block
+  entry to the implement phase but does appear in the evidence at the end of it. Documented in
+  `docs/workitems/README.md`. **Check this one hardest of the four** — it is a claim about two
+  functions at once, and if I have the direction of either backwards the paragraph is actively
+  misleading.
 
 ## Where I want you to look hardest
 
@@ -84,7 +93,7 @@ diff, because the same person found them, fixed them and checked them.
    now carry a table of excluded vs not-excluded. **Check that table against the function, not against
    my prose.** I got this enumeration wrong once; a wrong correction is worse than the original error.
 
-2. **My three findings.** Is D-09's rewrite right about *when* the halt fires — is it every `advance`
+2. **My four findings.** Is D-09's rewrite right about *when* the halt fires — is it every `advance`
    at every phase, or did I generalise from one probe? Is the new troubleshooting §16 accurate in every
    row? Is D-11's guarantee/convention split stated correctly, and does it hold anywhere else the scan
    is described?
