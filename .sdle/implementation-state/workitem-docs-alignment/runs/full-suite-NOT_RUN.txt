@@ -1,6 +1,7 @@
 === Full test suite - NOT_RUN ===
-command : python -m pytest tests/ -q -p no:randomly
-date    : 2026-09-22
+final candidate : a669b03 (the attempts below predate it; see OPEN-03)
+command         : python -m pytest tests/ -q -p no:randomly
+date            : 2026-09-22
 
 RESULT: NOT_RUN, after three attempts. No attempt was a test failure.
 

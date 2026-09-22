@@ -3,19 +3,21 @@
   "branch": "docs/alignment-binding-and-isolation",
   "baseline_sha": "369ff96336e0f068833ec1a77ecdf7b18c3e94c2",
   "baseline_branch_point": "main",
-  "current_sha": "b83cf4a",
-  "candidate_is_commit_plus_worktree": false,
+  "current_sha": "a669b03",
+  "note_on_current_sha": "This record is committed, so the commit that carries it is necessarily one later than the sha it names. The delta is this file and the round-2 disposition record; nothing under review.",
   "preexisting_untracked_not_ours": [
     "plan-claude-codex-defectfix.md"
   ],
-  "phase": "P5",
-  "phase_status": "round_1_fixes_committed; reply drafted; full suite NOT_RUN",
+  "phase": "P6",
+  "phase_status": "both review rounds complete; handoff pending",
   "completed_phases": [
     "P0",
     "P1",
     "P2",
     "P3",
-    "P4"
+    "P4",
+    "P5 (round 1)",
+    "P6 (round 2)"
   ],
   "drift_open": [],
   "drift_closed": [
@@ -28,7 +30,8 @@
     "D-07",
     "D-09",
     "D-10",
-    "D-11"
+    "D-11",
+    "D-12"
   ],
   "runtime_defects_found": [],
   "review_rounds": {
@@ -39,23 +42,59 @@
       "accepted": 8,
       "partially_accepted": 0,
       "disputed": 0,
-      "status": "fixes committed at b83cf4a; reply drafted at review-rounds/round1.reply.md; not yet sent"
+      "reviewer_claims_independently_verified": "6 of 6 held",
+      "status": "complete; reply at review-rounds/round1.reply.md"
     },
-    "round_2": "not_started"
+    "round_2": {
+      "candidate": "bd56045 (clean tree)",
+      "findings": 9,
+      "preferences": 3,
+      "questions": 0,
+      "accepted": 9,
+      "partially_accepted": 0,
+      "disputed": 0,
+      "preferences_adopted": 3,
+      "reviewer_claims_independently_verified": "9 of 9 held",
+      "status": "complete; dispositions at review-rounds/round2.dispositions.md"
+    }
   },
   "open_disagreements": [],
-  "blockers": [
-    "Full suite NOT_RUN. The harness asks that it not be restarted unattended after a memory-pressure stop. Needs the user's go-ahead."
+  "open_items_for_the_owner": [
+    {
+      "id": "OPEN-01",
+      "severity": "medium",
+      "question": "Should `accept content` be usable at bootstrap, before `init`? Today it is not, so a scan false positive on a requirement document can only be resolved by editing the file. Documentation now describes the real behaviour; changing it is an engine change and the owner's call.",
+      "reproduction": "workitem create; requirements bind; scan --path <a document with instruction-like text> -> exit 1 content_flagged, and no state.json is written; accept-content -> exit 3 state_unreadable.",
+      "evidence": "runs/bootstrap-accept-content.txt"
+    },
+    {
+      "id": "OPEN-02",
+      "severity": "low",
+      "question": "The conftest fixture auto-binds, so the suite cannot catch a documented startup sequence that omits `requirements bind`. Codex raised it in round 1 and recommends an executable end-to-end startup contract in round 2. Both are test-design changes, out of scope for a documentation pass.",
+      "reproduction": "tests/conftest.py binds during fixture setup.",
+      "evidence": "round1.response.md R1-D03; round2.response.md closing paragraph"
+    },
+    {
+      "id": "OPEN-03",
+      "severity": "medium",
+      "question": "The full test suite is NOT_RUN after three attempts, two of them stopped by the harness memory reaper. It needs a foreground run or CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1.",
+      "reproduction": "python -m pytest tests/ -q",
+      "evidence": "runs/full-suite-NOT_RUN.txt"
+    }
   ],
-  "next_action": "Ask the user whether to re-run the full suite, then send the round-1 reply and run round 2.",
+  "blockers": [
+    "OPEN-03: the full suite has not produced a result."
+  ],
+  "next_action": "Hand off. The owner decides OPEN-01..03; nothing is pushed.",
   "verification": {
     "lint_skill": "PASS",
     "dry_run_contracts": "PASS (118)",
-    "documented_commands_and_invariants": "PASS (935)",
+    "documented_commands_invariants_lint": "PASS (1124 across four modules)",
     "guide_replay": "PASS (13 blocks, exit 0)",
     "binding_scenarios": "PASS (7)",
-    "adr012_refusal_probe": "PASS (6/6 Codex claims confirmed)",
-    "deleted_bound_source_probe": "PASS (D-09 confirmed)",
-    "full_suite": "NOT_RUN - stopped by the harness at ~4% for system memory pressure while idle; not a test failure; see runs/full-suite-NOT_RUN.txt"
+    "adr012_refusal_probe": "PASS (7 claim groups)",
+    "deleted_bound_source_probe": "PASS",
+    "round2_claim_probe": "PASS (9 of 9 reviewer claims reproduced)",
+    "full_suite": "NOT_RUN - see runs/full-suite-NOT_RUN.txt and OPEN-03"
   }
 }

@@ -495,9 +495,37 @@ something went wrong. Treating it as invalidation would push the third WorkItem
 in every repository back into full rediscovery — which is precisely the cost
 this flow exists to avoid.
 
-So the third WorkItem starts normally:
+So the third WorkItem starts normally — and "normally" includes binding, which
+is per WorkItem and inherits nothing from the two that ran before it:
 
 ```
+$ sdle.sh workitem create --name "Movement archival"
+$ sdle.sh --workitem movement-archival requirements bind \
+    --source requirements/movement-archival.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "movement-archival",
+    "sources": ["requirements/movement-archival.md"],
+    "primary": "requirements/movement-archival.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+One document, so `--primary` is inferred. Note what this WorkItem is **not**
+bound to: `low-stock-alerts.md` and `reservations.md` are still sitting in
+`requirements/`, and the first WorkItem bound both — but a directory is not an
+inheritance. `movement-archival` is about archival, so editing either of the
+other two leaves its governance record fresh, and editing *its* document stales
+only it.
+
+```
+$ sdle.sh --workitem movement-archival preflight   # passes: one bound document, present
+$ sdle.sh --workitem movement-archival scan --path requirements/movement-archival.md
+$ sdle.sh --workitem movement-archival governance assess --input governance-input.json
 $ sdle.sh init
 {
   "ok": true,

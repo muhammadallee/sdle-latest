@@ -125,6 +125,10 @@ binding scenarios driven through the real CLI, and the full suite.
 | P4 verification | (in `cdf8316`) | Doc checks, guide replay, binding scenarios | `lint-skill` PASS; `test_dry_run_contracts.py` PASS |
 | P5 review round 1 | candidate `cdf8316` + 3 uncommitted paths | Codex returned 8 defects and 2 questions; all 8 accepted; D-09 found by me while verifying D-04 | `adr012-refusal-verification.txt` (6/6 Codex claims confirmed); `deleted-bound-source.txt` (D-09 confirmed) |
 | P5 round-1 fixes | working tree at `cdf8316` | R1-D01..D08 + D-09 implemented across 21 files | `lint-skill` PASS; `test_dry_run_contracts.py` 118 PASS; documented-commands + invariants 935 PASS; guide replay exit 0; full suite recorded below |
+| P5 round-1 fixes | `b83cf4a`, `44c5d24` | R1-D01..D08 plus D-09/D-10/D-11 found while verifying | lint PASS; contracts 118; units 935; guide replay exit 0 |
+| P6 sweep | `ecb749c`, `7da1f6c` | D-12 found sweeping documents neither round had opened; round-2 packet | lint PASS |
+| P6 review round 2 | candidate `bd56045` | Codex returned 9 defects, 3 preferences, 0 questions. All 9 accepted, all 3 adopted, none disputed | `runs/probe` reproduced 9 of 9 reviewer claims |
+| P6 round-2 fixes | `a669b03` + this record | R2-D01..D09, R2-P01..P03, tutorials made runnable, records frozen | lint PASS; contracts 118; **1124** across four modules; full suite NOT_RUN (OPEN-03) |
 
 ## Round 1 dispositions
 
@@ -209,3 +213,26 @@ enumerates `SDLE_OWNED_PREFIXES` exactly as the tuple declares it, and `docs/lif
 `docs/risk-and-gates/`, `docs/spec-kit-integration/` and dry runs 02, 03, 04, 07, 08, 14, 15 and 16
 carry no claim about the requirements directory, the binding or the isolation boundary at all.
 
+## Round 2 — summary
+
+Nine defects, three preferences, no questions, against `bd56045`. **All nine accepted, none disputed**;
+all three preferences adopted. Every factual claim re-verified against the running CLI before being
+written down: **9 of 9 held**, as 6 of 6 did in round 1. Full dispositions at
+`review-rounds/round2.dispositions.md`; Codex's response verbatim at `review-rounds/round2.response.md`.
+
+The finding that matters most is **R2-D06**, because it was mine: troubleshooting §16, which I added in
+round 1, told users to delete `workitems/<id>/.sdle/requirements.json` by hand. That is an invariant-6
+violation, it is what the write fence exists to prevent, and it was unnecessary — `requirements bind`
+replaces a corrupt binding deliberately. A round-1 fix introduced a worse defect than the gap it closed,
+which is the argument for the second round existing at all.
+
+**Three items go to the owner** rather than being resolved here: OPEN-01 (should `accept content` work
+before `init`? — an engine change), OPEN-02 (the conftest fixture auto-binds, so the suite cannot catch
+a missing bind step — a test-design change), OPEN-03 (the full suite is NOT_RUN after three attempts,
+two stopped by the harness memory reaper). None is a disagreement; Codex and I agree on all three.
+
+**On my own method.** Two findings across the two rounds came from asking what a document *omits*
+rather than what it states wrongly — D-10 and D-12 — and a keyword scan finds neither. Two more came
+from checking a claim I had already written down: my exclusion enumeration in round 1 and my diff sizes
+in round 2 were both wrong in the same way, stated from memory of a measurement rather than from the
+measurement. Codex caught the second; I caught the first.
