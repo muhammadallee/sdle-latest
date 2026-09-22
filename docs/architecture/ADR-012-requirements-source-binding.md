@@ -107,19 +107,29 @@ because the root is empty while the bound sources live elsewhere. It reads the b
 
 ## 8. Refusals
 
-| Reason | When |
-|---|---|
-| `requirements_unbound` | A consumer needs the binding and none exists |
-| `requirements_source_missing` | A bound path is not a file, at bind time or later |
-| `requirements_binding_empty` | A bind names no source |
-| `requirements_primary_required` | More than one document is bound and none was named primary |
-| `requirements_source_invalid` | A path escapes the repository, is absolute, traverses, or resolves through a symlink out of the tree |
-| `requirements_source_duplicate` | The same file is named twice, including by a Windows case alias |
-| `requirements_binding_ambiguous` | A bind passes both `--source` and `--all-current` |
-| `requirements_binding_invalid` | The binding on disk is not one the engine wrote: it does not parse, declares an unreadable version, carries a non-string or duplicate source, names a primary it does not bind, belongs to another WorkItem, or does not match its own digest. An **integrity failure** (exit 3), not a refusal, because the file is evidence rather than input |
-| `governance_stale` | A bound document changed, was renamed or was deleted after the assessment; or the binding itself changed; or the record predates the binding. `governance show` reports which |
+Exit codes are the engine's contract (`0` success · `1` refused · `2` usage · `3` integrity). The codes
+below were read from the running CLI, not from intent. Three are **usage** errors: they say the command
+as typed cannot be carried out, before anything about the repository is consulted.
 
-A directory as a source is refused; `--all-current` is how a directory becomes an exact file list.
+| Reason | Exit | When |
+|---|---|---|
+| `requirements_binding_empty` | 2 | A bind names no source |
+| `requirements_binding_ambiguous` | 2 | A bind passes both `--source` and `--all-current` |
+| `requirements_primary_required` | 2 | More than one document is bound and none was named primary |
+| `requirements_unbound` | 1 | A consumer needs the binding and none exists |
+| `requirements_source_missing` | 1 | A bound path is not a file, at bind time or later |
+| `requirements_source_invalid` | 1 | A path is absolute, traverses out, names a directory, resolves through a symlink out of the tree, or uses a spelling that means different files on different platforms (a `:` stream, a trailing dot or space) |
+| `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias |
+| `requirements_binding_invalid` | 3 | The binding on disk is not one the engine wrote: it does not parse, declares an unreadable version, carries a non-string or duplicate source, names a primary it does not bind, belongs to another WorkItem, or does not match its own digest. An integrity failure rather than a refusal, because the file is evidence rather than input |
+| `governance_stale` | 1 | A bound document changed, was renamed or was deleted after the assessment; or the binding itself changed; or the record predates any binding. `governance show` reports which |
+
+`--all-current` is how a directory becomes an exact file list; a directory named with `--source` is
+refused.
+
+**Precedence in `preflight`**, as observed: Spec Kit and its skills first, then
+`requirements_unbound`, then `requirements_source_missing`. A WorkItem that never bound hears about the
+binding only once its Spec Kit environment is sound, because `preflight` reports the first problem that
+stops it rather than every problem at once.
 
 ## 9. Consequences
 

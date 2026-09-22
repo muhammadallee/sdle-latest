@@ -50,6 +50,32 @@ $ sdle.sh workitem create --name "Low stock alerts" --type enhancement --synopsi
   }
 }
 --- exit 0 ---
+```
+
+Between `workitem create` and `preflight` the WorkItem declares which requirement
+documents it concerns. Skipping it makes `preflight` refuse `requirements_unbound`:
+
+```
+$ sdle.sh --workitem low-stock-alerts requirements bind --source requirements/low-stock-alerts.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "low-stock-alerts",
+    "sources": ["requirements/low-stock-alerts.md"],
+    "primary": "requirements/low-stock-alerts.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+`--primary` is inferred because exactly one document is bound; binding several
+requires naming it. A document in `requirements/` that this WorkItem does not
+bind governs nothing here. See
+[ADR-012](../architecture/ADR-012-requirements-source-binding.md).
+
+```
 
 $ sdle.sh workitem list
 {

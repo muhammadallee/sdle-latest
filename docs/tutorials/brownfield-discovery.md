@@ -93,6 +93,32 @@ $ sdle.sh workitem create --name "Stock reservations" --type enhancement --synop
 --- exit 0 ---
 ```
 
+Between `workitem create` and `preflight` the WorkItem declares which requirement
+documents it concerns. Skipping it makes `preflight` refuse `requirements_unbound`:
+
+```
+$ sdle.sh --workitem stock-reservations requirements bind --source requirements/stock-reservations.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "stock-reservations",
+    "sources": ["requirements/stock-reservations.md"],
+    "primary": "requirements/stock-reservations.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+`--primary` is inferred because exactly one document is bound; binding several
+requires naming it. A document in `requirements/` that this WorkItem does not
+bind governs nothing here. See
+[ADR-012](../architecture/ADR-012-requirements-source-binding.md).
+
+```
+```
+
 The governance input differs from a greenfield one in exactly one field —
 `classification.flow` — plus a more honest risk assessment, because
 reservations touch a live API and a live data store and introduce a
