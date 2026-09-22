@@ -23,11 +23,14 @@ flow comes from, and the baseline it leaves behind.
 
 ## 1. Before you start
 
-Set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes. You need a
-`requirements/` directory with at least one document in it, and the WorkItem
-must **bind** the documents it is about (`requirements bind`). `init` refuses
-`requirements_unbound` if nothing was bound and `requirements_source_missing`
-if a bound document is not there, and it refuses before it creates anything.
+Set up as [GETTING-STARTED.md](../GETTING-STARTED.md) describes. What the
+lifecycle requires is not a populated directory but a **binding**: the WorkItem
+must declare, with `requirements bind`, which documents it is about. `preflight`
+and `init` refuse `requirements_unbound` if nothing was bound and
+`requirements_source_missing` if a bound document is not there, and they refuse
+before creating anything. `requirements/` is the conventional home for those
+documents and is where `--all-current` looks, but a bound source may be any file
+in the repository.
 
 Requirements quality is not a formality here. Twelve structured checks are
 evaluated against what you wrote, and all twelve block — a FAIL on any of them
@@ -110,6 +113,36 @@ $ sdle.sh workitem create --name "Link shortener" --type enhancement --synopsis 
 The id is derived from the name. Pass `--auto-generate` instead if you want a
 timestamped id, which is what the orchestrator does when you answer `auto
 generate` to its prompt.
+
+### Bind the requirements
+
+`workitem create` registers an identity; it does not say what the work is
+*about*. That is a separate, explicit step, and everything downstream depends on
+it — `governance assess` hashes the bound documents into the record, and
+`preflight` and `init` refuse `requirements_unbound` without it.
+
+```
+$ sdle.sh --workitem link-shortener requirements bind --source requirements/link-shortener.md
+{
+  "ok": true,
+  "command": "requirements bind",
+  "data": {
+    "workitem": "link-shortener",
+    "sources": ["requirements/link-shortener.md"],
+    "primary": "requirements/link-shortener.md",
+    "rebound": false
+  }
+}
+--- exit 0 ---
+```
+
+`--primary` is inferred here because exactly one document is bound; bind more
+than one and the engine refuses `requirements_primary_required` until you name
+which is the primary. `--all-current` binds every document under `requirements/`
+**as it stands at that moment** — a snapshot expanded into an explicit list, not
+a pattern re-evaluated later. Choosing what to bind is your judgement, not the
+engine's: a document you do not bind has no effect on this WorkItem, and one you
+do bind stales its governance record whenever it changes.
 
 ---
 

@@ -1,0 +1,5 @@
+blocks run: 13 | exit code: 0
+inventory rows checked: 13
+required/recommended paths missing: []
+paths that must be absent but exist: []
+workitems exists: False

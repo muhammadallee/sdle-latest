@@ -58,7 +58,8 @@ Shall I proceed?
 ```
 
 *(Engine: `sdle.sh workitem create --name "Reporting Export"`, then
-`sdle.sh --workitem reporting-export preflight`, then
+`sdle.sh --workitem reporting-export requirements bind --source requirements/reporting-export.md`,
+then `sdle.sh --workitem reporting-export preflight`, then
 `sdle.sh --workitem reporting-export governance assess --input governance-input.json`
 with `flow: BROWNFIELD_DISCOVERY`, then
 `sdle.sh --workitem reporting-export --session 3b8f0c21 init` bound it. The flow

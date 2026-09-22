@@ -301,6 +301,45 @@ security-review evidence's `untracked` list, because no diff shows them.
 
 ---
 
+## 16. The binding refusals
+
+A WorkItem declares which requirement documents it is about. There is no
+implicit default — a WorkItem that bound nothing governs nothing, and the
+engine refuses rather than guessing a set (ADR-012). Note that
+`requirements_binding_empty` carries **two** different exit codes, so branch on
+the exit code as well as the reason.
+
+| Reason | Exit | Meaning | Remedy |
+|---|---|---|---|
+| `requirements_unbound` | 1 | A consumer — `preflight`, `governance assess`, `init` — needs the binding and this WorkItem has none | `sdle.sh --workitem <id> requirements bind --source <path>` (repeatable), or `--all-current` for every document under `requirements/` as it stands now |
+| `requirements_binding_empty` | 2 | The command named neither `--source` nor `--all-current` | Name at least one selector |
+| `requirements_binding_empty` | 1 | `--all-current` was asked to expand a `requirements/` that holds no documents | Write the document first, or bind a path elsewhere with `--source` — a bound source may be any file in the repository |
+| `requirements_binding_ambiguous` | 2 | Both `--source` and `--all-current` were passed | Choose one. `--all-current` is a snapshot of the directory, not a base to add to |
+| `requirements_primary_required` | 2 | More than one document is bound and none was named primary | Pass `--primary <path>`. It is not cosmetic: the primary's first `#` heading becomes the project name, and the engine will not pick for you |
+| `requirements_source_missing` | 1 | A bound path is not a file — at bind time, or later because it was deleted or renamed | Restore it, or re-bind to what the WorkItem is now about. `requirements show` lists the missing paths under `data.missing` |
+| `requirements_source_invalid` | 1 | A path is absolute, traverses out of the repository, names a directory, resolves through a symlink pointing away, or uses a spelling that means different files on different platforms | Use a repository-relative path to a file. To bind a whole directory, use `--all-current`, which expands it into an explicit list |
+| `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias | Name it once |
+| `requirements_binding_invalid` | **3** | The binding on disk is not one the engine wrote | An integrity failure, not a refusal, and it pre-empts everything else: `preflight` exits 3 here even when Spec Kit is also missing. The binding is evidence, so SDLE will not silently replace it — inspect `workitems/<id>/.sdle/requirements.json`, restore it from version control, or delete it and bind again deliberately |
+
+**`governance_stale` after a binding change** is the same family. `data` says
+which of three things happened: a bound document's *content* changed, the
+*binding* changed (`rebound: true`), or the record predates any binding
+(`assessed_without_a_binding: true`). The first two are fixed by re-running
+`governance assess`; the third by binding first, then assessing. A file in
+`requirements/` that this WorkItem never bound cannot cause any of them.
+
+One asymmetry worth knowing: re-binding **the same set** with a different
+`--primary` does *not* stale the record, because the binding digest covers the
+sorted source list alone. Read `governance show` rather than assuming.
+
+**Which problems `preflight` reports.** `reason` names the first problem that
+stops it — Spec Kit, then its skills, then `requirements_unbound`, then
+`requirements_source_missing` — but `data.problems` lists *all* of them. Read
+`data.problems` if you want to fix everything in one pass instead of learning
+about the next problem only after fixing this one.
+
+---
+
 ## `gate_required` — the gate cannot be omitted
 
 **Exit 1.** `gate omit` was asked to pass a gate that requires a human approval.

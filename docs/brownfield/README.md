@@ -38,6 +38,17 @@ alongside `BROWNFIELD_DISCOVERY`.
 emergency hotfix on a repository-level artifact is not a governance rule
 anything asks for.
 
+**A brownfield WorkItem binds requirements like any other.** There is no
+brownfield exemption: `requirements bind` runs between `workitem create` and
+`preflight`, and `preflight` refuses `requirements_unbound` without it. What the
+binding does *not* touch is discovery itself — `discovery assess` reads the
+repository, not the bound documents, and the binding is not one of its inputs.
+The bound set is read by `preflight`, by `governance assess` (which hashes it
+into the record) and by `init` (which takes the project name from the primary).
+So "what this WorkItem is about" and "what this repository currently is" stay
+two separate questions, answered by two separate records — the binding and
+`discovery.json`.
+
 ---
 
 ## 3. The `discovery` phase

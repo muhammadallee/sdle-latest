@@ -76,6 +76,8 @@ I'll now generate the project constitution. Shall I proceed?
 ```
 
 *(Engine: `sdle.sh workitem create --name "Todo API"` →
+`sdle.sh --workitem todo-api requirements bind --source requirements/todo-api.md`
+— without it `preflight` refuses `requirements_unbound` →
 `sdle.sh --workitem todo-api preflight` →
 `sdle.sh --workitem todo-api scan --path requirements/todo-api.md` →
 `sdle.sh --workitem todo-api governance assess --input governance-input.json`.)*

@@ -162,7 +162,7 @@ Add-Content .gitignore "workitems/*/.sdle/lock", "workitems/.active-context.json
 
 ## 6. Create your requirements
 
-`requirements/` is your input; SDLE reads it as data and never edits it. `init` and `preflight` need at least one file there; whether the requirements are *good enough* is judged later by twelve structured checks that all block (scope, acceptance criteria, constraints and so on), so write a real document, not a placeholder. This sample is complete enough to pass them:
+`requirements/` is the conventional home for your input; SDLE reads it as data and never edits it. What `init` and `preflight` actually need is that this WorkItem has **bound** at least one document, and a bound source may be any file in the repository — `requirements/` is simply where `--all-current` looks. Whether the requirements are *good enough* is judged later by twelve structured checks that all block (scope, acceptance criteria, constraints and so on), so write a real document, not a placeholder. This sample is complete enough to pass them:
 
 ```bash
 mkdir -p requirements
@@ -362,11 +362,11 @@ Say `start workflow` (or `/sdle-start`). This is the sequence the prompt files i
 
 1. SDLE checks for an existing WorkItem. A brand-new project has none.
 2. **You** are asked for a WorkItem name (`WorkItem name?`). Type one, or say `auto generate` to have SDLE infer a short name. SDLE runs `workitem create`, which writes the identity and a registry row.
-3. SDLE binds the WorkItem's requirement documents — the ones *this* piece of work is about — with `requirements bind`. A document you do not bind is inert: it governs nothing and can never stale this WorkItem's assessment, which is how two WorkItems share one `requirements/` directory without disturbing each other. Bind several with repeated `--source`, or take everything currently there with `--all-current`; either way the record is an exact list of files, never a live folder.
+3. **You** are asked which requirement documents this WorkItem is about; SDLE lists what is under `requirements/` and runs `requirements bind` on the ones you name (or all of them, if that is your answer). It does not choose the set for you. If you name more than one, you are also asked which is *primary* — the engine refuses `requirements_primary_required` rather than picking, and the primary's first `#` heading becomes the project name. A document you do not bind is inert: it governs nothing and can never stale this WorkItem's assessment, which is how two WorkItems share one `requirements/` directory without disturbing each other. Bind several with repeated `--source`, or take everything currently there with `--all-current`; either way the record is an exact list of files, never a live folder.
 4. SDLE runs `preflight` for that WorkItem. It stops, with the exact message, if Spec Kit or its skills are missing, if nothing was bound (`requirements_unbound`), or if a bound document is not there (`requirements_source_missing`). Nothing is initialised on a refusal.
 5. SDLE scans each **bound** document for text that tries to instruct it (the file is treated as data), and lists any `guidance/` files.
 6. SDLE writes a structured governance proposal (twelve requirements-quality answers, a WorkItem type and flow, risk signals) and runs `governance assess`. The engine scores it deterministically; the model cannot lower a floor. A failed blocking check stops the workflow until you fix the requirements. The assessment records which documents it was made from, so editing one of them later is `governance_stale` and editing an unrelated one is not.
-7. SDLE runs `init`, which binds the WorkItem's flow once and creates its runtime, then shows the header and summarises your requirements. The project's name comes from the heading of the binding's primary document.
+7. SDLE runs `init`, which binds the WorkItem's flow once and creates its runtime, then shows the header and summarises your requirements. The project's name is settled here and not asked for: `--project` if given, else the first `#` heading in the binding's **primary** document, else the WorkItem's title, else the project root's directory name.
 8. It proposes the first phase. Under `GREENFIELD` that is generating the project constitution, followed by the first human gate.
 
 **Which documents are bound is a decision, not a detail.** Leaving one out means the assessment was not made from it, so a constraint you meant to apply silently did not. `sdle.sh requirements show` reports the binding at any time, and SDLE displays it before the governance proposal for that reason.
@@ -375,14 +375,38 @@ Say `start workflow` (or `/sdle-start`). This is the sequence the prompt files i
 
 **Check where you are** at any time: say `status` (or `/sdle-status`). To pick up after an interruption, say `continue` (or `/sdle-continue`).
 
+### Three situations `start workflow` can find, and what changes
+
+| What is on disk | What happens |
+|---|---|
+| **A fresh project** — no `workitems/` | The full sequence above, starting at the WorkItem name. |
+| **An existing project** — code, history, maybe other WorkItems | The same sequence. Steps 1–10 of this guide only add files. What differs is the *flow*: the governance proposal classifies the work, and a repository that already has a baseline at `.sdle/baseline.json` converges onto `ITERATIVE` — `BROWNFIELD_DISCOVERY` is refused `baseline_present`, because discovery happens once. The first WorkItem in a repository with existing code and no baseline is the one that runs `BROWNFIELD_DISCOVERY`. |
+| **A registered WorkItem with no lifecycle state** — `workitems/<id>/workitem.json` exists but `workitems/<id>/.sdle/state.json` does not | This is **not** a new workflow and you are **not** asked for a name again. It happens after `workitem create` without an `init`, or after a `reset`. SDLE says which WorkItem resolved, reports what it has bound with `requirements show`, and picks the sequence up at the binding step — binding, then `preflight`, `governance assess` and `init` against the existing id. Asking for a name here would refuse `workitem_exists`; SDLE never invents `foo-2`. |
+
+If more than one WorkItem could plausibly be meant, SDLE refuses `workitem_ambiguous` and asks you which — it lists the candidates and their evidence, and never picks one. Answer, or pass `--workitem <id>`; `sdle.sh workitem use --workitem <id>` remembers it for that working directory.
+
 ## 11b. Running more than one WorkItem
 
 A repository can hold many WorkItems, and their records never interact. One rule
 applies while they are **implementing**:
 
-> Two WorkItems may not be in the `implement` phase in the same working
-> directory at the same time. The window runs from `implement preflight` until
-> that WorkItem's security review is complete.
+> While one WorkItem is between `implement preflight` and the end of its
+> security review, no other WorkItem should be writing in that same working
+> directory at all.
+
+The rule is about the evidence, not the phase the other WorkItem happens to be
+in. The implementation change set is a diff of the working tree against a pinned
+commit, minus engine records: this WorkItem's runtime, the repository-global
+`.sdle/`, `.specify/`, its Spec Kit feature directory, **every other WorkItem's
+whole tree** and the registry file. Everything else counts.
+
+So a second WorkItem working inside `workitems/<its-id>/` is invisible here —
+that much is solved. What is not excluded is the repository-level set:
+`requirements/`, `design/`, `reviews/` and `clarifications/` are deliberately
+kept in, because they are real inputs and outputs of an implementation. A second
+WorkItem generating a design into `design/` or saving a clarification therefore
+lands in the first one's Gate 7 manifest and security-review diff just as code
+would.
 
 `implement preflight` pins the commit your implementation is measured from, and
 everything after it — the Gate 7 manifest, the secrets scan, the security-review

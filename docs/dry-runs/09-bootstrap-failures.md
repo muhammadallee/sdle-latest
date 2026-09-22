@@ -87,7 +87,7 @@ After the user runs it, `start workflow` proceeds:)*
 ```
 📋 SDLE Status: Phase 1/18 — Requirements Check [IN PROGRESS]
 
-Preflight passed. I found requirements/:
+Preflight passed. This WorkItem is bound to:
   • requirements/todo-api.md (2.4 KB)
 ```
 
@@ -112,26 +112,32 @@ directory. The discovered prefix is cached in `state.speckit_skill_prefix`.)*
 
 ---
 
-### Part 4 — Requirements deleted mid-workflow (contrast case)
+### Part 4 — A bound requirement document deleted mid-workflow
 
-*(At `plan_draft`, the user deleted `requirements/` to tidy up.)*
+*(At `plan_draft`, the user deleted `requirements/` to tidy up. One of the files
+in it was bound by this WorkItem.)*
 
 **User:** `continue`
 
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=pending progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [PENDING]
-
-⚠️ Note: the requirements/ directory is no longer present. The approved constitution and
-specification already capture the requirements, so the workflow can continue.
+The governance record for 'todo-api' was assessed against different requirements
+than the ones on disk now, so it cannot authorise this advance. Re-run
+`governance assess --input <path>`.
 ```
 
-*(A warning, not a halt: by Phase 6 the requirements live in approved,
-fingerprinted artifacts. The governance record is a separate matter. If
-`requirements/` changes rather than disappears, the next `advance` refuses
-`governance_stale`.)*
+*(A halt, not a warning. `advance` exited 1 with `governance_stale`, and the
+phase did not move. A bound document that is gone hashes to nothing, so the
+sources digest no longer matches the one the assessment recorded — deleting a
+bound document is indistinguishable, to the record, from rewriting it. The way
+out is to restore the document, or to re-bind and re-assess against what the
+WorkItem is actually about now. It is **not** true that the approved constitution
+and specification let the run continue without the requirements: the governance
+record is checked on every advance, whatever phase it is in.*
+
+*A file deleted from `requirements/` that this WorkItem never bound changes
+nothing — only bound documents are hashed.)*
 
 ---
 
@@ -150,6 +156,7 @@ fingerprinted artifacts. The governance record is a separate matter. If
 | `sdle.sh preflight` with no WorkItem registered | Refused `workitem_required` | Nothing written |
 | `specify init . --skills --here` (SpecKit v1.0.6) | Rejected by SpecKit: exit 2, `No such option: --skills` | Nothing installed |
 | `preflight` with `.specify/` and `requirements/` removed | `speckit_missing` reported first | Nothing written |
+| `advance` after a bound document is deleted | Refused `governance_stale` (exit 1) | Phase unchanged; nothing appended |
 
 ## Cleanup
 

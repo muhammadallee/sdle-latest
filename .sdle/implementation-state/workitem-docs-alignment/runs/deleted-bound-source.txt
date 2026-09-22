@@ -1,0 +1,21 @@
+=== D-09 probe: a deleted bound requirement document, mid-workflow ===
+engine: D:/Learning/AI/sdle-git-repo/sdle-latest/scripts/sdle.py
+date: 2026-09-22T09:01:21Z
+
+$ advance --to gate_constitution   (after unlinking the bound requirements/todo-api.md)
+governance_stale: The governance record for 'todo-api' was assessed against different requirements than the ones on disk now, so it cannot authorise this advance. Re-run `governance assess --input <path>`.
+{
+  "ok": false,
+  "command": "advance",
+  "reason": "governance_stale",
+  "data": {
+    "workitem": "todo-api",
+    "recorded_digest": "bc4bd369bf0fad840c38921d1f935fbfb95dc836e1f30c4caf9edf8c689fe512",
+    "current_digest": "87f2100f6b2b1e8c896fb4a529687c748c96afc8f24b2a73e4a00fb68f42bb0c",
+    "requirements": [
+      "requirements/todo-api.md"
+    ]
+  },
+  "message": "The governance record for 'todo-api' was assessed against different requirements than the ones on disk now, so it cannot authorise this advance. Re-run `governance assess --input <path>`."
+}
+EXIT=1

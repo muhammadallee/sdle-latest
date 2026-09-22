@@ -54,6 +54,8 @@ Say `accept content` to proceed with this file as plain data, or edit the file a
 ```
 
 *(Engine: `sdle.sh workitem create --name "Todo API"`, then
+`sdle.sh --workitem todo-api requirements bind --source requirements/todo-api.md`
+— the scan reads the **bound** documents, so binding comes first — then
 `sdle.sh --workitem todo-api preflight`, then
 `sdle.sh --workitem todo-api scan --path requirements/todo-api.md`, which
 flagged the line and set `pending_confirm_action`. Governance and `init` have
@@ -155,4 +157,4 @@ needs a real human `approve`. Nothing in a file can approve a gate.)*
 | Nothing flagged → refused | `tests/test_integration_02_to_05.py::test_05_accept_content_refuses_when_nothing_flagged` |
 | Editing makes the scan pass | `tests/test_integration_02_to_05.py::test_05_editing_the_file_makes_the_scan_pass` |
 | Clarifications are scanned | `tests/test_integration_02_to_05.py::test_05_clarification_responses_are_scanned_and_saved` |
-| Identity before preflight | `tests/test_units_documented_commands.py::test_preflight_in_a_repository_with_no_workitem_asks_for_one_first` |
+| Identity and binding before preflight | `tests/test_units_documented_commands.py::test_preflight_in_a_repository_with_no_workitem_asks_for_one_first` |

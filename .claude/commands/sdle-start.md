@@ -9,6 +9,9 @@ argument-hint: "[--verbose]"
    to step 3, which creates the identity and runs preflight then. On any
    other exit 1, print `message` and stop — the prerequisite is missing and
    nothing should be initialised.
+   On exit 1 `requirements_unbound` a WorkItem *did* resolve and simply has
+   nothing bound yet: go to step 2b, not step 3 — the identity already exists
+   and must not be created again.
 2. If a workflow already exists for the resolved WorkItem
    (`workitems/<id>/.sdle/state.json`), this is a resume: run
    `sdle.sh header`, then `sdle.sh resume` — which
@@ -34,6 +37,13 @@ argument-hint: "[--verbose]"
    `init` refuses `legacy_workflow_present` for as long as it is there.
    A WorkItem whose `state.json` uses another state schema is refused `unsupported_state_version`; show the
    message and stop.
+2b. A WorkItem resolved but has no `workitems/<id>/.sdle/state.json`: it was
+   registered and never initialised, or was `reset`. This is **not** a new
+   workflow and step 3 must not run — `workitem create` would refuse
+   `workitem_exists`. Say which WorkItem resolved, run
+   `sdle.sh --workitem <id> requirements show` to report what it has bound
+   (exit 1 `requirements_unbound` means nothing), then pick up at the binding
+   paragraph in step 3 and continue through steps 4 and 5 with that id.
 3. Otherwise this is a new workflow, and identity comes before initialisation.
    Ask `WorkItem name?` and run
    `sdle.sh workitem create --name "<what the user typed>"`.
@@ -45,10 +55,19 @@ argument-hint: "[--verbose]"
    - On exit 1 `workitem_name_invalid`, print `message` and ask again.
    - On exit 3 `index_malformed`, print `message` and stop. The registry is
      repaired by hand; SDLE never rewrites it.
-   Then bind the documents this WorkItem is about:
+   Then bind the documents this WorkItem is about. **Which documents those are
+   is the user's decision, not yours** — list what is under `requirements/`,
+   ask which of them this WorkItem is about, and offer `all of them` as one of
+   the answers. Never bind a set the user did not choose: an unbound document
+   governs nothing, so binding the wrong set silently drops constraints or
+   silently imports someone else's. Then run
    `sdle.sh --workitem <id> requirements bind --source <path>` (repeatable),
-   or `--all-current` for every document under `requirements/` as it stands
-   now. Report what was bound; a document nobody binds governs nothing.
+   or `--all-current` if they said all of them, which takes every document
+   under `requirements/` exactly as it stands now — a snapshot, not a pattern.
+   Binding more than one document requires `--primary <path>`; ask which one
+   names the project rather than guessing, because the engine refuses
+   `requirements_primary_required` and the primary's first `#` heading becomes
+   the project name. Report what was bound.
    Then run `sdle.sh --workitem <id> preflight`, naming the id just
    returned — the global `--workitem` goes before the subcommand. On exit 1
    print `message` and stop: SpecKit, its skills are missing, nothing was

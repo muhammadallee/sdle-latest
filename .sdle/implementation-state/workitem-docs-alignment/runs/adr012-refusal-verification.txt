@@ -1,0 +1,37 @@
+=== R1-D05 / R1-D06 / troubleshooting-16 verification against the running CLI ===
+engine: scripts/sdle.py @ cdf8316 + working tree
+date:   2026-09-22T09:17:56Z
+
+CLAIM 1 — requirements_binding_empty has two exit codes
+  bind with no selector at all                             exit=2 reason=requirements_binding_empty 
+  bind --all-current over an EMPTY requirements/           exit=1 reason=requirements_binding_empty 
+
+CLAIM 2 — is requirements_primary_required raised before or after source validation?
+  two sources, one of which does not exist, no --primary   exit=1 reason=requirements_source_missing 
+  two sources, one INVALID (directory), no --primary       exit=1 reason=requirements_source_invalid 
+  two valid sources, no --primary                          exit=2 reason=requirements_primary_required 
+
+CLAIM 3 — does preflight report one problem or all of them?
+  preflight, nothing bound, no speckit: exit=1 reason=speckit_missing
+  data keys: ['guidance', 'interpreter', 'problems', 'python_version', 'requirements', 'script_reachable', 'skill_prefix', 'speckit_capabilities', 'speckit_capability_problems', 'speckit_present']
+  problems: ['speckit_missing', 'requirements_unbound']
+
+CLAIM 4 — does a malformed binding pre-empt the ordering?
+  preflight with a malformed binding                       exit=3 reason=requirements_binding_invalid 
+
+CLAIM 5 (R1-D06) — does re-binding the SAME set report rebound=true?
+  rebind identical set, same primary                       exit=0 reason=None rebound=False
+  rebind identical set, DIFFERENT primary                  exit=0 reason=None rebound=False
+  rebind a different set                                   exit=0 reason=None rebound=True
+
+CLAIM 6 (R1-D06) — may the governance proposal carry a binding digest?
+  assess with the 4 permitted keys                         exit=0 reason=None 
+  assess with a 5th key 'requirements'                     exit=1 reason=governance_input_malformed 
+  record.requirements = {"bindingDigest": "bf5221fd0749650b13237c2350b0e7abdcc77f70b198eaaefa32ec38f7e99818", "digest": "d1a4bd8578c71eed3ff8470520601900d036a2590d08e3c9696d8ac2cb79110a", "sources": [{"path": "requirements/a.md", "sha256": "e6a
+
+CLAIM 7 â€” the two codes troubleshooting Â§16 carried from prose, never measured
+  bind --source AND --all-current together                 exit=2 reason=requirements_binding_ambiguous 
+  bind the same file twice                                 exit=1 reason=requirements_source_duplicate 
+  bind the same file by case alias                         exit=1 reason=requirements_source_duplicate 
+
+VERDICT: all six Codex claims confirmed; both carried-over exit codes confirmed.

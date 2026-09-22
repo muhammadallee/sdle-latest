@@ -36,8 +36,41 @@ the constraint is about *simultaneous* implementation. What gives you two
 workspaces at once is a second working directory: a `git worktree`, or a
 separate clone.
 
-Outside that window there is no such constraint: any number of WorkItems can sit
-at any other phase in one checkout without interacting.
+**The window is about what other WorkItems write, not only about what they are
+doing.** Its boundary is the evidence, not the phase name: while a WorkItem is
+between `implement preflight` and the end of its security review, anything
+another WorkItem writes in that directory to a path the exclusion does not cover
+lands in the first WorkItem's manifest and diff.
+
+What the exclusion covers, read from `implementation_exclusions` in
+`scripts/sdle.py`:
+
+| Excluded | Not excluded |
+|---|---|
+| This WorkItem's own runtime, `workitems/<id>/.sdle/` | Anything else under its own directory |
+| The repository-global configuration root, `.sdle/` | `requirements/` |
+| Spec Kit's tree, `.specify/` | `design/` |
+| This WorkItem's Spec Kit feature directory | `reviews/` |
+| **Every other WorkItem's whole tree**, `workitems/<other>/` (F-102) | `clarifications/` |
+| The registry file, `workitems/index.md` | Application code, which is the point |
+
+So a second WorkItem working *inside its own directory* is invisible to the
+first one's evidence — that is what F-102 fixed. What is still shared is the
+repository-level set on the right: `requirements/`, `design/`, `reviews/` and
+`clarifications/` are deliberately kept in, because they are genuine
+implementation inputs and outputs and dropping them would hide real work. A
+second WorkItem generating a design into `design/`, saving a clarification or
+recording a review therefore lands in the first one's manifest and diff just as
+an implementation would.
+
+Outside that window, runtime **records** never interact: state, audit, evidence,
+locks and identity are per WorkItem. The repository-level directories above are
+still shared — `design/app/app-design.md` has one path, whichever WorkItem
+writes it — so two WorkItems that both reach a design phase overwrite each
+other's artifact wherever they share a working directory. That is a known
+limitation of those shared paths, not something the binding changes: the
+binding says which *requirement documents* a WorkItem is about, and has no
+bearing on where generated artifacts land.
 
 ```bash
 git worktree add ../feature-b -b feature-b   # a second working directory

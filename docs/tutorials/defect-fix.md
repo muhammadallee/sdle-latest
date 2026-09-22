@@ -37,6 +37,20 @@ That is a good defect for this tutorial precisely because it is small. The
 blast radius is a sort key. The interesting question is what SDLE makes you
 write down before you are allowed to touch it.
 
+Everything below assumes the two steps every flow starts with have already
+happened: `sdle.sh workitem create --name "Movement order"` registered the
+identity, and
+
+```
+$ sdle.sh --workitem movement-order requirements bind --source requirements/movement-order.md
+```
+
+bound the document describing the defect. `governance assess` hashes the bound
+set into the record; without a binding, `preflight` and `init` refuse
+`requirements_unbound`. A defect report is a requirement document like any
+other — bind the one that states the defect, not the whole directory, unless the
+fix genuinely answers to all of it.
+
 ---
 
 ## 1. No baseline is consulted
