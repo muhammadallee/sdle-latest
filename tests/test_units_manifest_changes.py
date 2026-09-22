@@ -439,3 +439,29 @@ def test_f102_the_bound_workitems_own_non_runtime_files_stay_visible(git_project
 
     relative = own.relative_to(git_project.root).as_posix()
     assert relative in files, files
+
+
+def test_f103_application_code_is_not_attributed_to_a_workitem(git_project):
+    """The documented limitation, pinned as behaviour rather than prose.
+
+    `implementation_changes` is a diff of the working tree against a pinned
+    commit, so it cannot say which WorkItem wrote a line of application code.
+    Another WorkItem's *records* are excluded (F-102); its **code** is not, and
+    cannot be. `docs/workitems/README.md` and the getting-started guide
+    therefore require a branch or worktree per WorkItem while it implements.
+
+    If this ever starts passing with the foreign edit absent, attribution has
+    been implemented and both documents are then wrong — which is the point of
+    asserting it.
+    """
+    at_implement(git_project)
+    second_workitem_activity(git_project)
+    # A change to ordinary source, as a second WorkItem in this checkout would
+    # make it. Nothing marks it as theirs.
+    git_project.write_artifact("src/edit_me.py", IMPLEMENTATION)
+
+    files = build(mine(git_project)).data["files"]
+
+    assert "src/edit_me.py" in files, (
+        "application code is attributed by the diff alone, so a foreign edit "
+        "in the same checkout is indistinguishable from this WorkItem's own")

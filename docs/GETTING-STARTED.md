@@ -375,6 +375,30 @@ Say `start workflow` (or `/sdle-start`). This is the sequence the prompt files i
 
 **Check where you are** at any time: say `status` (or `/sdle-status`). To pick up after an interruption, say `continue` (or `/sdle-continue`).
 
+## 11b. Running more than one WorkItem
+
+A repository can hold many WorkItems, and their records never interact. One rule
+applies while they are **implementing**:
+
+> Give each WorkItem its own branch or Git worktree from `implement preflight`
+> until its security review is complete.
+
+`implement preflight` pins the commit your implementation is measured from, and
+everything after it — the Gate 7 manifest, the secrets scan, the security-review
+diff — is a comparison between that commit and your working tree. Git cannot
+attribute a line of application code to a WorkItem, so two implementations in
+one checkout appear in each other's evidence, and a reviewer at one gate would
+be shown changes belonging to another.
+
+```bash
+git worktree add ../feature-b -b feature-b
+cd ../feature-b
+claude          # this checkout drives its own WorkItem, with no --workitem flag
+```
+
+Outside that window, two WorkItems in one checkout are fine: everything else
+SDLE writes is per WorkItem and is excluded from the other's evidence.
+
 ## 12. What exists after the first start
 
 After section 6 (verified on a fresh target):

@@ -241,3 +241,24 @@ could not check myself.
 Thirteen regression tests cover the findings, each failing on the pre-review engine where the finding
 was a behaviour rather than a validation gap.
 
+---
+
+## F-103 — resolved: option 1, decided by the owner
+
+The owner chose **option 1** on 2026-09-22: concurrency stays supported, bounded to isolated checkouts.
+
+`docs/workitems/README.md` and `docs/GETTING-STARTED.md` (new section 11b) now state it as a rule
+rather than advice: **give each WorkItem its own branch or Git worktree from `implement preflight`
+until its security review is complete.** Outside that window there is no constraint, and both documents
+say so, because the narrower the true statement the more likely it is to be believed.
+
+The window is exactly the two consumers of `implementation_changes`: `manifest build` (Gate 7) and
+`security-review evidence` (Phase 17). Both measure the working tree against the commit
+`implement preflight` pinned.
+
+Not fixed in code, and deliberately: attributing application code to a WorkItem is the option 2 this
+iteration did not take. The limitation is instead pinned as **behaviour** —
+`test_f103_application_code_is_not_attributed_to_a_workitem` asserts that a foreign edit to ordinary
+source *does* appear in this WorkItem's manifest. If attribution is ever implemented that test fails,
+which is the signal that both documents have become wrong.
+
