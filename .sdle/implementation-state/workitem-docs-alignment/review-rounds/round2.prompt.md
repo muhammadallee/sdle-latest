@@ -20,6 +20,12 @@ Branch `docs/alignment-binding-and-isolation`, commit **`bd56045`**.
 **Working tree: zero tracked modifications.** One untracked file is present and is excluded from this
 work: `plan-claude-codex-defectfix.md` (the owner's).
 
+One honest wrinkle, stated rather than glossed: `HEAD` is now **`4dcec50`**, one commit later than the
+`bd56045` named above, because committing *this packet* moved it. `git diff bd56045..4dcec50` touches
+exactly one file — this packet — and nothing under review. Review `bd56045`; if you prefer, review
+`4dcec50` and ignore the packet file. I am spelling this out because R1-Q01 was precisely about a
+candidate that was not in the state my packet claimed.
+
 Last round my packet claimed "clean of tracked modifications" when `STATE.json` was modified and two
 paths were untracked. You caught it (R1-Q01). The fixes are committed this time, so `git diff` shows you
 exactly what you are reviewing:
