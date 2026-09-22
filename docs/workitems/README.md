@@ -63,6 +63,24 @@ second WorkItem generating a design into `design/`, saving a clarification or
 recording a review therefore lands in the first one's manifest and diff just as
 an implementation would.
 
+**There are two path lists and they disagree on purpose.** This is the detail
+that makes the behaviour above look inconsistent until you know it:
+
+| List | Used by | `requirements/`, `design/`, `reviews/`, `clarifications/`, `guidance/` |
+|---|---|---|
+| `SDLE_OWNED_PREFIXES` | `implement preflight`'s dirty-tree check | **Filtered out** — an uncommitted design does not make the tree dirty |
+| `implementation_exclusions` | Gate 7's manifest and the security-review evidence | **Kept in** — a design written during implementation is part of the change set |
+
+So an uncommitted artifact in one of those directories will *not* stop you
+entering the implement phase, and *will* appear in the evidence at the end of
+it. That asymmetry is deliberate: those directories are SDLE's own outputs, so
+blocking on them at the start would make the dirty-tree check fire on every
+normal run — but they are also real implementation inputs and outputs, so
+dropping them from the manifest would hide work a reviewer must see. The
+practical consequence is the one above: the tree being clean enough to start
+implementing is not a promise that nobody else's artifacts will end up in your
+evidence.
+
 Outside that window, runtime **records** never interact: state, audit, evidence,
 locks and identity are per WorkItem. The repository-level directories above are
 still shared — `design/app/app-design.md` has one path, whichever WorkItem

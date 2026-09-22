@@ -190,3 +190,22 @@ merely their runtimes (F-102). That materially narrows the contamination claim �
 working inside `workitems/<its-id>/` is genuinely invisible. What remains shared is the
 repository-level set (`requirements/`, `design/`, `reviews/`, `clarifications/`), and that is what the
 three documents now say.
+
+**D-12 (medium)** — found sweeping the documents neither round had opened. SDLE carries **two** path
+lists that disagree on purpose, and nothing said so. `SDLE_OWNED_PREFIXES` (`scripts/sdle.py`) filters
+`implement preflight`'s dirty-tree check and *includes* `requirements/`, `design/`, `reviews/`,
+`clarifications/` and `guidance/`; `implementation_exclusions` drives Gate 7's manifest and the
+security-review evidence and deliberately *excludes* them — the engine's own comment says choosing
+`SDLE_OWNED_PREFIXES` there "would silently drop requirements/ and design/ edits from the manifest".
+
+So an uncommitted design does not block entry to the implement phase but does appear in the evidence at
+the end of it. Until you know both lists exist, the two behaviours read as a contradiction, and it is
+exactly the asymmetry the R1-D01 concurrency story rests on: a clean tree at `implement preflight` is
+not a promise that nobody else's artifacts will land in your evidence. Documented in
+`docs/workitems/README.md` beside the exclusion table.
+
+Also checked in the same sweep and found **accurate**: `docs/dry-runs/06-secrets-and-dirty-tree.md`
+enumerates `SDLE_OWNED_PREFIXES` exactly as the tuple declares it, and `docs/lifecycle/`,
+`docs/risk-and-gates/`, `docs/spec-kit-integration/` and dry runs 02, 03, 04, 07, 08, 14, 15 and 16
+carry no claim about the requirements directory, the binding or the isolation boundary at all.
+
