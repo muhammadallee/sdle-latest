@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["reviewed_commit", "dispositions", "closure_assessment"],
+  "required": ["reviewed_commit", "dispositions", "new_findings", "closure_assessment"],
   "properties": {
     "reviewed_commit": {"type": "string"},
     "dispositions": {
@@ -16,8 +16,7 @@
             "type": "string",
             "enum": ["UPHELD", "REVISED", "WITHDRAWN", "RESOLVED"]
           },
-          "rationale": {"type": "string"},
-          "new_finding": {"type": "boolean"}
+          "rationale": {"type": "string"}
         }
       }
     },
@@ -26,7 +25,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "severity", "category", "path", "claim", "evidence",
+        "required": ["id", "severity", "category", "path", "line", "claim", "evidence",
                      "evidence_type", "suggested_fix", "confidence"],
         "properties": {
           "id": {"type": "string"},
