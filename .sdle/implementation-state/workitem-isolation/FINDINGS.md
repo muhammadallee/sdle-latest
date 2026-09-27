@@ -262,3 +262,27 @@ iteration did not take. The limitation is instead pinned as **behaviour** —
 source *does* appear in this WorkItem's manifest. If attribution is ever implemented that test fails,
 which is the signal that both documents have become wrong.
 
+
+---
+
+## Reconciliation note — 2026-09-27, Stage 0 of the requirements-refinement work
+
+Verified read-only against `feat/requirements-refinement` (HEAD `0057425`, which contains this
+document's own merge `369ff96`), as part of the prior-stabilization check the
+requirements-refinement brief requires before that work starts.
+
+The header lines above (F-101 line 17, F-102 line 45, F-103 line 74) each still read "CONFIRMED,
+open" or "CONFIRMED ... open". They are the state *at the time each finding was opened* and are left
+unedited, matching this file's own append-only convention (see the repository-cleanup ledger's
+identical practice: a closed record is not retro-edited). The current, correct status of all three is
+the later section, confirmed here:
+
+| ID | Current status | Fix commit(s) | Regression tests | Review |
+|---|---|---|---|---|
+| F-101 | Fixed (ADR-012) | `1e91947`, `840b1e1`, `ffde200`, `9002ddb`, `bab18f8`, `b4f9dab` | `tests/test_units_governance.py` (thirteen tests, e.g. `test_an_unbound_document_does_not_stale_this_workitem`, `test_binding_that_document_then_does_stale_it`) — all present and passing at HEAD | Codex, ten findings, all accepted |
+| F-102 | Fixed | `bb438f0`, `ff752e2` | `tests/test_units_manifest_changes.py::test_f102_*` (twelve tests) — present and passing at HEAD | Codex, six findings, all accepted |
+| F-103 | Resolved by owner decision (option 1, 2026-09-22), not a code defect | `2ea735f` (docs) | `tests/test_units_manifest_changes.py::test_f103_application_code_is_not_attributed_to_a_workitem` — present and passing at HEAD, asserting the accepted limitation | — |
+
+No commit shas above were previously recorded in this file; they are read from `git log` against the
+fix descriptions already written here, and every one is confirmed an ancestor of `0057425` and its
+cited test node confirmed to exist and collect. No history in this file is rewritten by this note.

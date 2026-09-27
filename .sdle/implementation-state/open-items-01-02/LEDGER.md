@@ -76,3 +76,25 @@ the module doing its job on its first run.
 | `tests/test_dry_run_contracts.py` | PASS — 118 |
 | Both bootstrap routes through the real CLI | PASS — `runs/bootstrap-scan-routes.txt` |
 | Full suite | on CI at push |
+
+## Reconciliation note — 2026-09-27, Stage 0 of the requirements-refinement work
+
+`STATE.json`'s blockers ("the branch is not pushed") and `current_sha` (`27c3be0`) are stale, as of
+this note. Verified read-only:
+
+- `git branch -vv` shows `fix/bootstrap-scan-and-startup-contract` tracking
+  `origin/fix/bootstrap-scan-and-startup-contract` at `0057425a6f9a28745e31e6af08a29e1099175795`, one
+  commit past `27c3be0` (`70f169e`, `0057425`: the round-1-reaped record itself).
+- GitHub Actions run
+  [35738630082](https://github.com/muhammadallee/sdle-latest/actions/runs/35738630082) at `0057425`:
+  **success on all four jobs** (`ubuntu-latest`/`windows-latest` × Python 3.11/3.13). This is the full
+  suite plus `lint-skill`, on CI, satisfying the "Full suite: on CI at push" row above and closing the
+  STATE blocker about the unpushed branch.
+- `STATE.json` itself is left unedited (append-only convention, matching every other ledger in this
+  directory); this note is the current fact.
+
+**What remains genuinely open:** the round-1 Codex review was killed by the background-shell memory
+reaper before producing output (`STATE.json` `review_rounds.round_1`), and round 2 never started. CI
+and the targeted tests passing is not the same as the two-level adversarial review the brief requires.
+Per the owner's decision this session, that review now runs (round 1, then round 2) before OPEN-01/02
+counts as verified; its outcome is recorded in this directory alongside this note.
