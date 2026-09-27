@@ -1,5 +1,13 @@
 # OPEN-01 / OPEN-02 review — round 1 of exactly 2
 
+**Provenance note (added 2026-09-27, unrelated to the review content below).** The first attempt at this
+round was stopped by the harness's background-shell memory reaper before it produced any output — not a
+review, not a finding, nothing was learned either way. This is the review that attempt was meant to
+produce. The candidate line below is updated from `70f169e` to `0057425`, the one commit added since:
+it only records the reaped attempt in the ledger and STATE, and makes no product change (confirmed by
+`git diff --stat 70f169e..0057425`: `STATE.json` and this prompt file only). Everything else in this
+prompt is unchanged from the original attempt.
+
 You raised both of these during the documentation alignment pass and I deferred both, on the grounds
 that each needed a change that pass was not authorised to make. The owner has now asked for both. This
 is a **behaviour and test-design** change, not a documentation pass, so the bar is different: judge the
@@ -16,12 +24,12 @@ engine change as an engine change.
 
 ## Candidate
 
-Branch `fix/bootstrap-scan-and-startup-contract`, commit **`70f169e`**, **zero tracked
-modifications**. One untracked file is present and excluded: `plan-claude-codex-defectfix.md` (the
-owner's).
+Branch `fix/bootstrap-scan-and-startup-contract`, commit **`0057425`** (product-identical to `70f169e`;
+see the provenance note above), in a detached, ephemeral worktree checked out at that commit — zero
+tracked modifications there.
 
 ```
-git diff 48a853a..70f169e
+git diff 48a853a..0057425
 ```
 
 `48a853a` is main, which now carries the merged documentation alignment pass you reviewed.
