@@ -2,10 +2,15 @@
 
 Why this module exists. `tests/conftest.py`'s `project` fixture binds the
 requirements during setup, because that is what a ready-to-start WorkItem looks
-like and six modules would otherwise repeat the step. The cost is a blind spot:
-every other test begins from an *already bound* WorkItem, so a documented
-sequence that omits `requirements bind` still passes, and a documented position
-nothing can reach is never contradicted.
+like and six modules would otherwise repeat the step. `bare_project` (unbound)
+is used elsewhere too — fourteen other modules reach for it, for their own
+narrower purposes (resolution, hooks, workitem creation) — but none of them
+types out the *documented startup sequence* end to end from an unbound
+identity: bind, show, preflight, scan, assess, init, in the order the guide
+publishes. That was the actual blind spot: a documented sequence that omits
+`requirements bind` still passed every existing test, and a documented
+position nothing can reach was never contradicted, because nothing drove the
+whole sequence and checked it against what a reader would observe.
 
 That blind spot is not hypothetical. It let three classes of defect survive a
 full review round of the shipped documentation:
@@ -315,14 +320,61 @@ def test_requirements_show_reports_unbound_without_refusing(bare_project):
     assert result.data["sources"] == []
 
 
+def test_registered_and_never_bound_runs_the_full_step_2b_sequence(bare_project):
+    """DEF-RR-004, fixed properly after round 2 of the OPEN-01/02 review
+    caught that the first attempt at this test (below, `..._runs_the_full_
+    step_2b_sequence` and its flagged sibling) both started from `_bound`,
+    so `reset` preserved an *existing* binding rather than exercising the
+    genuinely unbound branch — `requirements show` reporting `bound: false`
+    and step 2b's own bind step actually running. This is the other of the
+    two ways a WorkItem can be "registered without state": `create`
+    followed by nothing, never `reset`."""
+    project = _registered(bare_project)
+    shown = project.ok("requirements", "show")
+    assert shown.data["bound"] is False
+    assert shown.data["sources"] == []
+
+    project.ok("requirements", "bind", "--source", "requirements/todo-api.md")
+    rebound = project.ok("requirements", "show")
+    assert rebound.data["bound"] is True
+
+    project.ok("preflight")
+    scanned = project.ok("scan", "--path", "requirements/todo-api.md")
+    assert scanned.data["flagged"] is False
+    project.record_governance()
+    result = project.ok("init")
+    assert result.data["current_phase"] == "constitution_draft"
+
+
+def test_registered_and_never_bound_with_a_flagged_false_positive(bare_project):
+    """The unbound variant of the flagged case, for the same reason."""
+    project = _registered(bare_project)
+    assert project.ok("requirements", "show").data["bound"] is False
+
+    project.ok("requirements", "bind", "--source", "requirements/todo-api.md")
+    _flag(project)
+    project.ok("preflight")
+
+    scanned = project.run("scan", "--path", "requirements/todo-api.md")
+    assert scanned.exit_code == EXIT_REFUSED
+    assert scanned.reason == "content_flagged"
+
+    blocked = project.run("governance", "assess", "--input",
+                          _write_governance_input(project))
+    assert blocked.exit_code == EXIT_REFUSED
+    assert blocked.reason == "governance_content_unacknowledged"
+
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    result = project.ok("init")
+    assert result.data["current_phase"] == "constitution_draft"
+
+
 def test_registered_without_state_runs_the_full_step_2b_sequence(bare_project):
-    """DEF-RR-004. R1-D04: the two tests above prove `reset` leaves the
-    identity registered and that `requirements show` reports it unbound, but
-    neither continues through the actual step 2b branch — bind, show,
-    preflight, scan, assess, init — the way `sdle-start.md` documents it.
-    This one does, from a `reset` identity, the harder of the two ways a
-    WorkItem can be "registered without state" (the other being `create`
-    followed by nothing)."""
+    """DEF-RR-004. The `reset` variant of the same step 2b sequence: `reset`
+    leaves the identity registered and preserves the existing binding, so
+    `requirements show` reports `bound: true` here — the genuinely unbound
+    branch is the pair of tests above."""
     project = _bound(bare_project)
     project.record_governance()
     project.ok("init")

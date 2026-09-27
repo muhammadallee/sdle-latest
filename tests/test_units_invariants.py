@@ -84,10 +84,14 @@ STATE_FIELDS = (
 # 46 -> 47, 47 -> 48: DEF-RR-001's `cmd_accept_content --path` branch appends
 # an audit entry and rebaselines state when a post-init acknowledgement is
 # also given (the bare-form post-init path this mirrors already did both).
+# 48 -> 49: `record_scan_acknowledgement_audit` (Level 2 round 2 of the
+# OPEN-01/02 review, R2 advisor item 3) replays a pre-init acknowledgement
+# into the ledger at the first advance, mirroring `record_governance_audit`
+# right above it.
 WRITE_PRIMITIVE_COUNTS = {
     'write_atomic': 27,
     'save_state': 47,
-    'append_audit': 48,
+    'append_audit': 49,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,

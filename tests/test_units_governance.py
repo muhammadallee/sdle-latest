@@ -2610,3 +2610,37 @@ def test_a_clean_document_needs_no_acknowledgement(project):
     """The common case: nothing flagged, nothing to acknowledge, unaffected
     by DEF-RR-001."""
     assert assess(project).exit_code == EXIT_OK
+
+
+def test_a_lost_concurrent_acknowledgement_fails_closed(project):
+    """R2-D04, level-2 review of DEF-RR-001. `write_content_acknowledgement`
+    is an unlocked read-modify-write: two concurrent acknowledgements for
+    different paths can race and one replace the other's record. Simulated
+    here by writing the acknowledgements file out from under a first
+    acknowledgement, mimicking a second writer that read before the first
+    one's write landed. The lost acknowledgement must make its check refuse
+    again, never silently pass."""
+    project.ok("requirements", "bind", "--all-current",
+              "--primary", "requirements/todo-api.md")
+    (project.root / "requirements" / "second.md").write_text(
+        f"# Second\n\n{FLAGGED_LINE}\n", encoding="utf-8", newline="\n")
+    project.ok("requirements", "bind", "--all-current",
+              "--primary", "requirements/todo-api.md")
+    project.ok("accept-content", "--path", "requirements/second.md")
+
+    # Simulate the race: a second writer's read-modify-write, based on a
+    # snapshot from *before* the acknowledgement above, lands last.
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    stale = json.loads(ack_file.read_text("utf-8"))
+    stale["acknowledgements"] = []  # the pre-acknowledgement snapshot
+    ack_file.write_text(json.dumps(stale, indent=2), encoding="utf-8", newline="\n")
+
+    _flag_bound_document(project)  # todo-api.md flagged, never acknowledged
+    result = assess(project)
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+    # Fails closed: second.md's lost acknowledgement is also reported as an
+    # offender now, not silently treated as still accepted.
+    offender_paths = {o["path"] for o in result.data["offenders"]}
+    assert "requirements/second.md" in offender_paths
+    assert "requirements/todo-api.md" in offender_paths

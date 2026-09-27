@@ -112,8 +112,10 @@ pending confirmation *for you*, but `accept-content --path <file>` records an
 explicit acknowledgement of its own, keyed on the file's content, with no state
 required. `governance assess` independently re-scans every bound source and
 refuses `governance_content_unacknowledged` for anything still flagged with no
-matching acknowledgement — so a document nobody ever ran `scan` on cannot reach
-`init` unexamined either.)*
+matching acknowledgement — so a document nobody ever ran `scan` on cannot pass a
+governed assessment unexamined either. Governance is not an `init` precondition
+— `init` performs no content check of its own — but nothing advances the
+lifecycle without one.)*
 
 **You do not have to reword a legitimate requirement.** Acknowledge it directly:
 
