@@ -23,11 +23,11 @@ the owner rather than argued further.
 
 ## Candidate
 
-Branch `feat/requirements-refinement`, commit **`ee29b54`**, in a detached, ephemeral worktree —
+Branch `feat/requirements-refinement`, commit **`6b6c1e6`** (product-identical to `ee29b54`; the one added commit is this round's own schema, runner and prompt), in a detached, ephemeral worktree —
 zero tracked modifications there.
 
 ```
-git diff 0057425..ee29b54 -- scripts/sdle.py .claude/hooks/hooks.py .claude/commands/sdle-start.md \
+git diff 0057425..6b6c1e6 -- scripts/sdle.py .claude/hooks/hooks.py .claude/commands/sdle-start.md \
   .claude/skills/sdle/SKILL.md docs/dry-runs/05-untrusted-content-scan.md \
   docs/SDLE-Reference-Guide.md docs/GETTING-STARTED.md tests/
 ```
