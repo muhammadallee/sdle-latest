@@ -138,3 +138,20 @@ Three shapes close DEF-RR-001, each with a real cost:
   attribution). Cost: the gap itself stays open; only its documentation stops being false.
 
 Asked in conversation, alongside this reply.
+
+## Fix implemented — 2026-09-27
+
+Owner chose shape (a) from "Design decision needed": re-check at `governance assess`. Implemented as
+DEF-RR-001 through DEF-RR-005 (commit `d9f8637`, branch `feat/requirements-refinement`):
+
+- `workitems/<id>/.sdle/scan-acknowledgements.json` — a new pre-init WorkItem record, keyed on
+  `(path, sha256)`, alongside `governance.json` and `requirements.json`.
+- `accept-content --path <file>` — additive; the bare form is unchanged.
+- `governance assess` independently re-scans every bound source before reserving evidence and refuses
+  `governance_content_unacknowledged` for anything flagged with no matching acknowledgement.
+- `hooks.py`, `sdle-start.md`, `docs/dry-runs/05`, `docs/SDLE-Reference-Guide.md`,
+  `docs/GETTING-STARTED.md` and `SKILL.md` corrected to describe the real, working route.
+
+Full test evidence, the smoke tests driving the actual CLI, and the complete file list are in this
+session's commit. Round 2 (Codex reviewing this fix) is the next step, once the full suite confirms
+green.
