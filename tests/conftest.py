@@ -562,12 +562,19 @@ FAILING_TEST_COMMAND = _command_line(
 # Restatement search (invariant 7): which files must not repeat an engine fact
 # --------------------------------------------------------------------------
 
-MAINTENANCE_RECORDS = Path(".sdle") / "implementation-state" / "repository-cleanup"
-"""Execution records of a repository-maintenance run: ledgers, run logs and
-recorders whose whole job is to quote engine vocabulary (test names, result
-words). They are evidence, not a prompt or documentation surface. The
-exclusion is this one directory and nothing wider: every other file under
-`.sdle/` is still searched."""
+MAINTENANCE_RECORDS = (
+    Path(".sdle") / "implementation-state" / "repository-cleanup",
+    Path(".sdle") / "implementation-state" / "requirements-refinement",
+)
+"""Execution records of a maintenance or enhancement run: ledgers, run logs
+and recorders whose whole job is to quote engine vocabulary (test names,
+result words, policy check ids). They are evidence, not a prompt or
+documentation surface. The exclusion is this **enumerated, named set** and
+nothing wider — `test_the_restatement_search_skips_only_the_maintenance_records`
+proves a third, unlisted sibling under `.sdle/implementation-state/` is still
+searched. Widening this tuple is a reviewed decision each time, never a
+pattern (no directory earns the exemption by living under
+`implementation-state/`; it earns it by being named here)."""
 
 
 def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
@@ -577,13 +584,14 @@ def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
     repository configuration under `.sdle/` (minus `MAINTENANCE_RECORDS`)."""
     files = [p for p in (root / "README.md", root / "CLAUDE.md",
                          root / "docs" / "SDLE-Reference-Guide.md") if p.is_file()]
-    skipped = root / MAINTENANCE_RECORDS
+    skipped = [root / record for record in MAINTENANCE_RECORDS]
     for directory in (root / ".claude" / "skills", root / ".claude" / "commands",
                       root / ".claude" / "hooks", root / ".sdle",
                       root / "docs" / "architecture"):
         if directory.is_dir():
             files.extend(p for p in sorted(directory.rglob("*"))
-                         if p.is_file() and skipped not in p.parents)
+                         if p.is_file()
+                         and not any(s in p.parents for s in skipped))
     agents = root / ".claude" / "agents"
     if agents.is_dir():
         files.extend(p for p in sorted(agents.glob("sdle-*.md")) if p.is_file())

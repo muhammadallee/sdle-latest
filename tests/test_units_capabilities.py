@@ -623,11 +623,17 @@ def test_a21_the_restatement_search_now_covers_the_product_agents():
 
 
 def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
-    """F-025. A maintenance run's ledger and run logs quote engine vocabulary by
-    design, so that one directory is outside the search. The exclusion must not
-    widen: a sibling under `.sdle/implementation-state/`, the policies and the
-    templates are product surface and stay searched."""
+    """F-025, widened for the requirements-refinement work (its own execution
+    record has the same job: quoting engine vocabulary — check ids, refusal
+    codes — as evidence, not as documentation). The exclusion is this
+    **enumerated, named set of two** directories and nothing wider: an
+    unlisted sibling under `.sdle/implementation-state/`, the policies and the
+    templates are product surface and stay searched. Widening the set is not
+    a pattern match on `implementation-state/*` — a third, unnamed sibling
+    proves that."""
     from conftest import MAINTENANCE_RECORDS
+
+    assert len(MAINTENANCE_RECORDS) == 2
 
     root = tmp_path
     kept = [root / ".sdle" / "policies" / "policy.json",
@@ -635,8 +641,10 @@ def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
             root / ".sdle" / "implementation-state" / "release-notes.md",
             root / ".sdle" / "implementation-state" / "repository-cleanup-old" / "x.md",
             root / ".sdle" / "config.json"]
-    skipped = [root / MAINTENANCE_RECORDS / "LEDGER.md",
-               root / MAINTENANCE_RECORDS / "runs" / "one.stdout.log"]
+    skipped = []
+    for record in MAINTENANCE_RECORDS:
+        skipped.append(root / record / "LEDGER.md")
+        skipped.append(root / record / "runs" / "one.stdout.log")
     for path in kept + skipped:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("body", encoding="utf-8")
