@@ -78,10 +78,16 @@ STATE_FIELDS = (
 # 25 -> 26: ADR-012's `requirements bind` writes the WorkItem's requirements
 # binding. Engine-written for the same reason the governance record is — it
 # decides what an assessment means, so it is not a file a model may edit.
+# 26 -> 27: DEF-RR-001's `write_content_acknowledgement` writes the WorkItem's
+# scan-acknowledgements record — another pre-init record only the engine
+# writes, for the same reason.
+# 46 -> 47, 47 -> 48: DEF-RR-001's `cmd_accept_content --path` branch appends
+# an audit entry and rebaselines state when a post-init acknowledgement is
+# also given (the bare-form post-init path this mirrors already did both).
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 26,
-    'save_state': 46,
-    'append_audit': 47,
+    'write_atomic': 27,
+    'save_state': 47,
+    'append_audit': 48,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,

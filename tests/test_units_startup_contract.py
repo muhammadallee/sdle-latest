@@ -185,27 +185,24 @@ def test_ordinary_requirements_prose_can_trip_the_scan(bare_project):
     assert result.data["matches"][0]["pattern"] == "set_status"
 
 
-def test_bootstrap_scan_says_acknowledgement_is_not_available_yet(bare_project):
-    """The message must not offer a route that exits 3.
-
-    `docs/dry-runs/05` taught `accept content` at exactly this point.
-    """
+def test_bootstrap_scan_offers_an_explicit_path_acknowledgement(bare_project):
+    """DEF-RR-001. The message must not claim nothing can be recorded — it
+    can, explicitly, with `--path`. `docs/dry-runs/05` Path B depends on this
+    wording."""
     project = _bound(bare_project)
     _flag(project)
     result = project.run("scan", "--path", "requirements/todo-api.md")
 
     message = result.envelope["message"]
     assert result.data["acknowledgeable"] is False
-    assert "no state exists until `init` has run" in message
+    assert "nothing is automatically remembered" in message
+    assert "accept-content --path requirements/todo-api.md" in message
     assert "re-scan" in message
 
 
 def test_accept_content_before_init_does_not_work(bare_project):
-    """Pins the behaviour the documentation now describes.
-
-    If bootstrap acknowledgement is ever implemented, this test fails and the
-    documentation that depends on it is found in the same commit.
-    """
+    """The *bare* form still needs state — unchanged, and still the form
+    every existing post-init test and document pins."""
     project = _bound(bare_project)
     _flag(project)
     project.run("scan", "--path", "requirements/todo-api.md")
@@ -215,20 +212,49 @@ def test_accept_content_before_init_does_not_work(bare_project):
     assert result.reason == "state_unreadable"
 
 
-def test_scanning_again_after_init_makes_acknowledgement_available(bare_project):
-    """The documented way through a bootstrap false positive.
-
-    A reader must not have to reword a legitimate requirement: scan first to see
-    the warning, `init`, scan again, then acknowledge.
-    """
+def test_accept_content_with_path_works_before_init(bare_project):
+    """DEF-RR-001. The explicit route is additive: no `state.json` involved,
+    keyed on the file's current content."""
     project = _bound(bare_project)
     _flag(project)
 
-    first = project.run("scan", "--path", "requirements/todo-api.md")
-    assert first.data["acknowledgeable"] is False
+    result = project.ok("accept-content", "--path", "requirements/todo-api.md")
+    assert result.data["file"] == "requirements/todo-api.md"
+    assert "sha256" in result.data
+    assert not project.state_file.is_file(), "still no state — this route never touches it"
 
+    ack_file = (project.root / "workitems" / FIXTURE_WORKITEM_ID / ".sdle"
+                / "scan-acknowledgements.json")
+    assert ack_file.is_file()
+    record = json.loads(ack_file.read_text("utf-8"))
+    assert record["acknowledgements"][0]["path"] == "requirements/todo-api.md"
+
+
+def test_accept_content_with_path_refuses_when_nothing_is_flagged(bare_project):
+    """Mirrors the bare form's `no_pending_confirmation` refusal: acknowledging
+    unflagged content is not a thing this command does."""
+    project = _bound(bare_project)
+    result = project.run("accept-content", "--path", "requirements/todo-api.md")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "no_pending_confirmation"
+
+
+
+
+def test_scanning_again_after_init_makes_acknowledgement_available(bare_project):
+    """The state-backed route, exercised the way it actually arises now that
+    DEF-RR-001 closes the bootstrap gap: content flagged for the first time
+    *after* `init` (a mid-workflow edit), not content nobody ever
+    acknowledged sailing through governance unexamined.
+
+    A reader must not have to reword a legitimate requirement: scan to see
+    the warning, then acknowledge with the bare, state-remembered form.
+    """
+    project = _bound(bare_project)
     project.record_governance()
     project.ok("init")
+
+    _flag(project)  # a mid-workflow edit, after init
 
     second = project.run("scan", "--path", "requirements/todo-api.md")
     assert second.exit_code == EXIT_REFUSED
@@ -287,3 +313,91 @@ def test_requirements_show_reports_unbound_without_refusing(bare_project):
     assert result.exit_code == EXIT_OK
     assert result.data["bound"] is False
     assert result.data["sources"] == []
+
+
+def test_registered_without_state_runs_the_full_step_2b_sequence(bare_project):
+    """DEF-RR-004. R1-D04: the two tests above prove `reset` leaves the
+    identity registered and that `requirements show` reports it unbound, but
+    neither continues through the actual step 2b branch — bind, show,
+    preflight, scan, assess, init — the way `sdle-start.md` documents it.
+    This one does, from a `reset` identity, the harder of the two ways a
+    WorkItem can be "registered without state" (the other being `create`
+    followed by nothing)."""
+    project = _bound(bare_project)
+    project.record_governance()
+    project.ok("init")
+    project.ok("reset")
+    project.ok("reset", "--confirm")
+    assert not project.state_file.is_file()
+
+    # Step 2b: requirements show first, branch on data.bound (already true —
+    # `reset` does not unbind). Re-bind is not required, but preflight,
+    # scan and assess must all still run before init on this route.
+    shown = project.ok("requirements", "show")
+    assert shown.data["bound"] is True
+
+    project.ok("preflight")
+    scanned = project.ok("scan", "--path", "requirements/todo-api.md")
+    assert scanned.data["flagged"] is False
+    project.record_governance()
+    result = project.ok("init")
+    assert result.data["current_phase"] == "constitution_draft"
+
+
+def test_registered_without_state_with_a_flagged_false_positive(bare_project):
+    """DEF-RR-004. The same route, but the bound document trips the scan —
+    the flagged-false-positive case R1-D04 named as missing from this
+    section specifically."""
+    project = _bound(bare_project)
+    project.record_governance()
+    project.ok("init")
+    project.ok("reset")
+    project.ok("reset", "--confirm")
+
+    _flag(project)
+    project.ok("preflight")
+
+    scanned = project.run("scan", "--path", "requirements/todo-api.md")
+    assert scanned.exit_code == EXIT_REFUSED
+    assert scanned.reason == "content_flagged"
+
+    blocked = project.run("governance", "assess", "--input",
+                          _write_governance_input(project))
+    assert blocked.exit_code == EXIT_REFUSED
+    assert blocked.reason == "governance_content_unacknowledged"
+
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    result = project.ok("init")
+    assert result.data["current_phase"] == "constitution_draft"
+
+
+def _write_governance_input(project: Project) -> str:
+    name = "governance-input.json"
+    (project.root / name).write_text(json.dumps({
+        "governanceInputVersion": "1",
+        "quality": {n: {"result": "PASS", "finding": None}
+                    for n in sdle.GOVERNANCE_POLICY_BUILTIN["quality_checks"]},
+        "classification": {"type": "enhancement", "flow": "GREENFIELD"},
+        "risk": {"signals": [], "proposedLevel": "LOW", "uncertainty": "LOW"},
+    }), encoding="utf-8")
+    return name
+
+
+# --------------------------------------------------------------------------
+# the canonical start command actually scans (DEF-RR-003)
+# --------------------------------------------------------------------------
+
+
+def test_sdle_start_scans_bound_documents_before_governance_assess():
+    """R1-D03. A static check for a non-executable surface: `sdle-start.md`
+    itself, not a test that types the sequence out and would pass regardless
+    of what the shipped command file says."""
+    from conftest import REPO_ROOT
+
+    text = (REPO_ROOT / ".claude" / "commands" / "sdle-start.md").read_text("utf-8")
+    scan_at = text.find("sdle.sh --workitem <id> scan --path")
+    assess_at = text.find("sdle.sh --workitem <id> governance assess")
+    assert scan_at != -1, "sdle-start.md must document a scan step"
+    assert assess_at != -1, "sdle-start.md must document the assess step"
+    assert scan_at < assess_at, "scan must come before governance assess"

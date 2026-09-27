@@ -218,6 +218,22 @@ class Paths:
         return self.runtime / "requirements.json"
 
     @property
+    def scan_acknowledgements_file(self) -> Path:
+        """Explicitly acknowledged flagged content, keyed by path and SHA-256.
+
+        WorkItem-owned, for the same reason ``governance_file`` is: written
+        before ``init`` exists (`accept-content --path` works pre-init), read
+        by `governance assess`, which refuses a flagged bound source unless an
+        acknowledgement matching its *current* content is on file — editing a
+        flagged line invalidates the old acknowledgement rather than being
+        silently covered by it. Deliberately not a field of ``state.json``:
+        acknowledging a document's content is a fact about the document, not
+        about lifecycle state, and it must survive `init` unmigrated like
+        every other pre-init record (`requirements.json`, `governance.json`).
+        """
+        return self.runtime / "scan-acknowledgements.json"
+
+    @property
     def discovery_file(self) -> Path:
         """This WorkItem's recorded §14 brownfield discovery findings.
 
@@ -5354,6 +5370,25 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # decision that was never taken, which is exactly what refusal atomicity
     # exists to prevent.
     sources, digest = requirements_sources(paths, strict=True)
+    # DEF-RR-001. Independent of whatever `scan` last recorded: a bound
+    # source nobody ever ran `scan` on must not reach `init` unexamined
+    # either. Before evidence is claimed, matching the refusal-atomicity
+    # comment above — a flagged, unacknowledged document is not a decision
+    # this assessment gets to make.
+    offenders = unacknowledged_flagged_sources(paths, sources)
+    if offenders:
+        detail = "; ".join(
+            f"{o['path']} (line {o['matches'][0]['line']}: "
+            f"{o['matches'][0]['pattern']})" for o in offenders)
+        raise Refused(
+            "governance_content_unacknowledged",
+            "Bound document(s) contain unacknowledged content that looks "
+            f"like instructions directed at the workflow engine: {detail}. "
+            "Edit the flagged line(s) and re-assess, or acknowledge each "
+            "with `accept-content --path <file>` first.",
+            {"workitem": paths.workitem,
+             "offenders": [{"path": o["path"], "matches": o["matches"]}
+                           for o in offenders]})
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -9579,6 +9614,84 @@ def scan_text(text: str) -> list[dict]:
     return matches
 
 
+SCAN_ACKNOWLEDGEMENTS_VERSION = "1"
+
+
+def read_scan_acknowledgements(paths: Paths) -> dict:
+    """The WorkItem's explicit content acknowledgements, or an empty shell.
+
+    Absence is not an error — most WorkItems never flag anything — but a
+    present, unreadable or malformed file is: it would silently make
+    `governance assess` treat "acknowledgement unknown" as "acknowledgement
+    absent", which is the safe direction only for a file that never existed.
+    """
+    target = paths.scan_acknowledgements_file
+    if not target.is_file():
+        return {"scanAcknowledgementsVersion": SCAN_ACKNOWLEDGEMENTS_VERSION,
+                "workitem": paths.workitem, "acknowledgements": []}
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not "
+            f"readable JSON: {exc}.", {}) from exc
+    if (not isinstance(doc, dict)
+            or doc.get("scanAcknowledgementsVersion") != SCAN_ACKNOWLEDGEMENTS_VERSION
+            or not isinstance(doc.get("acknowledgements"), list)):
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not a "
+            "recognised acknowledgements record.", {})
+    return doc
+
+
+def is_content_acknowledged(doc: dict, path: str, sha256: str) -> bool:
+    """True only for an acknowledgement matching both the path and the
+    *current* content — editing a flagged line after acknowledging the old
+    text must not carry the acknowledgement over to the new one."""
+    return any(a.get("path") == path and a.get("sha256") == sha256
+               for a in doc.get("acknowledgements", []))
+
+
+def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
+                                 session: str | None) -> None:
+    """Record one acknowledgement, replacing any earlier one for the same
+    path — an old acknowledgement for since-changed content is not evidence
+    of anything and would only grow the file forever."""
+    doc = read_scan_acknowledgements(paths)
+    doc["workitem"] = paths.workitem
+    doc["acknowledgements"] = [
+        a for a in doc["acknowledgements"] if a.get("path") != path
+    ]
+    doc["acknowledgements"].append({
+        "path": path, "sha256": sha256, "acknowledgedAt": now_iso(),
+        "session": session,
+    })
+    write_atomic(paths.scan_acknowledgements_file,
+                json.dumps(doc, indent=2) + "\n")
+
+
+def unacknowledged_flagged_sources(paths: Paths, sources: list[dict]
+                                  ) -> list[dict]:
+    """Bound sources (as `requirements_sources` returns them — already
+    confirmed present on disk) that are currently flagged and have no
+    acknowledgement matching their current content.
+
+    Independent of whatever `scan` last recorded: this re-reads and re-scans
+    every bound source itself, so a source nobody ever ran `scan` on is
+    caught here rather than silently reaching `init` unexamined.
+    """
+    doc = read_scan_acknowledgements(paths)
+    offenders = []
+    for entry in sources:
+        target = paths.project_root / entry["path"]
+        matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
+        if matches and not is_content_acknowledged(doc, entry["path"], entry["sha256"]):
+            offenders.append({"path": entry["path"], "matches": matches})
+    return offenders
+
+
 def cmd_scan(args, paths: Paths) -> int:
     target = paths.project_root / args.path
     if not target.is_file():
@@ -9617,11 +9730,13 @@ def cmd_scan(args, paths: Paths) -> int:
         )
     else:
         remedy = (
-            "No acknowledgement can be recorded yet: `accept content` writes to "
-            "this WorkItem's state, and no state exists until `init` has run. "
-            "Either edit the flagged line so it does not read as an "
-            "instruction and re-scan, or continue to `init` and scan again "
-            "afterwards, when `accept content` becomes available."
+            "This WorkItem has no state yet, so nothing is automatically "
+            "remembered. Either edit the flagged line so it does not read as "
+            "an instruction and re-scan, or acknowledge explicitly with "
+            "`accept-content --path " + args.path + "` — this works before "
+            "`init` too, and `governance assess` will refuse this document "
+            "again until it sees either a clean re-scan or a matching "
+            "acknowledgement."
         )
     message = (
         f"Untrusted content warning: {args.path} contains lines that look like "
@@ -9635,6 +9750,44 @@ def cmd_scan(args, paths: Paths) -> int:
 
 
 def cmd_accept_content(args, paths: Paths) -> int:
+    """Two independent routes, chosen by whether `--path` is given.
+
+    Bare `accept-content` is unchanged: it consumes the one pending
+    confirmation `scan` recorded in `state.json`, and still requires state to
+    exist (`state_unreadable` otherwise) — this is the post-init route every
+    existing test and document already pins.
+
+    `accept-content --path <file>` is additive (DEF-RR-001): it re-scans the
+    named file itself rather than trusting a prior `scan` call, writes an
+    explicit acknowledgement keyed on the file's *current* content, and works
+    both before and after `init` — nothing here reads or writes `state.json`.
+    It is the route `governance assess` checks.
+    """
+    path_arg = getattr(args, "path", None)
+    if path_arg:
+        target = paths.project_root / path_arg
+        if not target.is_file():
+            raise Refused("artifact_missing", f"No such file: {path_arg}",
+                          {"path": path_arg})
+        matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
+        if not matches:
+            raise Refused("no_pending_confirmation",
+                          "No flagged content is pending acknowledgement.",
+                          {"path": path_arg})
+        sha = sha256_file(target)
+        write_content_acknowledgement(paths, path_arg, sha, args.session)
+        if paths.state_file.is_file():
+            state = read_state(paths)
+            append_audit(
+                paths, state, phase=state.get("current_phase", "unknown"),
+                event="content_accepted",
+                message=f"User accepted flagged content in {path_arg}.",
+                artifact=path_arg,
+            )
+            save_state(paths, state, args.session)
+        emit("accept-content", {"file": path_arg, "sha256": sha})
+        return EXIT_OK
+
     state = read_state(paths)
     pending = state.get("pending_confirm_action") or ""
     if not pending.startswith("accept_content:"):
@@ -12069,9 +12222,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "accept-state", help="Acknowledge a detected state jump."
     ).set_defaults(handler=cmd_accept_state)
-    subparsers.add_parser(
+    accept_content_p = subparsers.add_parser(
         "accept-content", help="Acknowledge flagged file content."
-    ).set_defaults(handler=cmd_accept_content)
+    )
+    accept_content_p.add_argument(
+        "--path", required=False,
+        help="Acknowledge this file explicitly (works before init too), "
+             "instead of consuming state.json's one pending confirmation.")
+    accept_content_p.set_defaults(handler=cmd_accept_content)
     subparsers.add_parser(
         "repo-staleness", help="Commits newer than the newest approval."
     ).set_defaults(handler=cmd_repo_staleness)

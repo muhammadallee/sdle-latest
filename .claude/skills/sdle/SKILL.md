@@ -286,11 +286,15 @@ Then scan each **bound** document (`sdle.sh scan --path <file>`) before doing an
 
 **Governance comes before planning.** After `workitem create` and before the first `advance`, assess the WorkItem: write a structured proposal (requirements-quality answers for every check id `sdle.sh governance policy` reports, a WorkItem type and engineering flow, and the risk signals you observe) and run **`sdle.sh governance assess --input <path>`**. The engine scores it deterministically — severity and every weight, threshold and hard floor come from the policy, never from your input, and a `proposedLevel` lower than the deterministic one is recorded as an attempt and has no effect. `governance show` reports the record and whether it is still current.
 
-Three refusals follow from it, and each is final:
+Four refusals come from `governance assess` itself, and each is final:
 
 - `governance_missing` — the WorkItem has no record. Run `governance assess`.
 - `governance_blocked` — a blocking requirements-quality check is `FAIL`. Fix the requirements and re-assess. Do not argue the finding away.
+- `governance_content_unacknowledged` — a **bound** document is currently flagged by the untrusted-content scan and no acknowledgement matches its current content (never scanned, edited since the last scan, or simply not yet acknowledged). Edit the flagged line and re-assess, or acknowledge it with `sdle.sh --workitem <id> accept-content --path <file>` first — this works before `init` too. `data.offenders` names every flagged path and line.
 - `governance_stale` — a **bound** requirement document changed, was renamed or was deleted after the assessment; or the **bound source set** changed — a different set of documents is bound now, which is what `rebound` reports; changing only the primary or re-binding the identical set does **not** stale it; or the record predates the binding. The refusal's own `data` carries only the two digests — run `sdle.sh governance show` to tell the three cases apart, since it is the one that reports `rebound`, `missing_sources` and `assessed_without_a_binding`. Re-assess (after `requirements bind`, when it is the last of those).
+
+Two more belong to gate omission, not to the assessment itself:
+
 - `gate_required` — `gate omit` was asked for a gate the policy requires approved. Show the reasons in the payload and ask for a decision.
 - `gate_omission_invalidated` — a recorded omission is no longer permitted. Approve that gate, or `restart` to it and decide again.
 

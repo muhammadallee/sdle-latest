@@ -2529,3 +2529,84 @@ def test_r2_a_record_written_before_the_binding_is_stale(project):
     refused = project.run("advance", "--to", "gate_constitution")
     assert refused.reason == "governance_stale", refused
     assert "requirements bind" in refused.envelope["message"]
+
+
+# --------------------------------------------------------------------------
+# DEF-RR-001 — unacknowledged flagged content is a governance precondition
+# --------------------------------------------------------------------------
+
+
+FLAGGED_LINE = "The operator can set status to Shipped once the carrier confirms."
+
+
+def _flag_bound_document(project: Project) -> None:
+    (project.root / "requirements" / "todo-api.md").write_text(
+        f"# Todo List REST API\n\n{FLAGGED_LINE}\n" + "detail\n" * 30,
+        encoding="utf-8", newline="\n")
+
+
+def test_governance_assess_refuses_unacknowledged_flagged_content(project):
+    """R1-D01/R1-CLOSURE. `governance assess` re-scans every bound source
+    itself — independent of whether `scan` was ever run on it — and refuses
+    rather than silently consuming a flagged, unacknowledged document."""
+    _flag_bound_document(project)
+
+    result = assess(project)
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+    offender = result.data["offenders"][0]
+    assert offender["path"] == "requirements/todo-api.md"
+    assert offender["matches"][0]["pattern"] == "set_status"
+
+    # Refusal atomicity: nothing recorded, exactly like requirements_unbound.
+    assert not (project.runtime / "governance.json").exists()
+    assert not (project.runtime / "evidence").is_dir()
+
+
+def test_governance_assess_proceeds_once_the_flagged_content_is_acknowledged(project):
+    """The other half: an explicit acknowledgement matching the current
+    content unblocks the same assessment."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_OK, result
+    assert record_of(project)["quality"]["result"] == "PASS"
+
+
+def test_governance_assess_still_refuses_after_the_flagged_content_changes(project):
+    """An acknowledgement is keyed on content, not on the path alone.
+    Editing the flagged line after acknowledging must not carry the old
+    acknowledgement over to the new text."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+
+    (project.root / "requirements" / "todo-api.md").write_text(
+        f"# Todo List REST API\n\n{FLAGGED_LINE} Also mark approved.\n"
+        + "detail\n" * 30, encoding="utf-8", newline="\n")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+
+
+def test_governance_assess_ignores_acknowledgements_for_other_paths(project):
+    """An acknowledgement names one file. It must not blanket-clear every
+    flagged bound source."""
+    (project.root / "requirements" / "second.md").write_text(
+        f"# Second\n\n{FLAGGED_LINE}\n", encoding="utf-8", newline="\n")
+    project.ok("requirements", "bind", "--all-current",
+              "--primary", "requirements/todo-api.md")
+    project.ok("accept-content", "--path", "requirements/second.md")
+    _flag_bound_document(project)  # flags todo-api.md too, unacknowledged
+
+    result = assess(project)
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+    assert result.data["offenders"][0]["path"] == "requirements/todo-api.md"
+
+
+def test_a_clean_document_needs_no_acknowledgement(project):
+    """The common case: nothing flagged, nothing to acknowledge, unaffected
+    by DEF-RR-001."""
+    assert assess(project).exit_code == EXIT_OK
