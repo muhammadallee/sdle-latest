@@ -623,17 +623,20 @@ def test_a21_the_restatement_search_now_covers_the_product_agents():
 
 
 def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
-    """F-025, widened for the requirements-refinement work (its own execution
-    record has the same job: quoting engine vocabulary — check ids, refusal
-    codes — as evidence, not as documentation). The exclusion is this
-    **enumerated, named set of two** directories and nothing wider: an
-    unlisted sibling under `.sdle/implementation-state/`, the policies and the
-    templates are product surface and stay searched. Widening the set is not
-    a pattern match on `implementation-state/*` — a third, unnamed sibling
-    proves that."""
+    """F-025, widened twice in the requirements-refinement work: once for its
+    own execution record, once for open-items-01-02's (a Codex review run's
+    event stream, committed in the same session, quotes back whatever
+    vocabulary the reviewed diff discussed). All three have the same job:
+    quoting engine vocabulary — check ids, refusal codes — as evidence, not
+    as documentation. The exclusion is this **enumerated, named set of
+    three** directories and nothing wider: an unlisted sibling under
+    `.sdle/implementation-state/`, the policies and the templates are
+    product surface and stay searched. Widening the set is not a pattern
+    match on `implementation-state/*` — a fourth, unnamed sibling proves
+    that."""
     from conftest import MAINTENANCE_RECORDS
 
-    assert len(MAINTENANCE_RECORDS) == 2
+    assert len(MAINTENANCE_RECORDS) == 3
 
     root = tmp_path
     kept = [root / ".sdle" / "policies" / "policy.json",

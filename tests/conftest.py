@@ -565,13 +565,19 @@ FAILING_TEST_COMMAND = _command_line(
 MAINTENANCE_RECORDS = (
     Path(".sdle") / "implementation-state" / "repository-cleanup",
     Path(".sdle") / "implementation-state" / "requirements-refinement",
+    # Committed in this same session (the OPEN-01/02 review, Stage 0 of the
+    # requirements-refinement work): a Codex review run's raw event stream
+    # necessarily quotes back whatever vocabulary the reviewed diff and
+    # prompt discussed, exactly like repository-cleanup's own runs/ — CI
+    # caught this the first time the full suite actually ran over it.
+    Path(".sdle") / "implementation-state" / "open-items-01-02",
 )
 """Execution records of a maintenance or enhancement run: ledgers, run logs
 and recorders whose whole job is to quote engine vocabulary (test names,
 result words, policy check ids). They are evidence, not a prompt or
 documentation surface. The exclusion is this **enumerated, named set** and
 nothing wider — `test_the_restatement_search_skips_only_the_maintenance_records`
-proves a third, unlisted sibling under `.sdle/implementation-state/` is still
+proves a fourth, unlisted sibling under `.sdle/implementation-state/` is still
 searched. Widening this tuple is a reviewed decision each time, never a
 pattern (no directory earns the exemption by living under
 `implementation-state/`; it earns it by being named here)."""
