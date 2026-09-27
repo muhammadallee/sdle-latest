@@ -148,3 +148,38 @@ restarted unattended.
 Resolved the same way `workitem-docs-alignment`'s ledger recorded for an identical reap: pushed
 `feat/requirements-refinement` (authorised, O3) and read the full-suite result from GitHub Actions
 instead — strictly stronger evidence than a single local combination.
+
+## Full suite — PASS, on CI
+
+Two attempts: run `36346009675` @ `fd51a5c` failed all four cells on
+`test_units_governance.py::test_no_policy_default_value_is_restated_outside_sdle_py` and
+`test_units_discovery.py::test_n14_no_discovery_vocabulary_is_restated_outside_sdle_py`, both flagging
+`.sdle/implementation-state/open-items-01-02/runs/20260927T182716-p08-codex-open-items-round1.a1.events.jsonl`
+(diagnosed via `check-runs/<id>/annotations`, since raw job-log download needs admin rights this token
+does not have). Fixed by widening `MAINTENANCE_RECORDS` a third time (commit `84925f2`) — confirmed not
+platform-specific: all four cells failed identically before the fix.
+
+Run [36347512584](https://github.com/muhammadallee/sdle-latest/actions/runs/36347512584) @ `84925f2`:
+
+| job | conclusion |
+|---|---|
+| ubuntu-latest / Python 3.11 | success |
+| ubuntu-latest / Python 3.13 | success |
+| windows-latest / Python 3.11 | success |
+| windows-latest / Python 3.13 | success |
+
+This satisfies the brief's F12 ("CI passed means all four cells passed") and closes the local
+full-suite run's interruption above — CI ran it (plus `lint-skill`) at `84925f2`, which contains every
+DEF-RR-001..005 and MAINTENANCE_RECORDS commit.
+
+## Stage 0 — verdict
+
+**VERIFIED.** All five prior-stabilization ledgers check out (D01–D06, repository-cleanup,
+workitem-isolation, workitem-docs-alignment, open-items-01-02 — the last conditional on the review and
+fix above, now both done). Owner decisions (D-03, D-06, F-028, F-103) left with the owner, not defects.
+Two reconciliation notes appended. Five defects (DEF-RR-001..005) found genuinely open by the missing
+Codex review, fixed under §9, reviewed locally and on CI. Two further defects (the MAINTENANCE_RECORDS
+gaps) were self-caused by this session's own evidence-writing and fixed inline, per the brief's own rule
+that a failure in the phase currently being worked is not a §9 defect.
+
+Next: Level 2 Codex review of the DEF-RR-001..005 fix (round 2 of the OPEN-01/02 review), then Stage 1.
