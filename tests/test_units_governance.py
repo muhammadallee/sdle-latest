@@ -2652,18 +2652,25 @@ def test_v01_bound_sources_are_read_exactly_once_during_assessment(project, monk
     separately (hash from one read, scan from another), so a concurrent
     edit between the two reads could let the persisted digest and the
     scanned content disagree. Proven structurally rather than by timing a
-    race: exactly one `Path.read_bytes` call per bound source for the whole
-    of `governance assess`, counted rather than assumed."""
+    race: exactly one file open per bound source for the whole of
+    `governance assess`, counted rather than assumed.
+
+    Counts `Path.open`, not `Path.read_bytes`: the engine's own
+    `sha256_file` reads through an explicit `.open("rb")` handle, never
+    through `read_bytes`, so a `read_bytes`-only counter cannot tell one
+    open from two — it stayed green testing the wrong primitive until a
+    second targeted-verification pass caught it, confirmed by running it
+    against the pre-fix commit and watching it pass there too."""
     import pathlib
 
     calls = []
-    original = pathlib.Path.read_bytes
+    original = pathlib.Path.open
 
-    def counting_read_bytes(self):
+    def counting_open(self, *args, **kwargs):
         calls.append(str(self))
-        return original(self)
+        return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(pathlib.Path, "read_bytes", counting_read_bytes)
+    monkeypatch.setattr(pathlib.Path, "open", counting_open)
 
     result = assess(project)
     assert result.exit_code == EXIT_OK, result
@@ -2692,3 +2699,45 @@ def test_v04_a_malformed_acknowledgements_file_leaves_a_refused_advance_byte_ide
     assert result.reason == "scan_acknowledgements_invalid", result
     assert project.audit_file.read_bytes() == before, (
         "a refused advance must leave audit.md byte-identical")
+
+
+def test_init_can_bootstrap_on_unassessed_content_but_advance_and_assess_still_gate_it(project):
+    """R1-D01, targeted verification pass, challenge case 1. Governance is
+    not an `init` precondition (SKILL.md, O1): a WorkItem can `init` with no
+    governance record at all, flagged or not. That is the accepted
+    consequence of the owner's shape (a), not a bypass — nothing generative
+    runs before the first `advance`, and `advance` and a genuine assessment
+    both still gate on it."""
+    _flag_bound_document(project)  # never scanned, never acknowledged
+
+    result = project.ok("init", session="r1d01-a")
+    assert result.data["current_phase"] == "constitution_draft"
+
+    refused = project.run("advance", "--to", "gate_constitution")
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "governance_missing", refused
+
+    blocked = assess(project)
+    assert blocked.exit_code == EXIT_REFUSED, blocked
+    assert blocked.reason == "governance_content_unacknowledged", blocked
+
+
+def test_a_clean_assessment_flagged_edit_still_gates_at_advance(project):
+    """R1-D01, targeted verification pass, challenge case 2. A clean
+    assessment, then an edit that flags the bound document, then `init`:
+    `advance` refuses `governance_stale` (the record no longer describes
+    the requirements on disk) and a re-assessment refuses
+    `governance_content_unacknowledged` — the edit is examined either way,
+    never silently carried through."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="r1d01-b")
+
+    _flag_bound_document(project)
+
+    stale = project.run("advance", "--to", "gate_constitution")
+    assert stale.exit_code == EXIT_REFUSED, stale
+    assert stale.reason == "governance_stale", stale
+
+    reassessed = assess(project)
+    assert reassessed.exit_code == EXIT_REFUSED, reassessed
+    assert reassessed.reason == "governance_content_unacknowledged", reassessed

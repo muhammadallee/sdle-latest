@@ -4423,6 +4423,45 @@ def _binding_refused(reason: str, message: str, **data) -> Refused:
     return Refused(reason, message, data)
 
 
+def safe_repo_path(paths: Paths, raw: str) -> Path:
+    """An arbitrary path the orchestrator names — for `scan --path` and
+    `accept-content --path`, never only a *bound* source — canonicalised and
+    checked against the repository root, or refused `path_invalid`.
+
+    `scan`/`accept-content` had no path safety at all before this: a `--path`
+    reading `../../outside.md`, an absolute path, or a symlink resolving
+    outside the tree would be joined and read unchecked. Mirrors
+    `_binding_source`'s traversal, absolute-path and symlink-escape checks
+    (kept as a separate function rather than shared, so a change to the
+    binding's tested behaviour can never silently change this one, and vice
+    versa) but never `_binding_source`'s bound-source-specific reason or
+    wording, since a scanned path need not be a requirements source at all.
+    """
+    text = str(raw).strip().replace(chr(92), "/")
+    if not text or any(ord(ch) < 32 for ch in text):
+        raise Refused("path_invalid",
+                     f"'{raw}' is not a usable path.", {"path": raw})
+    if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
+        raise Refused(
+            "path_invalid",
+            f"'{raw}' is an absolute path. Name it relative to the "
+            "repository root.", {"path": raw})
+    normal = posixpath.normpath(text)
+    if normal == ".." or normal.startswith("../"):
+        raise Refused("path_invalid",
+                     f"'{raw}' leaves the repository.", {"path": raw})
+    target = paths.project_root / normal
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(paths.project_root.resolve())
+    except (OSError, ValueError):
+        raise Refused(
+            "path_invalid",
+            f"'{raw}' resolves outside the repository (a symlink or "
+            "junction pointing away from it).", {"path": raw}) from None
+    return target
+
+
 def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     """One bound path, validated and canonicalised, or a refusal.
 
@@ -9700,9 +9739,21 @@ def read_scan_acknowledgements(paths: Paths) -> dict:
             "scan_acknowledgements_invalid",
             f"{paths.runtime_relative}/scan-acknowledgements.json is not "
             f"readable JSON: {exc}.", {}) from exc
-    if (not isinstance(doc, dict)
-            or doc.get("scanAcknowledgementsVersion") != SCAN_ACKNOWLEDGEMENTS_VERSION
-            or not isinstance(doc.get("acknowledgements"), list)):
+    entries = doc.get("acknowledgements") if isinstance(doc, dict) else None
+    valid_shell = (
+        isinstance(doc, dict)
+        and doc.get("scanAcknowledgementsVersion") == SCAN_ACKNOWLEDGEMENTS_VERSION
+        and isinstance(entries, list))
+    # Every entry re-checked on every read, not only at write time: a merge,
+    # a restored backup or a hand edit can leave a well-formed shell around
+    # an entry the replay loop would otherwise fail on midway through —
+    # after it had already appended for the entries before it.
+    entries_ok = valid_shell and all(
+        isinstance(a, dict)
+        and isinstance(a.get("path"), str) and a["path"]
+        and re.fullmatch(r"[0-9a-f]{64}", a.get("sha256") or "")
+        for a in entries)
+    if not entries_ok:
         raise IntegrityError(
             "scan_acknowledgements_invalid",
             f"{paths.runtime_relative}/scan-acknowledgements.json is not a "
@@ -9720,14 +9771,23 @@ def is_content_acknowledged(doc: dict, path: str, sha256: str) -> bool:
 
 def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
                                  session: str | None) -> None:
-    """Record one acknowledgement, replacing any earlier one for the same
-    path — an old acknowledgement for since-changed content is not evidence
-    of anything and would only grow the file forever.
+    """Append one acknowledgement, unless an identical one — same path,
+    same content — is already on file.
+
+    Append-only, matching every other ledger this engine keeps
+    (`audit.md`, `workitems/index.md`, `reviews.json`): acknowledging path A
+    then, later, different content at the same path is two human decisions,
+    not one overwriting the other, and `record_scan_acknowledgement_audit`'s
+    replay depends on both surviving to be carried into the audit chain.
+    An old acknowledgement for since-changed content is simply never matched
+    again by `is_content_acknowledged` (it checks path *and* content), so it
+    costs nothing to keep — the file grows by one entry per genuinely new
+    decision, not per repeat of the same one.
 
     Accepted as a known limitation rather than fixed here: this is an
-    unlocked read-modify-write, so two concurrent acknowledgements for
-    *different* paths can race and one replace the other's. It fails closed —
-    the lost acknowledgement simply means that path is unacknowledged again,
+    unlocked read-modify-write, so two concurrent acknowledgements can race
+    and one lose an update the other made in between. It fails closed — the
+    lost acknowledgement simply means that path is unacknowledged again,
     which `governance assess` already refuses on its own, never a silent
     pass — so it costs a repeat `accept-content --path`, not a bypass.
     Serialising this belongs with the refusing lock primitive the
@@ -9735,9 +9795,8 @@ def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
     transaction, not duplicated here for one file."""
     doc = read_scan_acknowledgements(paths)
     doc["workitem"] = paths.workitem
-    doc["acknowledgements"] = [
-        a for a in doc["acknowledgements"] if a.get("path") != path
-    ]
+    if is_content_acknowledged(doc, path, sha256):
+        return
     doc["acknowledgements"].append({
         "path": path, "sha256": sha256, "acknowledgedAt": now_iso(),
         "session": session,
@@ -9778,7 +9837,7 @@ def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
 
 
 def cmd_scan(args, paths: Paths) -> int:
-    target = paths.project_root / args.path
+    target = safe_repo_path(paths, args.path)
     if not target.is_file():
         raise Refused("artifact_missing", f"No such file: {args.path}",
                       {"path": args.path})
@@ -9849,18 +9908,20 @@ def cmd_accept_content(args, paths: Paths) -> int:
     it re-scans the named file itself rather than trusting a prior `scan`
     call, and works both before and after `init`.
 
-    V-02: a pending file that has since been deleted refuses `artifact_missing`
+    A pending file that has since been deleted refuses `artifact_missing`
     before anything is checked or changed — mirroring `--path`'s own refusal
     for a missing file — rather than silently reporting success with no
-    acknowledgement written. V-03: both immediate post-init audit entries
-    below carry the same `content_acknowledgement_marker` the deferred
-    pre-init replay (`record_scan_acknowledgement_audit`) looks for, so an
+    acknowledgement written. Both immediate post-init audit entries below
+    carry the same `content_acknowledgement_marker` the deferred pre-init
+    replay (`record_scan_acknowledgement_audit`) looks for, so an
     acknowledgement already audited here is never audited a second time at
-    the next advance.
+    the next advance. `--path` is validated through `safe_repo_path`: an
+    arbitrary path the orchestrator names is not necessarily a bound source,
+    but it must still resolve inside the repository.
     """
     path_arg = getattr(args, "path", None)
     if path_arg:
-        target = paths.project_root / path_arg
+        target = safe_repo_path(paths, path_arg)
         if not target.is_file():
             raise Refused("artifact_missing", f"No such file: {path_arg}",
                           {"path": path_arg})

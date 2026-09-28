@@ -145,10 +145,14 @@ to governance assessment and `init`:)*
 matches, found the matching acknowledgement, and proceeded. Editing the
 acknowledged line afterwards changes its SHA-256, so the old acknowledgement no
 longer matches and the next assessment refuses again — an acknowledgement
-covers exactly the text it was given for, never a promise about future edits.
-Nothing is bypassed: the acknowledgement is a recorded human decision, and the
-orchestrator has read the file as data throughout, because Core Rule 6 does not
-depend on the scan.)*
+covers exactly the bytes on disk at the moment `accept-content --path` reads
+them, never a promise about future edits. If the file is edited *between* the
+warning and the acceptance, the acknowledgement covers what is there when
+acceptance runs, which may not be exactly what the warning showed — re-scan
+first if that gap matters to you. Nothing is bypassed either way: Core Rule 6
+means acknowledged content is still never treated as instructions, only as
+data the workflow may proceed past; the acknowledgement gate is a review
+step, not the security boundary.)*
 
 *(Asserted by
 `tests/test_units_startup_contract.py::test_bootstrap_scan_offers_an_explicit_path_acknowledgement`,
