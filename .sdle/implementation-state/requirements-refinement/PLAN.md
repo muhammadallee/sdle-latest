@@ -139,26 +139,43 @@ document per check id (12 documents) plus `clean-baseline.md`, all "Link Shorten
 committed at `9ec6d4a`. `labels.json` is kept outside the working tree (this session's scratchpad, not
 the repo) so a general-purpose subagent measuring the baseline cannot `Glob`/`Read` the answer key.
 Each document was assessed **three times independently**, fresh context each time, 39 dispatches total,
-raw results under `runs/assessor-<check-id>-run<n>.json`. Full methodology, the precision/recall table,
-the agreement-rate table and the lint prototype's own measured precision/recall are in `LEDGER.md`'s
-"Stage 1 — corpus measurement results" section; this section summarizes what changes for the design.
+raw results under `runs/assessor-<check-id>-run<n>.json`. An adjudication pass (2026-09-28, prompted by
+advisor review) then found two of this session's own earlier corpus edits had bled adjacent content into
+four of these documents, re-corrected the corpus, and re-ran the four affected documents (12 more
+dispatches). Full methodology, the precision/recall table, the agreement-rate table and the lint
+prototype's own measured precision/recall are in `LEDGER.md`'s "Stage 1 — corpus measurement results"
+and "Stage 1 — corpus measurement, adjudication pass" sections; this section summarizes what changes
+for the design, using the **adjudicated** (post-correction) numbers throughout.
 
-**Headline result that changes a design assumption:** the assessor has 0.00 recall, unanimously across
-all 3 runs, on four checks whose seeded defect is a wholly-absent section with no other section
-pointing at it: `scope`, `compatibility`, `constraints`, `dependencies`. It reliably catches textual
-defects (vagueness, contradictions, unmeasured NFRs, weak acceptance criteria — all at recall 1.00) and
-catches absence when something else in the document cues it (`out_of_scope`'s unpaired "In scope:"
-list, `problem_statement`'s cold open, a dangling cross-reference for `security_data_implications`).
-This is now a known, load-bearing limitation of the assessor this design relies on for every quality
-verdict, not a hypothetical one — Stage 3 should record it in the `sdle-requirements-review` agent's
-own prompt as a known blind spot, and the LEDGER entry proposes a cheap deterministic section-presence
-lint rule (outside §3.3's current six) as the fix, flagged for owner decision rather than assumed here.
+**Headline result that changes a design assumption, confirmed under adjudication:** the assessor has
+0.00 recall, unanimously across all 3 runs, on three checks whose seeded defect is a wholly-absent
+section with no other section pointing at it: `compatibility`, `constraints`, `dependencies` — each
+re-verified after the corpus correction, so this is not an artifact of the original corpus's
+construction. A fourth check, `scope`, shows the same 0/3 pattern but is **contested, not confirmed**:
+the document's required Purpose paragraph and acceptance criteria arguably already satisfy `scope`'s own
+definition without a dedicated "In scope:" list, and stripping them would corrupt two other checks'
+non-defects, so this one was deliberately left untested further. A fifth check,
+`security_data_implications`, was originally measured at 0.67 recall via a dangling cross-reference this
+session had accidentally added; with that cue removed, its true recall is 0.33 — worse, not better. The
+assessor reliably catches textual defects (vagueness, contradictions, unmeasured NFRs, weak acceptance
+criteria — all at recall 1.00) and catches absence when something else in the document cues it
+(`out_of_scope`'s unpaired "In scope:" list, `problem_statement`'s cold open). This is now a known,
+load-bearing limitation of the assessor this design relies on for every quality verdict, not a
+hypothetical one — Stage 3 should record it in the `sdle-requirements-review` agent's own prompt as a
+known blind spot. **The remedy is an open owner question, not a decision made here:** a deterministic
+section-presence lint rule was considered and rejected as a default fix, since requiring a heading named
+"Constraints" (etc.) is exactly what C6 forbids — "turning a writing-style preference into a
+requirement" — and would override §3.3's deliberate limit of missing-section lint coverage to
+`acceptance_criteria`/`out_of_scope` only. The live choice for Stage 2 to carry forward is a
+prompt-level remedy for the assessor (e.g., an explicit instruction to check named-section presence
+before crediting adjacent content) versus accepting this as a documented, permanent limitation.
 
-**Agreement rate:** 69% of documents (9/13) produced byte-identical 12-key verdicts across all 3 fresh
-runs; the other 31% varied only on borderline judgment calls, never on a check a run otherwise caught
-correctly — no run ever partially caught then dropped a clearly-labeled primary defect. This is the
-real, measured rate `quality_verdict_flip` will fire at on an honest rerun of unchanged content, and it
-is the number D-series design decisions about `dispute` frequency should be checked against in Stage 2.
+**Agreement rate:** 62% of documents (8/13, revised from the original 69%/9-13 after the adjudication
+pass re-ran 4 documents) produced byte-identical 12-key verdicts across all 3 fresh runs; the other 38%
+varied only on borderline judgment calls, never on a check a run otherwise caught correctly — no run
+ever partially caught then dropped a clearly-labeled primary defect. This is the real, measured rate
+`quality_verdict_flip` will fire at on an honest rerun of unchanged content, and it is the number
+D-series design decisions about `dispute` frequency should be checked against in Stage 2.
 
 **Lint precision/recall (deterministic, one run per document):** perfect (1.00/1.00, zero false
 positives including on `clean-baseline.md`) for `blocking_unknowns`, `out_of_scope`,

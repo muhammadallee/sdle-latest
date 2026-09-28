@@ -1,8 +1,9 @@
 {
   "document": "defect-compatibility.md",
-  "blob_sha": "eea810b95b1777c634884e95c8509e193971622f",
+  "blob_sha": "c13c98fbdccc1a7c185402e56a50581249cadc2c",
   "run": 1,
-  "dispatched_at": "2026-09-28T00:00:00Z",
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-compatibility-run1-superseded.json (assessed pre-adjudication text whose Dependencies section carried a 'version already pinned by platform team' clause reading as compatibility-flavored detail)",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
@@ -17,5 +18,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS: labels.json expects compatibility FAIL (the document has no dedicated Compatibility section). The assessor passed it anyway, likely inferring compatibility coverage from AC-2's HTTP-301 mention and the Data Model's slug format. False negative - genuine recall gap, logged as-is."
+  "note": "MISS (confirmed, clean): compatibility expected FAIL (no Compatibility section). The assessor passed it anyway, apparently still inferring coverage from AC-2's HTTP-301 mention, which is shared boilerplate present in every corpus document and could not be removed without corrupting acceptance_criteria."
 }

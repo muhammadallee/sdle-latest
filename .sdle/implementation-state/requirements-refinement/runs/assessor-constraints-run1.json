@@ -1,8 +1,9 @@
 {
   "document": "defect-constraints.md",
-  "blob_sha": "18f34571088a350da97fc40f5d14c9d9c9a574bd",
+  "blob_sha": "c4b53af48dabaa8c32a9cc30a5f09484f8bd1f29",
   "run": 1,
-  "dispatched_at": "2026-09-28T00:00:00Z",
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-constraints-run1-superseded.json (assessed pre-adjudication text whose Dependencies section carried a 'no schema changes to other services' tables' clause reading as constraint-flavored detail)",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
@@ -17,5 +18,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS: labels.json expects constraints FAIL (the document has no dedicated Constraints section). The assessor passed it anyway - likely inferring constraint coverage from Dependencies (SSO/Postgres) and NFR content. Same pattern as the compatibility miss."
+  "note": "MISS (confirmed, clean): constraints expected FAIL (no Constraints section, and the platform/budget/auth-scope constraints it would have named are not stated anywhere else). The assessor passed it anyway."
 }

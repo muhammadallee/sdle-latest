@@ -1,9 +1,8 @@
 {
-  "document": "defect-compatibility.md",
-  "blob_sha": "c13c98fbdccc1a7c185402e56a50581249cadc2c",
+  "document": "defect-dependencies.md",
+  "blob_sha": "2e2950e751b17cec5d343326efdb77a53d7564db",
   "run": 3,
-  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
-  "supersedes": "assessor-compatibility-run3-superseded.json",
+  "dispatched_at": "2026-09-28T00:00:00Z",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
@@ -18,5 +17,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS (confirmed, clean): compatibility is now a unanimous 3/3 miss on a corpus document with the compatibility-flavored Dependencies detail trimmed. Confirms the original finding, not an artifact of it."
+  "note": "MISS: 3/3 runs pass this document on dependencies despite the seeded defect (missing Dependencies section - SSO and Postgres are named elsewhere as constraints/data-model context but never in a dedicated Dependencies section). Third of three unanimous 3/3 misses on missing-whole-section defects (compatibility, constraints, dependencies) - systemic recall gap, top finding for the human."
 }

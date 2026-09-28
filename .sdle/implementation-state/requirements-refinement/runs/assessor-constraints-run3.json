@@ -1,15 +1,16 @@
 {
   "document": "defect-constraints.md",
-  "blob_sha": "18f34571088a350da97fc40f5d14c9d9c9a574bd",
+  "blob_sha": "c4b53af48dabaa8c32a9cc30a5f09484f8bd1f29",
   "run": 3,
-  "dispatched_at": "2026-09-28T00:00:00Z",
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-constraints-run3-superseded.json",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
     "out_of_scope": {"result": "PASS", "finding": null},
     "acceptance_criteria": {"result": "PASS", "finding": null},
     "ambiguity": {"result": "PASS", "finding": null},
-    "contradictions": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "FAIL", "finding": "The Compatibility section requires HTTP 301 specifically so that existing link-preview bots 'continue to work exactly as they do' (implying the response is cached/handled as a standard permanent redirect), while AC-2 requires the same 301 response to carry Cache-Control: no-store precisely so that 'every visit reaches the service' and click_count increments accurately - these two normative requirements pull in opposite directions on cacheability of the identical response."},
     "constraints": {"result": "PASS", "finding": null},
     "nfrs": {"result": "PASS", "finding": null},
     "security_data_implications": {"result": "PASS", "finding": null},
@@ -17,5 +18,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS: 3/3 runs pass this document on constraints despite the seeded defect (missing Constraints section). Second consistent recall gap on a missing-section defect (see also compatibility). Flag to human: the assessor appears not to notice a whole section's absence when related content exists elsewhere (Dependencies/NFR overlap constraints; AC-2/Data-Model overlap compatibility)."
+  "note": "MISS on constraints (confirmed, clean - unanimous 3/3 now). Unlabeled contradictions FAIL is new and legitimate signal, not chased away: this session's earlier Cache-Control: no-store fix (applied to resolve the 301-caching-vs-click-tracking tension found during the original corpus pilot) reshaped that tension into an explicit textual contradiction between the Compatibility section and AC-2, rather than fully resolving it. Kept as measured data per this session's own 'converge on evidence, not verdict' discipline."
 }

@@ -1,9 +1,8 @@
 {
-  "document": "defect-compatibility.md",
-  "blob_sha": "c13c98fbdccc1a7c185402e56a50581249cadc2c",
-  "run": 3,
-  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
-  "supersedes": "assessor-compatibility-run3-superseded.json",
+  "document": "defect-constraints.md",
+  "blob_sha": "18f34571088a350da97fc40f5d14c9d9c9a574bd",
+  "run": 2,
+  "dispatched_at": "2026-09-28T00:00:00Z",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
@@ -18,5 +17,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS (confirmed, clean): compatibility is now a unanimous 3/3 miss on a corpus document with the compatibility-flavored Dependencies detail trimmed. Confirms the original finding, not an artifact of it."
+  "note": "MISS: same as run1. 2/2 so far."
 }

@@ -1,14 +1,15 @@
 {
   "document": "defect-dependencies.md",
-  "blob_sha": "2e2950e751b17cec5d343326efdb77a53d7564db",
+  "blob_sha": "5d4e298a48b1fd7ea417ed84247267eece7cc28d",
   "run": 1,
-  "dispatched_at": "2026-09-28T00:00:00Z",
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-dependencies-run1-superseded.json (assessed pre-adjudication text where this session's own earlier edit had concretely named the dependency, undermining the seeded defect - see LEDGER.md)",
   "result": {
     "problem_statement": {"result": "PASS", "finding": null},
     "scope": {"result": "PASS", "finding": null},
     "out_of_scope": {"result": "PASS", "finding": null},
     "acceptance_criteria": {"result": "PASS", "finding": null},
-    "ambiguity": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "FAIL", "finding": "The Constraints section states the service 'must run inside the existing internal Kubernetes cluster, using some shared infrastructure,' where 'some shared infrastructure' is vague, unmeasurable language in a normative statement."},
     "contradictions": {"result": "PASS", "finding": null},
     "constraints": {"result": "PASS", "finding": null},
     "nfrs": {"result": "PASS", "finding": null},
@@ -17,5 +18,5 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS: labels.json expects dependencies FAIL (no dedicated Dependencies section). Third consistent recall gap on a missing-whole-section defect (see also compatibility, constraints)."
+  "note": "MISS (confirmed, clean): dependencies expected FAIL (no Dependencies section, no external dependency named with enough detail). The assessor passed it anyway. ambiguity correctly caught as expected (dual-label)."
 }

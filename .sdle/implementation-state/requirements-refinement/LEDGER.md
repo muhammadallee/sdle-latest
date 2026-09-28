@@ -455,3 +455,120 @@ Discarded: the 2 pilot runs against pre-fix document text (`clean-baseline.md` r
 `defect-problem_statement.md` run 1, both from before commit `9ec6d4a`) are not part of the above
 tables — they assessed stale bytes and are superseded by the clean-baseline gate's 3 fresh runs and
 `defect-problem_statement.md`'s 3 runs recorded above.
+
+## Stage 1 — corpus measurement, adjudication pass (2026-09-28)
+
+Advisor review of the 39-run measurement above found the "0.00 recall on 4 checks" headline needed
+checking against `assessor-prompt-draft.md`'s own check definitions, not against `labels.json` alone,
+and that two of this session's own earlier corpus edits had bled adjacent content into the affected
+documents, potentially inflating or deflating specific findings:
+
+1. `defect-dependencies.md`: the same-session fix that replaced its deliberately vague "some shared
+   infrastructure" with a concretely-named dependency (applied to fix an incidental lint/ambiguity
+   trigger) had incidentally strengthened the document's own dependency-naming and undermined its
+   seeded defect. Reverted to the original vague wording; the ambiguity trigger is accepted and the
+   document dual-labeled (`dependencies`, `ambiguity`), matching the existing ambiguity/nfrs overlap
+   pattern already in `labels.json`.
+2. `defect-security_data_implications.md`: an earlier corpus-wide wording fix (the auth/redirect
+   contradiction fix, applied uniformly across all 13 documents) had added "Redirect requests are the
+   one exception, per Security and Data Handling below" to this document's Constraints section — a
+   dangling cross-reference to a section this document deliberately omits, an unintended structural cue
+   pointing straight at the gap. Removed; the sentence now ends at "...no separate login."
+3. `defect-constraints.md` / `defect-compatibility.md`: each document's Dependencies section carried a
+   clause ("version already pinned by platform team" / "no schema changes to other services' tables")
+   reading as compatibility- or constraint-flavored detail once the document's own dedicated section for
+   that check is removed. Trimmed to bare dependency names (still enough to satisfy each document's
+   own dependencies check, which is not its seeded defect there).
+4. `defect-acceptance_criteria.md`'s vague replacement text ("The feature is done when it works well and
+   users are satisfied with how it behaves") meets `ambiguity`'s own definition (vague, unmeasurable
+   normative language). All 3 original runs correctly caught this alongside the labeled
+   `acceptance_criteria` FAIL — a label gap, not an assessor false positive. Relabeled dual
+   (`acceptance_criteria`, `ambiguity`).
+5. `defect-scope.md` was not re-seeded: the Purpose paragraph and the four AC-* criteria (both
+   required elsewhere for `problem_statement`/`acceptance_criteria` reasons, and shared boilerplate
+   across the corpus) already describe what is being built in concrete enough terms that a reasonable
+   reader could argue `scope`'s own definition ("states what is being built, concretely enough to bound
+   the work") is satisfied without a dedicated "In scope:" list. Stripping that content to force a
+   cleaner scope-only defect would corrupt this document's non-defects on two other checks. Any
+   assessor PASS on this document's `scope` check is recorded as a contested, defensible read, not
+   folded into the clean-recall-failure count below.
+
+All four edited documents re-verified clean under `sdle.scan_text()` and the lint prototype, committed
+at `eefc661`. The four edited documents (`dependencies`, `security_data_implications`, `constraints`,
+`compatibility`) were then re-dispatched, 3 fresh-context runs each (12 new dispatches), against this
+corrected text. The prior 3 runs for each are kept on disk, renamed `*-superseded.json`, not deleted —
+this ledger entry is the record of why they no longer count.
+
+Provenance note: every run JSON's `dispatched_at` field is a placeholder ("00:00:00Z" or "not
+recorded") — actual per-dispatch wall-clock times were not captured during either measurement pass.
+Treat the field as absent, not as a real timestamp; nothing in this session's conclusions depends on it.
+
+### Result: the headline finding survives, refined
+
+- `dependencies`: confirmed clean 0/3 on the re-verified document (previously contaminated by this
+  session's own dependencies-naming mistake — now a genuine, uncontaminated miss). `ambiguity` correctly
+  caught 3/3 as expected from the dual-label.
+- `constraints`: confirmed clean 0/3, unaffected by trimming the adjacent Dependencies detail. One
+  run (3) additionally caught an unlabeled `contradictions` FAIL — see below.
+- `compatibility`: confirmed clean 0/3, unaffected by trimming the adjacent Dependencies detail. The
+  assessor still appears to credit AC-2's HTTP-301 mention (shared boilerplate present in every
+  document, not removable without corrupting `acceptance_criteria`) as partial compatibility coverage.
+- `security_data_implications`: recall fell from the original 0.67 (2/3) to 0.33 (1/3) once the
+  dangling cross-reference was removed — direct confirmation that the cue was inflating detection, and
+  the true difficulty of this document's seeded defect (a wholly absent section with no remaining
+  pointer to it) is closer to the `compatibility`/`constraints`/`dependencies` pattern than the original
+  number suggested. The one catch (run 2) found the defect via a different, legitimate angle
+  (authorization/ownership gap) than the intended reason (section absence) — both count as the check
+  correctly failing.
+- `scope`: left at the original 0/3, but now flagged contested rather than confirmed per point 5
+  above — do not cite this as a clean recall failure without noting the caveat.
+
+Net: three of the four originally-flagged checks (`compatibility`, `constraints`, `dependencies`) are
+now more rigorously confirmed misses, not artifacts of corpus construction. `security_data_implications`
+turned out worse than first measured, not better. Only `scope` remains genuinely unresolved. The
+headline conclusion in the prior section — the assessor has near-zero recall for structural absence when
+nothing else in the document points at the gap, and reliably catches everything else — stands,
+strengthened rather than weakened by this adjudication pass.
+
+### Adjudicated precision/recall table (supersedes the table in the prior section)
+
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| problem_statement | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| scope | 3 | 0 | 3 | 0 | 0.00 (contested, not re-tested) | undefined |
+| out_of_scope | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| acceptance_criteria | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 12 | 12 | 0 | 0 | 1.00 | 1.00 |
+| contradictions | 3 | 3 | 0 | 3 | 1.00 | 0.50 |
+| constraints | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| nfrs | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| security_data_implications | 3 | 1 | 2 | 1 | 0.33 | 0.50 |
+| compatibility | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| dependencies | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| blocking_unknowns | 3 | 3 | 0 | 1 | 1.00 | 0.75 |
+
+`ambiguity`'s positive-instance count grew from 6 to 12 (adding `defect-acceptance_criteria.md` and
+`defect-dependencies.md` per points 1 and 4 above), all 12 caught, and its 3 original false positives
+(all from `defect-acceptance_criteria.md`) are now correctly counted as true positives — precision rose
+to 1.00. `contradictions`'s false-positive count rose from 2 to 3 (the new `defect-constraints.md` run 3
+catch), precision fell to 0.50.
+
+### Agreement rate, updated
+
+8 of 13 documents (62%, down from the original 69%) now produce byte-identical 12-key verdict vectors
+across all 3 fresh runs. `defect-constraints.md` moved from agreeing to disagreeing (run 3's unlabeled
+contradictions catch); `defect-dependencies.md` and `defect-compatibility.md` remain agreeing (each
+unanimous across their 3 re-verified runs); `defect-security_data_implications.md` remains disagreeing.
+
+### A secondary, unplanned finding: the AC-2 caching fix did not fully resolve its own tension
+
+This session's earlier fix for the 301-caching-vs-click-tracking concern (found during the original
+clean-baseline pilot, the "Stage 1 — evaluation corpus" section above) added `Cache-Control: no-store`
+to AC-2 rather than changing the redirect's status code, to preserve the Compatibility section's claim
+that existing bots see the same 301 they always have. `defect-constraints.md` run 3 shows this did not
+fully resolve the underlying tension — it relocated it into an explicit textual contradiction between
+the Compatibility section (301, cached, "work exactly as they do") and AC-2 (301, `no-store`, "every
+visit reaches the service"). This appeared in 1 of the 51 total dispatches run against text carrying
+this fix, so it is rare but real, and is left as measured data rather than patched again — a third
+editing pass risks the same kind of unintended confound already found twice in this section. Flagged
+for the Stage 2 review, not resolved here.
