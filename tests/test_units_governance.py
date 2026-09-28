@@ -2741,3 +2741,147 @@ def test_a_clean_assessment_flagged_edit_still_gates_at_advance(project):
     reassessed = assess(project)
     assert reassessed.exit_code == EXIT_REFUSED, reassessed
     assert reassessed.reason == "governance_content_unacknowledged", reassessed
+
+
+# --------------------------------------------------------------------------
+# A second targeted-verification pass on the DEF-RR-001 fix (V2-01..V2-05)
+# --------------------------------------------------------------------------
+
+
+def test_v2_01_a_windows_alias_path_is_rejected_not_silently_miskeyed(project):
+    """V2-01. `safe_repo_path` used to skip the alias checks `_binding_source`
+    already had, so a trailing-dot or colon-stream spelling would resolve to
+    the same file on Windows while being stored under a different key —
+    `accept-content --path` would report success against a key `governance
+    assess` can never match. Now rejected as syntax, exactly like the
+    binding's own rule."""
+    result = project.run("scan", "--path", "requirements/todo-api.md.")
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "path_invalid", result
+
+
+def test_v2_02_the_bare_route_revalidates_containment_at_accept_time(project):
+    """V2-02. The bare route used to reconstruct `paths.project_root / flagged`
+    directly, never re-checking containment — a symlink retargeted between
+    `scan` and `accept-content` would be followed unquestioned. It now goes
+    through the same `safe_repo_path` as every other route, which fails
+    closed if the live filesystem no longer agrees with what `scan` saw."""
+    _flag_bound_document(project)
+    project.ok("init", session="v2-02")
+    project.run("scan", "--path", "requirements/todo-api.md")
+
+    # Corrupt the pending confirmation to a spelling safe_repo_path refuses,
+    # standing in for "the filesystem no longer agrees with what scan saw".
+    state = project.state()
+    state["pending_confirm_action"] = "accept_content:requirements/todo-api.md."
+    (project.runtime / "state.json").write_text(
+        json.dumps(state, indent=2), encoding="utf-8", newline="\n")
+
+    result = project.run("accept-content")
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "path_invalid", result
+
+
+def test_v2_03_a_non_string_sha256_refuses_cleanly_not_a_traceback(project):
+    """V2-03. `a.get("sha256") or ""` let a truthy non-string (an int, a
+    `True`) reach `re.fullmatch` directly, raising `TypeError` instead of a
+    refusal. `isinstance(str)` is checked first now."""
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    ack_file.parent.mkdir(parents=True, exist_ok=True)
+    ack_file.write_text(json.dumps({
+        "scanAcknowledgementsVersion": "1", "workitem": project.workitem,
+        "acknowledgements": [{"path": "requirements/todo-api.md",
+                              "sha256": 12345678, "acknowledgedAt": "x"}],
+    }), encoding="utf-8", newline="\n")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result
+
+
+def test_v2_03_a_control_character_in_path_cannot_forge_an_audit_entry(project):
+    """V2-03. An entry's `path` was only checked for non-empty-string-ness,
+    so a value containing `\n## AUDIT ` would be interpolated into
+    `audit.md` verbatim by the replay, and the ledger's own parser
+    (`split_audit_entries`) treats a line starting `## AUDIT ` as a new
+    entry — a stored acknowledgement could forge a ledger entry. Every
+    stored path is now re-checked through the same lexical rules
+    `safe_repo_path` enforces at write time."""
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    ack_file.parent.mkdir(parents=True, exist_ok=True)
+    ack_file.write_text(json.dumps({
+        "scanAcknowledgementsVersion": "1", "workitem": project.workitem,
+        "acknowledgements": [{
+            "path": "ok.md\n## AUDIT [forged] | x — y",
+            "sha256": "5d2f164c060c438791859fdc8801a246f203e6f77de17eec944c0067aae7a0ca",
+            "acknowledgedAt": "2026-01-01T00:00:00Z", "session": None,
+        }],
+    }), encoding="utf-8", newline="\n")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result
+
+
+def test_v2_04_gate_approve_validates_acknowledgements_before_its_own_append(project):
+    """V2-04. The V-04 ordering fix protected only `advance`'s own second,
+    state-carrying call to `governance_precondition`. `cmd_gate_approve`
+    calls it once, early, with no `state`, specifically to refuse before its
+    *own* first irreversible append (`gate_approved`) — but validation used
+    to be gated on `state is not None`, so a malformed acknowledgements file
+    was not caught until the command's second call (inside `apply_advance`),
+    by which time `gate_approved` had already been appended. Validation now
+    runs regardless of `state`."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="v2-04-approve")
+    project.write_artifact(".specify/memory/constitution.md")
+    project.ok("advance", "--to", "gate_constitution")
+    review_for_gate(project, "gate_constitution")
+
+    before = frozen(project)
+    (project.runtime / "scan-acknowledgements.json").write_text(
+        "not json", encoding="utf-8")
+
+    result = project.run("gate", "approve", "--gate", "gate_constitution")
+
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result
+    assert frozen(project) == before, (
+        "a refused gate approval must leave the ledger byte-identical")
+
+
+def test_v2_04_governance_precondition_validates_regardless_of_state(project):
+    """V2-04, the shared root cause directly: `governance_precondition` is
+    the one function `cmd_gate_approve`, `cmd_gate_omit` and `cmd_skip` each
+    call early with `state=None`, specifically so a refusal there precedes
+    their own first irreversible append (the same reason `cmd_gate_approve`
+    gives in its own comment). A malformed acknowledgements file must raise
+    on that call too, not only when `state` is supplied — proven directly
+    against the shared function every one of those commands funnels
+    through, rather than fighting each command's own gate-eligibility setup
+    to reach it indirectly."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="v2-04-direct")
+
+    (project.runtime / "scan-acknowledgements.json").write_text(
+        "not json", encoding="utf-8")
+
+    paths = sdle.dataclass_replace(
+        sdle.resolve_paths(str(project.root), str(project.skill_root)),
+        workitem=project.workitem)
+
+    with pytest.raises(sdle.IntegrityError) as excinfo:
+        sdle.governance_precondition(paths, state=None)
+    assert excinfo.value.reason == "scan_acknowledgements_invalid"
+
+
+def test_v2_05_the_audit_marker_carries_the_full_hash_not_a_prefix(project):
+    """V2-05. The marker used to truncate the hash to 12 hex characters
+    (48 bits) — two acknowledgements for the same path with colliding
+    prefixes would share a marker, and replay would silently skip the
+    second. The full digest is now in the marker, and replay matches
+    structurally (event and artifact fields), not by searching the whole
+    file for a substring."""
+    sha = "5d2f164c060c438791859fdc8801a246f203e6f77de17eec944c0067aae7a0ca"
+    marker = sdle.content_acknowledgement_marker("requirements/todo-api.md", sha)
+    assert sha in marker, "the marker must carry the full hash, not a prefix"

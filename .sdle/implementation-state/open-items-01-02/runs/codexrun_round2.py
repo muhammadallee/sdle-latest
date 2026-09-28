@@ -4,9 +4,12 @@ Adapted from codexrun.py (repository-cleanup's P08 harness, F14) for the
 disposition shape: UPHELD/REVISED/WITHDRAWN/RESOLVED per finding, plus an
 overall closure assessment, rather than a fresh findings list.
 
-usage: codexrun_round2.py AREA WORKTREE PROMPT SCHEMA RUNS_DIR TIMEOUT_SECONDS
+usage: codexrun_round2.py AREA WORKTREE PROMPT SCHEMA RUNS_DIR TIMEOUT_SECONDS [allow-empty]
 Read-only sandbox, ephemeral, frozen worktree. One retry on a nonzero exit,
 timeout or schema-invalid output; a second failure is recorded as BLOCKED.
+An optional 7th argument literally "allow-empty" permits an empty
+`dispositions` array — the correct shape for a targeted-verification prompt
+that is not re-dispositioning round-1 findings at all.
 """
 import datetime as dt
 import hashlib
@@ -17,6 +20,7 @@ import sys
 from pathlib import Path
 
 area, worktree, prompt, schema, runs_dir, timeout = sys.argv[1:7]
+allow_empty = len(sys.argv) > 7 and sys.argv[7] == "allow-empty"
 timeout = int(timeout)
 runs = Path(runs_dir)
 prompt_p, schema_p = Path(prompt), Path(schema)
@@ -59,7 +63,7 @@ def validate(doc, expected_commit):
     ca = doc["closure_assessment"]
     if not isinstance(ca, dict) or "open_01_closed" not in ca or "open_02_closed" not in ca:
         problems.append("closure_assessment incomplete")
-    if not doc["dispositions"]:
+    if not doc["dispositions"] and not allow_empty:
         problems.append("empty dispositions: every round-1 finding needs one")
     return problems
 

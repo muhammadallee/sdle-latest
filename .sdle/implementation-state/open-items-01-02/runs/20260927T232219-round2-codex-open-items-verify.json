@@ -81,5 +81,6 @@
       }
     }
   ],
-  "finished_utc": "2026-09-27T23:33:57Z"
+  "finished_utc": "2026-09-27T23:33:57Z",
+  "candidate_note": "validation_problems above (\"reviewed_commit ... is not the candidate\") is the same bookkeeping mismatch noted on the round-2 run's own record: the prompt named a candidate that a later, product-identical commit superseded before this run started. The a1/a2 output content (both schema-valid, both read directly rather than trusted) is the genuine V-01..V-05 findings this session acted on; round2.dispositions.md records the response to each. result stays BLOCKED here, never overwritten, per the recording convention."
 }
