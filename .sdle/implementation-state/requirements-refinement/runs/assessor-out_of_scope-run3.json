@@ -1,0 +1,21 @@
+{
+  "document": "defect-out_of_scope.md",
+  "blob_sha": "83888bcea6366fdf6a89374485777d8b2ca7cbf2",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "FAIL", "finding": "The document has no out-of-scope section or any statement of what is explicitly excluded from the service."},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "3/3 correct - contrasts interestingly with the 3-for-3 unanimous MISSES on compatibility/constraints/dependencies, where the whole section heading was absent. Here only the 'Out of scope:' sub-list under the still-present Scope heading was removed, and the assessor reliably noticed the asymmetry with 'In scope:'. Worth noting: the assessor seems to need a structural cue (a sibling that exists) to detect an absence; a wholly-vanished section leaves no cue and is missed."
+}

@@ -131,17 +131,43 @@ it is "not yet, ship advisory." Consequences for the rest of this plan:
   record that the decision was made with data, not left fully open: "not yet — ship advisory; revisit
   once broader corpus data exists," rather than simply "owner decision pending."
 
-### 3.c Corpus (built at Stage 3, not before — see §7)
+### 3.c Corpus — built and measured in Stage 1, ahead of the original schedule
 
-`tests/fixtures/requirements-quality/` will hold one seeded-defect document per check id plus a clean
-copy of `todo-api.md`, `labels.json` kept **outside** the working tree until baseline-assessor runs
-finish (so a general-purpose subagent measuring the baseline cannot `Glob`/`Read` the answer key), and
-each baseline-assessor run in a **fresh** context with no prior verdicts. Per the advisor's design
-addition: each document is assessed **three times independently** (fresh context each time) to measure
-per-check agreement on identical bytes — this is the actual rate at which `quality_verdict_flip` will
-fire on an honest rerun (an assessor disagreeing with its own earlier verdict at unchanged content, not a
-refinement edit), and how often `dispute` becomes load-bearing rather than an edge case. This is
-Stage-3-phase-A work (contracts and corpus), not duplicated here.
+The corpus was originally sketched here as Stage-3-phase-A work. The owner's "Full corpus, 3 runs/doc"
+decision (2026-09-28) moved it earlier: `tests/fixtures/requirements-quality/` holds one seeded-defect
+document per check id (12 documents) plus `clean-baseline.md`, all "Link Shortener Service" documents,
+committed at `9ec6d4a`. `labels.json` is kept outside the working tree (this session's scratchpad, not
+the repo) so a general-purpose subagent measuring the baseline cannot `Glob`/`Read` the answer key.
+Each document was assessed **three times independently**, fresh context each time, 39 dispatches total,
+raw results under `runs/assessor-<check-id>-run<n>.json`. Full methodology, the precision/recall table,
+the agreement-rate table and the lint prototype's own measured precision/recall are in `LEDGER.md`'s
+"Stage 1 — corpus measurement results" section; this section summarizes what changes for the design.
+
+**Headline result that changes a design assumption:** the assessor has 0.00 recall, unanimously across
+all 3 runs, on four checks whose seeded defect is a wholly-absent section with no other section
+pointing at it: `scope`, `compatibility`, `constraints`, `dependencies`. It reliably catches textual
+defects (vagueness, contradictions, unmeasured NFRs, weak acceptance criteria — all at recall 1.00) and
+catches absence when something else in the document cues it (`out_of_scope`'s unpaired "In scope:"
+list, `problem_statement`'s cold open, a dangling cross-reference for `security_data_implications`).
+This is now a known, load-bearing limitation of the assessor this design relies on for every quality
+verdict, not a hypothetical one — Stage 3 should record it in the `sdle-requirements-review` agent's
+own prompt as a known blind spot, and the LEDGER entry proposes a cheap deterministic section-presence
+lint rule (outside §3.3's current six) as the fix, flagged for owner decision rather than assumed here.
+
+**Agreement rate:** 69% of documents (9/13) produced byte-identical 12-key verdicts across all 3 fresh
+runs; the other 31% varied only on borderline judgment calls, never on a check a run otherwise caught
+correctly — no run ever partially caught then dropped a clearly-labeled primary defect. This is the
+real, measured rate `quality_verdict_flip` will fire at on an honest rerun of unchanged content, and it
+is the number D-series design decisions about `dispute` frequency should be checked against in Stage 2.
+
+**Lint precision/recall (deterministic, one run per document):** perfect (1.00/1.00, zero false
+positives including on `clean-baseline.md`) for `blocking_unknowns`, `out_of_scope`,
+`acceptance_criteria` and `ambiguity`; 0.50 recall for `nfrs` specifically (a keyword-coverage gap in
+`check_quant_nfrs_without_measure`, not a design flaw — noted for a Stage 3 regex fix); the sixth rule
+(duplicate ids) has no positive fixture in this corpus yet and needs one before Stage 3 relies on this
+corpus as its regression suite. This confirms the Option-3/D7 floor-eligibility requirement (§3.3: "any
+rule that floors a verdict produces zero findings on... every clean corpus fixture") for the four rules
+that are floor-eligible today.
 
 ## 4. Design decisions (Stage 2 attacks each of these)
 

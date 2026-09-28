@@ -1,0 +1,21 @@
+{
+  "document": "defect-problem_statement.md",
+  "blob_sha": "4e5e1f442838c830d457604c88057bc35025db50",
+  "run": 1,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "FAIL", "finding": "The document opens directly with 'Scope' and never states what problem the link shortener solves or for whom (e.g., why an internal shortener is needed instead of the 'current ad-hoc shortener' it replaces)."},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "Correctly caught, unlike the 3-for-3 misses on compatibility/constraints/dependencies (also whole-missing-section defects). Plausible reason: a document literally opening with '## Scope' (no intro) is a stronger, more central cue than the absence of a later, more optional-feeling section."
+}

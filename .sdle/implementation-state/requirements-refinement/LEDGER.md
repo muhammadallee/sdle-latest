@@ -271,3 +271,187 @@ as the basis for that decision, not asserted independently by this session.
 
 **VERIFIED**, on the owner's confirmation above, following CI success on the actual final commit
 (`36374476221` @ `3bd64fc`) — not asserted ahead of either, this time. Proceeding to Stage 1.
+
+## Stage 1 — evaluation corpus (2026-09-28)
+
+Built `tests/fixtures/requirements-quality/`: `clean-baseline.md` plus one `defect-<check-id>.md` per
+of the twelve quality-check ids, each a ~55-60 line "Link Shortener Service" requirements document.
+Labels (`labels.json`, the expected failing check ids per document) are kept outside the working tree
+per this session's own discipline, so a subagent with Glob/Read cannot see them.
+
+**Two live assessor pilot runs against the pre-fix corpus, at commit `d3d8794`, found two authorial bugs
+before the corpus was trusted:**
+
+1. `clean-baseline.md` run 1 of 3 was flagged `contradictions: FAIL` by a real fresh-context assessor:
+   the shared Constraints sentence "Must authenticate every request against the existing internal SSO
+   (SAML), no separate login." genuinely conflicts with the Security section's "redirection itself is
+   unauthenticated" — present verbatim in 12 of 13 documents. Fixed by scoping the sentence to
+   management-API requests and naming the redirect exception explicitly, in all 12 affected documents.
+2. `defect-problem_statement.md` run 1 of 3 correctly flagged `problem_statement: FAIL` (the intended
+   defect) but also flagged `ambiguity: FAIL` on "under normal load" in the latency NFR — present in 11
+   of 13 documents (the twelfth, `defect-ambiguity.md`, uses vague load language deliberately as its own
+   seeded defect and is untouched). Fixed by replacing the qualifier with a quantified figure ("at up to
+   200 redirects per second") everywhere except that one document.
+
+Both pilot runs are **discarded** — they assessed pre-fix document text and are not comparable to the
+corrected corpus. Neither counts toward the 13×3 measurement plan.
+
+**Two further defects found by self-review (not a live run) before any further dispatch, on the same
+"authorial mistake in the shared template, not the labelled signal" standard as the two above:**
+
+3. Every document's AC-2 specified an HTTP 301 (permanent, cacheable) redirect while also requiring
+   `click_count` to increment and `AC-3` to require a live 410 on an expired link — a permanent redirect
+   cached by the client after the first visit would make both unreachable. Fixed by adding
+   `Cache-Control: no-store` to AC-2's redirect, in all 13 documents (AC-2 is otherwise absent only from
+   `defect-acceptance_criteria.md`, whose seeded defect is precisely that AC-2 does not exist).
+4. Every document's Constraints section claimed "expiry uses a database TTL" while running on Postgres
+   14, which has no native row-TTL/auto-expiry feature, and while the Data Model's `expires_at` column
+   and AC-3's 410-on-expired-link both presuppose the row still exists after expiry (a TTL auto-delete
+   would make it a 404, not a 410). Fixed by rewording to read-time comparison against `expires_at`,
+   with expired rows explicitly retained, in all 13 documents.
+5. `defect-dependencies.md`'s Constraints line read "...using some shared infrastructure" — the word
+   "some" is on the lint's vague-term list (§3.3), so this incidentally lint-flagged `ambiguity` on top
+   of the document's actual seeded defect (a missing Dependencies section), which `labels.json` does not
+   list. Fixed by naming the dependency concretely ("the shared Postgres instance"), matching every
+   other document's Constraints wording.
+
+**Verification after all five fixes**, against the corrected corpus (committed `9ec6d4a`):
+- The lint prototype (`.sdle/implementation-state/requirements-refinement/lint-prototype.py`) produces
+  `[]` on `clean-baseline.md` and on every document whose seeded defect the lint floor does not cover
+  (§3.3 only floors `blocking_unknowns`, `ambiguity`, `acceptance_criteria`, `out_of_scope`, `nfrs` and
+  duplicate-id `contradictions` — never `problem_statement`, `scope`, `constraints`,
+  `security_data_implications`, `compatibility` or `dependencies`, so those six documents correctly lint
+  clean even though their assessor-level defect is real). `check_missing_sections` only checking for
+  the Acceptance and Out of Scope sections (not Purpose/Scope/Constraints) was checked against §3.3's
+  text and is spec-correct, not a bug — those three sections' absence is a semantic (`problem_statement`
+  / `scope` / `constraints`) finding, never a lint one.
+- All 13 documents re-verified clean under `sdle.scan_text()` (the injection-pattern scanner).
+- `tests/fixtures/` is outside `searchable_files()`'s scan roots (`conftest.py:586`), so the corpus needs
+  no `MAINTENANCE_RECORDS` entry; the two restatement-guard tests
+  (`test_no_policy_default_value_is_restated_outside_sdle_py`,
+  `test_n14_no_discovery_vocabulary_is_restated_outside_sdle_py`) and
+  `test_the_restatement_search_skips_only_the_maintenance_records` all pass unchanged.
+
+Corpus and the `sdle-requirements-review` assessor prompt draft committed at `9ec6d4a`, so every
+forthcoming assessor run can cite the exact document SHA it assessed. Next: pilot `clean-baseline.md`
+×3 as a gate before the remaining 36 dispatches, judging any recurring finding on its own merits rather
+than editing the corpus until an assessor says PASS (per this session's own "converge on evidence, not
+verdict" discipline, restated by the advisor for this exact step).
+
+## Stage 1 — corpus measurement results (2026-09-28)
+
+Gate passed: 3 pilot runs on the corrected `clean-baseline.md` came back 2/3 fully clean, 1/3 with a
+single non-blocking `security_data_implications` FAIL (a defensible per-resource-authorization
+judgment call, not a corpus defect — kept as data, not chased away, per the advisor's explicit
+instruction). Proceeded to the remaining 12 documents times 3 runs = 36 dispatches, all against corpus
+commit `9ec6d4a`, each dispatch prompt containing only the document text (no filename, no check-id
+hint) with an explicit "use no tools" instruction, capped at 4 concurrent Agent calls at a time. All 39
+raw results are saved under `runs/assessor-<check-id>-run<n>.json`, each citing the document's blob SHA.
+
+### Assessor precision/recall per check (39 runs total: 13 documents times 3 runs)
+
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| problem_statement | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| scope | 3 | 0 | 3 | 0 | 0.00 | undefined, no positive predictions |
+| out_of_scope | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| acceptance_criteria | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 6 | 6 | 0 | 3 | 1.00 | 0.67 |
+| contradictions | 3 | 3 | 0 | 2 | 1.00 | 0.60 |
+| constraints | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| nfrs | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| security_data_implications | 3 | 2 | 1 | 1 | 0.67 | 0.67 |
+| compatibility | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| dependencies | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| blocking_unknowns | 3 | 3 | 0 | 1 | 1.00 | 0.75 |
+
+`ambiguity` and `nfrs` each have 6 positive instances because `labels.json` labels both
+`defect-ambiguity.md` and `defect-nfrs.md` for both checks — the vague-NFR defect naturally trips both,
+noted in `labels.json`'s own `_notes` before any run occurred.
+
+### The headline finding: a systemic recall gap on whole-section absence
+
+Four checks were missed unanimously, 3 of 3, on every single run of their labeled document: `scope`,
+`compatibility`, `constraints`, `dependencies`. In every one of these four cases the seeded defect is
+the same shape: the entire relevant section (or, for `scope`, the entire "In scope:" list) is absent
+from the document, with no other section pointing at or alluding to it. The assessor consistently read
+the surrounding context (Data Model, Dependencies mentioning SSO/Postgres, Acceptance criteria, the
+Purpose paragraph) as sufficient and passed the check, rather than noticing the structural absence.
+
+This contrasts sharply with `out_of_scope` (3/3 caught) and `problem_statement` (3/3 caught), which are
+also whole-content-absence defects but differ in one respect: `out_of_scope`'s document still has an
+"In scope:" list immediately above where "Out of scope:" should be, giving the assessor a structural
+cue (an unpaired sibling) to notice the gap; `problem_statement`'s document opens cold on "## Scope"
+with no introduction at all, which is a much louder signal than a missing later section. The
+`security_data_implications` document is the clearest confirming case: this session's own earlier
+wording fix (scoping the SSO-authentication constraint) added the sentence "Redirect requests are the
+one exception, per Security and Data Handling below" to every document's Constraints section, and in
+that document specifically, that phrase is a dangling cross-reference to a section that does not
+exist. 2 of 3 runs caught the defect specifically by following that broken reference; the third run,
+which read the document without fixating on the cross-reference, missed it. That is a real, unplanned
+but informative interaction between an earlier corpus fix and a seeded defect, not a flaw in either.
+
+Conclusion for the assessor design (Stage 3 relevance): the LLM assessor is reliable at catching
+textual problems (contradictions, vagueness, unmeasured NFRs, weak acceptance criteria) but has near
+zero recall for structural absence when nothing else in the document points at the missing content. A
+section-presence check for the five section-shaped quality checks (`out_of_scope`, `constraints`,
+`compatibility`, `dependencies`, `security_data_implications`) would be cheap, high-precision,
+deterministic, and would close exactly this gap — worth flagging as a candidate lint rule addition for
+a later revision of §3.3, separate from and additional to the six rules already specified there (which
+do not cover this gap, since §3.3 explicitly scopes "missing sections the checks presuppose" to only
+`acceptance_criteria` and `out_of_scope`).
+
+### Agreement rate across the 3 runs per document (full 12-key vector, identical bytes)
+
+9 of 13 documents (69%) produced byte-identical verdict vectors across all three fresh-context runs.
+The 4 that did not:
+
+- `clean-baseline.md`: 1/3 runs added an unlabeled `security_data_implications` FAIL (a defensible
+  authorization-scoping judgment call).
+- `defect-blocking_unknowns.md`: 2/3 runs added an unlabeled `contradictions` FAIL (the HTTP-301
+  caching-vs-click-tracking concern this session partially mitigated with `Cache-Control: no-store`,
+  which 2 of 3 readers judged an insufficient guarantee against caching bots).
+- `defect-security_data_implications.md`: split 2/1 on the labeled `security_data_implications` FAIL
+  itself, described above.
+- `defect-acceptance_criteria.md` (not a disagreement, but worth noting): all 3 runs unanimously added
+  an unlabeled `ambiguity` FAIL alongside the labeled `acceptance_criteria` FAIL — a natural, expected
+  overlap, same pattern as `labels.json`'s own documented ambiguity/nfrs overlap.
+
+This is the honest measurement of `quality_verdict_flip`'s real-world trigger rate on unchanged text:
+roughly 1 in 3 documents produces some inter-run variance, concentrated in borderline judgment calls
+(residual-risk framing, caching semantics) rather than in the clearly-labeled primary defects, which
+were never missed across all three runs of any document where the assessor caught them at all — recall
+failures were unanimous misses (0/3), not split votes, for every check that had a miss.
+
+### Lint prototype precision/recall (deterministic, one measurement per document, not three)
+
+Re-run fresh against the corrected corpus. Findings (rule-level, mapped to check ids per §3.3):
+
+clean-baseline.md: none. defect-acceptance_criteria.md: acceptance_criteria. defect-ambiguity.md:
+ambiguity, nfrs. defect-blocking_unknowns.md: blocking_unknowns. defect-compatibility.md: none.
+defect-constraints.md: none. defect-contradictions.md: none. defect-dependencies.md: none.
+defect-nfrs.md: ambiguity (not nfrs — see below). defect-out_of_scope.md: out_of_scope.
+defect-problem_statement.md: none. defect-scope.md: none. defect-security_data_implications.md: none.
+
+For the six checks §3.3 designs the lint to cover: `blocking_unknowns` 1/1, `out_of_scope` 1/1,
+`acceptance_criteria` 1/1 and `ambiguity` 2/2 are all perfect (precision 1.0, recall 1.0, zero false
+positives on any of the 13 documents including the clean baseline — the floor-eligibility requirement
+in §3.3 is met by all four). `nfrs` is 1/2 (recall 0.5): `check_quant_nfrs_without_measure` correctly
+fires on `defect-ambiguity.md`'s NFR wording but not on `defect-nfrs.md`'s ("Redirects must be fast
+enough that users do not notice any delay" / "handle a high volume... without degrading") — the
+`QUANT_ATTR` keyword regex apparently does not match this exact phrasing while the vague-terms list
+does, so the document is floored via `ambiguity` but not via `nfrs` itself. This is a real gap in the
+`nfrs` rule's keyword coverage, worth a follow-up fixture and regex tightening in Stage 3 rather than a
+blast-radius concern (advisory-only status means this gap costs nothing today). The sixth lint rule
+(duplicate ids to `contradictions`) has no positive fixture in this corpus and is untested here — a gap
+in the corpus, not in the rule; a duplicate-id fixture pair should be added before Stage 3 uses this
+corpus as the lint's regression suite.
+
+Lint's zero false-positive rate on `clean-baseline.md` and on every document whose seeded defect it
+does not target (the six checks it does not attempt) confirms the §3.3 floor-eligibility requirement
+in the Option-3/D7 corpus this design was measured against.
+
+Discarded: the 2 pilot runs against pre-fix document text (`clean-baseline.md` run 1,
+`defect-problem_statement.md` run 1, both from before commit `9ec6d4a`) are not part of the above
+tables — they assessed stale bytes and are superseded by the clean-baseline gate's 3 fresh runs and
+`defect-problem_statement.md`'s 3 runs recorded above.
