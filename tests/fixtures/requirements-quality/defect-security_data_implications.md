@@ -29,7 +29,7 @@ A **Link** has: `slug` (string, unique), `target_url` (string), `created_by` (em
 ## Constraints
 
 - Must run inside the existing internal Kubernetes cluster, using the shared Postgres instance.
-- Must authenticate every management-API request (creating, updating, deleting or listing links) against the existing internal SSO (SAML), no separate login. Redirect requests are the one exception, per Security and Data Handling below.
+- Must authenticate every management-API request (creating, updating, deleting or listing links) against the existing internal SSO (SAML), no separate login.
 - Budget: no new paid third-party services; expiry is enforced by comparing `expires_at` at read time, not an external scheduler; expired rows are retained (not deleted), so a request against one returns 410 rather than 404.
 
 ## Compatibility

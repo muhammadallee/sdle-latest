@@ -34,8 +34,8 @@ A **Link** has: `slug` (string, unique), `target_url` (string), `created_by` (em
 
 ## Dependencies
 
-- Internal SSO service (SAML 2.0, existing internal endpoint, version already pinned by platform team).
-- Shared Postgres 14 instance (existing, no schema changes to other services' tables).
+- Internal SSO service (SAML 2.0, existing internal endpoint).
+- Shared Postgres 14 instance (existing).
 
 ## Security and Data Handling
 
