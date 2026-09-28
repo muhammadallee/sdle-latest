@@ -41,7 +41,7 @@ tests surface, ledger enumeration) plus Stage 0's own grep inventories, refreshe
 
 | Surface | Location | Role for this work |
 |---|---|---|
-| `cmd_governance_assess` | `sdle.py:5420` | Where `evaluateQuality`'s twelve answers are validated; §3.2's flip/lint-floor refusals attach here |
+| `cmd_governance_assess` | `sdle.py:5420` | Where `evaluateQuality`'s twelve answers are validated; §3.2's flip refusal attaches here (the lint floor's refusal path is defined but not enforced in this change — Option 3, §3.b) |
 | `evaluate_quality` | `sdle.py:4791` | Shape/severity validation of the twelve answers — unchanged by this work |
 | `governance_precondition` | `sdle.py:7427` | Advance-time re-check; unaffected — refinement runs pre-`init` only (C4) |
 | `requirements_sources` / `unacknowledged_flagged_sources` | `sdle.py:4694` / `:9933` | Single-read-per-source pattern (closed in Stage 0) — the model for how refinement's own re-scan-after-edit must read |
@@ -107,12 +107,29 @@ documents). Findings:
 - **Against a deliberately vague fixture**: the vague-terms rule correctly flagged `fast`, `user-friendly`,
   `as appropriate`/`appropriate`, `robust` and `several` — no false negatives observed in this sample.
 
-**This is now the owner decision the brief's own C6/§3.3 anticipated, with real evidence attached** — see
-"Owner questions" below. It is not self-resolving: shipping the floor as designed breaks the existing
-suite at real scale; scoping it more narrowly (e.g., only within `refinement`, as the retracted draft
-assumed) weakens exactly the anti-drift guarantee the brief opens by naming as the design's whole point
-("worthless if it converges because the assessor starts saying PASS"). Both directions have a real cost,
-and the choice is the owner's, not a default this plan can supply.
+**Owner decision (2026-09-28): Option 3 — the lint ships as advisory only in this change.** Findings are
+recorded as evidence (§5.b, `evidence/refinement-lint-<execution_id>.json`) on every lint run, but **no
+lint finding ever raises `quality_verdict_below_floor`** — an assessor's answer is never overridden by
+the lint in this shipment. This is a deliberate, owner-authorised deviation from the brief's C6 ("a lint
+failure makes an assessor `PASS` for the mapped check impossible") and from §3.2's inclusion of the floor
+alongside the flip — recorded here as a deviation, not silently implemented as if C6 read differently.
+It converges with the brief's own open-items register: OI-FUT-01 already anticipated "whether any lint
+rule should become blocking, decided from the corpus precision data. Owner decision with data" — this
+plan's measurement (§3.b above) *is* that data, taken now rather than deferred, and the owner's answer to
+it is "not yet, ship advisory." Consequences for the rest of this plan:
+
+- `quality_verdict_below_floor` stays a defined reason code (§5.c) — the schema and the refusal path
+  exist in the engine, tested, but nothing in this change causes it to fire. This keeps the door open
+  for a repository policy or a later change to turn a specific rule on as an actual floor without a
+  second engine change, matching invariant 7 (one source of truth, not two floor mechanisms).
+- The blast-radius measurement above stops being a suite-breaking risk: nothing in this change blocks on
+  the lint, so no existing test's `bare_project` fixture needs to change.
+- The corpus (§3.c) is still built and the lint's precision/recall against it is still measured and
+  reported (brief §7 acceptance scenario 23) — advisory status does not exempt the lint from being
+  measured, only from being enforced.
+- OI-FUT-01 is updated (§10 of the brief, carried into this work's own open-items register at Stage 5) to
+  record that the decision was made with data, not left fully open: "not yet — ship advisory; revisit
+  once broader corpus data exists," rather than simply "owner decision pending."
 
 ### 3.c Corpus (built at Stage 3, not before — see §7)
 
@@ -200,7 +217,8 @@ even if the edit is unrelated to the flagged line — `governance_content_unackn
 on the next assessment, and the loop must re-surface it (not treat it as new "progress" per §3.4, and not
 loop-stall on it either, since it is a direct, expected consequence of the edit rather than drift). No
 carry-forward mechanism is built; re-acknowledging is one `accept-content --path` call, matching the
-existing UX.
+existing UX. **Owner-confirmed (2026-09-28): this UX is acceptable as designed** — always re-check, no
+carry-forward mechanism built.
 
 ## 5. JSON contracts
 
@@ -241,7 +259,7 @@ existing UX.
 | Reason | Raised by | Exit |
 |---|---|---|
 | `quality_verdict_flip` | `governance assess` | 1 |
-| `quality_verdict_below_floor` | `governance assess` | 1 |
+| `quality_verdict_below_floor` | *(defined, never raised in this change — Option 3, §3.b)* | 1 |
 | `refinement_shared_source` | `refinement propose`/`apply` | 1 |
 | `refinement_dispute_incomplete` | `refinement dispute` | 1 |
 | `refinement_cap_exhausted` | `refinement propose` | 1 |
@@ -254,7 +272,7 @@ existing UX.
 |---|---|---|---|---|
 | (none) | `governance assess`, F₀=∅ | (no loop) | governance.json only | Existing flow, untouched |
 | (none) | `governance assess`, F₀≠∅ | IN_PROGRESS, iteration 1 | `refinement.json` (new) | Loop entered |
-| IN_PROGRESS | `refinement propose` | IN_PROGRESS | findings + questions in the iteration record | Lint floor's own refusal (`quality_verdict_below_floor`) can fire *inside* the assessor step this calls, per §3.b's owner decision — propose does not swallow it |
+| IN_PROGRESS | `refinement propose` | IN_PROGRESS | findings + questions in the iteration record; lint findings recorded as evidence | Lint is advisory (Option 3, §3.b, owner decision): it never refuses `propose`, only records what it found alongside the assessor's own answers |
 | IN_PROGRESS | human `decide` | IN_PROGRESS | decision recorded per question | ≤5 questions, batched |
 | IN_PROGRESS | `refinement apply` | IN_PROGRESS | edits applied, evidence written | Auto-apply only if presentation-neutral (§3.5); C1 transaction (below) if the source is shared |
 | IN_PROGRESS | re-`scan` finds new flags | IN_PROGRESS | scan-acknowledgements.json (existing F15 mechanism) | Not a refinement-record write; the existing engine path |
@@ -298,7 +316,7 @@ SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing n
 | Phase | Files | Rough size |
 |---|---|---|
 | A — contracts, lint, corpus | `sdle.py` (+~400 lines: record I/O, digest fns), `tests/fixtures/requirements-quality/*` (12+ docs), `tests/test_units_refinement_lint.py` | Medium |
-| B — assessment integrity | `.claude/agents/sdle-requirements-review.md`, `sdle.py` (+~150: flip/floor checks in `evaluate_quality`'s caller), `tests/test_units_governance.py` (+tests) | Small-medium |
+| B — assessment integrity | `.claude/agents/sdle-requirements-review.md`, `sdle.py` (+~100: the flip check in `evaluate_quality`'s caller; the lint floor's reason code and evidence recording, defined but not wired to refuse — Option 3), `tests/test_units_governance.py` (+tests) | Small-medium |
 | C — edit/loop control | `sdle.py` (+~600: `cmd_refinement_*`, edit ops, D2's lock), `tests/test_units_refinement.py` (new) | Large |
 | D — orchestration | `modules/requirements-refinement.md`, `CAPABILITY_MAP` row, `SKILL.md` governance section, `/sdle-start` if needed, `CLAUDE.md` | Small |
 | E — tests/docs/ADR | `docs/GETTING-STARTED.md` §11/§13, `docs/architecture/ADR-013-*.md`, scenario tests | Medium |
@@ -307,9 +325,10 @@ SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing n
 
 - **Traceability:** each acceptance scenario (brief §7, 30 items) maps to a named test in Stage 3E's
   plan; not enumerated twice here.
-- **Risks:** the lint floor's real exposure is entirely in Stage 3's new tests (§3.b) — mitigated by
-  using corpus documents, never minimal stubs, for any test that exercises the floor. The shared-document
-  transaction (D1/D2) is the largest unproven design element — flagged explicitly for Stage 2.
+- **Risks:** with the lint advisory-only (Option 3), the suite-breakage risk §3.b measured is closed —
+  nothing blocks on it. The residual risk is precision/recall measurement quality (corpus adequacy,
+  §3.c) and the shared-document transaction (D1/D2), the largest unproven design element — both flagged
+  explicitly for Stage 2.
 - **Rollback:** revert commits; no data migration (no `state.json` schema change, per brief's own
   constraint — unaffected by anything in this plan).
 
