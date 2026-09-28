@@ -133,8 +133,37 @@ the targeted set is green. `lint-skill`: 0 failures. Import check: OK.
 
 ## Defect register
 
-*(empty — the one issue found this session, the MAINTENANCE_RECORDS gap, was self-caused and fixed
-inline per the brief's own rule that a failure in the phase currently being worked is not a §9 defect)*
+Format: id, source, description, reproduction, affected surfaces, dependencies, status, branch,
+commits, tests (§9). The MAINTENANCE_RECORDS gap is not listed here — self-caused, fixed inline, per
+the brief's own rule that a failure in the phase currently being worked is not a §9 defect.
+
+### DEF-RR-006 — no path containment on several CLI path arguments (OPEN, out of scope)
+
+- **Source:** Stage 0, third targeted-verification pass of the OPEN-01/02 fix (finding V3-04,
+  `runs/20260928T031813-round2-codex-open-items-verify3.a1.review.json`).
+- **Description:** `cmd_governance_assess`'s `--input`, `cmd_discovery_assess`'s `--input`, `cmd_sha`'s
+  path argument, and `cmd_artifact_record`'s `--path` each join or open a user-supplied path with no
+  containment check — no rejection of absolute paths, no rejection of `../` traversal, no symlink-escape
+  check. `scripts/sdle.py`: `cmd_governance_assess` `target = Path(args.input)` / `target = paths.project_root
+  / args.input` at lines 5436/5438; `cmd_discovery_assess`, the identical pattern at lines 6103/6105;
+  `cmd_artifact_record` at `cmd_artifact_record` (line 9192); `cmd_sha` (line 12083).
+- **Reproduction:** In a bound, otherwise-ordinary WorkItem, `sdle.sh governance assess --input
+  ../outside-project/secret.json` (a file outside `project_root`) is read and its content validated —
+  refused only for missing quality-check keys (`quality_incomplete`), never for the path leaving the
+  repository. Confirmed live against `3bd64fc`.
+- **Affected surfaces:** `cmd_governance_assess`, `cmd_discovery_assess`, `cmd_sha`, `cmd_artifact_record`
+  — none of the DEF-RR-001..005 or later fixes touch any of these four functions.
+- **Dependencies:** None. Independent of `safe_repo_path`/`_lexically_safe_path`, which this defect's own
+  fix would presumably reuse, but nothing here depends on this session's other work to be fixed or to be
+  reproduced.
+- **Status:** OPEN. Owner decision (this session, 2026-09-28): record only, triage as its own piece of
+  work — pre-existing (predates this entire body of work; `cmd_governance_assess` is original-engine
+  code), and outside OPEN-01/02's mapped impact surface (the untrusted-content scan and its
+  acknowledgement mechanism), so it is recorded with a reproduction and left unfixed in this change, per
+  the brief's own defect-scoping rule (C8/§9: a pre-existing defect *outside* the impact surface is
+  recorded, not fixed here).
+- **Branch / commits:** None — not fixed in this change.
+- **Tests:** None added — recorded, not regression-tested, since it is not being fixed here.
 
 ## Local full-suite run — interrupted, resolved via CI
 
@@ -218,3 +247,27 @@ store that silently dropped a human decision instead of being append-only. All s
 locally (461 + 190 tests), pushed at `2ef73de`. This is now "fixes applied, CI pending" — not verified —
 until CI confirms and, per the review protocol, one narrow targeted Codex verification of this diff runs.
 Nothing above is rewritten; this correction is appended, matching this ledger's own convention.
+
+## OPEN-01/02 — closure, final (2026-09-28)
+
+CI: `36374476221` @ `3bd64fc` — success on all four cells (the commit carrying V3-01/V3-03's fixes, the
+last substantive change to this fix). Full arc, honestly stated this time — the `ee29b54` premature
+verdict is not repeated: four verification passes ran (2 formal Codex rounds + 3 targeted follow-ups),
+and each of the first three found genuine defects the previous pass missed. The pattern stopped only
+when a targeted pass's own `closure_assessment` recommended owner escalation rather than another pass,
+per the stopping rule this session adopted in advance of running it.
+
+Fifteen distinct findings fixed and regression-tested across the four passes (DEF-RR-001..005, R2-D01..
+04, V-01..05, V2-01..05, V3-01, V3-03), every fix's test confirmed red against the commit immediately
+before its own fix. One item (V3-02) is a documented, engine-wide limitation — the code change Codex
+itself suggested would not have closed it, explained in `safe_repo_path`'s own docstring. One item
+(DEF-RR-006 / V3-04) is a real, pre-existing, out-of-scope finding, recorded in the defect register
+above with a live reproduction, left unfixed here on the owner's explicit decision (2026-09-28).
+
+**Owner decision (2026-09-28):** OPEN-01/02 is sufficiently closed to proceed to Stage 1. Recorded here
+as the basis for that decision, not asserted independently by this session.
+
+## Stage 0 — final verdict
+
+**VERIFIED**, on the owner's confirmation above, following CI success on the actual final commit
+(`36374476221` @ `3bd64fc`) — not asserted ahead of either, this time. Proceeding to Stage 1.
