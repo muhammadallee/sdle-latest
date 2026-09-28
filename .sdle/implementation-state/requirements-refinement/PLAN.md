@@ -271,6 +271,31 @@ carry-forward mechanism is built; re-acknowledging is one `accept-content --path
 existing UX. **Owner-confirmed (2026-09-28): this UX is acceptable as designed** — always re-check, no
 carry-forward mechanism built.
 
+### D8 — brownfield baseline citation (new, found while building the §8 traceability table)
+
+Acceptance scenario 14 requires that, for `ITERATIVE` bound to a repository `.sdle/baseline.json`, a
+`compatibility` or `dependencies` finding cites the relevant baseline entry when one overlaps. No design
+element above addressed this — found only by walking every Stage 5 scenario against this plan, not by
+inspection. Minimal position, matching D3's existing treatment of assessor provenance: the
+`sdle-requirements-review` agent's prompt is given the baseline's relevant entries as ordinary input
+context (no new governance-input key), and is asked to cite a baseline entry by id in its `finding` text
+where applicable. No new JSON field; no engine validation of the citation's accuracy. **Flagged for
+Stage 2:** is a prompt-level citation sufficient, or does correctness require the engine to validate a
+cited baseline id actually exists — the same false-claim risk D3 already accepts for provenance, applied
+here to a citation rather than a whole answer.
+
+### D9 — dispute outcome vocabulary (new, found while building the §8 traceability table)
+
+Acceptance scenario 26 requires a check overturned by dispute be reported as `overturned_by_dispute`,
+distinct from `improvement` or `progress`, with the original result preserved in evidence. §5.a's
+iteration record has no field for this. Position: add a per-check `disputeOutcome` field
+(`null | "overturned_by_dispute"`) to the iteration record (§5.a, shown there), written only by
+`refinement dispute` when both an evidence citation and a recorded human decision are present
+(`refinement_dispute_incomplete`, §5.c, refuses otherwise). The original assessor result is never
+mutated — only annotated alongside it. **Flagged for Stage 2:** confirm this does not amount to a
+second, informal verdict channel that bypasses `evaluate_quality`'s own shape validation — the same
+boundary D3 draws for provenance, now drawn for an overturned result.
+
 ## 5. JSON contracts
 
 ### 5.a `refinement.json` (WorkItem-owned, `workitems/<id>/.sdle/refinement.json`)
@@ -291,7 +316,9 @@ carry-forward mechanism built.
       "questions": [{"id": "...", "text": "...", "options": ["..."], "answer": null}],
       "edits": [{"op": "replace|insert_after|append_section", "path": "...", "anchor": "...",
                 "baseSha256": "...", "autoApplied": true, "decision": "accepted|rejected|null"}],
-      "outcome": "progress|regression|stall|null"
+      "outcome": "progress|regression|stall|null",
+      "disputeOutcomes": [{"checkId": "...", "outcome": "overturned_by_dispute",
+                           "originalResult": "FAIL", "evidenceRef": "...", "decisionRef": "..."}]
     }
   ],
   "startedAt": "...", "endedAt": null
