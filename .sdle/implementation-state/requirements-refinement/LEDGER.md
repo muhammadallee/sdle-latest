@@ -207,3 +207,14 @@ both genuinely closed, not merely tested-green.
 **VERIFIED.** All five prior-stabilization items check out; OPEN-01/02 specifically required real
 engine, hook, prompt, doc and test work — five DEF-RR items, a real regression, two TOCTOU gaps, three
 smaller bugs — none of which the original round-1 fix alone would have caught. Proceeding to Stage 1.
+
+## Correction — 2026-09-28
+
+The "Stage 0 — final verdict: VERIFIED" and "OPEN-01/02 — full closure" sections above were premature.
+An independent second-look review (not a third formal Codex round — a self-review before committing to
+that verdict) found six more real gaps in the targeted-verification fix itself, including a vacuous test
+(V-01's own regression test passed against the pre-fix commit too — confirmed by running it there) and a
+store that silently dropped a human decision instead of being append-only. All six fixed, verified
+locally (461 + 190 tests), pushed at `2ef73de`. This is now "fixes applied, CI pending" — not verified —
+until CI confirms and, per the review protocol, one narrow targeted Codex verification of this diff runs.
+Nothing above is rewritten; this correction is appended, matching this ledger's own convention.
