@@ -136,8 +136,14 @@ it is "not yet, ship advisory." Consequences for the rest of this plan:
 The corpus was originally sketched here as Stage-3-phase-A work. The owner's "Full corpus, 3 runs/doc"
 decision (2026-09-28) moved it earlier: `tests/fixtures/requirements-quality/` holds one seeded-defect
 document per check id (12 documents) plus `clean-baseline.md`, all "Link Shortener Service" documents,
-committed at `9ec6d4a`. `labels.json` is kept outside the working tree (this session's scratchpad, not
-the repo) so a general-purpose subagent measuring the baseline cannot `Glob`/`Read` the answer key.
+committed at `9ec6d4a`. `labels.json` started outside the working tree (this session's scratchpad) for
+the original 39-dispatch measurement, so a general-purpose subagent measuring the baseline could not
+`Glob`/`Read` the answer key; it was moved into the repo at `ef41b9c` for durability, once measurement
+was done, so a Stage 2 Codex worktree can reproduce the tables. **Any further measurement pass against
+this corpus** (including Stage 5's before/after metrics) relies solely on the dispatch prompt's "do not
+use any tools" instruction for label-leakage protection, not on the file's location — record each
+future run's `tool_uses` count (from the task notification) as provenance that no tool was actually
+invoked.
 Each document was assessed **three times independently**, fresh context each time, 39 dispatches total,
 raw results under `runs/assessor-<check-id>-run<n>.json`. Two subsequent advisor-prompted correction
 passes (both 2026-09-28) found this session's own corpus edits had contaminated several findings and, in
@@ -157,10 +163,13 @@ narrow, real limitation — one line in the `sdle-requirements-review` agent's o
 a design change — is that the assessor will not infer a relevance concern the document's own text never
 raises.
 
-**`constraints` and `scope` remain genuinely unresolved**, not confirmed misses: both documents still
-carry scattered content a generous reading of their check's own "where any genuinely apply" hedge could
-credit, and the compatibility experiment proved that exact mechanism can flip a result — no equivalent
-controlled test was run for these two. `labels.json` marks both `_undetermined`. `dependencies`'s
+**`constraints`, `scope` and `security_data_implications` remain genuinely unresolved**, not confirmed
+misses: all three documents still carry scattered content a generous reading of their check's own
+"where any genuinely apply" hedge could credit — `security_data_implications` was excluded from this
+list in the first correction pass, which was itself an error caught on review, since its Constraints
+section still names authentication, which check 9 names explicitly. The compatibility experiment proved
+this exact mechanism can flip a result; no equivalent controlled test was run for these three.
+`labels.json` marks all three `_undetermined`. `dependencies`'s
 check-level 0/3 turned out to be an attribution result, not a recall gap: the document names its
 dependencies (Kubernetes, internal SSO) outside a dedicated Dependencies section and is reliably blocked
 3/3 via `ambiguity` — this session's own run-file notes claiming otherwise were factually wrong and are

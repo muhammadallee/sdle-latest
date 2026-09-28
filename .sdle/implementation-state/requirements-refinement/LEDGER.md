@@ -697,3 +697,75 @@ Document-level blocking (any check FAIL, labeled or not - what the loop actually
 Script: `runs/recompute_metrics.py`. Re-run it directly against `runs/assessor-*.json` (excluding
 `*-superseded*.json`) and `labels.json` to reproduce this output; Stage 2's Codex review should do so
 rather than trust the numbers above.
+
+### Addendum — 2026-09-28: four verification fixes to the correction above
+
+A third advisor review of the correction verified two of its claims against source and found the
+correction itself under-applied its own new standard to a third check. Nothing above is rewritten.
+
+1. **`security_data_implications` was wrongly left off `_undetermined`.** `defect-security_data_implications.md`'s
+   Constraints section still reads "Must authenticate every management-API request ... against the
+   existing internal SSO" — check 9 names authentication explicitly as part of what it looks for, so a
+   PASS there is exactly as defensible as the PASS the correction above already accepted for
+   `constraints`. No controlled experiment was run for it either. Added to `_undetermined` in
+   `labels.json`; `recompute_metrics.py` rerun (output below) now excludes it from the main table.
+2. **The `KNOWN_TEMPLATE_TENSION_FPS` exclusion for `contradictions` was verified against the actual
+   finding text**, not re-asserted: `assessor-blocking_unknowns-run2.json` and `-run3.json` both cite
+   the 301-permanent-caching-vs-`Cache-Control:no-store` tension by name (not the document's own TBD/
+   service-to-service ambiguity, which was a live alternative explanation worth checking). The exclusion
+   stands as originally applied.
+3. **The prior section's "1 of the 51 total dispatches" figure was wrong — it is 3**, not 1: two from
+   `defect-blocking_unknowns.md` (runs 2 and 3) plus one from `defect-constraints.md` (run 3), all the
+   same cause. Corrected here rather than in the original text.
+4. **`labels.json` moved into the repo at `ef41b9c`**, so PLAN.md §3.c's "kept outside the working tree"
+   claim is now stale; corrected there directly (PLAN.md is not append-only). Any future measurement
+   pass against this corpus relies on the dispatch prompt's "do not use any tools" instruction alone for
+   label-leakage protection, not on the file's location.
+5. **A fixture-design rule was added to `labels.json`'s `_notes`**: a section-absence fixture must
+   establish the check's relevance outside the deleted section, or the assessor's correct refusal to
+   invent an unraised concern reads as a false miss. Applies to any further section-absence fixture,
+   including the still-missing duplicate-id pair for the lint's sixth rule.
+
+```
+Main table (excludes each _undetermined document's OWN labeled check - see below):
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| problem_statement | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| scope | 0 | 0 | 0 | 0 | n/a | undefined |
+| out_of_scope | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| acceptance_criteria | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 12 | 12 | 0 | 0 | 1.00 | 1.00 |
+| contradictions | 3 | 3 | 0 | 3 | 1.00 | 0.50 |
+| constraints | 0 | 0 | 0 | 0 | n/a | undefined |
+| nfrs | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| security_data_implications | 0 | 0 | 0 | 1 | n/a | 0.00 |
+| compatibility | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| dependencies | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| blocking_unknowns | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+
+contradictions, excluding the known shared-template 301/no-store tension FPs:
+  raw: FP=3, precision=0.50
+  excluding template tension: FP=0, precision=1.00
+
+Undetermined documents (own labeled check reported separately, not scored):
+  defect-constraints.md / constraints: caught 0/3 runs
+  defect-scope.md / scope: caught 0/3 runs
+  defect-security_data_implications.md / security_data_implications: caught 1/3 runs
+
+False positives by check (document#run):
+  contradictions: ['defect-blocking_unknowns.md#run2', 'defect-blocking_unknowns.md#run3', 'defect-constraints.md#run3']
+  security_data_implications: ['clean-baseline.md#run1']
+
+Agreement: 9/13 (69%) - unchanged.
+
+Document-level blocking, unchanged except compatibility (now 3/3, post-fix):
+  defect-scope.md: blocked in 0/3 runs (only document never blocked)
+  defect-constraints.md / defect-security_data_implications.md: blocked in 1/3 runs each
+  every other document: blocked in 3/3 runs
+```
+
+With `security_data_implications` moved to `_undetermined`, the main table's only check still showing a
+non-1.00, non-n/a recall is `dependencies` (0.00) — already explained above as an attribution result on
+a document reliably blocked via `ambiguity`, not a demonstrated gap. `contradictions` precision depends
+entirely on whether the known template tension is counted. Every other scored check is 1.00/1.00. The
+corpus work is closed pending Stage 2 review; no further probes or reclassification are planned.
