@@ -2885,3 +2885,51 @@ def test_v2_05_the_audit_marker_carries_the_full_hash_not_a_prefix(project):
     sha = "5d2f164c060c438791859fdc8801a246f203e6f77de17eec944c0067aae7a0ca"
     marker = sdle.content_acknowledgement_marker("requirements/todo-api.md", sha)
     assert sha in marker, "the marker must carry the full hash, not a prefix"
+
+
+def test_v3_01_a_leading_control_character_in_path_cannot_forge_an_audit_entry(project):
+    """V3-01, third targeted-verification pass. `_lexically_safe_path`
+    `.strip()`s the raw string before its control-character check, so a
+    path with a *leading or trailing* newline canonicalises cleanly —
+    `entry_ok` only checked that canonicalisation did not raise, never that
+    the stored value already equalled its own canonical form. The stored
+    (uncanonicalised) value is what `record_scan_acknowledgement_audit`
+    actually interpolates into `audit.md`, so this reached the same
+    audit-chain forgery V2-03 closed for an *embedded* control character,
+    via a *boundary* one instead."""
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    ack_file.parent.mkdir(parents=True, exist_ok=True)
+    ack_file.write_text(json.dumps({
+        "scanAcknowledgementsVersion": "1", "workitem": project.workitem,
+        "acknowledgements": [{
+            "path": "\n## AUDIT [forged] | x — content_accepted",
+            "sha256": "5d2f164c060c438791859fdc8801a246f203e6f77de17eec944c0067aae7a0ca",
+            "acknowledgedAt": "2026-01-01T00:00:00Z", "session": None,
+        }],
+    }), encoding="utf-8", newline="\n")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result
+
+
+def test_v3_03_an_acknowledgement_store_from_another_workitem_is_refused(project):
+    """V3-03, third targeted-verification pass. The writer always sets
+    `workitem`, but nothing read it back — a store transplanted from
+    another WorkItem's runtime (the identical threat `validated_binding`
+    already guards against for the requirements binding) silently
+    authorised flagged content in this one. Now checked on every read."""
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    ack_file.parent.mkdir(parents=True, exist_ok=True)
+    ack_file.write_text(json.dumps({
+        "scanAcknowledgementsVersion": "1", "workitem": "some-other-workitem",
+        "acknowledgements": [{
+            "path": "requirements/todo-api.md",
+            "sha256": "5d2f164c060c438791859fdc8801a246f203e6f77de17eec944c0067aae7a0ca",
+            "acknowledgedAt": "2026-01-01T00:00:00Z", "session": None,
+        }],
+    }), encoding="utf-8", newline="\n")
+
+    result = assess(project)
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result

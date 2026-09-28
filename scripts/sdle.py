@@ -4483,11 +4483,25 @@ def safe_repo_path(paths: Paths, raw: str) -> tuple[Path, str]:
     `scan`/`accept-content` had no path safety at all before this: a `--path`
     reading `../../outside.md`, an absolute path, a Windows-alias spelling,
     or a symlink resolving outside the tree would be joined and read
-    unchecked. Returns `(resolved_target, canonical_relative_key)` — every
-    caller uses the *key* everywhere a path is stored, matched or emitted
+    unchecked. Returns `(target, canonical_relative_key)` — every caller
+    uses the *key* everywhere a path is stored, matched or emitted
     (`pending_confirm_action`, the acknowledgement record, the audit message,
     emitted `data`), never the raw string a user typed, so two spellings of
     the same file can never appear to name two different ones.
+
+    Accepted as an engine-wide limitation, not fixed here: `target` is
+    reconstructed from the canonical key rather than the `resolved` handle
+    `_lexically_safe_path` already opened to check containment, so a symlink
+    retargeted in the gap between this check and the caller's later
+    `is_file()`/`read_bytes()` call is still followed. Returning the already-
+    resolved `Path` object instead would not close this — Python's file APIs
+    re-resolve at the syscall that actually opens the file regardless of
+    whether `.resolve()` was called on the object earlier, so the two forms
+    behave identically here. Closing it for real needs a file-descriptor-
+    anchored open (`O_NOFOLLOW`/`openat`), which every other path-based read
+    in this engine — including `requirements_sources`, which this mirrors —
+    also lacks; this is that same, pre-existing, engine-wide property, not a
+    gap specific to `scan`/`accept-content`.
     """
     try:
         normal = _lexically_safe_path(paths, raw)
@@ -9813,9 +9827,15 @@ def read_scan_acknowledgements(paths: Paths) -> dict:
             f"{paths.runtime_relative}/scan-acknowledgements.json is not "
             f"readable JSON: {exc}.", {}) from exc
     entries = doc.get("acknowledgements") if isinstance(doc, dict) else None
+    # V3-03: the writer always sets `workitem`, but nothing read it back —
+    # a store copied or symlinked in from another WorkItem's runtime (the
+    # same threat `validated_binding` already checks for the requirements
+    # binding) would silently transfer a decision that is documented and
+    # stored as WorkItem-scoped.
     valid_shell = (
         isinstance(doc, dict)
         and doc.get("scanAcknowledgementsVersion") == SCAN_ACKNOWLEDGEMENTS_VERSION
+        and doc.get("workitem") == paths.workitem
         and isinstance(entries, list))
     # Every entry re-checked on every read, not only at write time: a merge,
     # a restored backup or a hand edit can leave a well-formed shell around
@@ -9836,8 +9856,21 @@ def read_scan_acknowledgements(paths: Paths) -> dict:
                 or not isinstance(a.get("path"), str)):
             return False
         try:
-            _lexically_safe_path(paths, a["path"])
+            canonical = _lexically_safe_path(paths, a["path"])
         except _PathProblem:
+            return False
+        # Not merely "can be canonicalised without raising": `.strip()`
+        # inside `_lexically_safe_path` silently drops a *leading or
+        # trailing* control character (a literal newline) before the
+        # control-character check ever sees it, so a stored path carrying
+        # one would canonicalise cleanly while remaining, byte for byte,
+        # something `record_scan_acknowledgement_audit` would later
+        # interpolate into `audit.md` verbatim — forging an
+        # `## AUDIT ` line the parser reads as a new entry. Requiring the
+        # stored value to already equal its own canonical form closes that:
+        # nothing reaches replay that was not already exactly what a
+        # trusted write produced.
+        if a["path"] != canonical:
             return False
         acknowledged_at = a.get("acknowledgedAt")
         session = a.get("session")
