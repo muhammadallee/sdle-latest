@@ -4615,8 +4615,14 @@ def bound_sources(paths: Paths) -> list[str]:
 
 
 def requirements_sources(paths: Paths, strict: bool = False
-                        ) -> tuple[list[dict], str]:
-    """Every **bound** requirement document with its SHA, plus one digest.
+                        ) -> tuple[list[dict], str, dict[str, bytes]]:
+    """Every **bound** requirement document with its SHA, one digest, and the
+    raw bytes actually read for each — each source is read from disk exactly
+    once, here, and the caller passes those same bytes on rather than
+    re-reading (V-01/R2-D01: two separate reads of the same bound source, at
+    two different times, is exactly the gap a concurrent edit can exploit —
+    `governance assess` used to hash here and re-read again in
+    `unacknowledged_flagged_sources`, so it no longer does).
 
     ``strict`` is what `governance assess` passes: an assessment may not be
     *recorded* against a document that is not there. Without it, deleting a
@@ -4634,14 +4640,16 @@ def requirements_sources(paths: Paths, strict: bool = False
     """
     sources: list[dict] = []
     missing: list[str] = []
+    raw_by_path: dict[str, bytes] = {}
     for relative in bound_sources(paths):
         target = paths.project_root / relative
         if not target.is_file():
             missing.append(relative)
-        sources.append({
-            "path": relative,
-            "sha256": sha256_file(target) if target.is_file() else None,
-        })
+            sources.append({"path": relative, "sha256": None})
+            continue
+        raw = target.read_bytes()
+        raw_by_path[relative] = raw
+        sources.append({"path": relative, "sha256": hashlib.sha256(raw).hexdigest()})
     if strict and missing:
         raise _binding_refused(
             "requirements_source_missing",
@@ -4651,7 +4659,7 @@ def requirements_sources(paths: Paths, strict: bool = False
             "re-run `requirements bind` with the documents it is about.",
             workitem=paths.workitem, missing=missing)
     sources.sort(key=lambda entry: entry["path"])
-    return sources, _sources_digest(sources)
+    return sources, _sources_digest(sources), raw_by_path
 
 
 def _sources_digest(sources: list[dict]) -> str:
@@ -5369,13 +5377,14 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # the assessment then refused `requirements_unbound` — an artifact of a
     # decision that was never taken, which is exactly what refusal atomicity
     # exists to prevent.
-    sources, digest = requirements_sources(paths, strict=True)
+    sources, digest, raw_by_path = requirements_sources(paths, strict=True)
     # DEF-RR-001. Independent of whatever `scan` last recorded: a bound
     # source nobody ever ran `scan` on must not reach `init` unexamined
     # either. Before evidence is claimed, matching the refusal-atomicity
     # comment above — a flagged, unacknowledged document is not a decision
-    # this assessment gets to make.
-    offenders = unacknowledged_flagged_sources(paths, sources)
+    # this assessment gets to make. `raw_by_path` threads through the exact
+    # bytes just hashed above, so this never re-reads a bound source (V-01).
+    offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
     if offenders:
         detail = "; ".join(
             f"{o['path']} (line {o['matches'][0]['line']}: "
@@ -7389,9 +7398,17 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
 
     # Accepted. The facts enter the ledger here, after every refusal has had
     # its chance to fire, so a refused advance never writes anything.
+    #
+    # V-04. Acknowledgement replay runs FIRST: its only possible failure
+    # (`read_scan_acknowledgements` raising on a malformed file) happens
+    # before either function has appended anything, so a refusal here still
+    # leaves `audit.md` byte-identical. Reversed, a governance entry already
+    # written by `record_governance_audit` would survive an IntegrityError
+    # raised moments later by the acknowledgement read — a refused advance
+    # that had, in fact, already changed the ledger.
     if state is not None:
-        record_governance_audit(paths, state, record)
         record_scan_acknowledgement_audit(paths, state)
+        record_governance_audit(paths, state, record)
     return None
 
 
@@ -9729,32 +9746,33 @@ def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
                 json.dumps(doc, indent=2) + "\n")
 
 
-def unacknowledged_flagged_sources(paths: Paths, sources: list[dict]
-                                  ) -> list[dict]:
+def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
+                                  raw_by_path: dict[str, bytes]) -> list[dict]:
     """Bound sources (as `requirements_sources` returns them — already
     confirmed present on disk) that are currently flagged and have no
-    acknowledgement matching their current content.
+    acknowledgement matching their content.
 
-    Independent of whatever `scan` last recorded: this re-reads and re-scans
-    every bound source itself, so a source nobody ever ran `scan` on is
-    caught here rather than silently reaching `init` unexamined.
+    Independent of whatever `scan` last recorded: this re-scans every bound
+    source itself, so a source nobody ever ran `scan` on is caught here
+    rather than silently reaching `init` unexamined.
 
-    R2-D01. Matched against a hash of the *same bytes just read for
-    scanning*, never against `entry["sha256"]` (computed moments earlier by
-    `requirements_sources`, in a separate read): a concurrent edit between
-    the two reads must never let a stale acknowledgement cover content that
-    was never actually scanned.
+    V-01/R2-D01. Takes `raw_by_path` — the exact bytes `requirements_sources`
+    already read `entry["sha256"]` from — rather than reading the file a
+    second time: two reads of the same path at two different times is
+    exactly the gap a concurrent edit can exploit (hash flagged content,
+    scan clean content substituted in between, or the reverse). Scanning and
+    hashing the identical bytes closes it structurally, not by comparison.
     """
     doc = read_scan_acknowledgements(paths)
     offenders = []
     for entry in sources:
-        target = paths.project_root / entry["path"]
-        raw = target.read_bytes()
+        raw = raw_by_path.get(entry["path"])
+        if raw is None:
+            continue  # missing; requirements_sources(strict=True) already
+                      # refused before this ever runs, for a non-strict caller
+                      # there is nothing to scan
         matches = scan_text(raw.decode("utf-8", errors="replace"))
-        if not matches:
-            continue
-        current_sha = hashlib.sha256(raw).hexdigest()
-        if not is_content_acknowledged(doc, entry["path"], current_sha):
+        if matches and not is_content_acknowledged(doc, entry["path"], entry["sha256"]):
             offenders.append({"path": entry["path"], "matches": matches})
     return offenders
 
@@ -9816,24 +9834,6 @@ def cmd_scan(args, paths: Paths) -> int:
     return EXIT_REFUSED
 
 
-def _accept_content_write_ack(paths: Paths, path: str, session: str | None
-                              ) -> str | None:
-    """Read the file once, hash those exact bytes, and record an
-    acknowledgement of them (R2-D01: one read, never a scan-then-rehash pair
-    that a concurrent edit could split across two different contents).
-
-    Returns the hash written, or ``None`` if the file is not there to read
-    (the bare post-init route reaches this for a file that may since have
-    been deleted; the explicit `--path` route already refused first)."""
-    target = paths.project_root / path
-    if not target.is_file():
-        return None
-    raw = target.read_bytes()
-    sha = hashlib.sha256(raw).hexdigest()
-    write_content_acknowledgement(paths, path, sha, session)
-    return sha
-
-
 def cmd_accept_content(args, paths: Paths) -> int:
     """Two routes, chosen by whether `--path` is given, that now converge on
     the same two effects (R2-D02: each used to touch only its own store,
@@ -9848,6 +9848,15 @@ def cmd_accept_content(args, paths: Paths) -> int:
     document pins. `accept-content --path <file>` is additive (DEF-RR-001):
     it re-scans the named file itself rather than trusting a prior `scan`
     call, and works both before and after `init`.
+
+    V-02: a pending file that has since been deleted refuses `artifact_missing`
+    before anything is checked or changed — mirroring `--path`'s own refusal
+    for a missing file — rather than silently reporting success with no
+    acknowledgement written. V-03: both immediate post-init audit entries
+    below carry the same `content_acknowledgement_marker` the deferred
+    pre-init replay (`record_scan_acknowledgement_audit`) looks for, so an
+    acknowledgement already audited here is never audited a second time at
+    the next advance.
     """
     path_arg = getattr(args, "path", None)
     if path_arg:
@@ -9871,7 +9880,8 @@ def cmd_accept_content(args, paths: Paths) -> int:
             append_audit(
                 paths, state, phase=state.get("current_phase", "unknown"),
                 event="content_accepted",
-                message=f"User accepted flagged content in {path_arg}.",
+                message=(f"User accepted flagged content in {path_arg} "
+                         f"{content_acknowledgement_marker(path_arg, sha)}."),
                 artifact=path_arg,
             )
             save_state(paths, state, args.session)
@@ -9885,19 +9895,25 @@ def cmd_accept_content(args, paths: Paths) -> int:
                       "No flagged content is pending acknowledgement.",
                       {"pending": pending or None})
     flagged = pending.split(":", 1)[1]
+    target = paths.project_root / flagged
+    if not target.is_file():
+        raise Refused("artifact_missing",
+                      f"No such file: {flagged} (the file the pending "
+                      "confirmation names is no longer on disk).",
+                      {"path": flagged})
+    raw = target.read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    write_content_acknowledgement(paths, flagged, sha, args.session)
     state["pending_confirm_action"] = None
-    sha = _accept_content_write_ack(paths, flagged, args.session)
     append_audit(
         paths, state, phase=state.get("current_phase", "unknown"),
         event="content_accepted",
-        message=f"User accepted flagged content in {flagged}.",
+        message=(f"User accepted flagged content in {flagged} "
+                 f"{content_acknowledgement_marker(flagged, sha)}."),
         artifact=flagged,
     )
     save_state(paths, state, args.session)
-    data = {"file": flagged}
-    if sha is not None:
-        data["sha256"] = sha
-    emit("accept-content", data)
+    emit("accept-content", {"file": flagged, "sha256": sha})
     return EXIT_OK
 
 

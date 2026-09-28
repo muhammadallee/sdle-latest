@@ -98,3 +98,16 @@ new tests. R2-D04 is an accepted, documented, tested-as-fail-closed limitation, 
 No disagreement survived reconciliation; nothing here needed the owner. A targeted Codex verification of
 this round's changed material (not a full round 3 — the brief reserves exactly two rounds) follows before
 this closes.
+
+## Correction — targeted verification (V-05)
+
+The R2-D03 paragraph above overstates its own audit: `governance_missing` is also raised directly by
+`cmd_gate_omit` (a fourth site, not funnelled through `governance_precondition` for this particular
+refusal — though `cmd_gate_omit` also calls `governance_precondition(paths)` later in its own body, so
+`governance_blocked` and `governance_stale` can surface there too). SKILL.md's "read later, at the first
+`advance`, `gate approve` or `skip`" sentence is corrected to include `gate omit` in that list. Caught by
+a targeted verification pass on this fix (`round2-verify.prompt.md`), not by the grep that produced the
+original claim — the grep found every *site*, but a raise site inside a function that also calls a
+second function with more raise sites is easy to undercount by reading call sites instead of tracing
+control flow. Recorded rather than silently fixed, since the point of this ledger is that a correction
+this size is not invisible.

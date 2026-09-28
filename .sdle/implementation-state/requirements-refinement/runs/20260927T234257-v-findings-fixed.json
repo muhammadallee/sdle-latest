@@ -1,0 +1,47 @@
+{
+  "run_id": "20260927T234257-v-findings-fixed",
+  "result": "FAIL",
+  "label": "v-findings-fixed",
+  "task_ids": [],
+  "ac_ids": [],
+  "argv": [
+    "rtk",
+    "proxy",
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_units_governance.py",
+    "tests/test_units_startup_contract.py",
+    "tests/test_hooks.py",
+    "tests/test_units_invariants.py",
+    "tests/test_integration_02_to_05.py",
+    "tests/test_dry_run_contracts.py",
+    "tests/test_units_documented_commands.py",
+    "tests/test_units_doc_links.py",
+    "--tb=short",
+    "-rf"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "52096313f3fe6a08b80f2b7915489a24a29f51ff",
+  "content_fingerprint": "2006e4241f01e0b82adad82ab87f7670bd8c5873a2efa966a5656ab4dcc62856",
+  "manifest_paths": 14,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-27T23:42:57Z",
+  "runner_pid": 10096,
+  "stdout": "20260927T234257-v-findings-fixed.stdout.log",
+  "stderr": "20260927T234257-v-findings-fixed.stderr.log",
+  "note": "",
+  "exit_code": 1,
+  "expected_exit_code": 0,
+  "counts": {
+    "failed": 2,
+    "passed": 1579
+  },
+  "finished_utc": "2026-09-27T23:51:41Z",
+  "fingerprint_unchanged_during_run": false
+}

@@ -33,6 +33,7 @@ import json
 
 from conftest import (FIXTURE_WORKITEM_ID, FIXTURE_WORKITEM_NAME,
                       Project, sdle)
+from test_units_artifact_review import review_for_gate
 
 # The engine's contract, restated here the way every other test module does it.
 EXIT_OK, EXIT_REFUSED, EXIT_INTEGRITY = 0, 1, 3
@@ -244,6 +245,53 @@ def test_accept_content_with_path_refuses_when_nothing_is_flagged(bare_project):
     assert result.reason == "no_pending_confirmation"
 
 
+def test_bare_accept_content_refuses_when_the_pending_file_is_gone(bare_project):
+    """V-02, targeted verification of the round-2 fix. Before this fix, the
+    bare form cleared `pending_confirm_action` and audited `content_accepted`
+    for a file that no longer existed, reporting success although nothing
+    was actually acknowledged. It must refuse `artifact_missing` instead,
+    unchanged, the way `--path` already does for a missing file."""
+    project = _bound(bare_project)
+    project.record_governance()
+    project.ok("init")
+    _flag(project)
+    project.run("scan", "--path", "requirements/todo-api.md")
+    before = project.state()["pending_confirm_action"]
+    assert before == "accept_content:requirements/todo-api.md"
+
+    (project.root / "requirements" / "todo-api.md").unlink()
+
+    result = project.run("accept-content")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "artifact_missing"
+    assert project.state()["pending_confirm_action"] == before, (
+        "a refused acceptance must not clear the pending confirmation")
+    assert "content_accepted" not in project.audit_file.read_text("utf-8")
+
+
+def test_post_init_acceptance_is_not_audited_twice_across_advances(bare_project):
+    """V-03, targeted verification of the round-2 fix. Both immediate
+    post-init audit entries used to omit the marker
+    `record_scan_acknowledgement_audit` looks for, so its replay at the
+    first advance appended a second `content_accepted` entry for the same
+    acknowledgement. One acceptance must be exactly one entry, however many
+    advances follow."""
+    project = _bound(bare_project)
+    project.record_governance()
+    project.ok("init")
+    _flag(project)
+    project.run("scan", "--path", "requirements/todo-api.md")
+    project.ok("accept-content")
+    project.record_governance()
+
+    project.ok("advance", "--to", "gate_constitution")
+    project.write_artifact(".specify/memory/constitution.md")
+    review_for_gate(project, "gate_constitution")
+    project.ok("gate", "approve", "--gate", "gate_constitution", "--comments", "ok")
+    project.ok("advance", "--to", "gate_spec")
+
+    audit = project.audit_file.read_text("utf-8")
+    assert audit.count("content_accepted") == 1
 
 
 def test_scanning_again_after_init_makes_acknowledgement_available(bare_project):

@@ -2644,3 +2644,51 @@ def test_a_lost_concurrent_acknowledgement_fails_closed(project):
     offender_paths = {o["path"] for o in result.data["offenders"]}
     assert "requirements/second.md" in offender_paths
     assert "requirements/todo-api.md" in offender_paths
+
+
+def test_v01_bound_sources_are_read_exactly_once_during_assessment(project, monkeypatch):
+    """V-01, targeted verification of the round-2 fix. `requirements_sources`
+    and `unacknowledged_flagged_sources` used to read each bound source
+    separately (hash from one read, scan from another), so a concurrent
+    edit between the two reads could let the persisted digest and the
+    scanned content disagree. Proven structurally rather than by timing a
+    race: exactly one `Path.read_bytes` call per bound source for the whole
+    of `governance assess`, counted rather than assumed."""
+    import pathlib
+
+    calls = []
+    original = pathlib.Path.read_bytes
+
+    def counting_read_bytes(self):
+        calls.append(str(self))
+        return original(self)
+
+    monkeypatch.setattr(pathlib.Path, "read_bytes", counting_read_bytes)
+
+    result = assess(project)
+    assert result.exit_code == EXIT_OK, result
+
+    todo_reads = [p for p in calls if p.replace("\\", "/").endswith("requirements/todo-api.md")]
+    assert len(todo_reads) == 1, f"expected exactly one read of the bound source, got {todo_reads}"
+
+
+def test_v04_a_malformed_acknowledgements_file_leaves_a_refused_advance_byte_identical(project):
+    """V-04, targeted verification of the round-2 fix.
+    `record_scan_acknowledgement_audit` now runs before `record_governance_audit`
+    in `governance_precondition`, so its only possible failure — a malformed
+    `scan-acknowledgements.json` — happens before either function has
+    appended anything. Reversed, a governance entry already written would
+    have survived the later `IntegrityError`: a refused advance that had, in
+    fact, already changed the ledger."""
+    assert assess(project).exit_code == EXIT_OK
+    project.ok("init", session="v04")
+    before = project.audit_file.read_bytes()
+
+    ack_file = project.runtime / "scan-acknowledgements.json"
+    ack_file.write_text("not json", encoding="utf-8")
+
+    result = project.run("advance", "--to", "gate_constitution")
+    assert result.exit_code == EXIT_INTEGRITY, result
+    assert result.reason == "scan_acknowledgements_invalid", result
+    assert project.audit_file.read_bytes() == before, (
+        "a refused advance must leave audit.md byte-identical")

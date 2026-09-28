@@ -291,7 +291,7 @@ Two refusals come from `governance assess` itself, at the moment you run it:
 - `requirements_quality_blocked` — a blocking requirements-quality check is `FAIL`. Fix the requirements and re-assess. Do not argue the finding away. The record is written before this refusal, not after: it is inspectable at `governance show` even while blocked.
 - `governance_content_unacknowledged` — a **bound** document is currently flagged by the untrusted-content scan and no acknowledgement matches its current content (never scanned, edited since the last scan, or simply not yet acknowledged). Edit the flagged line and re-assess, or acknowledge it with `sdle.sh --workitem <id> accept-content --path <file>` first — this works before `init` too. `data.offenders` names every flagged path and line. Nothing is recorded on this refusal either.
 
-Three more are read from an *existing* record and refused later, at the first `advance`, `gate approve` or `skip` — governance is not an `init` precondition, so a WorkItem can `init` on flagged or unassessed content and still refuse to move past this point:
+Three more are read from an *existing* record and refused later, at the first `advance`, `gate approve`, `gate omit` or `skip` — governance is not an `init` precondition, so a WorkItem can `init` on flagged or unassessed content and still refuse to move past this point:
 
 - `governance_missing` — the WorkItem has no record at all. Run `governance assess`.
 - `governance_blocked` — the recorded assessment is itself `BLOCKED` (this is the *stored* verdict `requirements_quality_blocked` already refused once; re-assessing after fixing the requirements is what clears it, not arguing with this later refusal).
