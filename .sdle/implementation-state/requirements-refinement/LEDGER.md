@@ -183,3 +183,27 @@ gaps) were self-caused by this session's own evidence-writing and fixed inline, 
 that a failure in the phase currently being worked is not a §9 defect.
 
 Next: Level 2 Codex review of the DEF-RR-001..005 fix (round 2 of the OPEN-01/02 review), then Stage 1.
+
+## OPEN-01/02 — full closure
+
+Both formal review rounds plus one targeted verification pass are complete:
+
+| Stage | Result |
+|---|---|
+| Round 1 (Codex, candidate `0057425`) | 9 findings; all dispositioned (`round1.reply.md`); 5 registered as DEF-RR-001..005 |
+| Owner decision | Shape (a): re-check at `governance assess` |
+| DEF-RR-001..005 fix | New pre-init acknowledgement record, `accept-content --path`, the new `governance_content_unacknowledged` refusal, and five corrected surfaces (hook, `sdle-start.md`, dry-run 05, Reference Guide, GETTING-STARTED) |
+| Round 2 (Codex, candidate `75187b6`, product-identical to the `6b6c1e6` the prompt named) | 4 dispositions REVISED, 4 new findings (R2-D01..D04); all fixed (`round2.dispositions.md`) — includes a real regression (bare `accept-content` silently stopped satisfying the new check) and a TOCTOU gap, both caught only because a second round ran |
+| Targeted verification of the round-2 fix | 5 more findings (V-01..V-05), all fixed — a second, deeper TOCTOU the first fix missed, a missing-file edge case, a duplicate-audit bug, an atomicity-ordering bug, and an incomplete refusal-attribution list |
+| CI (all four cells) | `36347512584` (round-2 fix) → `36362088912` (V-01..V-05 fix, failed on a self-caused historical-narration violation) → `36363773501` (fixed) — **success on all four cells** |
+
+Every finding across three passes was verified against source or the live CLI before being accepted —
+never taken on Codex's word, and two of the three passes found something the previous one missed. No
+disagreement ever needed the owner beyond the one shape decision already made. OPEN-01 and OPEN-02 are
+both genuinely closed, not merely tested-green.
+
+## Stage 0 — final verdict
+
+**VERIFIED.** All five prior-stabilization items check out; OPEN-01/02 specifically required real
+engine, hook, prompt, doc and test work — five DEF-RR items, a real regression, two TOCTOU gaps, three
+smaller bugs — none of which the original round-1 fix alone would have caught. Proceeding to Stage 1.
