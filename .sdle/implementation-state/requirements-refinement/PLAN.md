@@ -269,9 +269,16 @@ explicitly to this primitive) — cited, not re-litigated.
 
 ### D5 — command surface
 
-`refinement propose | decide | apply | dispute | show`. **Stage 2 is asked, per the brief, whether
-`propose` and `decide` can collapse into one command** — Stage 1 takes no position; this is exactly the
-kind of minimalism question Codex should answer from the frozen contracts (§5), not from prose.
+`refinement propose | decide | apply | dispute | cancel | show`. `cancel` is added here, not in the
+brief's own list — §6's "human cancels → CANCELLED" row has no covering command without it, and folding
+cancellation into `decide` (which §6 already scopes narrowly to "decision recorded per question") would
+overload a command that is otherwise strictly about answering the loop's own questions. **Stage 2 is
+asked, per the brief, whether `propose` and `decide` can collapse into one command** — Stage 1 takes no
+position; this is exactly the kind of minimalism question Codex should answer from the frozen contracts
+(§5), not from prose. **`propose` is the sole writer of `refinement.json`** (§6): `governance assess`
+itself is unchanged except for §3.a's flip refusal and does not create the record — flagged here as a
+decision for Stage 2 to attack alongside the `propose`/`decide` merge question, since collapsing the two
+commands would also need to decide whether the merged command keeps `propose`'s sole-writer role.
 
 ### D6 (new, from Stage 0's own experience) — path handling
 
@@ -319,6 +326,66 @@ iteration record has no field for this. Position: add a per-check `disputeOutcom
 mutated — only annotated alongside it. **Flagged for Stage 2:** confirm this does not amount to a
 second, informal verdict channel that bypasses `evaluate_quality`'s own shape validation — the same
 boundary D3 draws for provenance, now drawn for an overturned result.
+
+### D10 — the `sdle-requirements-review` agent must not restate the check-id vocabulary (new, found
+by empirically testing the draft prompt against the restatement guard)
+
+`assessor-prompt-draft.md` (Stage 1's measurement prompt, never intended as the real agent file) spells
+out all twelve check ids as literal text. Copied verbatim to `.claude/agents/sdle-requirements-review.md`
+in a throwaway check and run against the real suite, it **fails**
+`test_no_policy_default_value_is_restated_outside_sdle_py`: `acceptance_criteria`, `blocking_unknowns`,
+`out_of_scope`, `problem_statement` and `security_data_implications` (the five check ids the guard
+searches for — the other seven are ordinary English words the guard deliberately excludes, per its own
+docstring) are all present in the file, and `searchable_files()` already covers `.claude/agents/sdle-*.md`.
+Confirmed empirically, not assumed from reading the test.
+
+**Position, matching the exact precedent the other four product agents already establish** (`sdle-
+discovery.md`: "The parent gives you the closed set of finding categories... taken from the engine. Use
+exactly those, in exactly those spellings, and invent neither"): the committed `sdle-requirements-review.md`
+file never lists the twelve check ids or their definitions as static text. It states the *shape* of the
+task generically ("the parent gives you a closed set of check ids and their definitions; answer PASS,
+FAIL, or NOT_APPLICABLE — NOT_APPLICABLE only where the parent says it is a valid answer — for each, with
+a one-sentence finding on every FAIL"). The orchestrator (`SKILL.md`/the engine, at dispatch time) builds
+the actual check-id list and definitions into the dispatch prompt from `GOVERNANCE_POLICY_BUILTIN`
+(`sdle.py`), which stays their one engine-owned home. `assessor-prompt-draft.md` itself is not corrected
+retroactively — it served its Stage 1 measurement purpose and is superseded by this position for Stage 3,
+noted here rather than edited there.
+
+Row 21 of §8's traceability table is corrected by this: its test must exercise the dispatch *payload*
+the parent actually builds at runtime, not the static template — the same distinction already drawn for
+row 21's D3/F8 annotation.
+
+### D11 — where `quality_verdict_flip` reads the prior verdict and content digest from (new, found by
+tracing scenario 25 through the engine rather than assuming §6's rows cover it)
+
+§6's rows write `refinement.json` only from `refinement propose` onward (D5's single-writer fix, above).
+But §3.a's one identified test
+(`test_re_assessing_a_fixed_requirement_unblocks_the_same_advance`) calls `governance assess` twice, by
+hand, with no `refinement.json` ever created — exactly acceptance scenario 25's own framing ("a hand
+re-run of assess"). `quality_verdict_flip`'s refusal cannot depend on `refinement.json` existing.
+
+Traced into the engine rather than assumed: `governance.json`'s existing record (`cmd_governance_assess`,
+`sdle.py:5478`) already reads the prior record as `superseded` before rewriting the file wholesale — the
+exact precedent `pinnedPolicy`'s carry-forward already uses. But the only digest it carries,
+`requirements.digest` (`_sources_digest`, `sdle.py:4742`), is computed from each source's raw-bytes
+SHA-256 — it is **not** presentation-neutral, so a whitespace-only edit changes it, which would let
+`quality_verdict_flip` wrongly treat a whitespace-only edit as new content and allow the flip, breaking
+acceptance scenario 25 directly (its whole point is that a whitespace-only edit must **not** unlock one).
+
+**Position:** add a second digest field, `contentDigest` (the presentation-neutral normal form's SHA-256,
+§3.2/§3.5's algorithm, computed over the same `sources` list `requirements.digest` already covers), to
+the same `governance.json` record, alongside the existing raw-bytes one — not replacing it, since
+`governance_freshness`'s existing staleness check still needs the raw-bytes digest for its own,
+unrelated purpose. `quality_verdict_flip` reads `superseded["quality"]` (the prior per-check verdicts,
+already available the same way `pinnedPolicy` reads them) and `superseded["contentDigest"]`, comparing
+against the new assessment's own values — independent of whether `refinement.json` exists at all, so it
+covers both the loop path and a hand re-run identically. **This does not conflict with D3**, checked
+explicitly rather than left open: D3's boundary is about `GOVERNANCE_INPUT_SECTIONS` — what Claude's own
+governance *proposal* is trusted to assert as input — not about the engine's own `governance.json`
+*output* record, which already carries several engine-computed fields (`bindingDigest`, `downgrade`,
+`pinnedPolicy`) added the same way `contentDigest` would be. **Flagged for Stage 2 regardless:** confirm
+this reading of D3's boundary, and confirm `contentDigest` is the right home rather than, say, a
+dedicated small file `governance_freshness` and `quality_verdict_flip` would both need to agree on.
 
 ## 5. JSON contracts
 
@@ -379,15 +446,16 @@ boundary D3 draws for provenance, now drawn for an overturned result.
 | IN_PROGRESS | human `decide` | IN_PROGRESS | decision recorded per question | ≤5 questions, batched |
 | IN_PROGRESS | `refinement apply` | IN_PROGRESS | edits applied, evidence written | Auto-apply only if presentation-neutral (§3.5); C1 transaction (below) if the source is shared |
 | IN_PROGRESS | re-`scan` finds new flags | IN_PROGRESS | scan-acknowledgements.json (existing F15 mechanism) | Not a refinement-record write; the existing engine path |
-| IN_PROGRESS | re-`assess` → Fₖ=∅ | PASSED | refinement.json closed | §3.4 "Pass" |
-| IN_PROGRESS | re-`assess` → Fₖ⊊Fₖ₋₁ or an answer applied | IN_PROGRESS | iteration k+1 opens | §3.4 "Progress" |
-| IN_PROGRESS | re-`assess` → new failing check | IN_PROGRESS, flagged | regression recorded, shown to human, **no auto-continue** | §3.4 "Regression" |
-| IN_PROGRESS | re-`assess` → Cₖ=Cₖ₋₁, or Pₖ seen before, or 2 no-progress iterations | ESCALATED | refinement.json closed | §3.4 "Stall" |
-| IN_PROGRESS | cap (3) reached | ESCALATED | refinement.json closed | §3.4 "Exhaustion"; per O1/§1 F5, `init` itself is not a governance precondition — `advance`/`gate approve`/`gate omit`/`skip` stay refused `governance_blocked` while quality is blocked, which is what actually keeps the WorkItem from progressing |
-| IN_PROGRESS | re-`assess` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
+| IN_PROGRESS | `refinement propose` (re-assesses internally, same call as row 6 above) → Fₖ=∅ | PASSED | `refinement.json` closed, written by `propose` | §3.4 "Pass" |
+| IN_PROGRESS | `refinement propose` → Fₖ⊊Fₖ₋₁ or an answer applied | IN_PROGRESS | iteration k+1 opens, written by `propose` | §3.4 "Progress" |
+| IN_PROGRESS | `refinement propose` → new failing check | IN_PROGRESS, flagged | regression recorded by `propose`, shown to human, **no auto-continue** | §3.4 "Regression" |
+| IN_PROGRESS | `refinement propose` → Cₖ=Cₖ₋₁, or Pₖ seen before, or 2 no-progress iterations | ESCALATED | `refinement.json` closed, written by `propose` | §3.4 "Stall" |
+| IN_PROGRESS | `refinement propose` → cap (3) reached | ESCALATED | `refinement.json` closed, written by `propose` | §3.4 "Exhaustion"; per O1/§1 F5, `init` itself is not a governance precondition — `advance`/`gate approve`/`gate omit`/`skip` stay refused `governance_blocked` while quality is blocked, which is what actually keeps the WorkItem from progressing |
+| IN_PROGRESS | `refinement propose` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
 | any | crash/interruption | resume | (none until next write) | Recovery reads `refinement.json`, finds the last-committed iteration, and either resumes (nothing pending) or replays a C1 intent (below) |
-| IN_PROGRESS | human cancels | CANCELLED | refinement.json closed | |
-| IN_PROGRESS | unrecoverable engine error | FAILED | refinement.json closed, error recorded | Terminal; the WorkItem's `governance assess` remains usable independently — this record's terminal state does not itself block re-running `governance assess` by hand |
+| IN_PROGRESS | `refinement cancel` (D5) | CANCELLED | `refinement.json` closed, written by `cancel` | |
+| IN_PROGRESS | unrecoverable engine error | FAILED | `refinement.json` closed, error recorded, written by whichever command hit the error | Terminal; the WorkItem's `governance assess` remains usable independently — this record's terminal state does not itself block re-running `governance assess` by hand |
+| (none) | `governance assess`, hand re-run, no `refinement.json` ever created, FAIL→PASS at the same content digest | (unaffected) | `governance.json` only, refused | §3.a's identified test; D11 below — `quality_verdict_flip` reads the prior verdict and digest from `governance.json` itself, never from `refinement.json`, which need not exist for this refusal to fire |
 
 ### Presentation-neutral normal form and content digest (§3.2/§3.5)
 
@@ -454,7 +522,7 @@ not a function — exact names don't exist until phase C/E write the code.
 | 18 | Acknowledged shared edit dual-audited, staleness reported | D1 (affected-WorkItem audit append/deferred-replay); C1 record (§6) | `test_units_refinement.py` — shared-edit dual-audit + staleness |
 | 19 | FAIL→PASS at same digest refused | §3.a (the one identified test to edit, D4); §5.c `quality_verdict_flip` | `test_units_governance.py::test_re_assessing_a_fixed_requirement_unblocks_the_same_advance` (edited per D4) + new flip-refusal test |
 | 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. Test instead proves the reason code exists and stays inert | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
-| 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement. **Convention only (F8), same class of gap as D8/D9:** a test on the prompt *template* proves the template, not what the assessor actually received at runtime — nothing in this plan records the assessor's actual input for later inspection. Flagged for Stage 2 rather than resolved here | New test on `sdle-requirements-review.md`'s prompt template — no prior-state fields present |
+| 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement. Per **D10**, the committed prompt file carries no check-id vocabulary at all — the parent builds the actual dispatch payload at runtime, so "no prior state" must be verified against that payload, not the static file. **Convention only (F8), same class of gap as D8/D9:** nothing in this plan records the assessor's actual dispatch payload for later inspection. Flagged for Stage 2 rather than resolved here | New test on the parent's dispatch-payload construction (not `sdle-requirements-review.md`'s static template, which per D10 has nothing check-id-shaped to inspect) — no prior-state fields present in what's actually sent |
 | 22 | Whitespace-only auto-applies; one-word change does not | §6 presentation-neutral normal form algorithm (§3.2/§3.5); D7 | `test_units_refinement.py` — normal-form digest auto-apply boundary |
 | 23 | Corpus before/after metrics, zero findings on clean fixture | §3.c (Stage 1's "before"); Stage 5 reruns as "after" | Stage 5 `REPORT.md` corpus-metrics section, reusing `runs/recompute_metrics.py` |
 | 24 | Binding-step-skipped test fails | C7 pattern (non-autouse `project` fixture) applied to refinement tests | `test_units_refinement.py` — explicit-binding discipline test |
@@ -468,7 +536,9 @@ not a function — exact names don't exist until phase C/E write the code.
 - **Risks:** with the lint advisory-only (Option 3), the suite-breakage risk §3.b measured is closed —
   nothing blocks on it. The residual risk is precision/recall measurement quality (corpus adequacy,
   §3.c) and the shared-document transaction (D1/D2), the largest unproven design element — both flagged
-  explicitly for Stage 2, joined now by D8 and D9 above.
+  explicitly for Stage 2, joined now by D8, D9 and D10 above, and by the `refinement.json` write-ownership
+  question §6 raises (which command writes it, and where `quality_verdict_flip` reads a prior FAIL and
+  its content digest from when no `refinement.json` exists at all).
 - **Rollback:** revert commits; no data migration (no `state.json` schema change, per brief's own
   constraint — unaffected by anything in this plan).
 

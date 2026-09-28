@@ -6,14 +6,42 @@ directory). Branch `feat/requirements-refinement`, created from `0057425` (tip o
 
 ## Current status
 
-**Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. Stage 0 is VERIFIED (see that
-section below). PLAN.md's design (§4, D1–D9), JSON contracts (§5), state-transition table (§6),
-file-level estimates (§7) and the 30-scenario traceability table (§8) are written. **Next action:**
-finish Stage 1's remaining exit items — the missing `todo-api.md` corpus fixture (in progress, 3
-dispatches running), the lint-vs-corpus rescoring, and the non-blocking cleanup items an advisor
-review flagged — then commit PLAN.md/LEDGER.md at a named "Stage 2 review baseline" SHA (not
-"frozen" — the approved execution plan freezes PLAN.md only after Stage 2 reconciliation, since
-Level 1/2 findings are applied to it) and start Stage 2's two-level Codex↔Claude review.
+**Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. **Paused here deliberately, by the
+owner's own choice, to prioritize other work — not blocked, not stuck.** Nothing below is mid-edit;
+every file is committed, `lint-skill` passes (`ok: true`), and the restatement/doc/collect-only tests
+all pass as of the pause commit. Safe to resume from a fresh session by reading this file top to bottom,
+starting here.
+
+**What is done:** Stage 0 is VERIFIED (see that section below). The evaluation corpus (14 documents,
+`tests/fixtures/requirements-quality/`) is built, measured (3 fresh-context runs per document), and
+corrected through three rounds of advisor review — see the "Stage 1 — corpus measurement..." and
+"Addendum" sections below for the full, honest history including two premature conclusions this session
+caught and retracted on itself. `PLAN.md` has: the impact surface (§2), the blast-radius measurements
+(§3), design decisions D1 through D11 (§4 — each either resolved with a stated position or explicitly
+flagged for Stage 2's attack, never silently assumed), the JSON contracts (§5), the state-transition
+table (§6, just corrected for a single-writer contradiction an advisor review found), file-level
+estimates (§7), and the full 30-scenario traceability table (§8).
+
+**What is NOT done, in order:**
+1. **§6 is still missing a `refinement dispute` row.** D9 defines its JSON-contract impact
+   (`disputeOutcomes[]`) and §5.c has `refinement_dispute_incomplete`, but the state-transition table
+   itself has no row for the dispute event. Found while writing this pause note; not yet fixed. Small,
+   mechanical — add one row following the same pattern as the `cancel` row just added.
+2. **PLAN.md and LEDGER.md have not yet been committed at a named "Stage 2 review baseline" SHA.** The
+   approved execution plan freezes PLAN.md only *after* Stage 2 reconciliation (Level 1/2 findings get
+   applied to it), so nothing should be marked "FROZEN" — record the baseline SHA in this section once
+   item 1 above is fixed and one more `lint-skill` + restatement-test pass confirms green.
+3. **Stage 2 itself (the two-level Codex↔Claude adversarial plan review) has not started at all.**
+   Blocked on items 1–2. When it starts, give Codex the `recompute_metrics.py` reproduce command plus
+   D1, D8, D9, D10, D11 and the `todo-api.md` dependencies finding (§3.c) as named attack items — do not
+   let Codex rediscover them from scratch.
+4. **Stages 3–5 are entirely unstarted** and explicitly blocked by the brief itself: "No production code
+   is written before Stage 2 is reconciled."
+
+**To resume:** read this file's "Current status" section, then `git log --oneline -15` on
+`feat/requirements-refinement` to see exactly what the pause commit contains, then pick up at item 1
+above. Nothing here needs to be re-derived or re-verified from scratch — the corpus measurement and its
+three correction passes are the expensive part and are done.
 
 ## Stage 0 — prior-stabilization verification
 
