@@ -52,7 +52,7 @@ tests surface, ledger enumeration) plus Stage 0's own grep inventories, refreshe
 | `append_audit` | `sdle.py:1407` | Single audit-chain writer — `refinement` commands never call this directly except through the same deferred-replay shape F15 establishes |
 | `bind_workitem` / `resolve_paths` | `sdle.py:2851` / `:413` | WorkItem resolution ladder — `refinement` commands resolve exactly like `governance`/`requirements` do |
 | Write-fence hook | `.claude/hooks/hooks.py`, `FENCED = (".workflow", "workitems", "requirements", "guidance")` | `refinement.json` under `workitems/<id>/.sdle/` is **already covered** by the `workitems` prefix — no hook change needed. **Gap, not fixed here:** there is no `lint-skill` rule enforcing this the way `_check_product_agents` enforces the agent fence; the write-fence hook is the only guarantee, and it is a tripwire per CLAUDE.md's own architecture section, not a proof. Recorded, not treated as blocking — matches every other engine-owned file's coverage. |
-| Product agents / `PRODUCT_AGENT_TOOLS` | `sdle.py:10896`(approx, re-verify at Stage 3) | New `sdle-requirements-review` agent joins the existing four; `lint-skill`'s `product_agent_files` glob (`sdle-*.md`) picks it up automatically — proven by a test, per CLAUDE.md's own drift-list warning about assumed coverage |
+| Product agents / `PRODUCT_AGENT_TOOLS` | `sdle.py:11359` | New `sdle-requirements-review` agent joins the existing four; `lint-skill`'s `product_agent_files` glob (`sdle-*.md`) picks it up automatically — proven by a test, per CLAUDE.md's own drift-list warning about assumed coverage |
 | `CAPABILITY_MAP` | `SKILL.md:232` | New row needed. `requirements_check` is the natural phase — refinement runs pre-`init`, and `requirements_check` is the one phase every flow starts at before any generation. **Verify in a throwaway worktree before Stage 3**, not assumed: `lint-skill`'s `capability_map_covers_every_registry_phase` check requires every *registry* phase to have a row, and adding a *capabilities* pointer to an existing phase's row (rather than declaring a new phase) is the minimal, correct move — this is not a new phase, and must never look like one. |
 | `test_units_governance.py`, `test_units_capabilities.py`, `test_units_invariants.py`, `test_units_startup_contract.py` | `tests/` | Direct consumers of every function this work touches; also where `PRODUCT_AGENTS` (capabilities test) and `WRITE_PRIMITIVE_COUNTS` (invariants test) are pinned and must be updated in the same commit as any new write call site |
 
@@ -70,35 +70,49 @@ this one test's premise must change in the same commit as `quality_verdict_flip`
 substantively before the second `assess`, matching the pattern already used for
 `test_scanning_again_after_init_makes_acknowledgement_available` in Stage 0's own DEF-RR-001 work).
 
-### 3.b The lint floor's blast radius on the existing suite
+### 3.b The lint floor's blast radius on the existing suite — corrected, empirically measured
 
-Built a scratchpad prototype (`lint-prototype.py`, this directory) implementing §3.3's rules. Findings:
+**An earlier draft of this section concluded the floor's blast radius was zero, on a misreading: it read
+§3.6 ("`governance assess` changes only to enforce §3.2") as excluding the lint floor. It does not —
+§3.2 itself lists the lint floor ("Lint floor (C6). Where the lint reports a failure mapped to a check,
+an assessor `PASS` for that check is refused `quality_verdict_below_floor`"), so §3.6 places the floor
+*inside* `governance assess` itself, on every assessment, not only inside the refinement loop. That
+earlier conclusion is retracted here rather than silently corrected, matching this ledger's own
+convention for a wrong verdict.** (Separately, that draft also mis-attributed
+`governance_content_unacknowledged` to the brief's §3.2 — it is Stage 0's own, unrelated addition, not
+part of this brief at all.)
 
-- **Against `requirements/todo-api.md`: clean**, as the brief requires — but only after fixing a bug the
-  prototype itself first exposed: a naive `TODO` marker check matched the ordinary product noun "todo"
-  (the document is *about* a todo-list API). Fixed by making that one check case-sensitive; every other
-  §3.3 rule (missing sections, vague terms, unresolved markers, quantitative NFRs) stayed as designed.
-  This is exactly the failure mode C6 warns about, caught by testing against real content rather than
-  trusting the rule's description.
-- **Against `bare_project`'s minimal fixture** (`tests/conftest.py:388`, used directly or via `project`
-  across the majority of this suite's ~3,150 tests): the missing-sections rule fires (no `## Acceptance`,
-  no "out of scope" text). **This does not translate into suite breakage**, because of where the floor
-  actually attaches: per §3.6, `governance assess` changes *only* to enforce §3.2 (the flip and the new
-  `governance_content_unacknowledged`-style check) — the lint floor itself is enforced inside the new
-  `refinement` command group, consulted only once a WorkItem's initial assessment is genuinely `BLOCKED`
-  and refinement starts (§3.4's "Pass" case: *F₀ = ∅ → the loop is never entered*). Every existing test's
-  `record_governance()` helper reports all twelve checks `PASS` unconditionally, so `F₀` is always empty
-  for them and refinement never runs. **The floor's blast radius on the existing 3,150+ tests is zero.**
-  The risk moves entirely to Stage 3's *new* tests for the refinement command group itself, which must
-  use realistic corpus documents (§3.c below) when exercising the floor, never the suite's minimal stub
-  fixtures.
+Built a scratchpad prototype (`lint-prototype.py`, this directory) implementing all six §3.3 rules,
+including two an earlier pass omitted (acceptance-criteria id/observable-outcome, duplicate ids across
+documents). Findings:
+
+- **Against `requirements/todo-api.md`: clean** on all six rules, as the brief requires — but only after
+  fixing two bugs the prototype itself first exposed: a naive `TODO` marker check matched the ordinary
+  product noun "todo" (the document is *about* a todo-list API), and the acceptance-criteria rule needed
+  an "observable outcome" heuristic broad enough to recognise todo-api.md's own plain-prose Acceptance
+  section (no ids, but concrete outcomes: "behaves as described", "is consistent", "is enforced",
+  "passes") without also passing genuinely vague criteria. Both are exactly the failure mode C6 warns
+  about, caught only by testing against real content.
+- **Measured empirically, not argued from the brief's text.** Wired the prototype's rules directly into
+  a throwaway worktree's `cmd_governance_assess` (refusing `EXPERIMENT_lint_floor` wherever a `PASS`
+  answer has a mapped lint finding) and ran the real test suite against it, unmodified. **92 of 230
+  tests failed in `test_units_governance.py` alone; a further 121 failed and 16 errored across
+  `test_units_startup_contract.py`, `test_units_capabilities.py`, `test_units_gate_policy.py` and
+  `test_units_hardening.py`** — over 200 failures in 5 of the 19 affected files, extrapolating to several
+  hundred suite-wide. The floor, applied unconditionally to every `governance assess` call as the brief's
+  text most naturally reads, is **not safe to ship against this suite's fixtures as they stand.**
+  `bare_project`'s minimal document (`tests/conftest.py:388`) — no `## Acceptance`, no "out of scope"
+  text — is the single root cause for most of them, since `project`/`bare_project` underlie the large
+  majority of this suite.
 - **Against a deliberately vague fixture**: the vague-terms rule correctly flagged `fast`, `user-friendly`,
   `as appropriate`/`appropriate`, `robust` and `several` — no false negatives observed in this sample.
 
-**Design consequence:** the lint floor is wired into `refinement propose`/`refinement dispute` only, never
-into `governance assess` directly, exactly as §3.6 already specifies — Stage 1's own measurement confirms
-this reading is safe, not merely textually correct. No owner decision needed on scope; the safe default
-the brief already chose is the one the data supports.
+**This is now the owner decision the brief's own C6/§3.3 anticipated, with real evidence attached** — see
+"Owner questions" below. It is not self-resolving: shipping the floor as designed breaks the existing
+suite at real scale; scoping it more narrowly (e.g., only within `refinement`, as the retracted draft
+assumed) weakens exactly the anti-drift guarantee the brief opens by naming as the design's whole point
+("worthless if it converges because the assessor starts saying PASS"). Both directions have a real cost,
+and the choice is the owner's, not a default this plan can supply.
 
 ### 3.c Corpus (built at Stage 3, not before — see §7)
 
@@ -234,14 +248,50 @@ existing UX.
 | `refinement_edit_stale_base` | `refinement apply` | 1 |
 | `refinement_record_invalid` | any `refinement` command | 3 |
 
-## 6. State-transition table (summary; full table at Stage 3 phase A)
+## 6. State-transition table
 
-Initial pass (F₀=∅) → no loop, existing flow. Remediation (F₀≠∅) → `propose` → findings/questions →
-human `decide` (batched, ≤5 questions, ranked by resolvable-check count) → `apply` (per-item
-accept/reject, auto-apply only if presentation-neutral per §3.5) → re-`scan` → re-`assess` → Progress /
-Regression / Stall / Exhaustion per §3.4's exact definitions. Interruption at every write point recovers
-via the same read-before-write pattern F15 establishes (read the record, check for an incomplete
-transaction, resume or refuse `refinement_record_invalid`).
+| From | Event | To | Writes | Notes |
+|---|---|---|---|---|
+| (none) | `governance assess`, F₀=∅ | (no loop) | governance.json only | Existing flow, untouched |
+| (none) | `governance assess`, F₀≠∅ | IN_PROGRESS, iteration 1 | `refinement.json` (new) | Loop entered |
+| IN_PROGRESS | `refinement propose` | IN_PROGRESS | findings + questions in the iteration record | Lint floor's own refusal (`quality_verdict_below_floor`) can fire *inside* the assessor step this calls, per §3.b's owner decision — propose does not swallow it |
+| IN_PROGRESS | human `decide` | IN_PROGRESS | decision recorded per question | ≤5 questions, batched |
+| IN_PROGRESS | `refinement apply` | IN_PROGRESS | edits applied, evidence written | Auto-apply only if presentation-neutral (§3.5); C1 transaction (below) if the source is shared |
+| IN_PROGRESS | re-`scan` finds new flags | IN_PROGRESS | scan-acknowledgements.json (existing F15 mechanism) | Not a refinement-record write; the existing engine path |
+| IN_PROGRESS | re-`assess` → Fₖ=∅ | PASSED | refinement.json closed | §3.4 "Pass" |
+| IN_PROGRESS | re-`assess` → Fₖ⊊Fₖ₋₁ or an answer applied | IN_PROGRESS | iteration k+1 opens | §3.4 "Progress" |
+| IN_PROGRESS | re-`assess` → new failing check | IN_PROGRESS, flagged | regression recorded, shown to human, **no auto-continue** | §3.4 "Regression" |
+| IN_PROGRESS | re-`assess` → Cₖ=Cₖ₋₁, or Pₖ seen before, or 2 no-progress iterations | ESCALATED | refinement.json closed | §3.4 "Stall" |
+| IN_PROGRESS | cap (3) reached | ESCALATED | refinement.json closed | §3.4 "Exhaustion"; `init` stays refused |
+| IN_PROGRESS | re-`assess` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
+| any | crash/interruption | resume | (none until next write) | Recovery reads `refinement.json`, finds the last-committed iteration, and either resumes (nothing pending) or replays a C1 intent (below) |
+| IN_PROGRESS | human cancels | CANCELLED | refinement.json closed | |
+| IN_PROGRESS | unrecoverable engine error | FAILED | refinement.json closed, error recorded | Terminal; the WorkItem's `governance assess` remains usable independently — this record's terminal state does not itself block re-running `governance assess` by hand |
+
+### Presentation-neutral normal form and content digest (§3.2/§3.5)
+
+Per brief text, restated here as the literal algorithm this plan implements: line endings unified to
+`\n`; trailing whitespace stripped per line; runs of two-or-more spaces *within a line's prose text*
+collapsed to one, **excluding** leading indentation, table rows (`|`-delimited), code spans (`` ` ``) and
+fenced blocks (` ``` `); runs of two-or-more blank lines collapsed to one. `Cₖ` = SHA-256 of this
+normal form. An edit is presentation-neutral only if the normal form is byte-identical before and after
+— computed by the engine (mirroring `_sources_digest`'s existing "one formula, shared by writer and
+reader" discipline), never inferred from the refiner's own classification of its edit.
+
+### C1 shared-document transaction record (§3.5, D1/D2)
+
+```json
+{"transactionId": "...", "status": "PENDING|COMMITTED|ABORTED",
+ "documentPath": "...", "baseSha256": "...", "targetSha256": "...",
+ "targetContentEvidence": "evidence/refinement-target-<id>.json",
+ "affectedWorkitems": ["..."], "acknowledgement": "...", "originatingWorkitem": "..."}
+```
+
+Recovery (run before any other `refinement` command for the originating or an affected WorkItem, whenever
+an intent is not `COMMITTED`): document at `targetSha256` → append only the missing per-WorkItem audit
+entries (idempotent, same structural-dedup pattern as F15's `_already_recorded`), then commit. Document at
+`baseSha256` → re-apply from the stored target content, or `ABORTED` on user cancel. Document at any other
+SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing nothing.
 
 ## 7. File-level estimates by phase
 

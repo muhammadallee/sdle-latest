@@ -61,9 +61,54 @@ def check_quant_nfrs_without_measure(text: str) -> list[str]:
     return hits
 
 
-def lint(text: str) -> dict[str, list[str]]:
+OBSERVABLE_OUTCOME_HINTS = re.compile(
+    r"\b(returns?|responds?|succeeds?|fails?|must (be|equal|return|reject|accept)|"
+    r"is rejected|is accepted|behaves? as|is consistent|is enforced|passes|"
+    r"status \d|error|exit \d|refuses?)\b", re.IGNORECASE)
+STABLE_ID_PATTERN = re.compile(r"^\s*(?:[-*]\s*)?(?:AC[-\s]?\d+|[A-Z]+-\d+|\d+\.)\s", re.MULTILINE)
+
+
+def check_acceptance_criteria_quality(text: str) -> list[str]:
+    """Heuristic only: does the Acceptance section (however titled) contain
+    at least one criterion with either a stable id or an observable-outcome
+    verb? Fires once for the section, not per-line - a single prose
+    paragraph with a clear outcome must not be flagged for lacking an id
+    (no format is mandated)."""
+    hits = []
+    m = re.search(r"(?im)^#+\s*Acceptance.*?$(.*?)(?=^#+\s|\Z)", text, re.DOTALL | re.MULTILINE)
+    if not m:
+        return hits  # missing-section rule already covers this case
+    section = m.group(1)
+    has_id = bool(STABLE_ID_PATTERN.search(section))
+    has_outcome = bool(OBSERVABLE_OUTCOME_HINTS.search(section))
+    if not has_id and not has_outcome:
+        hits.append("acceptance_criteria: Acceptance section has no stable id and no observable outcome")
+    return hits
+
+
+def check_duplicate_ids(text: str, other_texts: dict[str, str] | None = None) -> list[str]:
+    """Duplicate requirement/criterion ids within one document, and (if
+    other_texts given) across bound documents."""
+    hits = []
+    ids = re.findall(r"\b(AC-\d+|REQ-\d+|[A-Z]{2,}-\d+)\b", text)
+    seen = set()
+    for i in ids:
+        if i in seen:
+            hits.append(f"contradictions: duplicate id {i!r} within this document")
+        seen.add(i)
+    if other_texts:
+        for other_path, other_text in other_texts.items():
+            other_ids = set(re.findall(r"\b(AC-\d+|REQ-\d+|[A-Z]{2,}-\d+)\b", other_text))
+            for dup in seen & other_ids:
+                hits.append(f"contradictions: id {dup!r} duplicated in {other_path}")
+    return hits
+
+
+def lint(text: str, other_texts: dict[str, str] | None = None) -> dict[str, list[str]]:
     all_hits = (check_unresolved_markers(text) + check_vague_terms(text)
-                + check_missing_sections(text) + check_quant_nfrs_without_measure(text))
+                + check_missing_sections(text) + check_quant_nfrs_without_measure(text)
+                + check_acceptance_criteria_quality(text)
+                + check_duplicate_ids(text, other_texts))
     by_check: dict[str, list[str]] = {}
     for h in all_hits:
         check_id = h.split(":", 1)[0]
