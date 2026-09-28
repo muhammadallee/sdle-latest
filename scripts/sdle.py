@@ -4619,10 +4619,10 @@ def requirements_sources(paths: Paths, strict: bool = False
     """Every **bound** requirement document with its SHA, one digest, and the
     raw bytes actually read for each — each source is read from disk exactly
     once, here, and the caller passes those same bytes on rather than
-    re-reading (V-01/R2-D01: two separate reads of the same bound source, at
-    two different times, is exactly the gap a concurrent edit can exploit —
+    re-reading: two separate reads of the same bound source, at two
+    different times, is exactly the gap a concurrent edit can exploit —
     `governance assess` used to hash here and re-read again in
-    `unacknowledged_flagged_sources`, so it no longer does).
+    `unacknowledged_flagged_sources`, so it no longer does.
 
     ``strict`` is what `governance assess` passes: an assessment may not be
     *recorded* against a document that is not there. Without it, deleting a
@@ -9724,7 +9724,7 @@ def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
     path — an old acknowledgement for since-changed content is not evidence
     of anything and would only grow the file forever.
 
-    R2-D04, accepted as a known limitation rather than fixed here: this is an
+    Accepted as a known limitation rather than fixed here: this is an
     unlocked read-modify-write, so two concurrent acknowledgements for
     *different* paths can race and one replace the other's. It fails closed —
     the lost acknowledgement simply means that path is unacknowledged again,
@@ -9756,7 +9756,7 @@ def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
     source itself, so a source nobody ever ran `scan` on is caught here
     rather than silently reaching `init` unexamined.
 
-    V-01/R2-D01. Takes `raw_by_path` — the exact bytes `requirements_sources`
+    Takes `raw_by_path` — the exact bytes `requirements_sources`
     already read `entry["sha256"]` from — rather than reading the file a
     second time: two reads of the same path at two different times is
     exactly the gap a concurrent edit can exploit (hash flagged content,
@@ -9836,8 +9836,8 @@ def cmd_scan(args, paths: Paths) -> int:
 
 def cmd_accept_content(args, paths: Paths) -> int:
     """Two routes, chosen by whether `--path` is given, that now converge on
-    the same two effects (R2-D02: each used to touch only its own store,
-    so accepting through one route still left `governance assess` refusing
+    the same two effects (each used to touch only its own store, so
+    accepting through one route still left `governance assess` refusing
     on the other's behalf) — both write the durable content acknowledgement
     `governance assess` checks, and both clear a matching state-backed
     pending confirmation when one exists.
