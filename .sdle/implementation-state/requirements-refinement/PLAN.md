@@ -135,8 +135,11 @@ it is "not yet, ship advisory." Consequences for the rest of this plan:
 
 The corpus was originally sketched here as Stage-3-phase-A work. The owner's "Full corpus, 3 runs/doc"
 decision (2026-09-28) moved it earlier: `tests/fixtures/requirements-quality/` holds one seeded-defect
-document per check id (12 documents) plus `clean-baseline.md`, all "Link Shortener Service" documents,
-committed at `9ec6d4a`. `labels.json` started outside the working tree (this session's scratchpad) for
+document per check id (12 documents), `clean-baseline.md`, and — added in a later pass, after an advisor
+review found brief §4.1A.4 requires it and the original build had missed it — `todo-api.md`, copied
+verbatim from `requirements/todo-api.md`. The corpus's content has changed across several commits since
+first built (`eefc661`, `ef41b9c`, and the commit carrying the `todo-api.md` addition); cite its current
+state under version control, not one historical SHA. `labels.json` started outside the working tree (this session's scratchpad) for
 the original 39-dispatch measurement, so a general-purpose subagent measuring the baseline could not
 `Glob`/`Read` the answer key; it was moved into the repo at `ef41b9c` for durability, once measurement
 was done, so a Stage 2 Codex worktree can reproduce the tables. **Any further measurement pass against
@@ -182,17 +185,38 @@ one number worth Stage 2 attention.
 **The earlier "prompt-level remedy versus documented limitation" owner question is withdrawn** — there
 is no demonstrated blind spot left to choose a remedy for.
 
-**Agreement rate: 69% (9/13), unrevised from the original measurement.** The intermediate correction's
-"62% (8/13)" was an arithmetic error, not a re-measurement, caught by `recompute_metrics.py`.
+**Agreement rate: 71% (10/14)**, after adding `todo-api.md` (agrees, unanimous). The 13-document figure
+was 69% (9/13), unrevised from the original measurement — the intermediate correction's "62% (8/13)" was
+an arithmetic error, not a re-measurement, caught by `recompute_metrics.py`.
 
-**Lint precision/recall (deterministic, one run per document):** perfect (1.00/1.00, zero false
-positives including on `clean-baseline.md`) for `blocking_unknowns`, `out_of_scope`,
-`acceptance_criteria` and `ambiguity`; 0.50 recall for `nfrs` specifically (a keyword-coverage gap in
-`check_quant_nfrs_without_measure`, not a design flaw — noted for a Stage 3 regex fix); the sixth rule
-(duplicate ids) has no positive fixture in this corpus yet and needs one before Stage 3 relies on this
-corpus as its regression suite. This confirms the Option-3/D7 floor-eligibility requirement (§3.3: "any
-rule that floors a verdict produces zero findings on... every clean corpus fixture") for the four rules
-that are floor-eligible today.
+**The missing `todo-api.md` fixture (brief §4.1A.4) — found and added in a later pass.** The original
+build never included it, only the invented `clean-baseline.md`. Added verbatim from
+`requirements/todo-api.md`, labeled clean. **3 fresh dispatches unanimously FAILed `dependencies`**
+("a relational store" names no product, version or driver) — a real finding on the repository's own
+reference document, not edited away (this document is required to stay untouched, per acceptance
+scenario 1 itself). **This is now the one live owner question for Stage 2**: acceptance scenario 1
+assumes this document passes cleanly and the loop is never entered; on this evidence it would not be.
+Full writeup in `LEDGER.md`'s "Addendum — missing brief-mandated fixture" section — two honest readings
+are offered there, neither decided in this plan.
+
+**Lint precision/recall (deterministic, one run per document, rescored against the current 14-document
+corpus and the current labels — an earlier "perfect on four rules" claim here predated the
+`acceptance_criteria`/`ambiguity` dual-labeling and was stale):** perfect (1.00/1.00, zero false
+positives) for `blocking_unknowns`, `out_of_scope` and `acceptance_criteria`; 0.75 recall for `ambiguity`
+(the miss is `defect-acceptance_criteria.md` — its vague replacement text isn't on the lint's fixed
+vague-terms vocabulary, while the LLM assessor catches it every time; a real, narrower coverage gap in
+the deterministic floor, not a bug); 0.50 recall for `nfrs` (a keyword-coverage gap in
+`check_quant_nfrs_without_measure`, unchanged from before, noted for a Stage 3 regex fix); the sixth rule
+(duplicate ids across *bound* documents) still has no positive fixture — an earlier scoring attempt that
+compared all 13 unrelated corpus documents against each other (a test-harness bug, not a lint finding,
+since these documents are independent, not a bound set) produced 11 nonsense false positives before the
+harness was fixed to lint each document alone. Every one of the six rules shows zero false positives on
+the current corpus — §3.3's explicit floor-eligibility criterion ("any rule that floors a verdict
+produces zero findings on... every clean corpus fixture") is about false positives, not recall, so
+`ambiguity` and `nfrs`'s recall gaps do not themselves disqualify those two rules by that specific
+criterion; they are a separate concern (a floored rule with a real recall gap would under-detect, not
+wrongly flag clean text) already moot under Option 3, since no rule floors anything in this shipment
+regardless.
 
 ## 4. Design decisions (Stage 2 attacks each of these)
 
@@ -349,8 +373,9 @@ boundary D3 draws for provenance, now drawn for an overturned result.
 | From | Event | To | Writes | Notes |
 |---|---|---|---|---|
 | (none) | `governance assess`, F₀=∅ | (no loop) | governance.json only | Existing flow, untouched |
-| (none) | `governance assess`, F₀≠∅ | IN_PROGRESS, iteration 1 | `refinement.json` (new) | Loop entered |
-| IN_PROGRESS | `refinement propose` | IN_PROGRESS | findings + questions in the iteration record; lint findings recorded as evidence | Lint is advisory (Option 3, §3.b, owner decision): it never refuses `propose`, only records what it found alongside the assessor's own answers |
+| (none) | `governance assess`, F₀≠∅ | (none) | governance.json only | `governance assess` itself is unchanged from today except §3.a's flip refusal — it reports the failing checks and does not create `refinement.json`. The loop is not entered until the first `refinement propose` call, which is the sole writer of the record (single-writer discipline, matching this codebase's own convention) |
+| (none) | `refinement propose`, first call, F₀≠∅ | IN_PROGRESS, iteration 1 | `refinement.json` (new) | Loop entered. Findings + questions in the iteration record; lint findings recorded as evidence — lint is advisory (Option 3, §3.b, owner decision): it never refuses `propose`, only records what it found alongside the assessor's own answers |
+| IN_PROGRESS | `refinement propose`, subsequent call | IN_PROGRESS | findings + questions in the next iteration record | Same lint-advisory behaviour as the first call |
 | IN_PROGRESS | human `decide` | IN_PROGRESS | decision recorded per question | ≤5 questions, batched |
 | IN_PROGRESS | `refinement apply` | IN_PROGRESS | edits applied, evidence written | Auto-apply only if presentation-neutral (§3.5); C1 transaction (below) if the source is shared |
 | IN_PROGRESS | re-`scan` finds new flags | IN_PROGRESS | scan-acknowledgements.json (existing F15 mechanism) | Not a refinement-record write; the existing engine path |
@@ -358,7 +383,7 @@ boundary D3 draws for provenance, now drawn for an overturned result.
 | IN_PROGRESS | re-`assess` → Fₖ⊊Fₖ₋₁ or an answer applied | IN_PROGRESS | iteration k+1 opens | §3.4 "Progress" |
 | IN_PROGRESS | re-`assess` → new failing check | IN_PROGRESS, flagged | regression recorded, shown to human, **no auto-continue** | §3.4 "Regression" |
 | IN_PROGRESS | re-`assess` → Cₖ=Cₖ₋₁, or Pₖ seen before, or 2 no-progress iterations | ESCALATED | refinement.json closed | §3.4 "Stall" |
-| IN_PROGRESS | cap (3) reached | ESCALATED | refinement.json closed | §3.4 "Exhaustion"; `init` stays refused |
+| IN_PROGRESS | cap (3) reached | ESCALATED | refinement.json closed | §3.4 "Exhaustion"; per O1/§1 F5, `init` itself is not a governance precondition — `advance`/`gate approve`/`gate omit`/`skip` stay refused `governance_blocked` while quality is blocked, which is what actually keeps the WorkItem from progressing |
 | IN_PROGRESS | re-`assess` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
 | any | crash/interruption | resume | (none until next write) | Recovery reads `refinement.json`, finds the last-committed iteration, and either resumes (nothing pending) or replays a C1 intent (below) |
 | IN_PROGRESS | human cancels | CANCELLED | refinement.json closed | |
@@ -409,14 +434,14 @@ not a function — exact names don't exist until phase C/E write the code.
 
 | # | Scenario (short) | Design coverage | Stage 3E test area |
 |---|---|---|---|
-| 1 | Clean pass, loop not entered | §6 row 1 (F₀=∅ → no loop) | `test_units_governance.py`, existing PASS-path, extended to assert no `refinement.json` is written |
+| 1 | Clean pass, loop not entered | §6 row 1 (F₀=∅ → no loop). **Open question, §3.c:** this scenario's own worked example, `todo-api.md`, was measured 3/3 FAIL on `dependencies` in Stage 1 — not yet resolved whether the document or the check reading is at fault; flagged for Stage 2, not assumed passing here | `test_units_governance.py`, existing PASS-path, extended to assert no `refinement.json` is written — write the test against a document verified to pass all 12 checks, which may or may not end up being `todo-api.md` depending on the Stage 2 answer |
 | 2 | One check fixed in one iteration | §6 rows 2–6 (entry → propose → decide → apply → PASSED) | `test_units_refinement.py` — single-iteration convergence |
 | 3 | Multi-iteration, findings trace to ids/decisions | §5.a `iterations[].findings`/`edits[].decision` | `test_units_refinement.py` — multi-iteration record integrity |
 | 4 | Question pauses, resumes without re-asking | §5.a `questions[].answer`; §3.4 human-burden cap (≤5/iteration) | `test_units_refinement.py` — question pause/resume |
 | 5 | Rejected edit not applied, not recorded approved | §5.a `edits[].decision: accepted\|rejected\|null` | `test_units_refinement.py` — rejection handling |
 | 6 | Regression detected, no auto-continue | §6 row "new failing check → regression... no auto-continue" (§3.4 Regression) | `test_units_refinement.py` — regression detection |
 | 7 | Identical proposal/digest is a stall → ESCALATED | §6 row "Cₖ=Cₖ₋₁ or Pₖ seen before → ESCALATED" (§3.4 Stall) | `test_units_refinement.py` — stall detection |
-| 8 | Cap exhaustion → ESCALATED; `init` still refused | §6 row "cap (3) reached"; `iterationCap` (§5.a); existing `governance_blocked` (unaffected, §1 F5) | `test_units_refinement.py` — exhaustion + `init` refusal |
+| 8 | Cap exhaustion → ESCALATED; per O1's restatement, `advance` (not `init`) stays refused `governance_blocked` while quality is blocked | §6 row "cap (3) reached"; `iterationCap` (§5.a); existing `governance_blocked` (unaffected, §1 F5) | `test_units_refinement.py` — exhaustion + `advance` refusal |
 | 9 | `nfrs: NOT_APPLICABLE`/tighten-only unchanged | D3 (no new governance-input key); `evaluate_quality` untouched (§2) | `test_units_governance.py` — explicit regression assertion, no new exception path |
 | 10 | Interruption resumes, no duplicate edit/decision | §6 "any → crash/interruption → resume"; D1's deferred-replay pattern (F15 precedent) | `test_units_refinement.py` — interruption/resume, mirroring existing scan-acknowledgement interruption tests |
 | 11 | Concurrent invocation refused by session lock | D2 — new refusing lock (exclusive `open(..., "x")`) | `test_units_refinement.py` — concurrent-lock refusal |
@@ -429,7 +454,7 @@ not a function — exact names don't exist until phase C/E write the code.
 | 18 | Acknowledged shared edit dual-audited, staleness reported | D1 (affected-WorkItem audit append/deferred-replay); C1 record (§6) | `test_units_refinement.py` — shared-edit dual-audit + staleness |
 | 19 | FAIL→PASS at same digest refused | §3.a (the one identified test to edit, D4); §5.c `quality_verdict_flip` | `test_units_governance.py::test_re_assessing_a_fixed_requirement_unblocks_the_same_advance` (edited per D4) + new flip-refusal test |
 | 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. Test instead proves the reason code exists and stays inert | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
-| 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement | New test on `sdle-requirements-review.md`'s prompt template — no prior-state fields present |
+| 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement. **Convention only (F8), same class of gap as D8/D9:** a test on the prompt *template* proves the template, not what the assessor actually received at runtime — nothing in this plan records the assessor's actual input for later inspection. Flagged for Stage 2 rather than resolved here | New test on `sdle-requirements-review.md`'s prompt template — no prior-state fields present |
 | 22 | Whitespace-only auto-applies; one-word change does not | §6 presentation-neutral normal form algorithm (§3.2/§3.5); D7 | `test_units_refinement.py` — normal-form digest auto-apply boundary |
 | 23 | Corpus before/after metrics, zero findings on clean fixture | §3.c (Stage 1's "before"); Stage 5 reruns as "after" | Stage 5 `REPORT.md` corpus-metrics section, reusing `runs/recompute_metrics.py` |
 | 24 | Binding-step-skipped test fails | C7 pattern (non-autouse `project` fixture) applied to refinement tests | `test_units_refinement.py` — explicit-binding discipline test |

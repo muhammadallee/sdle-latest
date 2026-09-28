@@ -1,0 +1,22 @@
+{
+  "document": "todo-api.md",
+  "blob_sha": "5df4fe9461342564cd9ada0f8f8b7ac656a37a4c",
+  "run": 1,
+  "dispatched_at": "not recorded",
+  "tool_uses": 0,
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "FAIL", "finding": "The only external dependency named is 'a relational store' (Scope, and 'Persistence to a relational store' under Data Model/Endpoints context), with no specific database product, version, ORM, or library identified."},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "UNEXPECTED FAIL on the brief-mandated clean fixture (labels.json expects []). Real, substantive finding, not a corpus artifact of this session's own editing - todo-api.md is copied verbatim from requirements/todo-api.md and was not touched. Not edited to chase a PASS, per this session's own discipline and the brief's own scenario 1 requiring this document stay untouched. See LEDGER.md for the owner-question writeup."
+}

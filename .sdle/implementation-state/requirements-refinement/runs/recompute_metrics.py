@@ -5,6 +5,7 @@ Run from anywhere; paths are relative to this file's own directory.
 Excludes *-superseded.json and the non-assessor timestamped bookkeeping files from earlier
 Stage 0 review rounds (those don't match the assessor-<check_id>-run<n>.json shape).
 """
+import importlib.util
 import json
 import re
 import sys
@@ -13,6 +14,11 @@ from collections import defaultdict
 
 HERE = Path(__file__).resolve().parent
 LABELS_PATH = HERE.parent / "labels.json"
+LINT_PROTOTYPE_PATH = HERE.parent / "lint-prototype.py"
+CORPUS_DIR = HERE.parent.parent.parent.parent / "tests" / "fixtures" / "requirements-quality"
+
+LINT_TARGET_CHECKS = ["blocking_unknowns", "ambiguity", "acceptance_criteria", "out_of_scope",
+                       "nfrs", "contradictions"]
 
 CHECKS = [
     "problem_statement", "scope", "out_of_scope", "acceptance_criteria",
@@ -64,6 +70,80 @@ KNOWN_TEMPLATE_TENSION_FPS = {
     ("contradictions", "defect-blocking_unknowns.md"),
     ("contradictions", "defect-constraints.md"),
 }
+
+
+def load_lint_module():
+    spec = importlib.util.spec_from_file_location("lint_prototype", LINT_PROTOTYPE_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def run_lint_scoring(labels, undetermined):
+    """Run lint-prototype.py fresh over every corpus document (including todo-api.md, if
+    present) and score it against labels.json for the six checks §3.3 designs it to cover."""
+    lp = load_lint_module()
+    docs = {f.name: f.read_text(encoding="utf-8") for f in sorted(CORPUS_DIR.glob("*.md"))}
+    if not docs:
+        print(f"WARNING: no corpus documents found under {CORPUS_DIR}", file=sys.stderr)
+        return
+
+    stats = {c: {"tp": 0, "fp": 0, "fn": 0, "fp_detail": []} for c in LINT_TARGET_CHECKS}
+    undetermined_report = defaultdict(lambda: {"tp": 0, "fn": 0})
+
+    for name, text in sorted(docs.items()):
+        # No cross-document other_texts here: the duplicate-id rule's cross-document mode
+        # compares documents bound to the SAME WorkItem, not unrelated corpus fixtures that
+        # happen to share a template (every document here reuses AC-1..AC-4 by design, which
+        # would make the rule fire on all 13 as a false positive if scored against each other -
+        # that is a test-harness bug, not a lint finding; see LEDGER.md).
+        findings = lp.lint(text)
+        fired = set(findings.keys())
+        positive_checks = labels.get(name, set())
+        for check in LINT_TARGET_CHECKS:
+            is_fail = check in fired
+            is_positive = check in positive_checks
+            if name in undetermined and check in positive_checks:
+                if is_fail:
+                    undetermined_report[(name, check)]["tp"] += 1
+                else:
+                    undetermined_report[(name, check)]["fn"] += 1
+                continue
+            if is_positive and is_fail:
+                stats[check]["tp"] += 1
+            elif is_positive and not is_fail:
+                stats[check]["fn"] += 1
+            elif not is_positive and is_fail:
+                stats[check]["fp"] += 1
+                stats[check]["fp_detail"].append(name)
+
+    print(f"Lint scoring ({len(docs)} corpus documents, one run each - deterministic, not sampled):")
+    print("| check | positive instances | TP | FN | FP | Recall | Precision |")
+    print("|---|---|---|---|---|---|---|")
+    for check in LINT_TARGET_CHECKS:
+        s = stats[check]
+        pos = s["tp"] + s["fn"]
+        recall = f"{s['tp']/pos:.2f}" if pos else "n/a"
+        precision = f"{s['tp']/(s['tp']+s['fp']):.2f}" if (s["tp"] + s["fp"]) else "undefined"
+        print(f"| {check} | {pos} | {s['tp']} | {s['fn']} | {s['fp']} | {recall} | {precision} |")
+    print()
+    print("Lint false positives by check (document):")
+    for check in LINT_TARGET_CHECKS:
+        if stats[check]["fp_detail"]:
+            print(f"  {check}: {stats[check]['fp_detail']}")
+    print()
+    print("NOTE on 'contradictions' above: this rule only detects DUPLICATE IDS (within or across")
+    print("bound documents), a different failure mode from defect-contradictions.md's seeded textual")
+    print("contradiction. No document in this corpus has a duplicate-id defect, so this row's 0.00")
+    print("recall does not measure the rule's real capability - it measures the absence of a fixture")
+    print("for it. A dedicated 2-document positive/negative pair is still needed (see labels.json's")
+    print("_fixture_design_rule note) before Stage 3 relies on this corpus as the rule's regression test.")
+    if undetermined_report:
+        print()
+        print("Lint on undetermined documents' own labeled check (reported separately):")
+        for (doc, check), counts in sorted(undetermined_report.items()):
+            n = counts["tp"] + counts["fn"]
+            print(f"  {doc} / {check}: caught {counts['tp']}/{n}")
 
 
 def main():
@@ -165,6 +245,9 @@ def main():
             blocked_counts.append(len(failing) > 0)
         n_blocked = sum(blocked_counts)
         print(f"  {doc}: blocked in {n_blocked}/{len(doc_runs)} runs")
+
+    print()
+    run_lint_scoring(labels, undetermined)
 
 
 if __name__ == "__main__":

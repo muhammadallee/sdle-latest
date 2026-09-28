@@ -6,8 +6,14 @@ directory). Branch `feat/requirements-refinement`, created from `0057425` (tip o
 
 ## Current status
 
-**Phase:** Stage 0 — prior-stabilization verification. **Next action:** finish the targeted-test
-verification pass (running), then run the OPEN-01/02 Codex review.
+**Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. Stage 0 is VERIFIED (see that
+section below). PLAN.md's design (§4, D1–D9), JSON contracts (§5), state-transition table (§6),
+file-level estimates (§7) and the 30-scenario traceability table (§8) are written. **Next action:**
+finish Stage 1's remaining exit items — the missing `todo-api.md` corpus fixture (in progress, 3
+dispatches running), the lint-vs-corpus rescoring, and the non-blocking cleanup items an advisor
+review flagged — then commit PLAN.md/LEDGER.md at a named "Stage 2 review baseline" SHA (not
+"frozen" — the approved execution plan freezes PLAN.md only after Stage 2 reconciliation, since
+Level 1/2 findings are applied to it) and start Stage 2's two-level Codex↔Claude review.
 
 ## Stage 0 — prior-stabilization verification
 
@@ -271,6 +277,18 @@ as the basis for that decision, not asserted independently by this session.
 
 **VERIFIED**, on the owner's confirmation above, following CI success on the actual final commit
 (`36374476221` @ `3bd64fc`) — not asserted ahead of either, this time. Proceeding to Stage 1.
+
+## Stage 1 — baseline reproduction (brief §4.1A.5, 2026-09-28)
+
+`python scripts/sdle.py lint-skill` and the full pytest suite are the mandated baseline. The full suite
+was last run and CI-verified at `3bd64fc` (`36374476221`, all four cells green) as part of Stage 0's own
+closure. `git diff --stat 3bd64fc..HEAD -- scripts .claude "tests/*.py"` is empty — no engine-relevant
+file has changed since that verified commit, only `.sdle/implementation-state/requirements-refinement/`
+records and `tests/fixtures/requirements-quality/*` corpus documents, neither of which the full suite or
+`lint-skill` exercises. The prior CI result is therefore still the current baseline, not re-run here.
+Re-verified today rather than assumed stale-but-fine: `python scripts/sdle.py lint-skill` → `ok: true`,
+zero failed checks; `python -m pytest --collect-only -q` → 3175 tests collected, no collection errors.
+No pre-existing failures to enter into the defect register.
 
 ## Stage 1 — evaluation corpus (2026-09-28)
 
@@ -769,3 +787,124 @@ non-1.00, non-n/a recall is `dependencies` (0.00) — already explained above as
 a document reliably blocked via `ambiguity`, not a demonstrated gap. `contradictions` precision depends
 entirely on whether the known template tension is counted. Every other scored check is 1.00/1.00. The
 corpus work is closed pending Stage 2 review; no further probes or reclassification are planned.
+
+## Addendum — 2026-09-28: missing brief-mandated fixture, and a test-harness bug in lint scoring
+
+A further advisor review of the frozen-PLAN.md readiness found five items, two of them blocking. The
+"no further probes or reclassification" line immediately above still holds for the *existing* findings
+— nothing below reopens or reclassifies any of them. This section adds one missing fixture the brief
+requires and fixes a bug in how the lint prototype was scored, neither of which touches the assessor
+findings already closed above.
+
+### The missing `todo-api.md` fixture (brief §4.1A.4)
+
+Brief section 4.1A.4 requires the corpus to hold "at least one seeded-defect document per check id
+**plus the clean `todo-api.md`**" — the original corpus build only had `clean-baseline.md`, an
+invented document, never the brief's own named fixture. Copied verbatim from `requirements/todo-api.md`
+(the repository's real ground-truth fixture, used throughout the docs and tutorials — not the much
+shorter placeholder `tests/conftest.py` generates at runtime for unrelated tests), blob
+`5df4fe9461342564cd9ada0f8f8b7ac656a37a4c`. Labeled clean (`[]`) in `labels.json`, matching its intended
+role.
+
+**3 fresh dispatches, no filename in the prompt: unanimous, unexpected `dependencies: FAIL`.** All three
+cite the same thing — "Persistence to a relational store" (Scope) and the identical NFR line name no
+specific database product, version, ORM or driver, so the dependency is real but unidentifiable. This is
+a genuine finding about the brief's own reference document, not a corpus-construction artifact of this
+session's editing — the file was copied verbatim and never touched, per this session's own rule (and the
+brief's own acceptance scenario 1, which requires this exact document to stay untouched and pass without
+entering the loop).
+
+**This is now the one owner question this corpus measurement raises for Stage 2**, distinct from
+anything already decided: acceptance scenario 1 ("Requirements pass initially; the loop is not entered")
+assumes `todo-api.md` passes cleanly, and on this evidence it would not — the refinement loop would be
+entered on the repository's own reference document on first contact. Two honest readings, neither
+decided here: (a) `todo-api.md` itself has a real, pre-existing gap the loop would correctly catch, which
+is arguably the loop working as designed even on document zero; or (b) `dependencies`'s check definition
+("services, libraries, third parties... with enough detail to know what they are") is being read more
+strictly by the assessor than the document's own authors (this session, elsewhere, and the original
+brief author) intended when they judged this document "clean" — the same ambiguity already seen for
+`constraints`/`scope`/`security_data_implications`. Recorded, not resolved; raised for Stage 2, not
+silently patched by editing the reference document out from under acceptance scenario 1.
+
+### Test-harness bug: lint's duplicate-id rule scored against the wrong comparison set
+
+`recompute_metrics.py`'s lint-scoring addition initially passed every OTHER corpus document as
+`other_texts` to `lint()`, so the duplicate-id rule (`check_duplicate_ids`, `contradictions`) compared
+all 13 unrelated corpus documents against each other. Since every document deliberately reuses
+`AC-1`..`AC-4` from the shared "Link Shortener Service" template (by design — they are independent
+example documents, not a bound set), this produced 11 false positives, one per document pair sharing the
+template. **This is a test-harness bug, not a lint finding** — the rule's real, intended comparison set
+is documents bound to the *same* WorkItem, never an unrelated corpus. Fixed: `other_texts` is no longer
+passed; each document is linted alone. The corpus still has no fixture that tests the duplicate-id rule's
+actual cross-document mode — already known and unchanged by this fix, see the script's own printed note
+and `labels.json`'s `_fixture_design_rule`.
+
+### `recompute_metrics.py` output (verbatim, current corpus + run files, includes `todo-api.md` and lint scoring)
+
+```
+Main table (excludes each _undetermined document's OWN labeled check - see below):
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| problem_statement | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| scope | 0 | 0 | 0 | 0 | n/a | undefined |
+| out_of_scope | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| acceptance_criteria | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 12 | 12 | 0 | 0 | 1.00 | 1.00 |
+| contradictions | 3 | 3 | 0 | 3 | 1.00 | 0.50 |
+| constraints | 0 | 0 | 0 | 0 | n/a | undefined |
+| nfrs | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| security_data_implications | 0 | 0 | 0 | 1 | n/a | 0.00 |
+| compatibility | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| dependencies | 3 | 0 | 3 | 3 | 0.00 | 0.00 |
+| blocking_unknowns | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+
+contradictions, excluding the known shared-template 301/no-store tension FPs:
+  raw: FP=3, precision=0.50
+  excluding template tension: FP=0, precision=1.00
+
+Undetermined documents (own labeled check reported separately, not scored):
+  defect-constraints.md / constraints: caught 0/3 runs
+  defect-scope.md / scope: caught 0/3 runs
+  defect-security_data_implications.md / security_data_implications: caught 1/3 runs
+
+False positives by check (document#run):
+  contradictions: ['defect-blocking_unknowns.md#run2', 'defect-blocking_unknowns.md#run3', 'defect-constraints.md#run3']
+  security_data_implications: ['clean-baseline.md#run1']
+  dependencies: ['todo-api.md#run1', 'todo-api.md#run2', 'todo-api.md#run3']
+
+Agreement: 10/14 (71%) - includes todo-api.md (agrees, unanimous FAIL), up from 9/13 (69%) by one
+document with no change to any prior document's agreement status.
+
+Document-level blocking: todo-api.md is blocked 3/3 (via dependencies) - see the owner-question
+writeup above. Every other document's count is unchanged from the prior addendum.
+
+Lint scoring (14 corpus documents, one run each - deterministic, not sampled):
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| blocking_unknowns | 1 | 1 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 4 | 3 | 1 | 0 | 0.75 | 1.00 |
+| acceptance_criteria | 1 | 1 | 0 | 0 | 1.00 | 1.00 |
+| out_of_scope | 1 | 1 | 0 | 0 | 1.00 | 1.00 |
+| nfrs | 2 | 1 | 1 | 0 | 0.50 | 1.00 |
+| contradictions | 1 | 0 | 1 | 0 | 0.00 | undefined |
+```
+
+Lint's `ambiguity` miss (0.75, 3/4) is `defect-acceptance_criteria.md`: its vague replacement text
+("works well", "satisfied") isn't on the lint's fixed vague-terms vocabulary, while the LLM assessor
+caught it (all 3 runs, see the corpus-measurement section above) — a real, narrower vocabulary gap in
+the deterministic floor relative to the semantic assessor, not a bug; this is exactly the kind of gap
+having both layers is meant to surface. `nfrs`'s 0.50 and `contradictions`'s 0.00/undefined are as
+explained in the corpus-measurement section and the script's own printed note respectively — unchanged
+by this addendum, restated here only because the numbers moved (positive-instance counts changed with
+`todo-api.md` added) even though the underlying explanation didn't.
+
+§3.c's "committed at `9ec6d4a`" citation is stale — the corpus content has changed at `eefc661`,
+`ef41b9c` and now this addendum's commit; §3.c should cite the corpus by its current state, not a
+specific historical commit, since it has legitimately changed more than once since first measured.
+
+**Filenames encode labels, a deviation from the original plan** (which specified neutral `doc-01.md`
+style names). Every dispatch prompt in this corpus measurement omitted the filename and instructed no
+tool use; `tool_uses: 0` is recorded on the three newest run files (`todo-api.md`) as provenance that no
+tool was actually invoked to discover it, matching PLAN.md §3.c's own note that filename neutrality was
+never the real guard. Earlier run files do not carry `tool_uses` (not captured at the time) — treat its
+absence there as "not recorded," not as evidence either way.
