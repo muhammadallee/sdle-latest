@@ -139,43 +139,42 @@ document per check id (12 documents) plus `clean-baseline.md`, all "Link Shorten
 committed at `9ec6d4a`. `labels.json` is kept outside the working tree (this session's scratchpad, not
 the repo) so a general-purpose subagent measuring the baseline cannot `Glob`/`Read` the answer key.
 Each document was assessed **three times independently**, fresh context each time, 39 dispatches total,
-raw results under `runs/assessor-<check-id>-run<n>.json`. An adjudication pass (2026-09-28, prompted by
-advisor review) then found two of this session's own earlier corpus edits had bled adjacent content into
-four of these documents, re-corrected the corpus, and re-ran the four affected documents (12 more
-dispatches). Full methodology, the precision/recall table, the agreement-rate table and the lint
-prototype's own measured precision/recall are in `LEDGER.md`'s "Stage 1 — corpus measurement results"
-and "Stage 1 — corpus measurement, adjudication pass" sections; this section summarizes what changes
-for the design, using the **adjudicated** (post-correction) numbers throughout.
+raw results under `runs/assessor-<check-id>-run<n>.json`. Two subsequent advisor-prompted correction
+passes (both 2026-09-28) found this session's own corpus edits had contaminated several findings and, in
+the first correction's own re-measurement, repeated the same premature-conclusion pattern a second time.
+Full methodology and the verbatim, reproducible `recompute_metrics.py` output are in `LEDGER.md`'s three
+"Stage 1 — corpus measurement..." sections, ending in the "Correction — 2026-09-28: retracting the
+'confirmed / strengthened' verdict above" section, which is authoritative — everything below summarizes
+*that* section, not the two it retracts.
 
-**Headline result that changes a design assumption, confirmed under adjudication:** the assessor has
-0.00 recall, unanimously across all 3 runs, on three checks whose seeded defect is a wholly-absent
-section with no other section pointing at it: `compatibility`, `constraints`, `dependencies` — each
-re-verified after the corpus correction, so this is not an artifact of the original corpus's
-construction. A fourth check, `scope`, shows the same 0/3 pattern but is **contested, not confirmed**:
-the document's required Purpose paragraph and acceptance criteria arguably already satisfy `scope`'s own
-definition without a dedicated "In scope:" list, and stripping them would corrupt two other checks'
-non-defects, so this one was deliberately left untested further. A fifth check,
-`security_data_implications`, was originally measured at 0.67 recall via a dangling cross-reference this
-session had accidentally added; with that cue removed, its true recall is 0.33 — worse, not better. The
-assessor reliably catches textual defects (vagueness, contradictions, unmeasured NFRs, weak acceptance
-criteria — all at recall 1.00) and catches absence when something else in the document cues it
-(`out_of_scope`'s unpaired "In scope:" list, `problem_statement`'s cold open). This is now a known,
-load-bearing limitation of the assessor this design relies on for every quality verdict, not a
-hypothetical one — Stage 3 should record it in the `sdle-requirements-review` agent's own prompt as a
-known blind spot. **The remedy is an open owner question, not a decision made here:** a deterministic
-section-presence lint rule was considered and rejected as a default fix, since requiring a heading named
-"Constraints" (etc.) is exactly what C6 forbids — "turning a writing-style preference into a
-requirement" — and would override §3.3's deliberate limit of missing-section lint coverage to
-`acceptance_criteria`/`out_of_scope` only. The live choice for Stage 2 to carry forward is a
-prompt-level remedy for the assessor (e.g., an explicit instruction to check named-section presence
-before crediting adjacent content) versus accepting this as a documented, permanent limitation.
+**What is actually confirmed, by a controlled experiment rather than argument:** `compatibility`'s
+original 0/3 was a corpus-construction defect, not an assessor limitation. Deleting the whole
+Compatibility section had also deleted the only text establishing that compatibility was relevant at
+all; adding a one-sentence relevance cue to Purpose (no compatibility requirement) flipped the result to
+3/3 caught, unprompted, in a controlled re-test. The fixed text is now the corpus's
+`defect-compatibility.md`. **There is no demonstrated structural blind spot for section absence.** The
+narrow, real limitation — one line in the `sdle-requirements-review` agent's own prompt in Stage 3, not
+a design change — is that the assessor will not infer a relevance concern the document's own text never
+raises.
 
-**Agreement rate:** 62% of documents (8/13, revised from the original 69%/9-13 after the adjudication
-pass re-ran 4 documents) produced byte-identical 12-key verdicts across all 3 fresh runs; the other 38%
-varied only on borderline judgment calls, never on a check a run otherwise caught correctly — no run
-ever partially caught then dropped a clearly-labeled primary defect. This is the real, measured rate
-`quality_verdict_flip` will fire at on an honest rerun of unchanged content, and it is the number
-D-series design decisions about `dispute` frequency should be checked against in Stage 2.
+**`constraints` and `scope` remain genuinely unresolved**, not confirmed misses: both documents still
+carry scattered content a generous reading of their check's own "where any genuinely apply" hedge could
+credit, and the compatibility experiment proved that exact mechanism can flip a result — no equivalent
+controlled test was run for these two. `labels.json` marks both `_undetermined`. `dependencies`'s
+check-level 0/3 turned out to be an attribution result, not a recall gap: the document names its
+dependencies (Kubernetes, internal SSO) outside a dedicated Dependencies section and is reliably blocked
+3/3 via `ambiguity` — this session's own run-file notes claiming otherwise were factually wrong and are
+annotated, not rewritten. **The one measure that survived both corrections un-revised is document-level
+blocking** (does *any* check fail, which is what the loop's stall/regression logic actually acts on):
+`defect-scope.md` is the only document never blocked in any of 3 observed runs — and it is also one of
+the two `_undetermined` documents, so even this is not asserted as a confirmed product gap, only as the
+one number worth Stage 2 attention.
+
+**The earlier "prompt-level remedy versus documented limitation" owner question is withdrawn** — there
+is no demonstrated blind spot left to choose a remedy for.
+
+**Agreement rate: 69% (9/13), unrevised from the original measurement.** The intermediate correction's
+"62% (8/13)" was an arithmetic error, not a re-measurement, caught by `recompute_metrics.py`.
 
 **Lint precision/recall (deterministic, one run per document):** perfect (1.00/1.00, zero false
 positives including on `clean-baseline.md`) for `blocking_unknowns`, `out_of_scope`,

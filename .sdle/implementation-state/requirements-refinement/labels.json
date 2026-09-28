@@ -1,0 +1,26 @@
+{
+  "clean-baseline.md": [],
+  "defect-problem_statement.md": ["problem_statement"],
+  "defect-scope.md": ["scope"],
+  "defect-out_of_scope.md": ["out_of_scope"],
+  "defect-acceptance_criteria.md": ["acceptance_criteria", "ambiguity"],
+  "defect-ambiguity.md": ["ambiguity", "nfrs"],
+  "defect-contradictions.md": ["contradictions"],
+  "defect-constraints.md": ["constraints"],
+  "defect-nfrs.md": ["nfrs", "ambiguity"],
+  "defect-security_data_implications.md": ["security_data_implications"],
+  "defect-compatibility.md": ["compatibility"],
+  "defect-dependencies.md": ["dependencies", "ambiguity"],
+  "defect-blocking_unknowns.md": ["blocking_unknowns"],
+  "_undetermined": ["defect-constraints.md", "defect-scope.md"],
+  "_notes": {
+    "_undetermined": "adjudication 2026-09-28: neither fixture isolates its defect the way the others do. defect-constraints.md still has scattered constraint-adjacent content elsewhere (the 301 requirement, slug format, NFR numbers, non-sequential-slug rule) that a generous reading of check 7's own 'where any genuinely apply' hedge could credit as satisfying it; the compatibility probe (see below) showed this exact mechanism catches an assessor out when it applies, so the same possibility cannot be ruled out here without running the equivalent controlled experiment, which was not done. defect-scope.md's Purpose paragraph and required AC-* criteria arguably already bound what is being built. Do not report either as a confirmed 0.00-recall finding; recompute_metrics.py excludes both from the main table and reports them separately.",
+    "defect-ambiguity.md": "the NFR section was also vagued out (no numbers) as a natural consequence of removing measures while making language vague - expected to also fail nfrs, not a labeling error",
+    "defect-nfrs.md": "the vague replacement wording ('fast enough') also trips ambiguity - same natural overlap",
+    "defect-acceptance_criteria.md": "adjudication 2026-09-28, post-advisor review: 'The feature is done when it works well and users are satisfied with how it behaves' meets check 5's own definition of ambiguity (vague, unmeasurable normative language: 'works well', 'satisfied'). All 3 baseline runs correctly caught this alongside the labeled acceptance_criteria FAIL; the original single-label was a label gap, not an assessor false positive. Relabeled dual, matching the ambiguity/nfrs overlap pattern.",
+    "defect-dependencies.md": "adjudication 2026-09-28: an earlier same-session fix had replaced this document's deliberately vague 'some shared infrastructure' with a concretely-named dependency, which incidentally also strengthened the document's own dependencies coverage and undermined its seeded defect. Reverted to the original vague wording. Because 'some' is on the lint's vague-term list, this document legitimately also trips ambiguity - relabeled dual, not a corpus bug.",
+    "defect-security_data_implications.md": "adjudication 2026-09-28: this document's Constraints sentence originally carried the phrase 'Redirect requests are the one exception, per Security and Data Handling below' (added by an earlier same-session wording fix applied uniformly across the corpus) - a dangling cross-reference to a section this document deliberately omits. That phrase was an unintended structural cue pointing straight at the missing section, not part of the seeded defect. Removed; the sentence now ends after '...no separate login.' with no forward reference.",
+    "defect-constraints.md / defect-compatibility.md": "adjudication 2026-09-28: each document's Dependencies section originally carried a clause ('version already pinned by platform team' / 'no schema changes to other services' tables') that reads as compatibility- or constraint-flavored detail once the document's own dedicated section for that check is removed, giving the assessor adjacent material to infer coverage from. Trimmed to the bare dependency names (still enough to satisfy each document's own dependencies check, which is not its seeded defect) so the removed check's content is not effectively restated elsewhere under a different heading.",
+    "defect-scope.md": "adjudication 2026-09-28, NOT re-seeded: the Purpose paragraph and the four AC-* criteria (both required, shared boilerplate present in every corpus document for problem_statement/acceptance_criteria reasons) already describe what is being built in concrete enough terms that a reasonable reader could argue the scope check's literal definition ('states what is being built, concretely enough to bound the work') is satisfied without a dedicated 'In scope:' list. Stripping that content to force a cleaner scope-only defect would corrupt this document's problem_statement and acceptance_criteria non-defects. Treat any assessor PASS on this document's scope check as a contested, defensible read, not a clean recall failure - report it as such rather than folding it into an unqualified 'blind spot' headline."
+  }
+}

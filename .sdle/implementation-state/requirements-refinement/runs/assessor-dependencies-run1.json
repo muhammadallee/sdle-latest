@@ -18,5 +18,6 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS (confirmed, clean): dependencies expected FAIL (no Dependencies section, no external dependency named with enough detail). The assessor passed it anyway. ambiguity correctly caught as expected (dual-label)."
+  "note": "MISS (confirmed, clean): dependencies expected FAIL (no Dependencies section, no external dependency named with enough detail). The assessor passed it anyway. ambiguity correctly caught as expected (dual-label).",
+  "note_correction": "2026-09-28, advisor review: the 'no external dependency named' clause above is FALSE. The Constraints section (lines 31-32 of this blob) does name both the Kubernetes cluster and the internal SSO. The document is reliably blocked (3/3 via ambiguity, see LEDGER.md's document-level blocking table), so this is an attribution result - the dependencies check specifically does not fire - not evidence the assessor failed to notice a missing dependency treatment. Do not cite this run as a clean recall miss without this caveat."
 }

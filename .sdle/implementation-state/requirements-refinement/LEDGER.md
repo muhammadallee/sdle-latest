@@ -572,3 +572,128 @@ visit reaches the service"). This appeared in 1 of the 51 total dispatches run a
 this fix, so it is rare but real, and is left as measured data rather than patched again — a third
 editing pass risks the same kind of unintended confound already found twice in this section. Flagged
 for the Stage 2 review, not resolved here.
+
+## Correction — 2026-09-28: retracting the "confirmed / strengthened" verdict above
+
+A second advisor review found that the adjudication pass above repeated the exact failure mode it was
+meant to fix: it re-asserted "confirmed clean 0/3" for `compatibility` and `constraints` without
+checking whether PASS was actually the *correct* answer under `assessor-prompt-draft.md`'s own
+definitions, rather than only under `labels.json`. Nothing above this line is rewritten; this section
+is the correction, per this ledger's own convention.
+
+**The discriminating experiment (run, not argued):** `defect-compatibility.md`'s Purpose paragraph was
+given a relevance cue — "It replaces the current ad-hoc shortener; links it issued over the last six
+months are already embedded in docs and read by deployed link-preview bots" — with **no** compatibility
+requirement added anywhere. 3 fresh dispatches: **3/3 caught it**, unprompted, citing exactly that
+unaddressed migration/continuity question. This is decisive: the document's original 0/3 was not an
+assessor blind spot for structural absence — it was a corpus-construction defect. Deleting the
+Compatibility section had also deleted the only sentences establishing that compatibility was relevant
+at all, and the assessor correctly declines to invent a concern the text never raises. **The cued text
+is now the corpus's `defect-compatibility.md` fixture** (committed; old runs kept as
+`*-superseded2.json`). There is no demonstrated structural blind spot. The narrow, real limitation —
+worth one line in the Stage 3 `sdle-requirements-review` agent prompt — is that the assessor will not
+infer relevance the document's own text never raises; it is not that the assessor fails to notice named
+sections are missing.
+
+**`constraints` and `scope` are not confirmed misses.** Both documents still carry content that a
+generous, defensible reading of their check's own hedge ("where any genuinely apply") could credit:
+`defect-constraints.md` has the 301 requirement, slug format, NFR numbers and the non-sequential-slug
+rule scattered across other sections; `defect-scope.md` has its required Purpose paragraph and AC-*
+criteria. The compatibility experiment proved this exact mechanism can flip a result from miss to catch
+when it applies — no equivalent controlled test was run for these two, so neither is reported as a
+confirmed recall failure. `labels.json` now marks both `_undetermined`; `recompute_metrics.py` excludes
+each from the main table and reports them separately.
+
+**`dependencies`: this session's own run-file notes were factually wrong.** They claimed "no external
+dependency named" — false; the Constraints section names both the Kubernetes cluster and the internal
+SSO. `note_correction` fields were added to all three `assessor-dependencies-run*.json` files rather
+than rewriting the original notes. The document is reliably blocked (3/3, via `ambiguity`), so the
+`dependencies` check specifically not firing is an attribution result, not a demonstrated gap in the
+assessor's ability to notice a missing dependency treatment.
+
+**`contradictions` false positives all trace to the same known cause**, not three independent findings:
+2 of 3 come from `defect-blocking_unknowns.md` and 1 from `defect-constraints.md`, all the same
+301/`no-store` tension described above. Reported both ways below, not chosen between.
+
+**Agreement rate: 69% (9/13), unchanged from the original section above.** The prior correction's "62%
+(8/13)" was an arithmetic error, not a re-measurement — `recompute_metrics.py` (below) shows
+`defect-constraints.md` was already one of the 4 disagreeing documents before this adjudication pass
+touched anything, not a fifth added by it.
+
+**What does hold up, unimpeached, is the document-level blocking table** — whether *any* check (labeled
+or not) fails, which is what the loop's stall/regression logic actually acts on, independent of which
+specific check id fires. On that measure: `defect-scope.md` is the only document never blocked in any
+observed run (0/3). Every other document — including `compatibility` after the fix, `dependencies` (via
+`ambiguity`, not `dependencies`), and `constraints`/`security_data_implications` (1/3 each) — is blocked
+at least once. `scope` being both the sole 0/3-blocked document and one of the two `_undetermined`
+labels is itself informative, not resolved.
+
+**The PLAN.md §3.c "prompt-level remedy versus documented limitation" owner question is withdrawn.**
+There is no demonstrated blind spot to choose a remedy for.
+
+### `recompute_metrics.py` output (verbatim, current corpus + run files)
+
+```
+Main table (excludes each _undetermined document's OWN labeled check - see below):
+| check | positive instances | TP | FN | FP | Recall | Precision |
+|---|---|---|---|---|---|---|
+| problem_statement | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| scope | 0 | 0 | 0 | 0 | n/a | undefined |
+| out_of_scope | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| acceptance_criteria | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| ambiguity | 12 | 12 | 0 | 0 | 1.00 | 1.00 |
+| contradictions | 3 | 3 | 0 | 3 | 1.00 | 0.50 |
+| constraints | 0 | 0 | 0 | 0 | n/a | undefined |
+| nfrs | 6 | 6 | 0 | 0 | 1.00 | 1.00 |
+| security_data_implications | 3 | 1 | 2 | 1 | 0.33 | 0.50 |
+| compatibility | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+| dependencies | 3 | 0 | 3 | 0 | 0.00 | undefined |
+| blocking_unknowns | 3 | 3 | 0 | 0 | 1.00 | 1.00 |
+
+contradictions, excluding the known shared-template 301/no-store tension FPs:
+  raw: FP=3, precision=0.50
+  excluding template tension: FP=0, precision=1.00
+
+Undetermined documents (own labeled check reported separately, not scored):
+  defect-constraints.md / constraints: caught 0/3 runs
+  defect-scope.md / scope: caught 0/3 runs
+
+False positives by check (document#run):
+  contradictions: ['defect-blocking_unknowns.md#run2', 'defect-blocking_unknowns.md#run3', 'defect-constraints.md#run3']
+  security_data_implications: ['clean-baseline.md#run1']
+
+Agreement rate (byte-identical 12-key verdict vector across all runs of a document):
+  clean-baseline.md: DISAGREE (3 runs)
+  defect-acceptance_criteria.md: AGREE (3 runs)
+  defect-ambiguity.md: AGREE (3 runs)
+  defect-blocking_unknowns.md: DISAGREE (3 runs)
+  defect-compatibility.md: AGREE (3 runs)
+  defect-constraints.md: DISAGREE (3 runs)
+  defect-contradictions.md: AGREE (3 runs)
+  defect-dependencies.md: AGREE (3 runs)
+  defect-nfrs.md: AGREE (3 runs)
+  defect-out_of_scope.md: AGREE (3 runs)
+  defect-problem_statement.md: AGREE (3 runs)
+  defect-scope.md: AGREE (3 runs)
+  defect-security_data_implications.md: DISAGREE (3 runs)
+Agreement: 9/13 (69%)
+
+Document-level blocking (any check FAIL, labeled or not - what the loop actually acts on):
+  clean-baseline.md: blocked in 1/3 runs
+  defect-acceptance_criteria.md: blocked in 3/3 runs
+  defect-ambiguity.md: blocked in 3/3 runs
+  defect-blocking_unknowns.md: blocked in 3/3 runs
+  defect-compatibility.md: blocked in 3/3 runs
+  defect-constraints.md: blocked in 1/3 runs
+  defect-contradictions.md: blocked in 3/3 runs
+  defect-dependencies.md: blocked in 3/3 runs
+  defect-nfrs.md: blocked in 3/3 runs
+  defect-out_of_scope.md: blocked in 3/3 runs
+  defect-problem_statement.md: blocked in 3/3 runs
+  defect-scope.md: blocked in 0/3 runs
+  defect-security_data_implications.md: blocked in 1/3 runs
+```
+
+Script: `runs/recompute_metrics.py`. Re-run it directly against `runs/assessor-*.json` (excluding
+`*-superseded*.json`) and `labels.json` to reproduce this output; Stage 2's Codex review should do so
+rather than trust the numbers above.

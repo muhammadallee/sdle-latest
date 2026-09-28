@@ -18,5 +18,6 @@
     "dependencies": {"result": "PASS", "finding": null},
     "blocking_unknowns": {"result": "PASS", "finding": null}
   },
-  "note": "MISS (confirmed, clean): same pattern as runs 1-2. dependencies is now a unanimous 3/3 miss on a corpus document that no longer carries this session's earlier accidental confound."
+  "note": "MISS (confirmed, clean): same pattern as runs 1-2. dependencies is now a unanimous 3/3 miss on a corpus document that no longer carries this session's earlier accidental confound.",
+  "note_correction": "2026-09-28: see run 1's note_correction - the dependencies check not firing is an attribution result on a document reliably blocked via ambiguity, not a demonstrated recall gap."
 }

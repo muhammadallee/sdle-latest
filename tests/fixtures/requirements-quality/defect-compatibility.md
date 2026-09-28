@@ -4,7 +4,9 @@
 
 Internal teams currently paste long, unwieldy URLs into chat and documentation, which breaks link
 previews and makes tracking click-through hard. This service lets any employee turn a long URL into a
-short, memorable one and see how many times it was used.
+short, memorable one and see how many times it was used. It replaces the current ad-hoc shortener;
+links it issued over the last six months are already embedded in docs and read by deployed
+link-preview bots.
 
 ## Scope
 
