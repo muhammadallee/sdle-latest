@@ -401,12 +401,49 @@ SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing n
 
 ## 8. Traceability, risks, rollback
 
-- **Traceability:** each acceptance scenario (brief §7, 30 items) maps to a named test in Stage 3E's
-  plan; not enumerated twice here.
+### Traceability — brief §7's 30 acceptance scenarios against this plan's design elements
+
+Built by walking every scenario against §4–§6 rather than assumed covered; two gaps found this way are
+D8/D9 above, not retrofitted into this table after the fact. "Test area" names a Stage 3E test file/kind,
+not a function — exact names don't exist until phase C/E write the code.
+
+| # | Scenario (short) | Design coverage | Stage 3E test area |
+|---|---|---|---|
+| 1 | Clean pass, loop not entered | §6 row 1 (F₀=∅ → no loop) | `test_units_governance.py`, existing PASS-path, extended to assert no `refinement.json` is written |
+| 2 | One check fixed in one iteration | §6 rows 2–6 (entry → propose → decide → apply → PASSED) | `test_units_refinement.py` — single-iteration convergence |
+| 3 | Multi-iteration, findings trace to ids/decisions | §5.a `iterations[].findings`/`edits[].decision` | `test_units_refinement.py` — multi-iteration record integrity |
+| 4 | Question pauses, resumes without re-asking | §5.a `questions[].answer`; §3.4 human-burden cap (≤5/iteration) | `test_units_refinement.py` — question pause/resume |
+| 5 | Rejected edit not applied, not recorded approved | §5.a `edits[].decision: accepted\|rejected\|null` | `test_units_refinement.py` — rejection handling |
+| 6 | Regression detected, no auto-continue | §6 row "new failing check → regression... no auto-continue" (§3.4 Regression) | `test_units_refinement.py` — regression detection |
+| 7 | Identical proposal/digest is a stall → ESCALATED | §6 row "Cₖ=Cₖ₋₁ or Pₖ seen before → ESCALATED" (§3.4 Stall) | `test_units_refinement.py` — stall detection |
+| 8 | Cap exhaustion → ESCALATED; `init` still refused | §6 row "cap (3) reached"; `iterationCap` (§5.a); existing `governance_blocked` (unaffected, §1 F5) | `test_units_refinement.py` — exhaustion + `init` refusal |
+| 9 | `nfrs: NOT_APPLICABLE`/tighten-only unchanged | D3 (no new governance-input key); `evaluate_quality` untouched (§2) | `test_units_governance.py` — explicit regression assertion, no new exception path |
+| 10 | Interruption resumes, no duplicate edit/decision | §6 "any → crash/interruption → resume"; D1's deferred-replay pattern (F15 precedent) | `test_units_refinement.py` — interruption/resume, mirroring existing scan-acknowledgement interruption tests |
+| 11 | Concurrent invocation refused by session lock | D2 — new refusing lock (exclusive `open(..., "x")`) | `test_units_refinement.py` — concurrent-lock refusal |
+| 12 | WorkItem A cannot write WorkItem B's refinement state | D6 (`safe_repo_path`); F15's WorkItem-scoped read pattern; D2's per-WorkItem lock | `test_units_refinement.py` — cross-WorkItem isolation, mirroring V3-03's acknowledgement-ownership test |
+| 13 | Legacy (post-`init`) WorkItem unaffected | C4 (refinement runs pre-`init` only); `governance_precondition` untouched (§2) | `test_units_governance.py` — legacy/post-`init` regression |
+| 14 | Brownfield baseline citation | **D8 (new, this pass)** — prompt-level citation, no engine validation, flagged for Stage 2 | `test_units_refinement.py` — brownfield finding cites a baseline entry id |
+| 15 | Edit after assessment triggers existing `governance_stale` | §1 F10 revised — existing `governance_freshness` mechanism, unaffected | Existing `governance_stale` tests, extended to cover a refinement-loop edit as the trigger |
+| 16 | Adversarial proposal JSON rejected | §5.c `refinement_record_invalid` (exit 3); D6 (`safe_repo_path` for any cited path); Core Rule 6 (injected text is data) | `test_units_refinement.py` — adversarial-input rejection, mirroring V3-01 |
+| 17 | Shared document refused without acknowledgement | D1/D2 (C1 transaction); §5.c `refinement_shared_source` | `test_units_refinement.py` — shared-source refusal |
+| 18 | Acknowledged shared edit dual-audited, staleness reported | D1 (affected-WorkItem audit append/deferred-replay); C1 record (§6) | `test_units_refinement.py` — shared-edit dual-audit + staleness |
+| 19 | FAIL→PASS at same digest refused | §3.a (the one identified test to edit, D4); §5.c `quality_verdict_flip` | `test_units_governance.py::test_re_assessing_a_fixed_requirement_unblocks_the_same_advance` (edited per D4) + new flip-refusal test |
+| 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. Test instead proves the reason code exists and stays inert | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
+| 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement | New test on `sdle-requirements-review.md`'s prompt template — no prior-state fields present |
+| 22 | Whitespace-only auto-applies; one-word change does not | §6 presentation-neutral normal form algorithm (§3.2/§3.5); D7 | `test_units_refinement.py` — normal-form digest auto-apply boundary |
+| 23 | Corpus before/after metrics, zero findings on clean fixture | §3.c (Stage 1's "before"); Stage 5 reruns as "after" | Stage 5 `REPORT.md` corpus-metrics section, reusing `runs/recompute_metrics.py` |
+| 24 | Binding-step-skipped test fails | C7 pattern (non-autouse `project` fixture) applied to refinement tests | `test_units_refinement.py` — explicit-binding discipline test |
+| 25 | Whitespace-only edit (bytes change, digest doesn't) never unlocks a flip | §6 normal-form digest + §5.c `quality_verdict_flip` keyed on digest, not raw bytes | `test_units_refinement.py` — flip-refusal survives a whitespace-only edit |
+| 26 | Dispute overturn reported distinctly, original preserved | **D9 (new, this pass)** — `disputeOutcomes[]` field (§5.a); §5.c `refinement_dispute_incomplete` | `test_units_refinement.py` — dispute overturn + incomplete-dispute refusal |
+| 27 | Structural markdown changes never auto-apply | §6 normal-form algorithm touches only whitespace/blank-line runs — list markers, heading level, emphasis are untouched by the algorithm, so any change to them changes the normal form by construction | `test_units_refinement.py` — structural-markdown changes are never presentation-neutral |
+| 28 | Lint doesn't flag categorical/plain-sentence content | §3.3 rule design (positive/negative/neighbouring-kind fixtures); already partially validated — Stage 1's corpus shows zero lint FPs on non-targeted checks | `test_units_refinement_lint.py` (Phase A) |
+| 29 | Crash recovery: exactly one audit entry per WorkItem; unexpected SHA refuses | C1 record's Recovery algorithm (§6, literal SHA-branch table) | `test_units_refinement.py` — C1 recovery matrix (target/base/unexpected SHA × per-WorkItem audit count) |
+| 30 | Stage 0 evidence complete or blocks Stage 3 | Already satisfied — Stage 0's own deliverable, verified in `LEDGER.md`'s "Stage 0 — final verdict" section | N/A — process deliverable, verified by citation, not a code test |
+
 - **Risks:** with the lint advisory-only (Option 3), the suite-breakage risk §3.b measured is closed —
   nothing blocks on it. The residual risk is precision/recall measurement quality (corpus adequacy,
   §3.c) and the shared-document transaction (D1/D2), the largest unproven design element — both flagged
-  explicitly for Stage 2.
+  explicitly for Stage 2, joined now by D8 and D9 above.
 - **Rollback:** revert commits; no data migration (no `state.json` schema change, per brief's own
   constraint — unaffected by anything in this plan).
 
