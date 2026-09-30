@@ -7,7 +7,7 @@
 | **Purpose** | An approved artifact is edited out of band. The next phase execution detects the drift and forces re-approval before continuing. Shows re-approve, reject, and the refusal to re-baseline onto a deleted artifact. |
 | **Defect IDs** | D01 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `plan_draft` (`6/18`). Gates 1–2 approved with baselines. The user has just hand-edited `workitems/todo-api/specs/001-todo-api/spec.md`, which is git-tracked |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `plan_draft` (`8/20`). Gates 1–2 approved with baselines. The user has just hand-edited `workitems/todo-api/specs/001-todo-api/spec.md`, which is git-tracked |
 | **Guardrails exercised** | Drift check before every phase execution, `drift_queue` / `pending_phase`, git diff in the prompt, re-approval re-baselining, a TP-011 review of the drifted content, drift-reject → restart guidance, `retry` blocked while drift is pending, and the D01 refusal of an unfingerprintable re-approval |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
@@ -20,7 +20,7 @@
 
 ## Setup
 
-Follow DR-01 as far as Gate 2's approval, commit, then edit the approved
+Follow DR-01 as far as Gate 3's approval, commit, then edit the approved
 `spec.md` by hand.
 
 ---
@@ -32,8 +32,8 @@ Follow DR-01 as far as Gate 2's approval, commit, then edit the approved
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
+<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
 
 ⚠️ Artifact drift detected — 1 previously-approved artifact changed since approval:
 
@@ -45,7 +45,7 @@ Follow DR-01 as far as Gate 2's approval, commit, then edit the approved
       +- As a user, I can delete all completed todos in one request
 
 ---
-✋ RE-APPROVAL REQUIRED — Gate 2/8: Specification Approval
+✋ RE-APPROVAL REQUIRED — Gate 3/9: Specification Approval
 [... current on-disk content, displayed in full — abridged ...]
 
 Artifact path: workitems/todo-api/specs/001-todo-api/spec.md
@@ -66,8 +66,8 @@ the phase.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=in_progress progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
+<!-- SDLE_STATE phase=plan_draft status=in_progress progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [IN PROGRESS]
 
 ✅ All drift re-approvals complete. Resuming plan_draft…
 ```
@@ -88,11 +88,11 @@ re-fingerprinted the file, set the new SHA as the baseline and resumed
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=rejected progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [REJECTED — REMEDIATION NEEDED]
+<!-- SDLE_STATE phase=plan_draft status=rejected progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [REJECTED — REMEDIATION NEEDED]
 
 Drift re-approval rejected for Gate 2: Specification Approval. The queue has been
-cleared. To regenerate the artifact, use `restart phase 4` (Generate
+cleared. To regenerate the artifact, use `restart phase 6` (Generate
 Specification), then re-run the workflow from there.
 ```
 
@@ -128,8 +128,8 @@ were.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
+<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
 
 ⛔ Cannot retry while artifact drift re-approvals are pending.
 ```

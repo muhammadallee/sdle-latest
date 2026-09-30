@@ -10,7 +10,7 @@ derived view; the engine is the source of truth.
 
 SDLE does not assume one universal lifecycle.
 
-- **`PHASE_SEQUENCE` is a 21-entry phase *registry*.** It says which phases
+- **`PHASE_SEQUENCE` is a 23-entry phase *registry*.** It says which phases
   exist, what each is called, which artifact each owns and which gate (if any)
   follows it.
 - **A *flow* is an ordered subset of that registry**, and a flow is what a
@@ -20,18 +20,18 @@ Five flows ship:
 
 | Flow | Phases | Gates | For |
 |---|---:|---:|---|
-| `GREENFIELD` | 18 | 8 | A new product or component in a repository with no baseline |
-| `BROWNFIELD_DISCOVERY` | 19 | 8 | The first WorkItem in an existing repository — adds the `discovery` phase |
-| `ITERATIVE` | 16 | 7 | Ordinary change in a repository that already has a sound baseline |
-| `DEFECT_FIX` | 14 | 6 | A defect, entering through `impact_analysis` |
-| `HOTFIX` | 10 | 3 | An urgent production fix — the shortest flow that still gates |
+| `GREENFIELD` | 20 | 9 | A new product or component in a repository with no baseline |
+| `BROWNFIELD_DISCOVERY` | 21 | 9 | The first WorkItem in an existing repository — adds the `discovery` phase |
+| `ITERATIVE` | 18 | 8 | Ordinary change in a repository that already has a sound baseline |
+| `DEFECT_FIX` | 16 | 7 | A defect, entering through `impact_analysis` |
+| `HOTFIX` | 12 | 4 | An urgent production fix — the shortest flow that still gates |
 
 **What the phase count counts.** Executable phases — the ones a WorkItem
 actually moves through. It excludes the terminal `complete`, which is a state a
 WorkItem lands in rather than a phase anybody runs, and the engine says so
-itself: `PROGRESS_MAP` numbers `GREENFIELD` 1 through 18 and gives `complete`
-no number of its own (it shares `18/18` with `gate_security`). So `GREENFIELD`
-is 18 phases, and the header a user reads on every turn agrees. This table is
+itself: `PROGRESS_MAP` numbers `GREENFIELD` 1 through 20 and gives `complete`
+no number of its own (it shares `20/20` with `gate_security`). So `GREENFIELD`
+is 20 phases, and the header a user reads on every turn agrees. This table is
 checked against the engine by `lint-skill`'s `doc_flow_counts_match_engine`,
 so it cannot drift from it.
 
@@ -44,17 +44,18 @@ flow with `sdle.sh flow show` (read-only).
 
 Because phase counts differ per flow, **progress fractions, gate numbers and
 gate labels are all derived per flow**. Never read a phase number, a gate number
-or an `N/18` from a table — take it from the engine's response.
+or an `N/20` from a table — take it from the engine's response.
 
 ---
 
 ## 2. Gates
 
-Eight approval gates exist in the registry:
+Nine approval gates exist in the registry:
 
 ```text
-gate_constitution  gate_spec   gate_plan     gate_tasks
-gate_analyze       gate_design gate_implement gate_security
+gate_constitution  gate_architecture  gate_spec      gate_plan
+gate_tasks         gate_analyze       gate_design    gate_implement
+gate_security
 ```
 
 Which of them a given WorkItem must clear is **not** fixed. It is derived from
@@ -67,6 +68,18 @@ three independent facts:
 
 Every gate is reported with one of exactly three dispositions: `required`,
 `omittable`, `not_in_flow`.
+
+**Two gates are required whatever those three facts say**, because their
+requirement is *derived* rather than read from a policy dictionary, and a
+policy can only ever add:
+
+- the **terminal gate** of the bound flow, at every risk level;
+- **`gate_architecture`**, at every risk level, in every flow, for every
+  WorkItem type. Every other gate governs an artifact belonging to this
+  WorkItem; this one governs a change to the repository-level architecture
+  catalog that later WorkItems read as established fact. `gate show`
+  reports the reason `architecture_gate`. See
+  `docs/architecture/ADR-013-project-architecture-memory.md`.
 
 ### Gate discipline
 

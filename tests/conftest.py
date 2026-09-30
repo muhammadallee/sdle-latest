@@ -299,6 +299,93 @@ class Project:
             # removed so no git-backed fixture's working tree goes dirty.
             target.unlink()
 
+    def record_architecture(self, **over) -> "Result":
+        """Record the ADR-013 placement every flow now requires before
+        `spec_draft`.
+
+        Deliberately the *dullest* valid placement: extend a service that
+        already exists. On an uninitialized catalog it declares that service
+        through a `bootstrapDelta` citing a path the fixture really has, which
+        is the one shape valid in every flow — `CREATE_NEW_SERVICE` would need
+        an approved constitution, and the two defect flows never draft one.
+        Tests about a *particular* outcome build their own proposal; this one
+        exists so a driver that is not about architecture can get past the
+        phase without re-deriving the schema, exactly as `record_governance`
+        does for the twelve check ids.
+
+        The evidence path is the fixture's bound requirement document rather
+        than a source directory, because ADR-013's bootstrap rule is that
+        evidence must cite something real — and a scratch project has no
+        services to point at.
+        """
+        shown = self.ok("architecture", "show").data
+        service = "fixture-service"
+        placement = {
+            "outcome": "EXTEND_EXISTING_SERVICE",
+            "capability": {
+                "id": "CAP-FIXTURE",
+                "name": "Fixture capability",
+                "description": "What this scratch WorkItem is about.",
+            },
+            "currentOwner": service,
+            "targetOwner": service,
+            "affectedServices": [service],
+            "dimensions": [
+                {"dimension": "business_capability_cohesion",
+                 "finding": "One capability, already owned by this service."},
+                {"dimension": "data_ownership",
+                 "finding": "No data ownership moves."},
+            ],
+            "rationale": "The capability is already owned here and nothing "
+                         "about this WorkItem separates it.",
+            "confidence": "HIGH",
+        }
+        document = {
+            "architectureProposalVersion": "1",
+            "baseArchitectureRevision": shown["revision"],
+            "placement": placement,
+        }
+        if not shown["initialized"]:
+            document["bootstrapDelta"] = {
+                "basis": "BASELINE",
+                "services": [{"serviceId": service, "name": "Fixture Service",
+                              "repositoryPaths": ["requirements"]}],
+                "capabilities": [],
+                "dataOwnership": [],
+                "evidence": [{
+                    "statement": "The fixture repository's only recorded "
+                                 "component.",
+                    "paths": ["requirements"],
+                }],
+            }
+        document.update(over)
+        name = "architecture-input.json"
+        target = self.root / name
+        target.write_text(
+            json.dumps(document, indent=2), encoding="utf-8", newline="\n"
+        )
+        try:
+            return self.ok("architecture", "assess", "--input", name)
+        finally:
+            # Transient, exactly like the governance and discovery proposals.
+            target.unlink()
+
+    def pass_architecture_gate(self, session: str | None = None) -> None:
+        """Drive `architecture_placement` and its gate. Used by every driver.
+
+        Kept beside `record_architecture` rather than inlined at a dozen call
+        sites: the sequence (assess, review the rendering, advance, approve)
+        is the same in all five flows, and only the gate is flow-relative.
+        """
+        self.record_architecture()
+        shown = self.ok("gate", "show", "--gate", "gate_architecture").data
+        self.ok("artifact", "review", "--path", shown["artifact_path"],
+                "--type", "architecture-placement", "--result", "PASS",
+                "--actor-type", "test", "--actor-name", "suite")
+        self.ok("advance", "--to", "gate_architecture", session=session)
+        self.ok("gate", "approve", "--gate", "gate_architecture",
+                session=session)
+
     def write_small(self, relative: str) -> Path:
         """A generation step that produced something unusable."""
         path = self.root / relative
@@ -531,15 +618,15 @@ DRY_RUN_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
 
 
 # ---------------------------------------------------------------------------
-# SDLE-DEFECT-STABILIZATION-01 -- verification commands for Gate 7 (D02)
+# SDLE-DEFECT-STABILIZATION-01 -- verification commands for Gate 8 (D02)
 # ---------------------------------------------------------------------------
 #
-# Gate 7 now refuses anything but a test run that actually ran and exited 0.
-# A driver that crosses Gate 7 therefore supplies a real command through
+# Gate 8 now refuses anything but a test run that actually ran and exited 0.
+# A driver that crosses Gate 8 therefore supplies a real command through
 # `manifest build --test-command`: the engine runs it and records its exit code
 # exactly as it would a detected runner. The interpreter is used rather than a
 # generated pytest suite, because a nested pytest start-up per traversal would
-# add minutes to a suite that crosses Gate 7 dozens of times, and the property
+# add minutes to a suite that crosses Gate 8 dozens of times, and the property
 # under test is the engine's handling of the outcome, not pytest. Real pytest
 # runs, passing and failing, are covered separately.
 #
@@ -562,25 +649,12 @@ FAILING_TEST_COMMAND = _command_line(
 # Restatement search (invariant 7): which files must not repeat an engine fact
 # --------------------------------------------------------------------------
 
-MAINTENANCE_RECORDS = (
-    Path(".sdle") / "implementation-state" / "repository-cleanup",
-    Path(".sdle") / "implementation-state" / "requirements-refinement",
-    # Committed in this same session (the OPEN-01/02 review, Stage 0 of the
-    # requirements-refinement work): a Codex review run's raw event stream
-    # necessarily quotes back whatever vocabulary the reviewed diff and
-    # prompt discussed, exactly like repository-cleanup's own runs/ — CI
-    # caught this the first time the full suite actually ran over it.
-    Path(".sdle") / "implementation-state" / "open-items-01-02",
-)
-"""Execution records of a maintenance or enhancement run: ledgers, run logs
-and recorders whose whole job is to quote engine vocabulary (test names,
-result words, policy check ids). They are evidence, not a prompt or
-documentation surface. The exclusion is this **enumerated, named set** and
-nothing wider — `test_the_restatement_search_skips_only_the_maintenance_records`
-proves a fourth, unlisted sibling under `.sdle/implementation-state/` is still
-searched. Widening this tuple is a reviewed decision each time, never a
-pattern (no directory earns the exemption by living under
-`implementation-state/`; it earns it by being named here)."""
+MAINTENANCE_RECORDS = Path(".sdle") / "implementation-state" / "repository-cleanup"
+"""Execution records of a repository-maintenance run: ledgers, run logs and
+recorders whose whole job is to quote engine vocabulary (test names, result
+words). They are evidence, not a prompt or documentation surface. The
+exclusion is this one directory and nothing wider: every other file under
+`.sdle/` is still searched."""
 
 
 def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
@@ -590,14 +664,13 @@ def searchable_files(root: Path = REPO_ROOT) -> list[Path]:
     repository configuration under `.sdle/` (minus `MAINTENANCE_RECORDS`)."""
     files = [p for p in (root / "README.md", root / "CLAUDE.md",
                          root / "docs" / "SDLE-Reference-Guide.md") if p.is_file()]
-    skipped = [root / record for record in MAINTENANCE_RECORDS]
+    skipped = root / MAINTENANCE_RECORDS
     for directory in (root / ".claude" / "skills", root / ".claude" / "commands",
                       root / ".claude" / "hooks", root / ".sdle",
                       root / "docs" / "architecture"):
         if directory.is_dir():
             files.extend(p for p in sorted(directory.rglob("*"))
-                         if p.is_file()
-                         and not any(s in p.parents for s in skipped))
+                         if p.is_file() and skipped not in p.parents)
     agents = root / ".claude" / "agents"
     if agents.is_dir():
         files.extend(p for p in sorted(agents.glob("sdle-*.md")) if p.is_file())

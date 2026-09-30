@@ -42,6 +42,8 @@ GREENFIELD_GOLDEN = [
     "requirements_check",
     "constitution_draft",
     "gate_constitution",
+    "architecture_placement",
+    "gate_architecture",
     "spec_draft",
     "gate_spec",
     "plan_draft",
@@ -203,21 +205,25 @@ def test_the_gate_number_column_is_the_derived_greenfield_numbering(skill_copy):
         assert consts.gate_number[key] == greenfield.gate_number(key), key
 
 
-def test_greenfield_gate_labels_render_the_pre_t07_literals(skill_copy):
-    """The eight labels that used to be hardcoded, reproduced byte for byte.
+def test_greenfield_gate_labels_render_the_flow_relative_ordinals(skill_copy):
+    """Every GREENFIELD gate label, spelled out.
 
-    This is the proof that replacing `Gate 5:` with `{gate_number}` changed no
-    user-visible string under GREENFIELD.
+    This began as the proof that replacing `Gate 5:` with `{gate_number}`
+    changed no user-visible string. ADR-013 is the first change that moves
+    those strings on purpose: `gate_architecture` takes ordinal 2 and every
+    later gate shifts by one. The witness is kept - and re-valued - because
+    a label ordinal that moved *by accident* is what it still catches.
     """
     expected = {
         "gate_constitution": "Gate 1: Constitution Approval",
-        "gate_spec": "Gate 2: Specification Approval",
-        "gate_plan": "Gate 3: Plan Approval",
-        "gate_tasks": "Gate 4: Tasks Approval",
-        "gate_analyze": "Gate 5: Analysis Approval",
-        "gate_design": "Gate 6: Design Approval",
-        "gate_implement": "Gate 7: Implementation Approval",
-        "gate_security": "Gate 8: Security Review Approval",
+        "gate_architecture": "Gate 2: Architecture Placement Approval",
+        "gate_spec": "Gate 3: Specification Approval",
+        "gate_plan": "Gate 4: Plan Approval",
+        "gate_tasks": "Gate 5: Tasks Approval",
+        "gate_analyze": "Gate 6: Analysis Approval",
+        "gate_design": "Gate 7: Design Approval",
+        "gate_implement": "Gate 8: Implementation Approval",
+        "gate_security": "Gate 9: Security Review Approval",
     }
     consts = constants_of(skill_copy)
     greenfield = consts.greenfield
@@ -233,11 +239,11 @@ def test_a_gate_ordinal_is_flow_relative(skill_copy):
     flows = constants_of(skill_copy).flows
     consts = constants_of(skill_copy)
     assert consts.label("gate_implement", flows["GREENFIELD"]) == \
-        "Gate 7: Implementation Approval"
+        "Gate 8: Implementation Approval"
     assert consts.label("gate_implement", flows["HOTFIX"]) == \
-        "Gate 2: Implementation Approval"
-    assert flows["HOTFIX"].gate_total == 3
-    assert flows["GREENFIELD"].gate_total == 8
+        "Gate 3: Implementation Approval"
+    assert flows["HOTFIX"].gate_total == 4
+    assert flows["GREENFIELD"].gate_total == 9
 
 
 def test_the_gateless_flow_denominators_are_the_declared_ones(skill_copy):
@@ -248,9 +254,9 @@ def test_the_gateless_flow_denominators_are_the_declared_ones(skill_copy):
     changes.
     """
     flows = constants_of(skill_copy).flows
-    assert flows["GREENFIELD"].phase_count == 18
-    assert flows["BROWNFIELD_DISCOVERY"].phase_count == 19
-    assert flows["ITERATIVE"].phase_count == 16
+    assert flows["GREENFIELD"].phase_count == 20
+    assert flows["BROWNFIELD_DISCOVERY"].phase_count == 21
+    assert flows["ITERATIVE"].phase_count == 18
 
 
 # -- N22: the engine refuses a flow it cannot trust -------------------------
@@ -355,14 +361,14 @@ def test_a_flow_is_never_repaired_only_refused(skill_copy):
 def test_the_registry_is_larger_than_every_flow(skill_copy):
     """The fact the whole design rests on: the registry is not a lifecycle.
 
-    T08 adds `discovery`, so the registry is 21 and the longest flow —
-    BROWNFIELD_DISCOVERY, at 20 entries including `complete` — is still short
+    T08 added `discovery` and ADR-013 the architecture pair, so the registry is 23 and the longest flow —
+    BROWNFIELD_DISCOVERY, at 22 entries including `complete` — is still short
     of it by `impact_analysis`.
     """
     consts = constants_of(skill_copy)
-    assert len(consts.phase_sequence) == 21
+    assert len(consts.phase_sequence) == 23
     for name, flow in consts.flows.items():
-        assert len(flow.phases) < 21, f"{name} is the whole registry"
+        assert len(flow.phases) < 23, f"{name} is the whole registry"
 
 
 def test_discovery_and_impact_analysis_sit_at_registry_positions_two_and_three(
@@ -395,19 +401,20 @@ def test_impact_analysis_is_absent_from_greenfield(skill_copy):
 
 def test_the_defect_flow_denominators_are_the_declared_ones(skill_copy):
     flows = constants_of(skill_copy).flows
-    assert flows["DEFECT_FIX"].phase_count == 14
-    assert flows["HOTFIX"].phase_count == 10
+    assert flows["DEFECT_FIX"].phase_count == 16
+    assert flows["HOTFIX"].phase_count == 12
     # Six, not the five the plan's summary column records: DEFECT_FIX's own
     # declared phase list names gate_spec, gate_plan, gate_tasks, gate_analyze,
     # gate_implement and gate_security, and its non-terminal count of 14
     # confirms that list. Membership is the decision; the count is derived.
-    assert flows["DEFECT_FIX"].gate_total == 6
+    assert flows["DEFECT_FIX"].gate_total == 7
     assert [consts_gate for consts_gate in flows["DEFECT_FIX"].gate_keys] == [
-        "gate_spec", "gate_plan", "gate_tasks", "gate_analyze",
-        "gate_implement", "gate_security"]
-    assert flows["HOTFIX"].gate_total == 3
+        "gate_architecture", "gate_spec", "gate_plan", "gate_tasks",
+        "gate_analyze", "gate_implement", "gate_security"]
+    assert flows["HOTFIX"].gate_total == 4
     assert list(flows["HOTFIX"].gate_keys) == [
-        "gate_spec", "gate_implement", "gate_security"]
+        "gate_architecture", "gate_spec", "gate_implement",
+        "gate_security"]
 
 
 def test_impact_analysis_leads_to_spec_draft_in_both_defect_flows(skill_copy):
@@ -415,15 +422,21 @@ def test_impact_analysis_leads_to_spec_draft_in_both_defect_flows(skill_copy):
     for name in ("DEFECT_FIX", "HOTFIX"):
         assert flows[name].phases[0] == "requirements_check"
         assert flows[name].phases[1] == "impact_analysis"
-        assert flows[name].next_phase("impact_analysis") == "spec_draft"
+        # ADR-013: the defect flows reach the specification through the
+        # architecture placement, like every other flow.
+        assert flows[name].next_phase("impact_analysis") == (
+            "architecture_placement")
 
 
 # -- gateless means no gate machinery anywhere, not "a gate we skip" --------
 
 
+# Every registered gate key. Named for the witness it began as; ADR-013
+# adds `gate_architecture`, which the state template and every flow carry.
 PRE_T07_APPROVAL_KEYS = {
-    "gate_constitution", "gate_spec", "gate_plan", "gate_tasks",
-    "gate_analyze", "gate_design", "gate_implement", "gate_security",
+    "gate_constitution", "gate_architecture", "gate_spec", "gate_plan",
+    "gate_tasks", "gate_analyze", "gate_design", "gate_implement",
+    "gate_security",
 }
 
 
@@ -503,8 +516,8 @@ def test_a_new_registry_row_does_not_join_greenfield(skill_copy):
     silently becoming part of the lifecycle every pre-flow workflow is said to
     have traversed.
     """
-    edit_skill(skill_copy, "| 21 | `complete` |",
-               "| 21 | `complete` |\n| 22 | `late_addition` |")
+    edit_skill(skill_copy, "| 23 | `complete` |",
+               "| 23 | `complete` |\n| 24 | `late_addition` |")
     consts = constants_of(skill_copy)
     assert "late_addition" in consts.phase_sequence
     assert list(consts.flows["GREENFIELD"].phases) == GREENFIELD_GOLDEN
@@ -624,9 +637,9 @@ def test_the_state_template_carries_the_flow_field(skill_copy):
     # the version because D13 adds `pending_branch_ack`. The shape is
     # unchanged - still one exact equality against one literal - and what this
     # test is actually for, that the template declares `flow`, is untouched.
-    assert template["workflow_version"] == "1.17"
-    # The GREENFIELD defaults stay exactly as they were.
-    assert template["progress"] == "1/18"
+    assert template["workflow_version"] == "1.18"
+    # ADR-013 adds two GREENFIELD phases; the denominator moves with them.
+    assert template["progress"] == "1/20"
     assert set(template["approvals"]) == PRE_T07_APPROVAL_KEYS
 
 
@@ -682,7 +695,7 @@ def test_init_after_a_hotfix_assessment_binds_hotfix(project):
     state = project.state()
     assert state["flow"] == "HOTFIX"
     assert state["current_phase"] == "impact_analysis"
-    assert state["progress"] == "2/10"
+    assert state["progress"] == "2/12"
     assert "flow_selected" in audit_events(project)
 
 
@@ -719,7 +732,7 @@ def test_the_flow_selected_entry_names_the_flow_and_its_shape(project):
              if "flow_selected" in block]
     assert len(entry) == 1, text
     assert "HOTFIX" in entry[0]
-    assert "10 phases" in entry[0] and "3 gates" in entry[0]
+    assert "12 phases" in entry[0] and "4 gates" in entry[0]
 
 
 REASSESSED = {"type": "hotfix", "flow": "HOTFIX"}
@@ -901,6 +914,8 @@ def prepare(project: Project, phase: str, feature_dir: str) -> None:
                    "--actor-type", "agent", "--actor-name", "sdle-orchestrator")
     elif phase == "constitution_draft":
         project.write_artifact(".specify/memory/constitution.md")
+    elif phase == "architecture_placement":
+        project.record_architecture()
     elif phase == "spec_draft":
         project.write_artifact(f"{feature_dir}/spec.md")
         project.ok("feature", "resolve")
@@ -1024,12 +1039,12 @@ def test_iterative_never_reaches_the_constitution(git_project):
     WorkItem inherits, so ITERATIVE does not re-draft it."""
     seen = drive(git_project, "ITERATIVE")
 
-    assert seen[1] == "spec_draft"
+    assert seen[1] == "architecture_placement"
     assert "constitution_draft" not in seen
     assert "gate_constitution" not in seen
     assert "impact_analysis" not in seen
     assert git_project.state()["approvals"]["gate_constitution"] is None
-    assert git_project.state()["progress"] == "16/16"
+    assert git_project.state()["progress"] == "18/18"
 
 
 def test_defect_fix_starts_with_the_impact_analysis(git_project):
@@ -1039,7 +1054,7 @@ def test_defect_fix_starts_with_the_impact_analysis(git_project):
     assert seen[1] == "impact_analysis"
     for absent in ("design_generation", "gate_design", "checklist_draft"):
         assert absent not in seen, absent
-    assert git_project.state()["progress"] == "14/14"
+    assert git_project.state()["progress"] == "16/16"
 
 
 def test_hotfix_is_short_and_still_governed(git_project):
@@ -1048,10 +1063,10 @@ def test_hotfix_is_short_and_still_governed(git_project):
     seen = drive(git_project, "HOTFIX")
 
     assert seen[1] == "impact_analysis"
-    assert git_project.state()["progress"] == "10/10"
+    assert git_project.state()["progress"] == "12/12"
 
     shown = git_project.ok("gate", "show", "--gate", "gate_implement").data
-    assert (shown["gate_number"], shown["gate_total"]) == (2, 3)
+    assert (shown["gate_number"], shown["gate_total"]) == (3, 4)
 
     summaries = list(git_project.runtime.glob("completion-summary*.json"))
     assert len(summaries) == 1
@@ -1186,7 +1201,7 @@ def test_advance_out_of_impact_analysis_without_an_analysis_refuses(
     bind(git_project, flow)
     assert git_project.state()["current_phase"] == "impact_analysis"
 
-    result = git_project.run("advance", "--to", "spec_draft")
+    result = git_project.run("advance", "--to", "architecture_placement")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "impact_analysis_missing"
@@ -1227,7 +1242,7 @@ def test_the_impact_analysis_refusal_leaves_the_ledger_byte_identical(
         git_project.ok("skip")
 
     before = git_project.audit_file.read_bytes()
-    result = (git_project.run("advance", "--to", "spec_draft")
+    result = (git_project.run("advance", "--to", "architecture_placement")
               if mover == "advance" else git_project.run("skip", "--confirm"))
 
     assert result.exit_code == EXIT_REFUSED, result
@@ -1246,7 +1261,7 @@ def test_a_recorded_but_unreviewed_analysis_does_not_authorise_the_advance(
     git_project.ok("artifact", "record", "--phase", "impact_analysis",
                    "--path", IMPACT_ARTIFACT)
 
-    result = git_project.run("advance", "--to", "spec_draft")
+    result = git_project.run("advance", "--to", "architecture_placement")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "impact_analysis_missing"
@@ -1265,7 +1280,7 @@ def test_an_analysis_edited_after_its_review_does_not_authorise_the_advance(
     git_project.write_artifact(
         IMPACT_ARTIFACT, "# Widened impact analysis\n\n" + "word " * 40)
 
-    result = git_project.run("advance", "--to", "spec_draft")
+    result = git_project.run("advance", "--to", "architecture_placement")
 
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "impact_analysis_missing"
@@ -1297,14 +1312,17 @@ def test_the_precondition_cannot_touch_a_flow_without_the_phase(git_project,
 
 
 @pytest.mark.parametrize("flow", ["DEFECT_FIX", "HOTFIX"])
-def test_advancing_out_of_impact_analysis_lands_on_spec_draft(git_project, flow):
-    """N7(5)."""
+def test_advancing_out_of_impact_analysis_lands_on_the_placement(
+        git_project, flow):
+    """N7(5), re-valued by ADR-013: the defect flows reach the specification
+    through the architecture placement, like every other flow, so the phase
+    after `impact_analysis` is the placement."""
     bind(git_project, flow)
     prepare(git_project, "impact_analysis", git_project.feature_dir(FEATURE))
 
-    git_project.ok("advance", "--to", "spec_draft")
+    git_project.ok("advance", "--to", "architecture_placement")
 
-    assert git_project.state()["current_phase"] == "spec_draft"
+    assert git_project.state()["current_phase"] == "architecture_placement"
 
 
 def test_under_greenfield_impact_analysis_is_a_forward_jump_not_unknown(
@@ -1514,10 +1532,10 @@ def test_two_workitems_on_different_flows_advance_independently(git_project):
         classification={"type": "enhancement", "flow": "HOTFIX"})
     second.ok("init", session="second")
     prepare(second, "impact_analysis", second.feature_dir(FEATURE))
-    second.ok("advance", "--to", "spec_draft")
+    second.ok("advance", "--to", "architecture_placement")
 
     assert second.state()["flow"] == "HOTFIX"
-    assert second.state()["current_phase"] == "spec_draft"
+    assert second.state()["current_phase"] == "architecture_placement"
     assert first.state_file.read_bytes() == frozen_state
     assert first.audit_file.read_bytes() == frozen_audit
     assert first.state()["flow"] == "GREENFIELD"
@@ -1539,12 +1557,12 @@ def test_flow_show_reports_the_bound_flow_and_where_it_is(git_project):
     assert shown["phases"] == list(hotfix.phases)
     assert shown["gate_phases"] == list(hotfix.gate_phases)
     assert shown["gate_keys"] == list(hotfix.gate_keys)
-    assert shown["gate_total"] == 3
-    assert shown["phase_count"] == 10
+    assert shown["gate_total"] == 4
+    assert shown["phase_count"] == 12
     assert shown["current_phase"] == "impact_analysis"
     assert shown["position"] == 2
-    assert shown["progress"] == "2/10"
-    assert shown["next_phase"] == "spec_draft"
+    assert shown["progress"] == "2/12"
+    assert shown["next_phase"] == "architecture_placement"
     # `impact_analysis` is not a gate, so it has no gate number.
     assert shown["gate_number"] is None
     assert shown["label"] == "Impact Analysis"
@@ -1607,8 +1625,8 @@ def test_constants_reports_every_flow(skill_copy):
 
     assert set(shown["flows"]) == set(sdle.ENGINEERING_FLOWS)
     assert shown["flows"]["GREENFIELD"]["phases"] == GREENFIELD_GOLDEN
-    assert shown["flows"]["GREENFIELD"]["gate_total"] == 8
-    assert shown["flows"]["HOTFIX"]["phase_count"] == 10
+    assert shown["flows"]["GREENFIELD"]["gate_total"] == 9
+    assert shown["flows"]["HOTFIX"]["phase_count"] == 12
     # The pre-T07 keys are all still there: nothing was removed to add this.
     for key in ("phase_sequence", "phase_count", "next_phase",
                 "phase_to_gate_key", "gate_number", "gate_phases",
@@ -1633,6 +1651,7 @@ PRE_T08_FLOW_PHASES = {
     "GREENFIELD": GREENFIELD_GOLDEN,
     "ITERATIVE": [
         "requirements_check",
+        "architecture_placement", "gate_architecture",
         "spec_draft", "gate_spec", "plan_draft", "gate_plan",
         "checklist_draft", "tasks_draft", "gate_tasks",
         "analyze", "gate_analyze", "design_generation", "gate_design",
@@ -1641,6 +1660,7 @@ PRE_T08_FLOW_PHASES = {
     ],
     "DEFECT_FIX": [
         "requirements_check", "impact_analysis",
+        "architecture_placement", "gate_architecture",
         "spec_draft", "gate_spec", "plan_draft", "gate_plan",
         "tasks_draft", "gate_tasks", "analyze", "gate_analyze",
         "implement", "gate_implement", "security_review", "gate_security",
@@ -1648,6 +1668,7 @@ PRE_T08_FLOW_PHASES = {
     ],
     "HOTFIX": [
         "requirements_check", "impact_analysis",
+        "architecture_placement", "gate_architecture",
         "spec_draft", "gate_spec", "plan_draft", "tasks_draft",
         "implement", "gate_implement", "security_review", "gate_security",
         "complete",
@@ -1690,14 +1711,23 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
     dirty-tree guard loses no evidence — while *not* excluding it broke
     cross-WorkItem isolation, which §8/§9 do guarantee.
 
-    Note what did **not** move: `.sdle/` is still **not** in the hook fence
-    and still **not** in `.gitignore`. D5/D6 are the two surfaces the finding
-    named; nothing else was widened to match.
+    Note what did **not** move: `.sdle/` is still **not** in `.gitignore`.
+    ADR-013 adds ONE fenced member, `.sdle/architecture`, and deliberately
+    does not fence `.sdle/` itself: `config init` writes `config.json` and
+    a human edits `policies/`.
     """
+    # ADR-013 re-values this pin in the STRICTER direction: `.sdle/` as a
+    # whole left the set and was replaced by the three members the engine
+    # actually writes during a lifecycle. `config.json` and `policies/`
+    # are human-authored and are now visible to the dirty-tree guard
+    # again, which is what D10 asks for. Nothing that was reported before
+    # stopped being reported.
     assert sdle.SDLE_OWNED_PREFIXES == (
-        ".workflow/", ".sdle/", "workitems/", ".specify/", "design/",
+        ".workflow/", ".sdle/baseline.json",
+        ".sdle/implementation-state/", ".sdle/architecture/",
+        "workitems/", ".specify/", "design/",
         "reviews/", "clarifications/", "guidance/", "requirements/")
-    assert ".sdle/" in sdle.SDLE_OWNED_PREFIXES
+    assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
 
     # The other half of the same residual, inverted: Gate 7's manifest now
     # carries its sibling's relocation/ownership exclusion, so the repository
@@ -1734,8 +1764,10 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
 
     hooks = (REPO_ROOT / ".claude" / "hooks" / "hooks.py").read_text(
         encoding="utf-8")
-    assert 'FENCED = (".workflow", "workitems", "requirements", "guidance")' \
+    assert 'FENCED = (".workflow", "workitems", "requirements", "guidance",'\
         in hooks
+    assert '".sdle/architecture")' in hooks
+    assert 'FENCED = (".sdle"' not in hooks
     assert list(sdle.GREENFIELD_V1_PHASES) == GREENFIELD_GOLDEN
 
 
@@ -1763,6 +1795,11 @@ def test_n18_a_repository_sdle_write_never_trips_another_workitems_guard(
     sdle_dir.mkdir(exist_ok=True)
     (sdle_dir / "baseline.json").write_text('{"kind": "baseline"}\n',
                                             encoding="utf-8")
+    # ADR-013: the architecture catalog is written during the very
+    # lifecycle whose preflight this is, so it has to be owned too.
+    (sdle_dir / "architecture").mkdir(exist_ok=True)
+    (sdle_dir / "architecture" / "catalog.json").write_text(
+        '{"catalogVersion": 1}\n', encoding="utf-8")
 
     result = git_project.ok("implement", "preflight")
 
@@ -1777,6 +1814,13 @@ def test_n18_no_prefix_other_than_sdle_was_added_to_the_guard():
     before = (".workflow/", "workitems/", ".specify/", "design/", "reviews/",
               "clarifications/", "guidance/", "requirements/")
     after = sdle.SDLE_OWNED_PREFIXES
-    assert set(after) - set(before) == {".sdle/"}
+    # ADR-013 re-values the T11 delta. Instead of the whole `.sdle/`, the
+    # guard owns exactly the three members the engine writes during a
+    # lifecycle - so the added set is narrower than what it replaced, and
+    # `config.json` and `policies/` are visible to the guard once more.
+    assert set(after) - set(before) == {
+        ".sdle/baseline.json", ".sdle/implementation-state/",
+        ".sdle/architecture/"}
     assert set(before) - set(after) == set()
-    assert len(after) == len(before) + 1
+    assert ".sdle/" not in after
+    assert len(after) == len(before) + 3

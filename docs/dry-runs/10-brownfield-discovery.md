@@ -4,7 +4,7 @@
 |---|---|
 | **Scenario ID** | DR-10 |
 | **Flow** | `BROWNFIELD_DISCOVERY` |
-| **Purpose** | The first WorkItem in an existing codebase. `discovery` runs before anything is specified, its findings are classified, and completion establishes the repository baseline. **19 phases, 8 gates.** |
+| **Purpose** | The first WorkItem in an existing codebase. `discovery` runs before anything is specified, its findings are classified, and completion establishes the repository baseline. **21 phases, 9 gates.** |
 | **Defect IDs** | D01, D02 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation and the discovery reading are simulated |
 | **Starting conditions** | An existing repository with real code and history, and no `.sdle/baseline.json`. SpecKit initialised. `requirements/reporting-export.md` present. Governance classifies the WorkItem `enhancement` on `BROWNFIELD_DISCOVERY`, LOW risk. No feature directory bound. Clean working tree |
@@ -51,7 +51,7 @@ Content scan passed.
 
 This repository has no recorded baseline, and it is not empty — I can see an
 existing source tree. This WorkItem is therefore bound to BROWNFIELD_DISCOVERY:
-19 phases, 8 gates. It opens with a discovery pass that reads the repository as
+21 phases, 9 gates. It opens with a discovery pass that reads the repository as
 it actually is, before anything is specified about changing it.
 
 Shall I proceed?
@@ -73,8 +73,8 @@ is bound **once**. A later record naming a different flow is refused
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=discovery status=in_progress progress=2/19 -->
-📋 SDLE Status: Phase 2/19 — Repository Discovery [IN PROGRESS]
+<!-- SDLE_STATE phase=discovery status=in_progress progress=2/21 -->
+📋 SDLE Status: Phase 2/21 — Repository Discovery [IN PROGRESS]
 
 Reading the repository across the discovery categories...
 
@@ -126,8 +126,8 @@ workflow cannot leave the phase.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=3/19 -->
-📋 SDLE Status: Phase 3/19 — Generate Constitution [IN PROGRESS]
+<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=3/21 -->
+📋 SDLE Status: Phase 3/21 — Generate Constitution [IN PROGRESS]
 
 Before drafting: re-displaying the discovery record, grouped by category, with each
 finding's classification — the constitution is written from what was found here, not
@@ -141,16 +141,16 @@ from a blank page.
 >
 > | Gate | Phase | Progress |
 > |---:|---|---|
-> | 1/8 | `gate_constitution` | 4/19 |
-> | 2/8 | `gate_spec` | 6/19 |
-> | 3/8 | `gate_plan` | 8/19 |
-> | 4/8 | `gate_tasks` | 11/19 |
-> | 5/8 | `gate_analyze` | 13/19 |
-> | 6/8 | `gate_design` | 15/19 |
-> | 7/8 | `gate_implement` | 17/19 |
-> | 8/8 | `gate_security` | 19/19 |
+> | 1/8 | `gate_constitution` | 4/21 |
+> | 2/8 | `gate_spec` | 8/21 |
+> | 3/8 | `gate_plan` | 10/21 |
+> | 4/8 | `gate_tasks` | 13/21 |
+> | 5/8 | `gate_analyze` | 15/21 |
+> | 6/8 | `gate_design` | 17/21 |
+> | 7/8 | `gate_implement` | 19/21 |
+> | 8/8 | `gate_security` | 21/21 |
 >
-> Each gate still refuses an unresolved artifact (D01). Gate 7 still refuses
+> Each gate still refuses an unresolved artifact (D01). Gate 8 still refuses
 > anything but a passing test run for its exact manifest (D02). In an existing
 > codebase that usually means the project's real suite, via the detected runner
 > or `--test-command`.
@@ -162,12 +162,12 @@ from a blank page.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=complete status=completed progress=19/19 -->
-📋 SDLE Status: Phase 19/19 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=21/21 -->
+📋 SDLE Status: Phase 21/21 — Complete [COMPLETED]
 
 ✅ Security review approved. Workflow complete!
 
-All 8 gates passed. Completion summary: workitems/reporting-export/.sdle/completion-summary.json
+All 9 gates passed. Completion summary: workitems/reporting-export/.sdle/completion-summary.json
 
 Repository baseline established: .sdle/baseline.json
   It references the discovery record by path and SHA-256 — it does not copy it. The
@@ -180,11 +180,11 @@ Repository baseline established: .sdle/baseline.json
 ## Artifacts, state and audit
 
 - `state.flow` = `BROWNFIELD_DISCOVERY`, set at `init` and never changed.
-- The traversal was all 19 phases:
+- The traversal was all 21 phases:
   `requirements_check → discovery → constitution_draft → gate_constitution → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
 - `discovery.json` was written once, by `discovery assess`, with evidence in
   `evidence/discovery-<execution-id>.json`.
-- `.sdle/baseline.json` was written once, at the Gate 8 approval. It records
+- `.sdle/baseline.json` was written once, at the Gate 9 approval. It records
   `establishedBy.flow: BROWNFIELD_DISCOVERY` and `discovery.status: PERFORMED`,
   and references the constitution and the design document by SHA-256.
 

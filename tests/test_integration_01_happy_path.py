@@ -1,6 +1,6 @@
 """Integration 01 — derived from docs/dry-runs/01-happy-path.md.
 
-Fresh project -> 18 phases -> 8 gate approvals -> complete.
+Fresh project -> 20 phases -> 9 gate approvals -> complete.
 
 SpecKit is not invoked. Each generation step is simulated by writing a
 plausible artifact; what is asserted is the sequence of state values, the
@@ -24,6 +24,7 @@ FEATURE = "001-todo-api"
 # The traversal the transcript records, in order.
 EXPECTED_TRAVERSAL = [
     "requirements_check", "constitution_draft", "gate_constitution",
+    "architecture_placement", "gate_architecture",
     "spec_draft", "gate_spec", "plan_draft", "gate_plan",
     "checklist_draft", "tasks_draft", "gate_tasks", "analyze", "gate_analyze",
     "design_generation", "gate_design", "implement", "gate_implement",
@@ -31,8 +32,9 @@ EXPECTED_TRAVERSAL = [
 ]
 
 GATES = [
-    "gate_constitution", "gate_spec", "gate_plan", "gate_tasks",
-    "gate_analyze", "gate_design", "gate_implement", "gate_security",
+    "gate_constitution", "gate_architecture", "gate_spec", "gate_plan",
+    "gate_tasks", "gate_analyze", "gate_design", "gate_implement",
+    "gate_security",
 ]
 
 
@@ -60,9 +62,17 @@ def run_happy_path(project) -> list[str]:
     note()
     review_for_gate(project, "gate_constitution")
     project.ok("gate", "approve", "--gate", "gate_constitution")
+    note()  # architecture_placement
+
+    # ADR-013: placement, then its gate, before anything is specified.
+    project.record_architecture()
+    project.ok("advance", "--to", "gate_architecture")
+    note()
+    review_for_gate(project, "gate_architecture")
+    project.ok("gate", "approve", "--gate", "gate_architecture")
     note()  # spec_draft
 
-    # Phase 4 -> Gate 2 (feature id resolved from the specs directory)
+    # Phase 6 -> Gate 3 (feature id resolved from the specs directory)
     project.write_artifact(f"{feature_dir}/spec.md")
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
@@ -72,7 +82,7 @@ def run_happy_path(project) -> list[str]:
                "--comments", "Add rate limiting to the API constraints.")
     note()  # plan_draft
 
-    # Phase 6 -> Gate 3
+    # Phase 8 -> Gate 4
     project.write_artifact(f"{feature_dir}/plan.md")
     project.ok("advance", "--to", "gate_plan")
     note()
@@ -80,7 +90,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_plan")
     note()  # checklist_draft
 
-    # Phases 8 and 9 run back to back; both are reviewed at Gate 4.
+    # Phases 10 and 11 run back to back; both are reviewed at Gate 5.
     project.write_artifact(f"{feature_dir}/checklist.md")
     project.ok("advance", "--to", "tasks_draft")
     note()
@@ -91,7 +101,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_tasks")
     note()  # analyze
 
-    # Phase 11 -> Gate 5 (same tasks.md, refined)
+    # Phase 13 -> Gate 6 (same tasks.md, refined)
     project.write_artifact(f"{feature_dir}/tasks.md",
                            "# Tasks (refined by analysis)\n\n" + "T001. " * 40)
     project.ok("drift", "rebaseline", "--gate", "gate_tasks")
@@ -101,7 +111,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_analyze")
     note()  # design_generation
 
-    # Phase 13 -> Gate 6
+    # Phase 15 -> Gate 7
     project.write_artifact("design/app/app-design.md")
     project.write_artifact("design/db/db-design.md")
     project.ok("advance", "--to", "gate_design")
@@ -110,7 +120,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_design")
     note()  # implement
 
-    # Phase 15 -> Gate 7. The manifest is built, not faked: Gate 7 refuses a
+    # Phase 17 -> Gate 8. The manifest is built, not faked: Gate 8 refuses a
     # manifest without a secrets scan and test evidence.
     project.ok("implement", "preflight", "--bypass")
     project.ok("manifest", "build", "--summary", "Implemented the Todo REST API.",
@@ -121,7 +131,7 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_implement")
     note()  # security_review
 
-    # Phase 17 -> Gate 8
+    # Phase 19 -> Gate 9
     begun = project.ok("security-review", "begin")
     project.write_artifact(begun.data["review_filename"])
     project.ok("advance", "--to", "gate_security")
@@ -138,7 +148,7 @@ def test_traversal_matches_the_transcript(git_project):
     assert seen == EXPECTED_TRAVERSAL
 
 
-def test_all_eight_gates_approved_with_baselines(git_project):
+def test_all_nine_gates_approved_with_baselines(git_project):
     run_happy_path(git_project)
     state = git_project.state()
 
@@ -158,7 +168,7 @@ def test_workflow_ends_complete(git_project):
     state = git_project.state()
     assert state["current_phase"] == "complete"
     assert state["status"] == "completed"
-    assert state["progress"] == "18/18"
+    assert state["progress"] == "20/20"
 
 
 def test_phase_history_records_every_phase_in_order(git_project):
@@ -199,7 +209,7 @@ def test_completion_summary_written_exactly_once(git_project):
 
 def test_no_drift_is_reported_at_any_point(git_project):
     """A clean run must never queue a re-approval — in particular, the
-    analyze step refines tasks.md, which Gate 4 already fingerprinted."""
+    analyze step refines tasks.md, which Gate 5 already fingerprinted."""
     run_happy_path(git_project)
     state = git_project.state()
     assert state["drift_queue"] == []

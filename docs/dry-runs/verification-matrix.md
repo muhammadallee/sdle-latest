@@ -14,12 +14,14 @@ run R1, so `R1` in the last column means those tests passed in it.
 | R2 | `f2db495` | Windows 10, Python 3.13.0 | `lint-skill` through `python scripts/sdle.py`, `sh scripts/sdle.sh` and `./scripts/sdle.ps1` | **PASS**: 44 checks through each launcher, none failed |
 | R3 | `d384ceb` | GitHub Actions `ubuntu-latest`, Python 3.11 and 3.13 | the CI workflow | **PASS**: both jobs `success` ([run](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) |
 | R4 | `d384ceb` | GitHub Actions `windows-latest`, Python 3.11 and 3.13 | the CI workflow | **PASS**: both jobs `success` ([run](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) |
+| R5 | `feature/project-architecture-memory` (ADR-013/014) | Windows 11, Python 3.13.0 | `python -m pytest -q tests/test_units_architecture.py` | **PASS**: 46 passed, 0 failed (2m59s) |
+| R6 | `feature/project-architecture-memory` (ADR-013/014) | Windows 11, Python 3.13.0 | `python -m pytest -q tests/test_dry_run_contracts.py` | **PASS**: 146 passed, 0 failed (1m29s) |
 
 `d384ceb` is `f2db495` plus this run's own records; the two are byte-identical in
 every product path, so R3 and R4 test the same engine, prompts and documentation
 that R1 and R2 did. A run that was not executed says **NOT RUN**, never PASS.
 
-R3 and R4 are the executed evidence for Linux and for Python 3.11. Still unexercised, on any run: macOS, and Windows PowerShell 5.1.
+R5 and R6 are the executed evidence for the ADR-013 scenarios; the whole suite on this branch runs in CI rather than locally, so R1's counts are not restated for it. R3 and R4 are the executed evidence for Linux and for Python 3.11. Still unexercised, on any run: macOS, and Windows PowerShell 5.1.
 
 The transcripts are simulated conversations. What the suite recomputes from them is the progress fractions, gate numbers and labels, the refusal names, the cited test nodes and a few literals; it does not run the conversations. The executed evidence for the setup they start from is in `docs/GETTING-STARTED.md` (what was replayed, and where).
 
@@ -48,6 +50,10 @@ checks that every cited test exists. It applies to all sixteen transcripts.
 | DR-14 | `GREENFIELD` (D01 cases in all five flows) | D01, D02 | `tests/test_units_gate_artifacts.py`, `tests/test_units_implementation_evidence.py`, contract | `python -m pytest tests/test_units_gate_artifacts.py tests/test_units_implementation_evidence.py` | R1 |
 | DR-15 | `GREENFIELD` | D03 | `tests/test_units_manifest_changes.py`, `tests/test_integration_06_to_09.py::test_06_security_review_refuses_when_no_ref_pinned`, contract | `python -m pytest tests/test_units_manifest_changes.py` | R1 |
 | DR-16 | `GREENFIELD` | D04 | `tests/test_units_execution_identity.py`, `tests/test_units_hardening.py::test_t11_n1_two_worktrees_each_complete_a_run_with_independent_ledgers`, contract | `python -m pytest tests/test_units_execution_identity.py` | R1 |
+| DR-17 | `ITERATIVE` | — | `tests/test_units_architecture.py::test_the_gate_is_required_at_every_risk_level`, `tests/test_units_architecture.py::test_approval_applies_the_delta_and_advances_to_spec_draft`, `tests/test_units_architecture.py::test_gate_omit_is_refused`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
+| DR-18 | `ITERATIVE` | — | `tests/test_units_architecture.py::test_keep_embedded_records_a_candidate`, `tests/test_units_architecture.py::test_realize_supersedes_the_previous_owner_of_moved_data`, `tests/test_units_architecture.py::test_a_second_workitem_sees_the_first_ones_architecture`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
+| DR-19 | `ITERATIVE` | — | `tests/test_units_architecture.py::test_a_stale_base_revision_is_refused_and_writes_nothing`, `tests/test_units_architecture.py::test_applying_the_same_decision_again_is_an_idempotent_replay`, `tests/test_units_architecture.py::test_the_same_id_with_a_different_digest_is_a_conflict`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
+| DR-20 | `HOTFIX` | — | `tests/test_units_architecture.py::test_a_legacy_repository_bootstraps_from_evidence`, `tests/test_units_architecture.py::test_bootstrap_evidence_must_cite_a_path_that_exists`, `tests/test_units_architecture.py::test_a_legacy_extension_is_permitted_without_a_constitution`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
 
 ## Defects across flows
 
@@ -64,4 +70,4 @@ gate.
 | D03 — change selection | every flow (`implement` is mandatory) | Flow-independent: `implementation_changes` reads only git and the pinned base | — |
 | D04 — execution identity | flow-independent | Governance runs before a flow is bound; reviews and manifests use the same allocator | — |
 | D05 — instructions | flow-independent | `tests/test_units_documented_commands.py` scans every prompt file and document | — |
-| D06 — transcripts | all five flows | `tests/test_dry_run_contracts.py` over all sixteen transcripts | — |
+| D06 — transcripts | all five flows | `tests/test_dry_run_contracts.py` over all twenty transcripts | — |

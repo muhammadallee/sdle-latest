@@ -1,6 +1,6 @@
 > **SDLE module — loaded on demand.** Assumes Internal Constants (PHASE_SEQUENCE, NEXT_PHASE, PHASE_TO_GATE_KEY, GATE_PHASES, PROGRESS_MAP, PHASE_LABEL_MAP) are already in context from SKILL.md. Do not duplicate them here.
 >
-> **Filename:** Phase 17 in `modules/phase-execution.md` pre-computes `review_filename` and writes it to `state.json → security_review_artifact` before loading this module. **Use that exact path as the output file — do NOT generate a new timestamped filename in Step 8b.** The pre-computed filename is available in context from Phase 17's instructions.
+> **Filename:** Phase 19 in `modules/phase-execution.md` pre-computes `review_filename` and writes it to `state.json → security_review_artifact` before loading this module. **Use that exact path as the output file — do NOT generate a new timestamped filename in Step 8b.** The pre-computed filename is available in context from Phase 19's instructions.
 
 ## Step 8: Security Review — Assisted, Evidence-Based Format
 
@@ -14,12 +14,12 @@
    - `{state.specKit.featureDirectory}/spec.md`
    - `{state.specKit.featureDirectory}/plan.md`
    - `{state.specKit.featureDirectory}/tasks.md`
-2. Run `sdle.sh security-review evidence`. It diffs against `implementation_base_ref` — the HEAD recorded when Phase 15 started — and covers exactly the change set the Gate 7 manifest listed: the same selection, the same exclusions, committed and uncommitted work alike. The response carries `stat`, `diff`, the resolved `base_ref`, the `changes` list and `untracked` — files new since the base that no diff shows. **Read every `untracked` file directly**; a review of the diff alone would miss them. If no base was pinned it refuses `implementation_base_missing` instead of guessing a range: show the message and halt. If git is unavailable it says so; note that explicitly rather than skipping the review.
+2. Run `sdle.sh security-review evidence`. It diffs against `implementation_base_ref` — the HEAD recorded when Phase 17 started — and covers exactly the change set the Gate 8 manifest listed: the same selection, the same exclusions, committed and uncommitted work alike. The response carries `stat`, `diff`, the resolved `base_ref`, the `changes` list and `untracked` — files new since the base that no diff shows. **Read every `untracked` file directly**; a review of the diff alone would miss them. If no base was pinned it refuses `implementation_base_missing` instead of guessing a range: show the message and halt. If git is unavailable it says so; note that explicitly rather than skipping the review.
 4. Extract the tech stack from `plan.md` (look for frameworks, languages, databases, auth libraries).
 
 **Step 8b — Generate the review file:**
 
-Create the review file at `<review_filename>` (the pre-computed path from Phase 17 — do NOT generate a new timestamp; use the exact path stored in `state.json → security_review_artifact`) with this structure:
+Create the review file at `<review_filename>` (the pre-computed path from Phase 19 — do NOT generate a new timestamp; use the exact path stored in `state.json → security_review_artifact`) with this structure:
 
 ```markdown
 # AI-Assisted Security Review — <Project Name>

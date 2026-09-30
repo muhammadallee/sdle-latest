@@ -56,8 +56,8 @@ the one file held only the HIGH assessment, and the LOW one was gone.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=2/18 -->
-📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
+<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=2/20 -->
+📋 SDLE Status: Phase 2/20 — Generate Constitution [IN PROGRESS]
 ```
 
 *(Each record reaches the ledger at the first phase movement after it, as a

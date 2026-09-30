@@ -80,7 +80,7 @@ def test_a_renamed_constant_heading_fails_loudly(repo):
 
 
 def test_a_malformed_table_row_fails_loudly(repo):
-    edit(repo, "SKILL.md", "| `analyze` | 11/18 |", "| `analyze` | 11/18 | extra |")
+    edit(repo, "SKILL.md", "| `analyze` | 13/20 |", "| `analyze` | 13/20 | extra |")
     result = repo.run("lint-skill")
     assert result.exit_code == EXIT_REFUSED
     assert result.data["checks"][0]["name"] == "tables_wellformed"
@@ -122,7 +122,7 @@ def test_broken_next_phase_chain_fires(repo):
 
 
 def test_wrong_progress_denominator_fires(repo):
-    edit(repo, "SKILL.md", "| `analyze` | 11/18 |", "| `analyze` | 11/19 |")
+    edit(repo, "SKILL.md", "| `analyze` | 13/20 |", "| `analyze` | 13/21 |")
     assert_only_failure(repo, "progress_denominator_matches_phase_count")
 
 
@@ -144,7 +144,7 @@ def test_gate_missing_from_state_template_fires(repo):
 
 def test_gate_missing_from_gate_to_execution_phase_fires(repo):
     edit(repo, "modules/gate-protocol.md",
-         "| gate_security | security_review | SDLE-native (Phase 17 via "
+         "| gate_security | security_review | SDLE-native (Phase 19 via "
          "`modules/security-review.md`) |", "")
     checks = results(repo)
     assert checks["gate_registered_gate_security"] is False
@@ -164,7 +164,7 @@ def test_version_drift_fires(repo):
     readme = repo.root / "README.md"
     readme.write_text(
         readme.read_text(encoding="utf-8").replace(
-            "# SDLE — Spec Driven Lifecycle Engine (v1.17)",
+            "# SDLE — Spec Driven Lifecycle Engine (v1.18)",
             "# SDLE — Spec Driven Lifecycle Engine (v1.13)",
         ),
         encoding="utf-8",
@@ -217,7 +217,7 @@ def test_a_reintroduced_powershell_cmdlet_fires(repo):
 def test_a_hardcoded_progress_string_fires(repo):
     path = repo.skill_root / "modules" / "gate-protocol.md"
     path.write_text(
-        path.read_text(encoding="utf-8") + "\nThe workflow is at phase 7/18 here.\n",
+        path.read_text(encoding="utf-8") + "\nThe workflow is at phase 7/20 here.\n",
         encoding="utf-8",
     )
     assert_only_failure(repo, "no_hardcoded_progress_outside_progress_map")
@@ -225,7 +225,7 @@ def test_a_hardcoded_progress_string_fires(repo):
 
 def test_a_phase_without_an_execution_block_fires(repo):
     edit(repo, "modules/phase-execution.md",
-         "**Phase 13 — `design_generation`:**", "**Phase 13 — design stuff:**")
+         "**Phase 15 — `design_generation`:**", "**Phase 15 — design stuff:**")
     checks = results(repo)
     assert checks["every_phase_has_execution_block"] is False
 
@@ -300,13 +300,13 @@ def test_a_flow_dropping_a_mandatory_phase_fires(repo):
 
 def test_a_progress_value_that_is_not_the_greenfield_position_fires(repo):
     """PROGRESS_MAP is a derived view now, and its values are checked."""
-    edit(repo, "SKILL.md", "| `analyze` | 11/18 |", "| `analyze` | 10/18 |")
+    edit(repo, "SKILL.md", "| `analyze` | 13/20 |", "| `analyze` | 12/20 |")
     assert_only_failure(
         repo, "progress_map_and_gate_numbers_are_the_derived_greenfield_views")
 
 
 def test_a_gate_number_column_that_is_not_the_greenfield_numbering_fires(repo):
-    edit(repo, "SKILL.md", "| `gate_analyze` | `gate_analyze` | 5 |",
+    edit(repo, "SKILL.md", "| `gate_analyze` | `gate_analyze` | 6 |",
          "| `gate_analyze` | `gate_analyze` | 9 |")
     assert_only_failure(
         repo, "progress_map_and_gate_numbers_are_the_derived_greenfield_views")
@@ -320,8 +320,8 @@ def test_a_registry_phase_no_flow_names_fires(repo):
     — a new registry phase has no NEXT_PHASE row, no label and no execution
     block — so this asserts its own check directly rather than in isolation.
     """
-    edit(repo, "SKILL.md", "| 21 | `complete` |",
-         "| 21 | `complete` |\n| 22 | `orphan_phase` |")
+    edit(repo, "SKILL.md", "| 23 | `complete` |",
+         "| 23 | `complete` |\n| 24 | `orphan_phase` |")
     checks = results(repo)
     assert checks["every_registry_phase_is_used_by_some_flow"] is False
 
@@ -337,8 +337,8 @@ def test_a_hardcoded_gate_ordinal_in_a_label_fires(repo):
 def test_a_block_ordinal_that_is_not_the_greenfield_position_fires(repo):
     """The 17 restated block ordinals are pinned for the first time."""
     edit(repo, "modules/phase-execution.md",
-         "**Phase 13 — `design_generation`:**",
-         "**Phase 12 — `design_generation`:**")
+         "**Phase 15 — `design_generation`:**",
+         "**Phase 14 — `design_generation`:**")
     assert_only_failure(
         repo, "execution_block_numbers_are_the_greenfield_positions")
 
@@ -350,7 +350,7 @@ def test_a_greenfield_block_that_drops_its_ordinal_fires(repo):
     outside GREENFIELD is allowed to have none.
     """
     edit(repo, "modules/phase-execution.md",
-         "**Phase 13 — `design_generation`:**",
+         "**Phase 15 — `design_generation`:**",
          "**Phase `design_generation`:**")
     assert_only_failure(
         repo, "execution_block_numbers_are_the_greenfield_positions")
@@ -373,8 +373,8 @@ def test_a_gate_registered_for_discovery_fires(repo):
 
 def test_a_progress_map_row_for_discovery_fires(repo):
     """PROGRESS_MAP is GREENFIELD's view, and `discovery` is not in it."""
-    edit(repo, "SKILL.md", "| `requirements_check` | 1/18 |",
-         "| `requirements_check` | 1/18 |\n| `discovery` | 1/18 |")
+    edit(repo, "SKILL.md", "| `requirements_check` | 1/20 |",
+         "| `requirements_check` | 1/20 |\n| `discovery` | 1/20 |")
     checks = results(repo)
     assert checks["discovery_is_gateless"] is False
 
@@ -458,11 +458,15 @@ def test_a_row_that_requires_the_whole_capability_set_fires(repo):
     """The progressive property, stated as a rule: a phase that needs
     everything is a phase for which nothing was decided."""
     text = (repo.skill_root / "SKILL.md").read_text(encoding="utf-8")
+    # Both capability homes: ADR-014 put the guidelines beside the modules,
+    # and "the whole set" has to mean the whole set or the rule is vacuous.
+    homes = ("modules/", "guidelines/")
     everything = sorted({
         value
-        for line in text.splitlines() if line.startswith("| `") and "modules/" in line
+        for line in text.splitlines()
+        if line.startswith("| `") and any(h in line for h in homes)
         for value in line.split("|")[2].split()
-        if value.startswith("modules/")
+        if value.startswith(homes)
     })
     edit(repo, "SKILL.md", capability_row(repo, "complete"),
          "| `complete` | " + " ".join(everything) + " |")

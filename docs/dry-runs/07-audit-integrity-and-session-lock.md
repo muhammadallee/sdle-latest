@@ -7,7 +7,7 @@
 | **Purpose** | Resuming a workflow in a new conversation while three integrity signals fire: a fresh lock from another session, a hand-edited audit ledger, and commits newer than the last approval. |
 | **Defect IDs** | D05 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `gate_design` (`14/18`, `awaiting_approval`), Gates 1–5 approved. Since then, another session touched `workitems/todo-api/.sdle/lock` 4 minutes ago with a different token, someone deleted a rejection entry from `workitems/todo-api/.sdle/audit.md`, and two commits landed on the branch |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `gate_design` (`16/20`, `awaiting_approval`), Gates 1–5 approved. Since then, another session touched `workitems/todo-api/.sdle/lock` 4 minutes ago with a different token, someone deleted a rejection entry from `workitems/todo-api/.sdle/audit.md`, and two commits landed on the branch |
 | **Guardrails exercised** | The per-WorkItem session lock (warn-only), the audit hash chain and `accept audit`, the repository staleness notice, and `--session` as a global option |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
@@ -20,7 +20,7 @@
 
 ## Setup
 
-Follow DR-01 to Gate 6's prompt. Then, in the fixture:
+Follow DR-01 to Gate 7's prompt. Then, in the fixture:
 - write the lock file with a foreign token;
 - delete one `## AUDIT` block from `audit.md`;
 - make two commits touching a recorded artifact path.
@@ -34,8 +34,8 @@ Follow DR-01 to Gate 6's prompt. Then, in the fixture:
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_design status=awaiting_approval progress=14/18 -->
-📋 SDLE Status: Phase 14/18 — Gate 6: Design Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_design status=awaiting_approval progress=16/20 -->
+📋 SDLE Status: Phase 16/20 — Gate 7: Design Approval [AWAITING APPROVAL]
 
 ⚠️ Another session may be operating on this WorkItem (lock touched 4 minutes ago).
 Proceed only if you are sure no other session is active.
@@ -62,8 +62,8 @@ clears.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_design status=awaiting_approval progress=14/18 -->
-📋 SDLE Status: Phase 14/18 — Gate 6: Design Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_design status=awaiting_approval progress=16/20 -->
+📋 SDLE Status: Phase 16/20 — Gate 7: Design Approval [AWAITING APPROVAL]
 
 Audit hash re-baselined (logged).
 
@@ -71,7 +71,7 @@ Audit hash re-baselined (logged).
 artifact paths — approved artifacts may reflect a stale view of the codebase.
 
 ---
-✋ APPROVAL REQUIRED — Gate 6/8: Design Approval
+✋ APPROVAL REQUIRED — Gate 7/9: Design Approval
 [... design/app/app-design.md displayed in full — abridged ...]
 
 Artifact path: design/app/app-design.md

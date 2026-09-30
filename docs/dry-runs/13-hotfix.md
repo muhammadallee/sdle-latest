@@ -4,7 +4,7 @@
 |---|---|
 | **Scenario ID** | DR-13 |
 | **Flow** | `HOTFIX` |
-| **Purpose** | An urgent, reproducible production fix under incident pressure: the shortest flow SDLE has, and what it still refuses to give up. Urgency never turns a failed verification into a pass. **10 phases, 3 gates.** |
+| **Purpose** | An urgent, reproducible production fix under incident pressure: the shortest flow SDLE has, and what it still refuses to give up. Urgency never turns a failed verification into a pass. **12 phases, 4 gates.** |
 | **Defect IDs** | D01, D02 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
 | **Starting conditions** | A production incident on a repository with an established baseline. `requirements/checkout-500.md` present, and the failure reproduces under a concurrency test. Governance classifies it `defect` on `HOTFIX` with the risk signal `production_security_boundary`, so the final risk is **HIGH**. Clean working tree |
@@ -39,7 +39,7 @@ incident. The executable form assesses the same governance input,
 WorkItem created: checkout-500, bound to requirements/checkout-500.md. Preflight passed.
 Content scan passed.
 
-Bound to HOTFIX: 10 phases, 3 gates — exactly the mandatory governance floor plus the
+Bound to HOTFIX: 12 phases, 4 gates — exactly the mandatory governance floor plus the
 impact analysis. There is no admissible flow below it: the flow loader refuses a flow
 missing a mandatory phase rather than traversing it.
 
@@ -61,8 +61,8 @@ assess`.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=impact_analysis status=in_progress progress=2/10 -->
-📋 SDLE Status: Phase 2/10 — Impact Analysis [IN PROGRESS]
+<!-- SDLE_STATE phase=impact_analysis status=in_progress progress=2/12 -->
+📋 SDLE Status: Phase 2/12 — Impact Analysis [IN PROGRESS]
 
 Analysis written to reviews/impact-analysis-2026-09-08-0214.md.
 
@@ -116,8 +116,8 @@ omittable_gates: (none)
 **SDLE:** *(after the fix and `manifest build`)*
 
 ```
-<!-- SDLE_STATE phase=implement status=in_progress progress=7/10 -->
-📋 SDLE Status: Phase 7/10 — Implement [IN PROGRESS]
+<!-- SDLE_STATE phase=implement status=in_progress progress=9/12 -->
+📋 SDLE Status: Phase 9/12 — Implement [IN PROGRESS]
 
 Manifest built. Test evidence: pytest — FAILED (exit 1):
   tests/test_inventory.py::test_reservation_under_contention FAILED
@@ -149,19 +149,19 @@ with `manifest build --test-command "<command>"`, then rebuild.
 and Gate 2/3 approves. Then the security gate.)*
 
 ```
-<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=8/10 -->
-📋 SDLE Status: Phase 8/10 — Gate 2: Implementation Approval [AWAITING APPROVAL]
-✋ APPROVAL REQUIRED — Gate 2/3: Implementation Approval
+<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=10/12 -->
+📋 SDLE Status: Phase 10/12 — Gate 3: Implementation Approval [AWAITING APPROVAL]
+✋ APPROVAL REQUIRED — Gate 3/4: Implementation Approval
 ```
 
 **User:** `approve` … `approve` *(at Gate 3/3)*
 
 ```
-<!-- SDLE_STATE phase=complete status=completed progress=10/10 -->
-📋 SDLE Status: Phase 10/10 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=12/12 -->
+📋 SDLE Status: Phase 12/12 — Complete [COMPLETED]
 
 ✅ Security review approved. Workflow complete!
-All 3 gates passed. Completion summary: workitems/checkout-500/.sdle/completion-summary.json
+All 4 gates passed. Completion summary: workitems/checkout-500/.sdle/completion-summary.json
 ```
 
 ---
@@ -198,8 +198,8 @@ All 3 gates passed. Completion summary: workitems/checkout-500/.sdle/completion-
 | Claim | Test |
 |---|---|
 | The floor plus the impact analysis | `tests/test_integration_10_to_13.py::test_13_hotfix_is_the_floor_plus_the_impact_analysis` |
-| Ten phases, three gates | `tests/test_integration_10_to_13.py::test_13_ten_phases_three_gates` |
-| Five gates not in flow, none omitted | `tests/test_integration_10_to_13.py::test_13_five_gates_are_not_in_flow_and_none_is_omitted` |
+| Twelve phases, four gates | `tests/test_integration_10_to_13.py::test_13_twelve_phases_four_gates` |
+| The absent gates are not in flow, none omitted | `tests/test_integration_10_to_13.py::test_13_the_absent_gates_are_not_in_flow_and_none_is_omitted` |
 | The impact analysis is still enforced | `tests/test_integration_10_to_13.py::test_13_the_impact_analysis_is_still_enforced_under_pressure` |
 | Plan and tasks run without their gates | `tests/test_integration_10_to_13.py::test_13_plan_and_tasks_run_without_their_gates` |
 | The final gate is required by a positional rule | `tests/test_integration_10_to_13.py::test_13_the_final_gate_is_required_by_a_rule_no_override_reaches` |

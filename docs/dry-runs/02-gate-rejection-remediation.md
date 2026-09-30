@@ -7,7 +7,7 @@
 | **Purpose** | What rejecting a gate looks like: feedback capture, a remediation re-run, and the remediation rate limit halting a feedback loop. |
 | **Defect IDs** | — |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, driven to `gate_spec` (`5/18`, `awaiting_approval`). Gate 1 approved. `specKit.featureDirectory` is `workitems/todo-api/specs/001-todo-api`. `attempt_counts` is empty. LOW risk |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, driven to `gate_spec` (`7/20`, `awaiting_approval`). Gate 1 approved. `specKit.featureDirectory` is `workitems/todo-api/specs/001-todo-api`. `attempt_counts` is empty. LOW risk |
 | **Guardrails exercised** | Rejection protocol (feedback required, canonical in `state.json`), remediation counter against `rate_limits.max_remediation_attempts` (default 3), the bare-`reject` refusal, audited escape hatches |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
@@ -20,7 +20,7 @@
 
 ## Setup
 
-Follow DR-01's setup, then run DR-01's conversation as far as the Gate 2 prompt.
+Follow DR-01's setup, then run DR-01's conversation as far as the Gate 3 prompt.
 
 ---
 
@@ -31,8 +31,8 @@ Follow DR-01's setup, then run DR-01's conversation as far as the Gate 2 prompt.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [AWAITING APPROVAL]
 
 Please provide your feedback: `reject with comments: <your feedback>`
 ```
@@ -47,8 +47,8 @@ feedback is not a supported path.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=rejected progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED — REMEDIATION NEEDED]
+<!-- SDLE_STATE phase=gate_spec status=rejected progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [REJECTED — REMEDIATION NEEDED]
 
 Understood — I've recorded your feedback in state.json:
 
@@ -66,8 +66,8 @@ Say "continue" to re-run the Generate Specification step with this feedback appl
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=in_progress progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [IN PROGRESS]
+<!-- SDLE_STATE phase=gate_spec status=in_progress progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [IN PROGRESS]
 
 Remediation attempt 1/3 for spec_draft.
 Re-generating the specification with your feedback applied...
@@ -75,7 +75,7 @@ Re-generating the specification with your feedback applied...
 Specification regenerated and verified. Feedback archived.
 
 ---
-✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
 
 # Feature Specification: Todo List REST API
 ## User Stories
@@ -95,7 +95,7 @@ incremented `attempt_counts.spec_draft.remediations` to 1 and wrote the
 feedback to `.specify/sdle-feedback.md`. The feedback also goes inline in the
 generation arguments. After verification, `sdle.sh remediate finish --gate gate_spec`
 archived the feedback file. The regenerated spec has new content, so it needs
-a fresh PASS review before Gate 2 can approve it.)*
+a fresh PASS review before Gate 3 can approve it.)*
 
 ---
 
@@ -109,8 +109,8 @@ and 3/3 run the same way. Then:)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=rejected progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED — REMEDIATION NEEDED]
+<!-- SDLE_STATE phase=gate_spec status=rejected progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [REJECTED — REMEDIATION NEEDED]
 
 ⛔ Remediation limit reached: spec_draft has been remediated 3/3 times.
 

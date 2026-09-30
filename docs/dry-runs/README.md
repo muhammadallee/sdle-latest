@@ -43,10 +43,10 @@ the build rather than drifting silently.
 
 | File | Flow | Size | What it pins |
 |---|---|---|---|
-| [10-brownfield-discovery.md](10-brownfield-discovery.md) | `BROWNFIELD_DISCOVERY` | 19 phases, 8 gates | DR-10 · The gateless `discovery` phase, finding classification, `discovery_missing`, the baseline at the final gate |
-| [11-iterative.md](11-iterative.md) | `ITERATIVE` | 16 phases, 7 gates | DR-11 · Brownfield → iterative continuation, `baseline_present`, baseline reuse without rewriting, invalid vs stale baselines, Gate 1 of 7 |
-| [12-defect-fix.md](12-defect-fix.md) | `DEFECT_FIX` | 14 phases, 6 gates | DR-12 · The impact analysis and its three refusals; the reproducing test verifying the fix |
-| [13-hotfix.md](13-hotfix.md) | `HOTFIX` | 10 phases, 3 gates | DR-13 · The floor, the gates the policy could not have, and urgency never turning a failed run into a pass |
+| [10-brownfield-discovery.md](10-brownfield-discovery.md) | `BROWNFIELD_DISCOVERY` | 21 phases, 9 gates | DR-10 · The gateless `discovery` phase, finding classification, `discovery_missing`, the baseline at the final gate |
+| [11-iterative.md](11-iterative.md) | `ITERATIVE` | 18 phases, 8 gates | DR-11 · Brownfield → iterative continuation, `baseline_present`, baseline reuse without rewriting, invalid vs stale baselines, Gate 2 of 8 |
+| [12-defect-fix.md](12-defect-fix.md) | `DEFECT_FIX` | 16 phases, 7 gates | DR-12 · The impact analysis and its three refusals; the reproducing test verifying the fix |
+| [13-hotfix.md](13-hotfix.md) | `HOTFIX` | 12 phases, 4 gates | DR-13 · The floor, the gates the policy could not have, and urgency never turning a failed run into a pass |
 
 ### Focused defect scenarios
 
@@ -55,6 +55,19 @@ the build rather than drifting silently.
 | [14-gate-evidence-refusals.md](14-gate-evidence-refusals.md) | DR-14 · Missing/unresolved artifacts and unsuccessful verification refused, then recovered | D01, D02 |
 | [15-committed-change-manifest.md](15-committed-change-manifest.md) | DR-15 · Committed, staged, unstaged, untracked, renamed, deleted and binary changes, one change set for both consumers | D03 |
 | [16-execution-evidence-collision.md](16-execution-evidence-collision.md) | DR-16 · Same-second executions keep separate evidence and ledger entries | D04 |
+
+### Architecture placement and the shared catalog
+
+Added with ADR-013. WorkItems are isolated units of delivery; architecture is
+accumulated repository-level knowledge shared across WorkItems, and these four
+are about the part that is shared.
+
+| File | Scenario | Flow |
+|---|---|---|
+| [17-architecture-placement-existing-service.md](17-architecture-placement-existing-service.md) | DR-17 · The ordinary placement: extend the service that already owns the capability, through a gate no risk level can omit | `ITERATIVE` |
+| [18-embedded-candidate-then-extraction.md](18-embedded-candidate-then-extraction.md) | DR-18 · The evolutionary path across two WorkItems: an embedded candidate with re-evaluation conditions, then the extraction those conditions triggered | `ITERATIVE` |
+| [19-architecture-catalog-stale-revision.md](19-architecture-catalog-stale-revision.md) | DR-19 · Two WorkItems on one catalog: `architecture_catalog_stale` writing nothing, and the idempotent replay that is not a conflict | `ITERATIVE` |
+| [20-architecture-bootstrap-and-no-constitution.md](20-architecture-bootstrap-and-no-constitution.md) | DR-20 · An uninitialized catalog bootstrapped from evidence, and what a missing constitution permits and refuses | `HOTFIX` |
 
 Flow sizes are stated as the engine reports them: executable phases,
 excluding the terminal `complete`, which is the number in the progress header.

@@ -20,10 +20,10 @@ def test_init_creates_state_and_advances_to_first_generation_phase(project):
     assert result.data["project_name"] == "Todo List REST API"
     assert result.data["current_phase"] == "constitution_draft"
     assert result.data["status"] == "pending"
-    assert result.data["progress"] == "2/18"
+    assert result.data["progress"] == "2/20"
 
     state = project.state()
-    assert state["workflow_version"] == "1.17"
+    assert state["workflow_version"] == "1.18"
     assert state["workitem"] == project.workitem
     assert state["last_updated"] is not None
     assert [e["phase"] for e in state["phase_history"]] == ["requirements_check"]
@@ -116,9 +116,9 @@ def test_header_renders_both_lines(started):
     rendered = started.ok("header").data["rendered"]
     lines = rendered.splitlines()
     assert lines[0] == (
-        "<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->"
+        "<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->"
     )
-    assert lines[1] == "📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]"
+    assert lines[1] == "📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]"
 
 
 def test_header_maps_every_status_to_its_display_text(started):

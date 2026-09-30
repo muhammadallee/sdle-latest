@@ -33,6 +33,9 @@ def at_implement(project):
     for path, gate in steps:
         project.write_artifact(path)
         if gate == "gate_spec":
+            # ADR-013: the placement sits between the constitution gate
+            # and the specification, so it runs before this step can.
+            project.pass_architecture_gate()
             project.ok("feature", "resolve")
         project.ok("advance", "--to", gate)
         review_for_gate(project, gate)  # T06: E2.
@@ -318,6 +321,9 @@ def at_gate_plan(project):
     project.ok("advance", "--to", "gate_constitution")
     review_for_gate(project, "gate_constitution")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_constitution")
+    # ADR-013: placement and its gate sit between the constitution and
+    # the specification in every flow.
+    project.pass_architecture_gate()
     project.write_artifact(f"{FEATURE_DIR}/spec.md")
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")
@@ -331,11 +337,11 @@ def at_gate_plan(project):
 def test_08_restart_is_two_step_and_rolls_back(project):
     at_gate_plan(project)
 
-    first = project.ok("restart", "--to", "6")
+    first = project.ok("restart", "--to", "8")
     assert first.data["pending"] is True
     assert project.state()["current_phase"] == "gate_plan", "nothing moved yet"
 
-    second = project.ok("restart", "--to", "6", "--confirm")
+    second = project.ok("restart", "--to", "8", "--confirm")
     state = project.state()
     assert second.data["target"] == "plan_draft"
     assert state["current_phase"] == "plan_draft"
@@ -344,8 +350,8 @@ def test_08_restart_is_two_step_and_rolls_back(project):
 
 def test_08_restart_clears_only_downstream_approvals(project):
     at_gate_plan(project)
-    project.ok("restart", "--to", "6")
-    project.ok("restart", "--to", "6", "--confirm")
+    project.ok("restart", "--to", "8")
+    project.ok("restart", "--to", "8", "--confirm")
     state = project.state()
 
     assert state["approvals"]["gate_constitution"]["decision"] == "approved"
@@ -357,8 +363,8 @@ def test_08_restart_clears_only_downstream_approvals(project):
 
 def test_08_restart_trims_phase_history_and_clears_drift(project):
     at_gate_plan(project)
-    project.ok("restart", "--to", "6")
-    project.ok("restart", "--to", "6", "--confirm")
+    project.ok("restart", "--to", "8")
+    project.ok("restart", "--to", "8", "--confirm")
     state = project.state()
 
     assert all(e["phase"] not in ("plan_draft", "gate_plan")
@@ -370,7 +376,7 @@ def test_08_restart_trims_phase_history_and_clears_drift(project):
 
 def test_08_forward_jump_refused_without_offering_confirmation(project):
     at_gate_plan(project)
-    result = project.run("restart", "--to", "15")
+    result = project.run("restart", "--to", "17")
 
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "forward_jump"
@@ -380,15 +386,15 @@ def test_08_forward_jump_refused_without_offering_confirmation(project):
 
 def test_08_restarting_a_gate_phase_is_refused(project):
     at_gate_plan(project)
-    result = project.run("restart", "--to", "7")
+    result = project.run("restart", "--to", "9")
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "gate_phase"
-    assert result.data["suggest"] == 6
+    assert result.data["suggest"] == 8
 
 
 def test_08_restart_range_is_validated(project):
     at_gate_plan(project)
-    for bad in ("0", "19", "99"):
+    for bad in ("0", "21", "99"):
         result = project.run("restart", "--to", bad)
         assert result.exit_code == EXIT_REFUSED
         assert result.reason in ("invalid_phase_number", "forward_jump")
@@ -396,7 +402,7 @@ def test_08_restart_range_is_validated(project):
 
 def test_08_confirm_restart_without_a_pending_one_is_refused(project):
     at_gate_plan(project)
-    result = project.run("restart", "--to", "6", "--confirm")
+    result = project.run("restart", "--to", "8", "--confirm")
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "no_pending_confirmation"
 
@@ -405,7 +411,7 @@ def test_08_doctor_detects_a_hand_edited_forward_jump(project):
     at_gate_plan(project)
     state = project.state()
     state["current_phase"] = "implement"
-    state["progress"] = "15/18"
+    state["progress"] = "17/20"
     project.write_state(state)
 
     result = project.run("doctor")
@@ -426,7 +432,7 @@ def test_08_doctor_detects_backwards_state(project):
     at_gate_plan(project)
     state = project.state()
     state["current_phase"] = "constitution_draft"
-    state["progress"] = "2/18"
+    state["progress"] = "2/20"
     project.write_state(state)
 
     result = project.run("doctor")

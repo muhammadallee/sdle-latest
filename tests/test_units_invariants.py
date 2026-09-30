@@ -22,6 +22,8 @@ GREENFIELD_PHASES = (
     'requirements_check',
     'constitution_draft',
     'gate_constitution',
+    'architecture_placement',
+    'gate_architecture',
     'spec_draft',
     'gate_spec',
     'plan_draft',
@@ -78,20 +80,21 @@ STATE_FIELDS = (
 # 25 -> 26: ADR-012's `requirements bind` writes the WorkItem's requirements
 # binding. Engine-written for the same reason the governance record is — it
 # decides what an assessment means, so it is not a file a model may edit.
-# 26 -> 27: DEF-RR-001's `write_content_acknowledgement` writes the WorkItem's
-# scan-acknowledgements record — another pre-init record only the engine
-# writes, for the same reason.
-# 46 -> 47, 47 -> 48: DEF-RR-001's `cmd_accept_content --path` branch appends
-# an audit entry and rebaselines state when a post-init acknowledgement is
-# also given (the bare-form post-init path this mirrors already did both).
-# 48 -> 49: `record_scan_acknowledgement_audit` (Level 2 round 2 of the
-# OPEN-01/02 review, R2 advisor item 3) replays a pre-init acknowledgement
-# into the ledger at the first advance, mirroring `record_governance_audit`
-# right above it.
+#
+# 26 -> 30: ADR-013's four architecture writers — the placement record, its
+# rendering, its evidence document, and the shared repository catalog
+# (`write_architecture_catalog`, the single door every catalog mutation goes
+# through). The catalog is engine-written for a stronger reason than the rest:
+# it is read by WorkItems other than the one that wrote it.
+#
+# 30 -> 31 and 53 -> 54: the Round-1 review's R1-012 and R1-008. A rerun
+# placement that supersedes a prior approved decision now emits
+# `architecture_decision_abandoned` rather than changing a catalog field with
+# no ledger entry behind it.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 27,
-    'save_state': 47,
-    'append_audit': 49,
+    'write_atomic': 31,
+    'save_state': 49,
+    'append_audit': 54,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,
@@ -99,7 +102,11 @@ WRITE_PRIMITIVE_COUNTS = {
     # 7 -> 8: `requirements bind` creates the WorkItem's runtime directory
     # if it is not there yet, exactly as `governance assess` does — both
     # write into the runtime before `init` exists.
-    '.mkdir(': 8,
+    #
+    # 8 -> 10: `architecture assess` creates `workitems/<id>/architecture/`
+    # for the rendering, and `write_architecture_catalog` creates
+    # `.sdle/architecture/` for the catalog.
+    '.mkdir(': 10,
 }
 
 COMMANDS = (
@@ -108,7 +115,11 @@ COMMANDS = (
     'acquire',
     'advance',
     'append',
+    # ADR-013: `architecture apply` / `architecture realize`. Normally reached
+    # through the gate path; exposed for replay after a crash.
+    'apply',
     'approve',
+    'architecture',
     'artifact',
     'assess',
     'audit',
@@ -150,6 +161,7 @@ COMMANDS = (
     'path',
     'policy',
     'preflight',
+    'realize',
     'rebaseline',
     'record',
     'reject',

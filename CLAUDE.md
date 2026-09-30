@@ -12,9 +12,16 @@ bound once at `init` from its governance record. Five flows ship: `GREENFIELD`
 (the new-project lifecycle, frozen in `GREENFIELD_V1_PHASES` in
 `sdle.py` rather than declared in a table, so a new registry row can never silently
 join it), `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` and `HOTFIX`, the last four
-declared in SKILL.md's `FLOW_PHASES`. Every flow retains a mandatory ten-phase
+declared in SKILL.md's `FLOW_PHASES`. Every flow retains a mandatory twelve-phase
 governance floor: shorter, never ungoverned. See
 `docs/architecture/ADR-004-declarative-flow-model.md`.
+
+Every flow also carries **`architecture_placement` and `gate_architecture`**, immediately
+before `spec_draft`: a WorkItem decides where its capability lives, against the
+repository's accumulated architecture catalog, before anything is specified. That
+gate is human-required at every risk level and can never be omitted, because the
+catalog is shared across WorkItems. See
+`docs/architecture/ADR-013-project-architecture-memory.md`.
 
 `BROWNFIELD_DISCOVERY` carries the gateless `discovery` phase, which reads an existing
 repository into a validated, classified record, and a `GREENFIELD` or
@@ -42,8 +49,10 @@ It is not prompt files alone. The mechanical layer lives in `scripts/sdle.py`; t
 - **`SKILL.md`** — orchestrator entry point, always loaded. Core rules, verbosity, command routing, and the **Internal Constants** the script parses out of it.
 - **`modules/phase-execution.md`** — per-phase generation logic. Loaded when executing a phase.
 - **`modules/gate-protocol.md`** — gate display and rejection/remediation. Loaded at gate phases.
-- **`modules/security-review.md`** — Phase 17 review template. Loaded at Phase 17.
+- **`modules/architecture-placement.md`** — where this WorkItem's capability lives, and the five outcomes. Loaded at `architecture_placement` and at its gate.
+- **`modules/security-review.md`** — the security review template. Loaded at `security_review`.
 - **`modules/design-review.md`** / **`modules/code-review.md`** — how those two reviews are conducted, what a finding looks like, and how the parent records the outcome.
+- **`guidelines/*.md`** — six lazily loaded, **advisory** heuristic files (constitution, architecture placement, service planning, task generation, service design, implementation). A second capability home beside `modules/`, enumerated by `lint-skill` the same way: an unmapped guideline is an orphan and fails. See `docs/architecture/ADR-014-constitution-guidelines-and-precedence.md`.
 - **`templates/state.json`** — the initial state template. The **only** copy; SKILL.md must not embed a second one.
 
 Which capability files a phase requires is not a judgement the model makes each turn: it is the **`CAPABILITY_MAP`** table in SKILL.md, parsed by the script and reported by `sdle.sh resume`. The row is a floor, not a ceiling — a capability file may still point at another one. `lint-skill` fails on a missing row, an unknown phase, a file that does not exist, an orphan module, a row that names SKILL.md, a row that requires the whole set, or an unmapped cross-reference.
@@ -58,7 +67,9 @@ Which capability files a phase requires is not a judgement the model makes each 
 
 Runtime state is WorkItem-scoped: it lives in the *target project's* `workitems/<workitem-id>/.sdle/state.json` plus an append-only `audit.md`, `lock`, `execution.json`, `requirements.json` and `evidence/` beside it. `requirements.json` is the WorkItem's **requirements binding** — the declared list of documents this WorkItem is about, written only by `requirements bind` and refused `requirements_binding_invalid` (exit 3) if it is not a file the engine wrote. It is what makes a governance assessment about a stated set rather than about whatever a directory happened to hold. See `docs/architecture/ADR-012-requirements-source-binding.md`. A repository-global `.workflow/` from a retired runtime is **detected, never run**: nothing binds it, SDLE neither migrates nor writes it, and a repository whose only runtime is that directory is refused with a pointer at `workitem create`. It stays write-fenced and is a project-root marker for that reason. A state of any other schema version is refused `unsupported_state_version` and left untouched. See `docs/architecture/ADR-008-v1-convergence-and-legacy-removal.md`.
 
-Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it; no lifecycle rule lives there and nothing in any lifecycle flow reads it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
+Repository-wide **configuration** is a separate boundary: a versioned `.sdle/` at the project root holding `config.json`, `policies/` and `implementation-state/`, derived from `project_root` alone and never from the bound WorkItem, managed by `config init` / `config show` and policed in both directions by `validate`. It confusingly shares a name with the WorkItem runtime directory and owns nothing in common with it. See `docs/architecture/ADR-002-repository-configuration-boundary.md`.
+
+**ADR-013 amends that boundary.** `.sdle/architecture/catalog.json` sits at the same location and follows the same location rule — derived from `project_root`, never from the bound WorkItem — but it is *knowledge* rather than configuration: every WorkItem's `architecture_placement` phase reads it, and its `gate_architecture` approval writes it. So the claim that "nothing in any lifecycle flow reads `.sdle/`" no longer holds, and the dirty-tree guard was **narrowed** to match: `SDLE_OWNED_PREFIXES` names `.sdle/baseline.json`, `.sdle/implementation-state/` and `.sdle/architecture/` instead of `.sdle/` whole, so `config.json` and `policies/` are visible to it again. See `docs/architecture/ADR-013-project-architecture-memory.md`.
 
 SpecKit's WorkItem-specific artifacts are scoped the same way — a WorkItem's feature directory is `workitems/<workitem-id>/specs/<feature-id>/`, discovered and moved there by `feature resolve` and recorded in `state.specKit.featureDirectory` — while genuinely repository-wide SpecKit scaffolding, `.specify/` including `memory/constitution.md`, stays at the repository root.
 
@@ -107,7 +118,7 @@ python -m pytest -q                # units, transcript integrations, hooks
 python scripts/sdle.py lint-skill  # cross-file sync rules
 ```
 
-`docs/dry-runs/01..16` are the behavioural specification. `01..09` are `GREENFIELD` guardrail scenarios, `10..13` cover the other four flows, and `14..16` are the focused gate-evidence, change-manifest and execution-identity scenarios. All sixteen are pinned by their **claims**, not their bytes: `tests/test_dry_run_contracts.py` recomputes every progress fraction, gate number, label and refusal in them from the engine and requires every cited test node to exist, and `docs/dry-runs/verification-matrix.md` maps each scenario to its tests and recorded results. `tests/test_units_invariants.py` pins the properties that used to be compared against old commits (the default flow's phases, the state template's fields, the engine's write call sites, the command surface); changing one is allowed, but on purpose and in the same commit. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
+`docs/dry-runs/01..20` are the behavioural specification. `01..09` are `GREENFIELD` guardrail scenarios, `10..13` cover the other four flows, `14..16` are the focused gate-evidence, change-manifest and execution-identity scenarios, and `17..20` cover architecture placement — the ordinary extension, the embedded candidate and its later extraction, the stale-revision and replay rules, and bootstrapping a catalog with no constitution. All twenty are pinned by their **claims**, not their bytes: `tests/test_dry_run_contracts.py` recomputes every progress fraction, gate number, label and refusal in them from the engine and requires every cited test node to exist, and `docs/dry-runs/verification-matrix.md` maps each scenario to its tests and recorded results. `tests/test_units_invariants.py` pins the properties that used to be compared against old commits (the default flow's phases, the state template's fields, the engine's write call sites, the command surface); changing one is allowed, but on purpose and in the same commit. Tests never invoke SpecKit — generation is simulated by writing an artifact over the size floor — and fixtures are always generated at runtime, never read from the checkout, because hashing a checked-in file makes results depend on line endings.
 
 ## Platform Note
 
@@ -122,7 +133,7 @@ The engine is cross-platform. Embedded commands in prompt files must be too — 
 | `README.md` | The product, end to end |
 | `CLAUDE.md` | This file — how to work on the repository |
 | `docs/GETTING-STARTED.md` | The one end-to-end setup guide: prerequisites, installing SDLE and Spec Kit, the first `start workflow` |
-| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-013 |
+| `docs/architecture/` | ADRs: current decisions and their rationale. Numbered; the next number is ADR-015 |
 | `docs/workitems/` | WorkItem identity, the registry, the resolution ladder, the retired `.workflow/` |
 | `docs/lifecycle/` | The phase registry, the five flows, gates and gate discipline |
 | `docs/risk-and-gates/` | How the required gate set is derived from governance, and the floors |

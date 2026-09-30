@@ -8,7 +8,7 @@
 | **Defect IDs** | D01, D02 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated. Refusal texts are the engine's real output, with the WorkItem id adapted |
 | **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, taken to three positions in turn: `gate_spec` with `feature resolve` not yet run, `gate_implement`, and `gate_security` before `security-review begin`. LOW risk |
-| **Guardrails exercised** | `required_gate_artifact` (`artifact_unresolved`, `feature_ambiguous`, `artifact_missing`, `artifact_unreadable`) and Gate 7's evidence precondition (`tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`). Every refusal leaves the phase, the approvals and the ledger unchanged |
+| **Guardrails exercised** | `required_gate_artifact` (`artifact_unresolved`, `feature_ambiguous`, `artifact_missing`, `artifact_unreadable`) and Gate 8's evidence precondition (`tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`). Every refusal leaves the phase, the approvals and the ledger unchanged |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**,
 > but each `Refused:` block is the engine's real message, captured by driving
@@ -42,8 +42,8 @@ raise `PermissionError`).
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [AWAITING APPROVAL]
 
 Refused: artifact_unresolved
 
@@ -74,18 +74,18 @@ binds `workitems/todo-api/specs/001-todo-api`, the spec is reviewed, and
 
 ---
 
-### Part 2 — D02: Gate 7 without a passing run
+### Part 2 — D02: Gate 8 without a passing run
 
 **Skipped tests.** The manifest was built with `--skip-tests`, then given a PASS review.
 
 ```
-<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=16/18 -->
-📋 SDLE Status: Phase 16/18 — Gate 7: Implementation Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=18/20 -->
+📋 SDLE Status: Phase 18/20 — Gate 8: Implementation Approval [AWAITING APPROVAL]
 
 Refused: tests_not_passed
 
 Cannot approve gate_implement: the recorded verification result is 'skipped by caller'.
-Gate 7 needs a test run that actually ran and passed, and there is no exception path: a
+Gate 8 needs a test run that actually ran and passed, and there is no exception path: a
 PASS review of the manifest does not change the result it reports. Fix the failures, or —
 if the runner was not detected or not installed — supply the project's real test command
 with `manifest build --test-command "<command>"`, then rebuild.
@@ -127,7 +127,7 @@ not auto-detected.
 # Implementation Manifest
 Generated: 2026-09-10T19:54:49Z
 Evidence: workitems/todo-api/.sdle/evidence/implementation-sdl-20260910T195449Z-706077af.json
-Phase: implement (16/18)
+Phase: implement (18/20)
 [...]
 ## Test Evidence
 Runner: custom command
@@ -140,7 +140,7 @@ supplied with `sdle.sh manifest build --test-command "<command>"`. The evidence
 record carries `kind: implementation`, the manifest's SHA-256, the pinned
 `baseRef`, the WorkItem and `tests: {status: passed, exit_code: 0}`. After a
 fresh review, `sdle.sh gate approve --gate gate_implement` moves to
-`security_review` at `17/18`.)*
+`security_review` at `19/20`.)*
 
 ---
 
@@ -150,8 +150,8 @@ fresh review, `sdle.sh gate approve --gate gate_implement` moves to
 `security_review_artifact` is null.)*
 
 ```
-<!-- SDLE_STATE phase=gate_security status=awaiting_approval progress=18/18 -->
-📋 SDLE Status: Phase 18/18 — Gate 8: Security Review Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_security status=awaiting_approval progress=20/20 -->
+📋 SDLE Status: Phase 20/20 — Gate 9: Security Review Approval [AWAITING APPROVAL]
 
 Refused: artifact_unresolved
 
@@ -166,7 +166,7 @@ summary and the repository baseline, with `sha: null`, in every flow.)*
 
 **Recovery:** `sdle.sh security-review begin` names
 `reviews/security-review-<stamp>.md`. The review is written, recorded and
-reviewed, and Gate 8 approves.
+reviewed, and Gate 9 approves.
 
 ---
 
@@ -177,7 +177,7 @@ reviewed, and Gate 8 approves.
   before and after.
 - Each `manifest build` writes a new `evidence/implementation-<execution-id>.json`.
   Old records stay, and only the record bound to the current manifest's bytes
-  can carry Gate 7.
+  can carry Gate 8.
 
 ## Negative cases
 

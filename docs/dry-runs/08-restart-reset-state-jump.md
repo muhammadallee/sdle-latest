@@ -7,7 +7,7 @@
 | **Purpose** | The rollback and recovery commands: two-step `restart phase N`, the forward-jump guard refusing restart-as-skip, recovery from a hand-edited `current_phase`, and the two-step `reset workflow`. |
 | **Defect IDs** | — |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `gate_plan` (`7/18`, `awaiting_approval`). Gates 1–2 approved |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `gate_plan` (`9/20`, `awaiting_approval`). Gates 1–3 approved |
 | **Guardrails exercised** | The restart confirmation flow, the forward-jump guard, the gate-phase guard, `doctor` + `accept state`, the stale-confirmation guard, and `confirm reset`. Phase numbers are positions in the **bound flow** |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
@@ -20,43 +20,43 @@
 
 ## Setup
 
-Follow DR-01 to the Gate 3 prompt.
+Follow DR-01 to the Gate 4 prompt.
 
 ---
 
 ## Transcript
 
-### Part 1 — Rollback with `restart phase 6`
+### Part 1 — Rollback with `restart phase 8`
 
-**User:** `restart phase 6`
+**User:** `restart phase 8`
 
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=7/18 -->
-📋 SDLE Status: Phase 7/18 — Gate 3: Plan Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=9/20 -->
+📋 SDLE Status: Phase 9/20 — Gate 4: Plan Approval [AWAITING APPROVAL]
 
-⚠️ You are about to restart from Phase 6: Generate Plan.
-This clears approvals and artifact SHAs for phase 6 and later and keeps everything before it.
+⚠️ You are about to restart from Phase 8: Generate Plan.
+This clears approvals and artifact SHAs for phase 8 and later and keeps everything before it.
 
-Say "confirm restart phase 6" to proceed, or anything else to cancel.
+Say "confirm restart phase 8" to proceed, or anything else to cancel.
 ```
 
 *(Engine: `sdle.sh confirm set --action restart:6`. `6` is a position in the
 bound flow — the same number the `Phase N/M` header showed.)*
 
-**User:** `confirm restart phase 6`
+**User:** `confirm restart phase 8`
 
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=pending progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [PENDING]
+<!-- SDLE_STATE phase=plan_draft status=pending progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [PENDING]
 
-✅ Restarted at Phase 6: Generate Plan. All downstream approvals cleared.
+✅ Restarted at Phase 8: Generate Plan. All downstream approvals cleared.
 ```
 
-*(Engine: `sdle.sh restart --to 6 --confirm`. Gates 1–2 and their baselines
+*(Engine: `sdle.sh restart --to 8 --confirm`. Gates 1–3 and their baselines
 were untouched. `drift_queue`, `pending_phase` and `phase_checkpoint` were
 cleared.)*
 
@@ -64,20 +64,20 @@ cleared.)*
 
 ### Part 2 — Forward-jump refusal
 
-**User:** `restart phase 15`
+**User:** `restart phase 17`
 
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=7/18 -->
-📋 SDLE Status: Phase 7/18 — Gate 3: Plan Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=9/20 -->
+📋 SDLE Status: Phase 9/20 — Gate 4: Plan Approval [AWAITING APPROVAL]
 
-⛔ Forward jumps are not allowed. `restart phase 15` is a rollback tool — it can only
+⛔ Forward jumps are not allowed. `restart phase 17` is a rollback tool — it can only
 go to a phase you have already passed.
 ```
 
 *(Engine refusal: `forward_jump`. No confirmation is offered and nothing is
-pending. `restart phase 7` is refused as well (`gate_phase`), because
+pending. `restart phase 9` is refused as well (`gate_phase`), because
 restarting a gate is not meaningful.)*
 
 ---
@@ -92,8 +92,8 @@ to `implement`, while history confirms only up to `gate_spec`.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=pending progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [PENDING]
+<!-- SDLE_STATE phase=implement status=pending progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [PENDING]
 
 ⚠️ State jump detected: current_phase is well ahead of last confirmed history.
 Say "accept state" to acknowledge and proceed (logged), or restart to roll back.
@@ -115,8 +115,8 @@ unresolved or unreviewed artifact.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=pending progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [PENDING]
+<!-- SDLE_STATE phase=implement status=pending progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [PENDING]
 
 ⚠️ FULL WORKFLOW RESET
 This deletes workitems/todo-api/.sdle/state.json, audit.md and lock, and preserves every
@@ -153,8 +153,8 @@ survives the reset; only its runtime is cleared.)*
 
 | Attempt | Result | State afterwards |
 |---|---|---|
-| `restart phase 15` from phase 7 | Refused `forward_jump` | Unchanged; nothing pending |
-| `restart phase 7` (a gate) | Refused `gate_phase` | Unchanged |
+| `restart phase 17` from phase 9 | Refused `forward_jump` | Unchanged; nothing pending |
+| `restart phase 9` (a gate) | Refused `gate_phase` | Unchanged |
 | `confirm reset` with nothing pending | Refused `no_pending_confirmation` | Unchanged |
 
 ## Cleanup

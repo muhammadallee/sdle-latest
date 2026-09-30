@@ -4,10 +4,10 @@
 |---|---|
 | **Scenario ID** | DR-15 |
 | **Flow** | `GREENFIELD` |
-| **Purpose** | Work committed during implementation, plus staged, unstaged and untracked changes, a rename, a deletion and a binary file, all reach the Gate 7 manifest, the secrets scan and the security-review evidence as **one** change set measured from the pinned base. A missing or invalid base is refused, not replaced. |
+| **Purpose** | Work committed during implementation, plus staged, unstaged and untracked changes, a rename, a deletion and a binary file, all reach the Gate 8 manifest, the secrets scan and the security-review evidence as **one** change set measured from the pinned base. A missing or invalid base is refused, not replaced. |
 | **Defect IDs** | D03 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated. The manifest and refusal texts are the engine's real output, with the WorkItem id adapted |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `implement` (`15/18`), with Gates 1–6 approved. The tracked tree holds `src/rename_me.py` and `src/delete_me.py`. `implement preflight` has not run yet |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `implement` (`17/20`), with Gates 1–6 approved. The tracked tree holds `src/rename_me.py` and `src/delete_me.py`. `implement preflight` has not run yet |
 | **Guardrails exercised** | The implementation base pin, `implementation_changes` (diff from the base to the working tree, plus untracked files), `implementation_exclusions`, deletions and binaries listed but never read, a secret committed after the base still scanned, and one selection shared by both consumers |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**,
@@ -22,7 +22,7 @@
 
 ## Setup
 
-Follow DR-01 to Gate 6's approval, then commit `src/rename_me.py` and
+Follow DR-01 to Gate 7's approval, then commit `src/rename_me.py` and
 `src/delete_me.py`. The fake credential below is a syntactically valid AWS
 key id that belongs to nobody. Use one like it, never a real one.
 
@@ -35,8 +35,8 @@ key id that belongs to nobody. Use one like it, never a real one.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=in_progress progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [IN PROGRESS]
+<!-- SDLE_STATE phase=implement status=in_progress progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [IN PROGRESS]
 
 Refused: implementation_base_missing
 
@@ -69,7 +69,7 @@ implementation the orchestrator:*
 # Implementation Manifest
 Generated: 2026-09-10T19:54:59Z
 Evidence: workitems/todo-api/.sdle/evidence/implementation-sdl-20260910T195459Z-d0fa8a37.json
-Phase: implement (15/18)
+Phase: implement (17/20)
 
 ## Changed/Added Files
 A assets/logo.png (binary)

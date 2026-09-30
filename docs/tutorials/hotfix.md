@@ -1,6 +1,6 @@
 # Tutorial — `HOTFIX`: the shortest flow, and what it still enforces
 
-**10 phases, 3 gates.** Use this flow when something is wrong in production
+**12 phases, 4 gates.** Use this flow when something is wrong in production
 right now and the shortest governed path is the correct path.
 
 This is the flow most likely to be misread, so read this first: **`HOTFIX` is
@@ -157,7 +157,7 @@ $ sdle.sh init --project "Cross warehouse disclosure"
     ],
     "current_phase": "impact_analysis",
     "status": "pending",
-    "progress": "2/10",
+    "progress": "2/12",
     "audit_sha": "327db811f0d78a001d7c91e0f80ed7ab1ddbea27de30a86bb1e5d4128ae2b58a"
   }
 }
@@ -192,7 +192,7 @@ $ sdle.sh flow show
     "gate_total": 3,
     "current_phase": "impact_analysis",
     "position": 2,
-    "progress": "2/10",
+    "progress": "2/12",
     "next_phase": "spec_draft",
     "gate_number": null,
     "label": "Impact Analysis",
@@ -437,7 +437,7 @@ $ sdle.sh gate show --gate gate_security
     "gate_total": 3,
     "flow": "HOTFIX",
     "in_flow": true,
-    "label": "Gate 3: Security Review Approval",
+    "label": "Gate 4: Security Review Approval",
     "execution_phase": "security_review",
     "artifact_path": "reviews/security-review-2026-09-08-1416.md",
     "skipped_reason": null,
@@ -455,7 +455,7 @@ $ sdle.sh gate show --gate gate_security
 --- exit 0 ---
 ```
 
-Gate numbers are flow-relative. This is Gate 3 of 3 here and Gate 8 of 8 in
+Gate numbers are flow-relative. This is Gate 4 of 4 here and Gate 8 of 8 in
 `GREENFIELD`; it is the same gate, over the same artifact, with the same
 approval requirement.
 
@@ -464,7 +464,7 @@ approval requirement.
 ## 5. What else is unchanged
 
 **The implementation gate is not a formality either.** `gate_implement` —
-Gate 2 of 3 here — is `always` required in every flow, and its artifact is the implementation manifest, which `manifest
+Gate 3 of 4 here — is `always` required in every flow, and its artifact is the implementation manifest, which `manifest
 build` produces rather than accepts: it enumerates the changed files, runs the
 secrets scan over them and records the test result. `implement preflight`
 refuses a dirty tree before any of that, on the grounds that uncommitted

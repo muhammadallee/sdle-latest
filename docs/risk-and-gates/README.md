@@ -85,6 +85,25 @@ by type:   defect adds gate_tasks
 Flow membership is applied on top: a gate the bound flow does not contain is
 `not_in_flow`.
 
+**Two gates are required whatever that table says**, because their requirement
+is *derived* rather than read from the policy — and a policy dictionary can
+only ever add to the set, never subtract from it:
+
+```text
+terminal_gate:      the last gate before `complete`, in every flow
+architecture_gate:  gate_architecture, in every flow, at every level,
+                    for every WorkItem type
+```
+
+`gate_architecture` is the only gate that governs something **other WorkItems
+will read**: the repository's architecture catalog. A risk level low enough to
+skip a review of this WorkItem's own plan says nothing about whether the
+repository's architecture may change without a human, so the two questions are
+not answered by the same policy. `gate show --gate gate_architecture` reports
+`required` with the reason `architecture_gate`, `gate omit` refuses
+`gate_required`, and no repository override reaches it. See
+`docs/architecture/ADR-013-project-architecture-memory.md`.
+
 **And the policy the WorkItem started under is applied on top of that.** The set
 is derived twice — once from the policy on disk, once from the policy pinned in
 the governance record when the WorkItem was first assessed — against the

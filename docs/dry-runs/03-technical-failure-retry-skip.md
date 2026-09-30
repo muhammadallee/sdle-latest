@@ -7,7 +7,7 @@
 | **Purpose** | A generation step that produces no usable artifact: verification failure, the retry rate limit, and the two-step `skip with warning` → `confirm skip` escape hatch. |
 | **Defect IDs** | — |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated, and here it simulates a *failure* |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `plan_draft` (`6/18`, `in_progress`). Gates 1–2 approved. The plan generator writes an empty `workitems/todo-api/specs/001-todo-api/plan.md` |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `plan_draft` (`8/20`, `in_progress`). Gates 1–2 approved. The plan generator writes an empty `workitems/todo-api/specs/001-todo-api/plan.md` |
 | **Guardrails exercised** | Post-generation verification (≥100 bytes), the retry counter against `rate_limits.max_retry_attempts` (default 3), confirmed skip, and the stale-confirmation guard |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
@@ -20,7 +20,7 @@
 
 ## Setup
 
-Follow DR-01's setup and conversation as far as Gate 2's approval. The failing
+Follow DR-01's setup and conversation as far as Gate 3's approval. The failing
 generator is simulated by leaving `plan.md` under 100 bytes. The suite's
 equivalent is `Project.write_small`.
 
@@ -31,8 +31,8 @@ equivalent is `Project.write_small`.
 **SDLE:** *(after invoking the plan generator)*
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=failed progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
+<!-- SDLE_STATE phase=plan_draft status=failed progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [FAILED — ACTION REQUIRED]
 
 ⚠️ Verification failed: workitems/todo-api/specs/001-todo-api/plan.md was not created
 or is too small (<100 bytes). Retry attempt 1/3. Options: "retry" to run again,
@@ -52,8 +52,8 @@ retry counter. The phase did not advance.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=failed progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
+<!-- SDLE_STATE phase=plan_draft status=failed progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [FAILED — ACTION REQUIRED]
 
 ⛔ Retry limit reached: plan_draft has failed 3/3 times.
 
@@ -74,10 +74,10 @@ longer offered.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=failed progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
+<!-- SDLE_STATE phase=plan_draft status=failed progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [FAILED — ACTION REQUIRED]
 
-⚠️ You are about to skip Phase 6: Generate Plan WITHOUT a verified artifact.
+⚠️ You are about to skip Phase 8: Generate Plan WITHOUT a verified artifact.
 This will be permanently logged in audit.md.
 
 Say "confirm skip" to proceed, or anything else to cancel.
@@ -92,8 +92,8 @@ Say "confirm skip" to proceed, or anything else to cancel.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=failed progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [FAILED — ACTION REQUIRED]
+<!-- SDLE_STATE phase=plan_draft status=failed progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [FAILED — ACTION REQUIRED]
 
 (Pending confirmation "skip" cancelled — new command received.)
 [... state dump — abridged ...]
@@ -108,15 +108,15 @@ skip, so an old confirmation can never fire out of context. The user issues
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_plan status=pending progress=7/18 -->
-📋 SDLE Status: Phase 7/18 — Gate 3: Plan Approval [PENDING]
+<!-- SDLE_STATE phase=gate_plan status=pending progress=9/20 -->
+📋 SDLE Status: Phase 9/20 — Gate 4: Plan Approval [PENDING]
 
-⚠️ Phase 6: Generate Plan skipped without artifact verification. The skip is
+⚠️ Phase 8: Generate Plan skipped without artifact verification. The skip is
 logged in audit.md.
 ```
 
 *(Engine: `sdle.sh skip --confirm`. The skip moves past a *generation* step
-and records no approval. Gate 3 still needs `plan.md` to exist, which D01
+and records no approval. Gate 4 still needs `plan.md` to exist, which D01
 enforces (`artifact_missing`), and to carry a current PASS review of its exact
 content, which TP-011 enforces (`review_missing`). A regenerated plan is the
 honest way through.)*

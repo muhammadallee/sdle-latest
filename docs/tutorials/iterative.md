@@ -1,6 +1,6 @@
 # Tutorial — `ITERATIVE`: the second WorkItem in the same repository
 
-**16 phases, 7 gates.** Use this flow in a repository that already has a valid
+**18 phases, 8 gates.** Use this flow in a repository that already has a valid
 baseline — which, in practice, means every WorkItem after the first one.
 
 `ITERATIVE` is the flow you will spend most of your time in, and the whole
@@ -204,7 +204,7 @@ $ sdle.sh init
     ],
     "current_phase": "spec_draft",
     "status": "pending",
-    "progress": "2/16",
+    "progress": "4/18",
     "audit_sha": "08b4648d2cc46b5aefe078bb87632d5f3810d0bdc2ee7f4f16b2daa494fbdf3d"
   }
 }
@@ -212,12 +212,12 @@ $ sdle.sh init
 
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=spec_draft status=pending progress=2/16 -->
-📋 SDLE Status: Phase 2/16 — Generate Specification [PENDING]
+<!-- SDLE_STATE phase=spec_draft status=pending progress=4/18 -->
+📋 SDLE Status: Phase 4/18 — Generate Specification [PENDING]
 --- exit 0 ---
 ```
 
-Phase 2 of 16 is `spec_draft`. In `GREENFIELD` that position holds
+Phase 4 of 16 is `spec_draft`. In `GREENFIELD` that position holds
 `constitution_draft` and in `BROWNFIELD_DISCOVERY` it holds `discovery`; here
 the work starts at the specification, because the two phases those flows spend
 first were spent already.
@@ -280,7 +280,7 @@ $ sdle.sh flow show
     "gate_total": 7,
     "current_phase": "spec_draft",
     "position": 2,
-    "progress": "2/16",
+    "progress": "4/18",
     "next_phase": "gate_spec",
     "gate_number": null,
     "label": "Generate Specification",
@@ -419,7 +419,7 @@ $ sdle.sh gate approve --gate gate_security
     "remaining_drift": [],
     "next_phase": "complete",
     "status": "completed",
-    "progress": "16/16",
+    "progress": "18/18",
     "completion_summary": "workitems/low-stock-alerts/.sdle/completion-summary.json",
     "baseline": null
   }
@@ -541,7 +541,7 @@ $ sdle.sh init
     ],
     "current_phase": "spec_draft",
     "status": "pending",
-    "progress": "2/16",
+    "progress": "4/18",
     "audit_sha": "d1f1d98ea72a85bb58af14a047f3df1cc40dde4a8b67f25af2d675f7e2b25414"
   }
 }

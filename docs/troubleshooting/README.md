@@ -263,9 +263,9 @@ fabricate one.
 
 ---
 
-## 14. Gate 7 refuses the test evidence: `tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`
+## 14. Gate 8 refuses the test evidence: `tests_not_passed`, `test_evidence_missing`, `test_evidence_stale`, `test_evidence_malformed`
 
-Gate 7 approves an implementation only on evidence that its tests **ran and
+Gate 8 approves an implementation only on evidence that its tests **ran and
 passed**. `manifest build` writes that evidence as a structured record and
 names it on the manifest's `Evidence:` line. The gate reads it back and checks
 that it belongs to *this* manifest, *this* implementation base and *this*
@@ -274,7 +274,7 @@ manifest does not change what the manifest reports.
 
 | Reason | Meaning | Remedy |
 |---|---|---|
-| `tests_not_passed` | The recorded run is `FAILED`, `skipped by caller`, `no runner detected`, `runner not installed` or `timed out after Ns`. `data.status` says which | Fix the failures and rebuild. If the runner was not detected or not installed, rebuild with the project's real test command: `manifest build --test-command "<command>"`. `--skip-tests` can never pass Gate 7 |
+| `tests_not_passed` | The recorded run is `FAILED`, `skipped by caller`, `no runner detected`, `runner not installed` or `timed out after Ns`. `data.status` says which | Fix the failures and rebuild. If the runner was not detected or not installed, rebuild with the project's real test command: `manifest build --test-command "<command>"`. `--skip-tests` can never pass Gate 8 |
 | `test_evidence_missing` | The manifest names no evidence (hand-written, or built by an older SDLE), or the named file is gone | Rebuild with `manifest build`. An old-format manifest cannot establish that tests passed |
 | `test_evidence_stale` | The evidence belongs to other content. `data.mismatch` names what differs: `manifestSha256` (the manifest was edited after it was built), `baseRef` (`implement preflight` re-pinned the base since), `workitem`, or `location` | Rebuild with `manifest build`. Never edit the manifest by hand |
 | `test_evidence_malformed` | The evidence file is empty, not JSON, or contradicts itself (for example `passed` with a non-zero exit code) | Rebuild with `manifest build`. An empty file means a build was interrupted |
@@ -283,7 +283,7 @@ manifest does not change what the manifest reports.
 
 ## 15. `implementation_base_missing`, `implementation_base_invalid`
 
-The Gate 7 manifest and the security-review evidence both measure the
+The Gate 8 manifest and the security-review evidence both measure the
 implementation **from the commit `implement preflight` pinned** before any
 code was written: committed, staged, unstaged and untracked changes since
 then. Measuring from anywhere else, such as the current `HEAD` or `HEAD~1`,
@@ -407,3 +407,40 @@ If the write succeeds:
 
 If a tool call fails with `PreToolUse … hook error` and a Python or "no such file"
 message instead of an SDLE message, a hook could not start: re-copy the hook files.
+
+## Architecture placement and the catalog (ADR-013)
+
+WorkItems are isolated units of delivery; architecture is accumulated
+repository-level knowledge shared across WorkItems. These refusals all protect
+that shared record.
+
+| `reason` | Exit | What happened | The way out |
+|---|---|---|---|
+| `architecture_placement_missing` | 1 | The WorkItem is at `architecture_placement`, or a gate/apply needs its placement, and none has been recorded | Run `architecture assess --input <path>`. `architecture schema` reports what the proposal must contain. `skip` cannot walk past this either — a specification written outside an approved boundary is what the phase exists to prevent |
+| `architecture_placement_invalid` | 1 | The proposal failed validation: wrong version, missing envelope key, an outcome outside the five, a dimension the engine does not know, a required dimension with no finding, an outcome-specific field that is absent, or `introducesTechnologyDecision` placed inside `placement` instead of in the envelope | Read the `detail` in the payload — it names exactly what failed — fix the proposal and re-run `architecture assess`. Nothing was written |
+| `architecture_record_invalid` | 3 | `workitems/<id>/.sdle/architecture-placement.json` cannot be read, is not a record of the supported version, or names a different WorkItem | An integrity failure, not a malformed proposal: the file was written by the engine and something else changed it. Restore it from version control, or `restart` to `architecture_placement` and re-assess |
+| `architecture_service_unknown` | 1 | The proposal references a service that is neither in the catalog nor introduced by this proposal | `architecture show` lists the services this repository knows. A placement may *create* a service; it may not assume one |
+| `architecture_capability_unknown` | 1 | A candidate names a capability nothing defines | Use a capability id `architecture show` reports, or introduce it in this proposal's `placement.capability` |
+| `architecture_conflicting_ownership` | 1 | The delta would leave two services owning the same datum at once | Exactly one service owns a datum at a time. Supersede the previous owner in the same proposal rather than adding a second active owner |
+| `architecture_constitution_required` | 1 | The outcome establishes or transfers a service boundary — or introduces a technology decision — and no approved constitution resolves, either this WorkItem's own or one referenced by a sound baseline | Establish the engineering rules first (ADR-014), or record `ARCHITECTURE_REVIEW_REQUIRED` and resolve it with a human |
+| `architecture_decision_unresolved` | 1 | `gate approve` was issued on an `ARCHITECTURE_REVIEW_REQUIRED` placement, or realization was attempted on a decision that is neither pending implementation nor already implemented (it was abandoned or superseded) | That outcome records that the evidence does not support a placement. Resolve the open questions, reject the gate, and re-run `architecture_placement` so the artifact ends in one of the four actionable outcomes |
+| `architecture_artifact_binding_invalid` | 1 | The rendered `placement.md` is missing, its SHA-256 no longer matches the record, or it no longer carries the record's decision id and proposal digest | The rendering is generated from the record and is never edited by hand. Re-run `architecture assess --input <path>`, review the new rendering, and approve that |
+| `architecture_catalog_stale` | 1 | Another WorkItem's placement was approved between this proposal and this approval, so the pinned base revision is behind | Nothing was written. Run `architecture show` to see the current architecture, re-run `architecture_placement` against it, review the new rendering and approve again |
+| `architecture_decision_conflict` | 1 | A decision with this id is already in the catalog with a *different* proposal digest; or it was abandoned or superseded; or `architecture assess` was run again after `gate_architecture` was already approved or omitted | Two different placements cannot share one decision id, and a decision already in the shared catalog is not re-assessable. **A *rejected* gate is not this case** — rejection reopens the phase through the ordinary remediation path and a fresh assessment is expected there |
+| `architecture_catalog_invalid` | 3 | `.sdle/architecture/catalog.json` cannot be read, is not an object, has a duplicate id, or holds a reference to something it does not define | An integrity failure, never an absence. Repair the file by hand or restore it from version control; SDLE never rewrites it to make it parse. Note that this also blocks `reset workflow`, deliberately: `reset` disposes of an approved placement in the catalog, and that disposition is the only durable record a reset leaves |
+| `architecture_catalog_version_unsupported` | 3 | The catalog declares a `catalogVersion` this engine does not read | The file is left exactly as it is. There is no migration |
+
+**`gate_required` on `gate_architecture`.** Not a misconfiguration. This gate is
+required at every risk level, in every flow, for every WorkItem type, and no
+policy override can relax it. Approve it, or reject it and remediate.
+
+**A rejected placement.** Rejection returns the WorkItem to
+`architecture_placement` through the ordinary remediation path and its rate
+limit. The re-run produces a **new** proposal, a new decision id and a new
+rendering; the previous placement is superseded, never edited.
+
+**A `dirty_tree` on `.sdle/config.json` or `.sdle/policies/`.** Expected since
+ADR-013. Those two are human-authored and are visible to the implementation
+dirty-tree guard; only `.sdle/baseline.json`, `.sdle/implementation-state/` and
+`.sdle/architecture/` are engine-owned. Commit or stash the configuration
+change, or confirm to proceed (which is logged).
