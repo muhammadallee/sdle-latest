@@ -538,7 +538,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 Two things it does **not** do, both of which this guide previously attributed to it:
 
 - **It does not infer a project name.** That happens at `init`; preflight's payload carries no name.
-- **It does not run the Untrusted Content Scan.** `scan` is a separate command taking `--path`, and it scans exactly the file it is given. The orchestrator is what invokes it once per bound document — a prompt-file instruction (SKILL.md), not an engine guarantee. So a caller driving the engine directly gets no scan unless it asks for one, per file. The scan's *effect* is enforced: a flagged file sets `pending_confirm_action` and requires an explicit `accept content`.
+- **It does not run the Untrusted Content Scan.** `scan` is a separate command taking `--path`, and it scans exactly the file it is given. The orchestrator is what invokes it once per bound document — a prompt-file instruction (SKILL.md), not an engine guarantee. So a caller driving the engine directly gets no scan unless it asks for one, per file. `scan` itself is advisory before `init` (there is no state to remember a pending confirmation in yet, and it says so), but the effect is enforced downstream regardless: `governance assess` independently re-scans every **bound** source and refuses `governance_content_unacknowledged` for anything still flagged with no matching acknowledgement — so a document nobody ever ran `scan` on cannot pass a governed assessment unexamined (governance is not an `init` precondition — `init` itself performs no content check — but nothing advances the lifecycle without a clean assessment). Post-init, a flagged file also sets `pending_confirm_action`, and the bare `accept content` consumes it; `accept-content --path <file>` works either way, acknowledging the file's *current* content explicitly.
 
 **Why it matters:** This is the only phase whose input is guaranteed to be human-authored, unmediated by the AI. Every subsequent artifact ultimately traces back to this one.
 
@@ -1261,7 +1261,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `restart phase <N>` | Roll back to phase N; clears all downstream approvals and history. Requires `confirm restart phase <N>`. |
 | `reset workflow` | Delete all workflow state (artifacts preserved). Requires `confirm reset`. |
 | `accept state` | Acknowledge a detected forward state jump and proceed. |
-| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file; proceed treating it as data. |
+| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file; proceed treating it as data. Bare (no `--path`), it consumes the one pending confirmation `scan` recorded in `state.json` and requires a workflow to exist. `--path <file>` re-scans the file itself and records an acknowledgement of its *current* content, and works before `init` too — nothing else does, at bootstrap. |
 | `accept audit` | Acknowledge an audit-log integrity mismatch; re-baseline `audit_sha` (logged). |
 | `confirm implement` | Proceed with Phase 15 despite uncommitted working-tree changes (dirty-tree guard). |
 | `skip with warning` | Advance past a *failed* (not rejected) phase without a verified artifact. Logged, discouraged. Requires `confirm skip`. |

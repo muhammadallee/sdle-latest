@@ -288,6 +288,7 @@ def test_post_init_acceptance_is_not_audited_twice_across_advances(bare_project)
     project.write_artifact(".specify/memory/constitution.md")
     review_for_gate(project, "gate_constitution")
     project.ok("gate", "approve", "--gate", "gate_constitution", "--comments", "ok")
+    project.pass_architecture_gate()
     project.ok("advance", "--to", "gate_spec")
 
     audit = project.audit_file.read_text("utf-8")

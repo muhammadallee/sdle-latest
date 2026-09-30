@@ -244,6 +244,22 @@ class Paths:
         return self.runtime / "requirements.json"
 
     @property
+    def scan_acknowledgements_file(self) -> Path:
+        """Explicitly acknowledged flagged content, keyed by path and SHA-256.
+
+        WorkItem-owned, for the same reason ``governance_file`` is: written
+        before ``init`` exists (`accept-content --path` works pre-init), read
+        by `governance assess`, which refuses a flagged bound source unless an
+        acknowledgement matching its *current* content is on file — editing a
+        flagged line invalidates the old acknowledgement rather than being
+        silently covered by it. Deliberately not a field of ``state.json``:
+        acknowledging a document's content is a fact about the document, not
+        about lifecycle state, and it must survive `init` unmigrated like
+        every other pre-init record (`requirements.json`, `governance.json`).
+        """
+        return self.runtime / "scan-acknowledgements.json"
+
+    @property
     def discovery_file(self) -> Path:
         """This WorkItem's recorded §14 brownfield discovery findings.
 
@@ -4482,6 +4498,105 @@ def _binding_refused(reason: str, message: str, **data) -> Refused:
     return Refused(reason, message, data)
 
 
+class _PathProblem(Exception):
+    """Internal signal only — never escapes `_lexically_safe_path`. Carries
+    which rule fired, so each of that function's two callers can raise its
+    own reason and wording for the same underlying fact."""
+
+    def __init__(self, kind: str):
+        self.kind = kind
+
+
+def _lexically_safe_path(paths: Paths, raw: str) -> str:
+    """Every lexical and containment check a repository-relative path must
+    pass, shared by `_binding_source` (a *bound* requirements source) and
+    `safe_repo_path` (any path the orchestrator names to `scan`/
+    `accept-content`) — the safety rules are identical; only the reason code
+    and wording differ per caller, which is why this raises `_PathProblem`
+    rather than a refusal itself. Kept as one function rather than two
+    independently-maintained copies after the second one was found to have
+    drifted the day it was written, missing the Windows-alias checks the
+    first already had.
+
+    Returns the normalised POSIX-relative path. Never checks existence or
+    whether it names a directory — callers that need a file to be there
+    check separately, with whatever reason fits their own contract.
+    """
+    text = str(raw).strip().replace(chr(92), "/")
+    # Windows resolves `file.md::$DATA` and `file.md.` to the ordinary file
+    # while the stored string stays distinct, so the same document could be
+    # matched twice and one spelling would not match the other. Rejected as
+    # syntax rather than normalised: a path SDLE records must mean one file on
+    # every platform, and a colon or a trailing dot in a component means it
+    # does not.
+    for part in text.split("/"):
+        if ":" in part or part != part.rstrip(". "):
+            raise _PathProblem("alias")
+    if any(ord(ch) < 32 for ch in text):
+        raise _PathProblem("control")
+    if not text:
+        raise _PathProblem("empty")
+    if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
+        raise _PathProblem("absolute")
+    normal = posixpath.normpath(text)
+    if normal == ".." or normal.startswith("../"):
+        raise _PathProblem("traversal")
+    target = paths.project_root / normal
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(paths.project_root.resolve())
+    except (OSError, ValueError):
+        raise _PathProblem("escape") from None
+    return normal
+
+
+def safe_repo_path(paths: Paths, raw: str) -> tuple[Path, str]:
+    """An arbitrary path the orchestrator names — for `scan --path` and
+    `accept-content --path`, never only a *bound* source — canonicalised and
+    checked against the repository root, or refused `path_invalid`.
+
+    `scan`/`accept-content` had no path safety at all before this: a `--path`
+    reading `../../outside.md`, an absolute path, a Windows-alias spelling,
+    or a symlink resolving outside the tree would be joined and read
+    unchecked. Returns `(target, canonical_relative_key)` — every caller
+    uses the *key* everywhere a path is stored, matched or emitted
+    (`pending_confirm_action`, the acknowledgement record, the audit message,
+    emitted `data`), never the raw string a user typed, so two spellings of
+    the same file can never appear to name two different ones.
+
+    Accepted as an engine-wide limitation, not fixed here: `target` is
+    reconstructed from the canonical key rather than the `resolved` handle
+    `_lexically_safe_path` already opened to check containment, so a symlink
+    retargeted in the gap between this check and the caller's later
+    `is_file()`/`read_bytes()` call is still followed. Returning the already-
+    resolved `Path` object instead would not close this — Python's file APIs
+    re-resolve at the syscall that actually opens the file regardless of
+    whether `.resolve()` was called on the object earlier, so the two forms
+    behave identically here. Closing it for real needs a file-descriptor-
+    anchored open (`O_NOFOLLOW`/`openat`), which every other path-based read
+    in this engine — including `requirements_sources`, which this mirrors —
+    also lacks; this is that same, pre-existing, engine-wide property, not a
+    gap specific to `scan`/`accept-content`.
+    """
+    try:
+        normal = _lexically_safe_path(paths, raw)
+    except _PathProblem as problem:
+        message = {
+            "alias": f"'{raw}' uses a spelling that names different files on "
+                     "different platforms (a ':' stream, or a trailing dot "
+                     "or space). Use the plain path.",
+            "control": f"'{raw}' is not a usable path.",
+            "empty": f"'{raw}' is not a usable path.",
+            "absolute": f"'{raw}' is an absolute path. Name it relative to "
+                        "the repository root.",
+            "traversal": f"'{raw}' leaves the repository.",
+            "escape": f"'{raw}' resolves outside the repository (a symlink "
+                      "or junction pointing away from it).",
+        }[problem.kind]
+        raise Refused("path_invalid", message, {"path": raw}) from None
+    return paths.project_root / normal, normal
+
+
 def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     """One bound path, validated and canonicalised, or a refusal.
 
@@ -4490,51 +4605,29 @@ def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     directory whose contents can change underneath the record, would make the
     recorded set mean something other than what it says.
     """
-    text = str(raw).strip().replace(chr(92), "/")
-    # Windows resolves `file.md::$DATA` and `file.md.` to the ordinary file
-    # while the stored string stays distinct, so the same document could be
-    # bound twice and one spelling would not match the other. Rejected as
-    # syntax rather than normalised: a path SDLE records must mean one file on
-    # every platform, and a colon or a trailing dot in a component means it
-    # does not.
-    for part in text.split("/"):
-        if ":" in part or part != part.rstrip(". "):
-            raise _binding_refused(
-                "requirements_source_invalid",
-                f"'{raw}' uses a spelling that names different files on "
-                "different platforms (a ':' stream, or a trailing dot or "
-                "space). Bind the document by its plain path.", source=raw)
-    if any(ord(ch) < 32 for ch in text):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' contains a control character. A requirements source is "
-            "an ordinary repository path.", source=raw)
-    if not text:
-        raise _binding_refused(
-            "requirements_source_invalid",
-            "An empty path is not a requirements source.", source=raw)
-    if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' is an absolute path. Bind requirement sources by their "
-            "path relative to the repository root, so the record means the "
-            "same thing in every checkout.", source=raw)
-    normal = posixpath.normpath(text)
-    if normal == ".." or normal.startswith("../"):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' leaves the repository. A requirements source must be a "
-            "file inside it.", source=raw)
-    target = paths.project_root / normal
     try:
-        resolved = target.resolve()
-        resolved.relative_to(paths.project_root.resolve())
-    except (OSError, ValueError):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' resolves outside the repository (a symlink or junction "
-            "pointing away from it). SDLE will not read requirements from "
-            "outside the tree it governs.", source=raw) from None
+        normal = _lexically_safe_path(paths, raw)
+    except _PathProblem as problem:
+        message = {
+            "alias": f"'{raw}' uses a spelling that names different files on "
+                     "different platforms (a ':' stream, or a trailing dot "
+                     "or space). Bind the document by its plain path.",
+            "control": f"'{raw}' contains a control character. A "
+                       "requirements source is an ordinary repository path.",
+            "empty": "An empty path is not a requirements source.",
+            "absolute": f"'{raw}' is an absolute path. Bind requirement "
+                        "sources by their path relative to the repository "
+                        "root, so the record means the same thing in every "
+                        "checkout.",
+            "traversal": f"'{raw}' leaves the repository. A requirements "
+                         "source must be a file inside it.",
+            "escape": f"'{raw}' resolves outside the repository (a symlink "
+                      "or junction pointing away from it). SDLE will not "
+                      "read requirements from outside the tree it governs.",
+        }[problem.kind]
+        raise _binding_refused("requirements_source_invalid", message,
+                               source=raw) from None
+    target = paths.project_root / normal
     if target.is_dir():
         raise _binding_refused(
             "requirements_source_invalid",
@@ -4674,8 +4767,14 @@ def bound_sources(paths: Paths) -> list[str]:
 
 
 def requirements_sources(paths: Paths, strict: bool = False
-                        ) -> tuple[list[dict], str]:
-    """Every **bound** requirement document with its SHA, plus one digest.
+                        ) -> tuple[list[dict], str, dict[str, bytes]]:
+    """Every **bound** requirement document with its SHA, one digest, and the
+    raw bytes actually read for each — each source is read from disk exactly
+    once, here, and the caller passes those same bytes on rather than
+    re-reading: two separate reads of the same bound source, at two
+    different times, is exactly the gap a concurrent edit can exploit —
+    `governance assess` used to hash here and re-read again in
+    `unacknowledged_flagged_sources`, so it no longer does.
 
     ``strict`` is what `governance assess` passes: an assessment may not be
     *recorded* against a document that is not there. Without it, deleting a
@@ -4693,14 +4792,16 @@ def requirements_sources(paths: Paths, strict: bool = False
     """
     sources: list[dict] = []
     missing: list[str] = []
+    raw_by_path: dict[str, bytes] = {}
     for relative in bound_sources(paths):
         target = paths.project_root / relative
         if not target.is_file():
             missing.append(relative)
-        sources.append({
-            "path": relative,
-            "sha256": sha256_file(target) if target.is_file() else None,
-        })
+            sources.append({"path": relative, "sha256": None})
+            continue
+        raw = target.read_bytes()
+        raw_by_path[relative] = raw
+        sources.append({"path": relative, "sha256": hashlib.sha256(raw).hexdigest()})
     if strict and missing:
         raise _binding_refused(
             "requirements_source_missing",
@@ -4710,7 +4811,7 @@ def requirements_sources(paths: Paths, strict: bool = False
             "re-run `requirements bind` with the documents it is about.",
             workitem=paths.workitem, missing=missing)
     sources.sort(key=lambda entry: entry["path"])
-    return sources, _sources_digest(sources)
+    return sources, _sources_digest(sources), raw_by_path
 
 
 def _sources_digest(sources: list[dict]) -> str:
@@ -5443,7 +5544,27 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # the assessment then refused `requirements_unbound` — an artifact of a
     # decision that was never taken, which is exactly what refusal atomicity
     # exists to prevent.
-    sources, digest = requirements_sources(paths, strict=True)
+    sources, digest, raw_by_path = requirements_sources(paths, strict=True)
+    # DEF-RR-001. Independent of whatever `scan` last recorded: a bound
+    # source nobody ever ran `scan` on must not reach `init` unexamined
+    # either. Before evidence is claimed, matching the refusal-atomicity
+    # comment above — a flagged, unacknowledged document is not a decision
+    # this assessment gets to make. `raw_by_path` threads through the exact
+    # bytes just hashed above, so this never re-reads a bound source (V-01).
+    offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
+    if offenders:
+        detail = "; ".join(
+            f"{o['path']} (line {o['matches'][0]['line']}: "
+            f"{o['matches'][0]['pattern']})" for o in offenders)
+        raise Refused(
+            "governance_content_unacknowledged",
+            "Bound document(s) contain unacknowledged content that looks "
+            f"like instructions directed at the workflow engine: {detail}. "
+            "Edit the flagged line(s) and re-assess, or acknowledge each "
+            "with `accept-content --path <file>` first.",
+            {"workitem": paths.workitem,
+             "offenders": [{"path": o["path"], "matches": o["matches"]}
+                           for o in offenders]})
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -8914,6 +9035,87 @@ def governance_downgrade_marker(execution_id: str) -> str:
     return f"(governance downgrade {execution_id})"
 
 
+def content_acknowledgement_marker(path: str, sha256: str) -> str:
+    """The idiom `governance_audit_marker` uses, for a scan acknowledgement.
+    The full digest, not a prefix: `record_scan_acknowledgement_audit`'s
+    replay matches this structurally (event and artifact, not a text
+    search), but the marker is also what a human reads, and a truncated
+    hash inside two entries for the same path is exactly the kind of near
+    which that scenario means to guard against."""
+    return f"(content acknowledged {path} {sha256})"
+
+
+_AUDIT_EVENT = re.compile(r"^## AUDIT \[.*?\] \| .*? — (\S+)\s*$", re.MULTILINE)
+_AUDIT_ARTIFACT = re.compile(r"^\*\*Artifact:\*\* (.*)$", re.MULTILINE)
+
+
+def _already_recorded(entries: list[str], artifact: str, marker: str) -> bool:
+    """Structural de-duplication, not a text search over the whole ledger:
+    an entry counts only if its own event is `content_accepted`, its own
+    `Artifact` field equals this acknowledgement's path, and the marker
+    appears within that same entry's block — never a marker that happens to
+    appear inside an unrelated entry, a path, or a comment elsewhere in the
+    file (V2-05: a substring search over the whole file can be satisfied by
+    text that was never actually this acknowledgement)."""
+    for block in entries:
+        event = _AUDIT_EVENT.match(block)
+        artifact_line = _AUDIT_ARTIFACT.search(block)
+        if (event and event.group(1) == "content_accepted"
+                and artifact_line and artifact_line.group(1) == artifact
+                and marker in block):
+            return True
+    return False
+
+
+def record_scan_acknowledgement_audit(paths: Paths, state: dict | None) -> None:
+    """Carry every recorded content acknowledgement into the ledger, exactly
+    once each, DEF-RR-001's half of the same problem `record_governance_audit`
+    solves immediately above.
+
+    Validates the acknowledgement record whether or not `state` is given —
+    the same "pure reader" step the other preconditions in
+    `governance_precondition` already take with no `state` — so a malformed
+    file is caught before `cmd_gate_approve`'s, `cmd_gate_omit`'s and
+    `cmd_skip`'s own early, state-less calls, not only before `advance`'s.
+    Replay (the actual audit write) only happens when `state` is given.
+
+    `accept-content --path` cannot write this itself when it runs pre-init:
+    there is no `audit_sha` to rebaseline and no state file to save, for the
+    identical reason `governance assess` writes no audit entry of its own.
+    So a pre-init acknowledgement is replayed here, at the same first phase
+    movement that already carries the governance record in — de-duplicated
+    per acknowledgement by `(path, sha256)`, so replaying at every later
+    advance never doubles an entry, and acknowledging the same path twice
+    (different content each time) is two entries, not one overwritten.
+    """
+    doc = read_scan_acknowledgements(paths)  # validates even if state is None
+    if state is None:
+        return
+    acknowledgements = doc.get("acknowledgements") or []
+    if not acknowledgements:
+        return
+    existing_text = (
+        paths.audit_file.read_text(encoding="utf-8")
+        if paths.audit_file.is_file() else ""
+    )
+    entries = split_audit_entries(existing_text)
+    for ack in acknowledgements:
+        marker = content_acknowledgement_marker(ack["path"], ack["sha256"])
+        if _already_recorded(entries, ack["path"], marker):
+            continue
+        append_audit(
+            paths, state, phase=state.get("current_phase", "unknown"),
+            event="content_accepted",
+            message=f"User accepted flagged content in {ack['path']} {marker}.",
+            artifact=ack["path"],
+        )
+        existing_text = (
+            paths.audit_file.read_text(encoding="utf-8")
+            if paths.audit_file.is_file() else existing_text
+        )
+        entries = split_audit_entries(existing_text)
+
+
 def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
     """Carry the recorded governance facts into the ledger exactly once.
 
@@ -9443,6 +9645,29 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
 
     # Accepted. The facts enter the ledger here, after every refusal has had
     # its chance to fire, so a refused advance never writes anything.
+    #
+    # Acknowledgement *validation* runs unconditionally, even when `state` is
+    # `None` — `cmd_gate_approve`, `cmd_gate_omit` and `cmd_skip` each call
+    # this precondition once early, with no `state`, specifically so a
+    # refusal here happens before *their own* first irreversible append
+    # (`gate_approved`/`gate_omitted`/`skipped`), the same reason
+    # `cmd_gate_approve` gives for its own early call above. Gating the
+    # validation on `state is not None` left exactly that append unprotected
+    # for those three commands: a malformed acknowledgements file would only
+    # be discovered at their *second*, state-carrying call, by which point
+    # the append had already happened. Replay (the write) still only happens
+    # when `state` is given — `record_scan_acknowledgement_audit` itself
+    # returns immediately after validating if `state` is `None`.
+    #
+    # Acknowledgement validation/replay runs BEFORE `record_governance_audit`:
+    # its only possible failure (`read_scan_acknowledgements` raising on a
+    # malformed file) then happens before either function has appended
+    # anything, so a refusal here still leaves `audit.md` byte-identical.
+    # Reversed, a governance entry already written by `record_governance_audit`
+    # would survive an IntegrityError raised moments later by the
+    # acknowledgement read — a refused advance that had, in fact, already
+    # changed the ledger.
+    record_scan_acknowledgement_audit(paths, state)
     if state is not None:
         record_governance_audit(paths, state, record)
     return None
@@ -11858,13 +12083,179 @@ def scan_text(text: str) -> list[dict]:
     return matches
 
 
+SCAN_ACKNOWLEDGEMENTS_VERSION = "1"
+
+
+def read_scan_acknowledgements(paths: Paths) -> dict:
+    """The WorkItem's explicit content acknowledgements, or an empty shell.
+
+    Absence is not an error — most WorkItems never flag anything — but a
+    present, unreadable or malformed file is: it would silently make
+    `governance assess` treat "acknowledgement unknown" as "acknowledgement
+    absent", which is the safe direction only for a file that never existed.
+    """
+    target = paths.scan_acknowledgements_file
+    if not target.is_file():
+        return {"scanAcknowledgementsVersion": SCAN_ACKNOWLEDGEMENTS_VERSION,
+                "workitem": paths.workitem, "acknowledgements": []}
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not "
+            f"readable JSON: {exc}.", {}) from exc
+    entries = doc.get("acknowledgements") if isinstance(doc, dict) else None
+    # V3-03: the writer always sets `workitem`, but nothing read it back —
+    # a store copied or symlinked in from another WorkItem's runtime (the
+    # same threat `validated_binding` already checks for the requirements
+    # binding) would silently transfer a decision that is documented and
+    # stored as WorkItem-scoped.
+    valid_shell = (
+        isinstance(doc, dict)
+        and doc.get("scanAcknowledgementsVersion") == SCAN_ACKNOWLEDGEMENTS_VERSION
+        and doc.get("workitem") == paths.workitem
+        and isinstance(entries, list))
+    # Every entry re-checked on every read, not only at write time: a merge,
+    # a restored backup or a hand edit can leave a well-formed shell around
+    # an entry the replay loop would otherwise fail on midway through —
+    # after it had already appended for the entries before it. Total, not
+    # merely present: `sha256` must be a *string* before the regex ever runs
+    # (an int or bool passed straight to `re.fullmatch` raises `TypeError`,
+    # not a refusal), and `path` is re-checked through the same lexical
+    # rules `safe_repo_path` enforces at write time — a control character or
+    # a line break in a stored path is not evidence of anything, and
+    # `record_scan_acknowledgement_audit` interpolates it into `audit.md`,
+    # whose parser treats a line starting `## AUDIT ` as a new entry.
+    def entry_ok(a: object) -> bool:
+        if (not isinstance(a, dict)
+                or set(a) - {"path", "sha256", "acknowledgedAt", "session"}
+                or not isinstance(a.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", a["sha256"])
+                or not isinstance(a.get("path"), str)):
+            return False
+        try:
+            canonical = _lexically_safe_path(paths, a["path"])
+        except _PathProblem:
+            return False
+        # Not merely "can be canonicalised without raising": `.strip()`
+        # inside `_lexically_safe_path` silently drops a *leading or
+        # trailing* control character (a literal newline) before the
+        # control-character check ever sees it, so a stored path carrying
+        # one would canonicalise cleanly while remaining, byte for byte,
+        # something `record_scan_acknowledgement_audit` would later
+        # interpolate into `audit.md` verbatim — forging an
+        # `## AUDIT ` line the parser reads as a new entry. Requiring the
+        # stored value to already equal its own canonical form closes that:
+        # nothing reaches replay that was not already exactly what a
+        # trusted write produced.
+        if a["path"] != canonical:
+            return False
+        acknowledged_at = a.get("acknowledgedAt")
+        session = a.get("session")
+        return (isinstance(acknowledged_at, str)
+                and (session is None or isinstance(session, str)))
+
+    entries_ok = valid_shell and all(entry_ok(a) for a in entries)
+    if not entries_ok:
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not a "
+            "recognised acknowledgements record.", {})
+    return doc
+
+
+def is_content_acknowledged(doc: dict, path: str, sha256: str) -> bool:
+    """True only for an acknowledgement matching both the path and the
+    *current* content — editing a flagged line after acknowledging the old
+    text must not carry the acknowledgement over to the new one."""
+    return any(a.get("path") == path and a.get("sha256") == sha256
+               for a in doc.get("acknowledgements", []))
+
+
+def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
+                                 session: str | None) -> None:
+    """Append one acknowledgement, unless an identical one — same path,
+    same content — is already on file.
+
+    Append-only, matching every other ledger this engine keeps
+    (`audit.md`, `workitems/index.md`, `reviews.json`): acknowledging path A
+    then, later, different content at the same path is two human decisions,
+    not one overwriting the other, and `record_scan_acknowledgement_audit`'s
+    replay depends on both surviving to be carried into the audit chain.
+    An old acknowledgement for since-changed content is simply never matched
+    again by `is_content_acknowledged` (it checks path *and* content), so it
+    costs nothing to keep — the file grows by one entry per genuinely new
+    decision, not per repeat of the same one.
+
+    Accepted as a known limitation rather than fixed here: this is an
+    unlocked read-modify-write, so two concurrent acknowledgements can race
+    and one lose an update the other made in between. It fails closed — the
+    lost acknowledgement simply means that path is unacknowledged again,
+    which `governance assess` already refuses on its own, never a silent
+    pass — so it costs a repeat `accept-content --path`, not a bypass.
+    Serialising this belongs with the refusing lock primitive the
+    requirements-refinement work introduces for its own shared-document
+    transaction, not duplicated here for one file."""
+    doc = read_scan_acknowledgements(paths)
+    doc["workitem"] = paths.workitem
+    if is_content_acknowledged(doc, path, sha256):
+        return
+    doc["acknowledgements"].append({
+        "path": path, "sha256": sha256, "acknowledgedAt": now_iso(),
+        "session": session,
+    })
+    write_atomic(paths.scan_acknowledgements_file,
+                json.dumps(doc, indent=2) + "\n")
+
+
+def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
+                                  raw_by_path: dict[str, bytes]) -> list[dict]:
+    """Bound sources (as `requirements_sources` returns them — already
+    confirmed present on disk) that are currently flagged and have no
+    acknowledgement matching their content.
+
+    Independent of whatever `scan` last recorded: this re-scans every bound
+    source itself, so a source nobody ever ran `scan` on is caught here
+    rather than silently reaching `init` unexamined.
+
+    Takes `raw_by_path` — the exact bytes `requirements_sources`
+    already read `entry["sha256"]` from — rather than reading the file a
+    second time: two reads of the same path at two different times is
+    exactly the gap a concurrent edit can exploit (hash flagged content,
+    scan clean content substituted in between, or the reverse). Scanning and
+    hashing the identical bytes closes it structurally, not by comparison.
+    """
+    doc = read_scan_acknowledgements(paths)
+    offenders = []
+    for entry in sources:
+        raw = raw_by_path.get(entry["path"])
+        if raw is None:
+            continue  # missing; requirements_sources(strict=True) already
+                      # refused before this ever runs, for a non-strict caller
+                      # there is nothing to scan
+        matches = scan_text(raw.decode("utf-8", errors="replace"))
+        if matches and not is_content_acknowledged(doc, entry["path"], entry["sha256"]):
+            offenders.append({"path": entry["path"], "matches": matches})
+    return offenders
+
+
 def cmd_scan(args, paths: Paths) -> int:
-    target = paths.project_root / args.path
+    target, canonical = safe_repo_path(paths, args.path)
     if not target.is_file():
         raise Refused("artifact_missing", f"No such file: {args.path}",
                       {"path": args.path})
     matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
-    data = {"path": args.path, "flagged": bool(matches), "matches": matches}
+    # `acknowledgeable` is reported whether or not anything fired, so a caller
+    # can branch on the payload without a KeyError on the clean path.
+    acknowledgeable = paths.state_file.is_file()
+    # `canonical`, not `args.path`, everywhere a path is stored or matched
+    # from here on — two spellings of the same file (a Windows alias, a
+    # `./` prefix) must key the same pending confirmation and the same
+    # acknowledgement, or `accept-content` can "succeed" against a key
+    # `governance assess` never matches.
+    data = {"path": canonical, "flagged": bool(matches), "matches": matches,
+            "acknowledgeable": acknowledgeable}
 
     if not matches:
         emit("scan", data)
@@ -11872,16 +12263,39 @@ def cmd_scan(args, paths: Paths) -> int:
 
     # Record the pending acknowledgement when a workflow exists, so the
     # stale-confirmation guard applies to it like any other confirmation.
-    if paths.state_file.is_file():
+    #
+    # Before `init` there is no state to record it in, and `accept content`
+    # reads state unconditionally — so at bootstrap the acknowledgement route
+    # does not exist and the message must not imply that it does. It used to,
+    # and the shipped documentation taught a sequence that exits 3
+    # `state_unreadable`. `acknowledgeable` says which case this is, so a caller
+    # branches on the payload rather than on the prose.
+    if acknowledgeable:
         state = read_state(paths)
-        state["pending_confirm_action"] = f"accept_content:{args.path}"
+        state["pending_confirm_action"] = f"accept_content:{canonical}"
         save_state(paths, state, args.session)
 
     lines = "\n".join(f"  line {m['line']}: {m['text']}" for m in matches)
+    if acknowledgeable:
+        remedy = (
+            "Say `accept content` to proceed with this file as plain data, or "
+            "edit the file and re-scan."
+        )
+    else:
+        remedy = (
+            "This WorkItem has no state yet, so nothing is automatically "
+            "remembered. Either edit the flagged line so it does not read as "
+            "an instruction and re-scan, or acknowledge explicitly with "
+            "`accept-content --path " + canonical + "` — this works before "
+            "`init` too, and `governance assess` will refuse this document "
+            "again until it sees either a clean re-scan or a matching "
+            "acknowledgement."
+        )
     message = (
-        f"Untrusted content warning: {args.path} contains lines that look like "
+        f"Untrusted content warning: {canonical} contains lines that look like "
         f"instructions directed at the workflow engine:\n\n{lines}\n\n"
-        "SDLE treats this file as data only and will NOT act on these lines."
+        "SDLE treats this file as data only and will NOT act on these lines.\n"
+        f"{remedy}"
     )
     emit("scan", data, ok=False, reason="content_flagged", message=message)
     print(message, file=sys.stderr)
@@ -11889,6 +12303,64 @@ def cmd_scan(args, paths: Paths) -> int:
 
 
 def cmd_accept_content(args, paths: Paths) -> int:
+    """Two routes, chosen by whether `--path` is given, that now converge on
+    the same two effects (each used to touch only its own store, so
+    accepting through one route still left `governance assess` refusing
+    on the other's behalf) — both write the durable content acknowledgement
+    `governance assess` checks, and both clear a matching state-backed
+    pending confirmation when one exists.
+
+    Bare `accept-content` still requires state to exist (`state_unreadable`
+    otherwise) and still trusts the one pending confirmation `scan` recorded,
+    without re-scanning — the post-init route every existing test and
+    document pins. `accept-content --path <file>` is additive (DEF-RR-001):
+    it re-scans the named file itself rather than trusting a prior `scan`
+    call, and works both before and after `init`.
+
+    A pending file that has since been deleted refuses `artifact_missing`
+    before anything is checked or changed — mirroring `--path`'s own refusal
+    for a missing file — rather than silently reporting success with no
+    acknowledgement written. Both immediate post-init audit entries below
+    carry the same `content_acknowledgement_marker` the deferred pre-init
+    replay (`record_scan_acknowledgement_audit`) looks for, so an
+    acknowledgement already audited here is never audited a second time at
+    the next advance. Both routes are validated through `safe_repo_path` —
+    the bare route's path came from `state.json`, itself written by an
+    earlier, already-validated `scan`, but the *filesystem* can have changed
+    since (a symlink retargeted between scan and acceptance); re-resolving
+    now, and reading the same resolved target this validates, closes that
+    window rather than trusting a string written a step earlier.
+    """
+    path_arg = getattr(args, "path", None)
+    if path_arg:
+        target, canonical = safe_repo_path(paths, path_arg)
+        if not target.is_file():
+            raise Refused("artifact_missing", f"No such file: {path_arg}",
+                          {"path": path_arg})
+        raw = target.read_bytes()
+        matches = scan_text(raw.decode("utf-8", errors="replace"))
+        if not matches:
+            raise Refused("no_pending_confirmation",
+                          "No flagged content is pending acknowledgement.",
+                          {"path": path_arg})
+        sha = hashlib.sha256(raw).hexdigest()
+        write_content_acknowledgement(paths, canonical, sha, args.session)
+        if paths.state_file.is_file():
+            state = read_state(paths)
+            pending = state.get("pending_confirm_action") or ""
+            if pending == f"accept_content:{canonical}":
+                state["pending_confirm_action"] = None
+            append_audit(
+                paths, state, phase=state.get("current_phase", "unknown"),
+                event="content_accepted",
+                message=(f"User accepted flagged content in {canonical} "
+                         f"{content_acknowledgement_marker(canonical, sha)}."),
+                artifact=canonical,
+            )
+            save_state(paths, state, args.session)
+        emit("accept-content", {"file": canonical, "sha256": sha})
+        return EXIT_OK
+
     state = read_state(paths)
     pending = state.get("pending_confirm_action") or ""
     if not pending.startswith("accept_content:"):
@@ -11896,15 +12368,31 @@ def cmd_accept_content(args, paths: Paths) -> int:
                       "No flagged content is pending acknowledgement.",
                       {"pending": pending or None})
     flagged = pending.split(":", 1)[1]
+    # `flagged` is a key the engine itself wrote (by an earlier `scan`), so
+    # this is a live re-check of the filesystem, never a re-validation of
+    # untrusted input — but `safe_repo_path` refuses `path_invalid` for a
+    # spelling `scan` should never have produced, which surfaces a state
+    # corruption honestly instead of reading whatever `project_root / flagged`
+    # happens to resolve to.
+    target, canonical = safe_repo_path(paths, flagged)
+    if not target.is_file():
+        raise Refused("artifact_missing",
+                      f"No such file: {flagged} (the file the pending "
+                      "confirmation names is no longer on disk).",
+                      {"path": flagged})
+    raw = target.read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    write_content_acknowledgement(paths, canonical, sha, args.session)
     state["pending_confirm_action"] = None
     append_audit(
         paths, state, phase=state.get("current_phase", "unknown"),
         event="content_accepted",
-        message=f"User accepted flagged content in {flagged}.",
-        artifact=flagged,
+        message=(f"User accepted flagged content in {canonical} "
+                 f"{content_acknowledgement_marker(canonical, sha)}."),
+        artifact=canonical,
     )
     save_state(paths, state, args.session)
-    emit("accept-content", {"file": flagged})
+    emit("accept-content", {"file": canonical, "sha256": sha})
     return EXIT_OK
 
 
@@ -14467,9 +14955,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "accept-state", help="Acknowledge a detected state jump."
     ).set_defaults(handler=cmd_accept_state)
-    subparsers.add_parser(
+    accept_content_p = subparsers.add_parser(
         "accept-content", help="Acknowledge flagged file content."
-    ).set_defaults(handler=cmd_accept_content)
+    )
+    accept_content_p.add_argument(
+        "--path", required=False,
+        help="Acknowledge this file explicitly (works before init too), "
+             "instead of consuming state.json's one pending confirmation.")
+    accept_content_p.set_defaults(handler=cmd_accept_content)
     subparsers.add_parser(
         "repo-staleness", help="Commits newer than the newest approval."
     ).set_defaults(handler=cmd_repo_staleness)

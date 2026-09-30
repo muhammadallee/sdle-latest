@@ -91,10 +91,19 @@ STATE_FIELDS = (
 # placement that supersedes a prior approved decision now emits
 # `architecture_decision_abandoned` rather than changing a catalog field with
 # no ledger entry behind it.
+#
+# 31 -> 32: DEF-RR-001's `write_content_acknowledgement` writes the WorkItem's
+# scan-acknowledgements record — another pre-init record only the engine
+# writes, for the same reason.
+# save_state 49 -> 50, append_audit 54 -> 56: DEF-RR-001's
+# `cmd_accept_content --path` branch appends an audit entry and rebaselines
+# state when a post-init acknowledgement is also given, and
+# `record_scan_acknowledgement_audit` replays a pre-init acknowledgement into
+# the ledger at the first advance, mirroring `record_governance_audit`.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 31,
-    'save_state': 49,
-    'append_audit': 54,
+    'write_atomic': 32,
+    'save_state': 50,
+    'append_audit': 56,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,
