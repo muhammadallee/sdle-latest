@@ -102,6 +102,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | [PROGRESS.md](enhancements/architecture-memory/PROGRESS.md) | The resumability log: as-is map, checkpoints, deviations, decisions taken |
 | [REVIEW-ROUND-1.md](enhancements/architecture-memory/REVIEW-ROUND-1.md) | The first independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-2.md](enhancements/architecture-memory/REVIEW-ROUND-2.md) | The second independent review, verbatim, with dispositions |
+| [REVIEW-ROUND-3.md](enhancements/architecture-memory/REVIEW-ROUND-3.md) | The third independent review, of the Stage 0 restoration, verbatim, with dispositions |
 
 ## Specification — not documentation
 

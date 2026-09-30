@@ -137,8 +137,8 @@ to governance assessment and `init`:)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
-📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->
+📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]
 ```
 
 *(`governance assess` re-scanned `requirements/todo-api.md`, found the same

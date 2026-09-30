@@ -4,7 +4,7 @@ Resumability record for the enhancement described in
 `sdle-architecture-memory-prompt-v3.md`. Updated at every checkpoint so a fresh
 session can resume without re-deriving state.
 
-**Current wave:** Wave C complete; Round-1 review closed, Round 2 in flight.
+**Current wave:** Wave C complete; Rounds 1–3 closed; T5 is the CI run recorded in `DELIVERY.md`.
 Contracts approved by the human on 2026-09-29 at commit `566f48d` and amended
 by the Round-1 review (amendments marked *(R1-nnn)* in that document).
 
@@ -23,7 +23,37 @@ The delivery report is [`DELIVERY.md`](DELIVERY.md); the independent review is
 | Round 1 | independent reviewer, fresh context, Read/Grep/Glob only, reviewing the committed patch | 22 findings — 1 CRITICAL, 4 HIGH; **all accepted and fixed** |
 | T4 | after the Round-1 fixes: `lint-skill`; the smoke; `test_units_architecture.py`; `test_units_invariants.py` | **PASS** |
 | Round 2 | the same isolation, reviewing the updated patch and verifying every Round-1 disposition | 22 findings — 1 CRITICAL (a **regression** the Round-1 fix introduced), 3 HIGH; **all accepted and fixed** |
-| T5 | the full suite | **deferred to CI** — see *Deviations* |
+| T5 (first attempt) | CI on `d1b203a` | **FAILED** — 22 failed / 3323 passed on both jobs. See *Incident: Stage 0 reverted by the copy*. |
+| Reconciliation | `fbd7e7f` restores Stage 0; `7600a03` fixes the architecture defects. Locally: `lint-skill`, then every module that failed in CI and every module previously listed as not re-run, in foreground batches | **PASS** (1202 + 351 + 170 + 397 + 230 tests in separate batches) |
+| Round 3 | independent reviewer, fresh context, Read/Grep/Glob only, reviewing `git diff d1b203a..HEAD` | 8 findings — 1 HIGH (a regression the merge introduced, `R3-001`); 3 accepted, 5 rejected as pre-existing Stage 0 issues, recorded in `claude-review-rejections.md` |
+| T5 | the full suite | **CI** — the run on the final commit is recorded in `DELIVERY.md` |
+
+### Incident: Stage 0 reverted by the copy
+
+The architecture work was built in a separate checkout (`archi-sdle-latest-main`)
+whose base commit `3642ffb` has a tree identical to `main`. Its finished tree was
+then copied over the tip of `feat/requirements-refinement`, which carries
+Stage 0 (OPEN-01/02, commits `27c3be0..fca6c00`, CI-verified and owner-confirmed).
+For the twelve files both lines of work had touched, the copy took the
+architecture checkout's version and so **reverted Stage 0**: pre-init
+`accept-content --path`, the durable acknowledgement store,
+`data.acknowledgeable`, the `governance_content_unacknowledged` refusal, the
+V2/V3 hardening, nineteen governance tests, the `sdle-start.md` scan step, the
+`MAINTENANCE_RECORDS` widening and the dry-run 05 rewrite. CI on `d1b203a`
+showed it as ten `test_units_startup_contract` failures and two
+"restated outside sdle.py" scans, alongside eight genuine architecture defects.
+
+Stage 1 (`fca6c00..65b75df`) added only records and fixtures, so nothing in it
+was lost. **Resolution:** each affected file was three-way merged (base `main`,
+ours `d1b203a`, theirs `65b75df`) in a forward commit — no force-push — and both
+behaviours were kept in `cmd_gate_approve`, where every precondition, including
+the acknowledgement validation, still runs before `architecture apply` and
+before the first ledger append. The write-primitive pins were recounted against
+the merged engine, not summed.
+
+Round 3's own first finding was a miss in this restoration (dry-run 05 still
+carried `/18`); the only reason it was caught before CI was that an independent
+reader looked. The local sweep above did not include `test_dry_run_contracts`.
 
 ### Test-module repair log
 
@@ -109,6 +139,7 @@ one of four shapes, and none of them is an engine defect:
 | Prompt clause | Deviation | Reason |
 |---|---|---|
 | §7.1 / §7.2 — full suite foreground at every checkpoint | Full suite is **not** run at T1–T5 in-session. `lint-skill` (seconds) plus focused test files are the in-session signal; the full suite runs in CI. | Operator instruction, 2026-09-28: *"stop the tests altogether … will run the full test at the end only via ci/cd."* The suite exceeds the harness's 600 s foreground ceiling, so an in-session "foreground full suite" is not achievable here anyway. CI already runs `pytest -q` and `lint-skill` on `ubuntu-latest` and `windows-latest`. |
+| §8.2 / Appendix B — paste Part 2 and the contracts into the reviewer prompt | Round 3 pointed the reviewer at both by file path instead. | Both are files at HEAD that the Read-only reviewer can open; pasting 778 lines of contracts into the prompt would only have made it a second copy. |
 | §12.1 — final verification `python -m pytest -q` captured in-session | Final counts will come from the CI run, not from a local capture. | Same instruction. `DELIVERY.md` will cite the CI run rather than claim a local pass. |
 
 ---
