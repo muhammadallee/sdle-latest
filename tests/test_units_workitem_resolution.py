@@ -1388,6 +1388,11 @@ def test_runtime_free_commands_is_a_closed_enumerated_set():
         # WorkItem to read it would be wrong in kind, and would refuse
         # `workitem_ambiguous` in any repository with two of them.
         "baseline",
+        # ADR-013: the architecture catalog is repository knowledge, so
+        # `architecture schema` and `architecture show` answer with no
+        # WorkItem bound. `assess`, `apply` and `realize` bind explicitly
+        # through `bind_for_architecture`.
+        "architecture",
     })
 
 

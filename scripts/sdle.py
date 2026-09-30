@@ -7308,7 +7308,7 @@ def architecture_record_is_disposed(paths: Paths, record: dict) -> bool:
     destroy the evidence of what was decided. So "a record exists" stops being
     the same question as "this WorkItem has a live placement", and a gate that
     asked only the first would put a voided decision in front of a human for
-    approval (ADR-013 D14, invariant 4).
+    approval (ADR-013, invariant 4).
     """
     try:
         catalog = read_architecture_catalog(paths)
@@ -7514,7 +7514,7 @@ def _upsert(entries: list[dict], key: str, value: str, fields: dict,
     it is written once, at creation, and never again. The abandonment cascade
     reads the second, because disposing of a decision may only dispose of what
     that decision brought into being — a candidate another WorkItem created
-    and this one merely re-stated is not this one's to withdraw (ADR-013 D14).
+    and this one merely re-stated is not this one's to withdraw (ADR-013).
     """
     for entry in entries:
         if entry.get(key) == value:
@@ -7598,7 +7598,7 @@ def apply_architecture_delta(catalog: dict, record: dict, stamp: str) -> dict:
         existing = next((entry for entry in catalog["services"]
                          if entry["serviceId"] == placement["targetOwner"]), None)
         # A WITHDRAWN service is reclaimable: a later WorkItem may take up a
-        # boundary an abandoned decision had planned (ADR-013, D14).
+        # boundary an abandoned decision had planned (ADR-013).
         status = "PLANNED" if not existing or existing["status"] in (
             "WITHDRAWN", "PLANNED") else existing["status"]
         _upsert(catalog["services"], "serviceId", placement["targetOwner"], {
@@ -7703,7 +7703,7 @@ def abandon_or_supersede_prior(catalog: dict, workitem: str, disposition: str,
     History is never rewritten: the decision keeps its id, its digest and its
     applied revision, and gains a disposition. A `PLANNED` service it created
     becomes `WITHDRAWN` rather than disappearing, so a later WorkItem can
-    reclaim the boundary instead of colliding with a ghost (ADR-013, D14).
+    reclaim the boundary instead of colliding with a ghost (ADR-013).
     """
     # `SUPERSEDED` rather than `ABANDONED` for a rerun: the decision was not
     # walked away from, it was replaced by a later one for the same WorkItem,
@@ -7742,7 +7742,7 @@ def abandon_or_supersede_prior(catalog: dict, workitem: str, disposition: str,
 
 
 def abandon_architecture_decisions(paths: Paths, disposition: str) -> dict | None:
-    """Engine-driven abandonment for `restart` and `reset` (ADR-013, D14).
+    """Engine-driven abandonment for `restart` and `reset` (ADR-013).
 
     Returns ``None`` when there was nothing to dispose of, so the callers stay
     silent in the overwhelmingly common case. `reset` deletes `audit.md`, so
@@ -8158,7 +8158,7 @@ def cmd_architecture_assess(args, paths: Paths) -> int:
 def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
     """Fold an approved placement into the catalog, or explain why not.
 
-    The replay rule is the whole of D11. A crashed `apply` that had already
+    The replay rule is the whole of ADR-013's replay safety. A crashed `apply` that had already
     written revision N must be retryable: the same decision id with the same
     proposal digest is *this* decision, already applied, and re-applying it
     would bump the revision a second time and make every other WorkItem's
@@ -10178,7 +10178,7 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             {"expected": gate_key, "requested": args.gate, "queue": queue},
         )
 
-    # ADR-013 D15. `gate_architecture` has no drift re-approval: the
+    # ADR-013. `gate_architecture` has no drift re-approval: the
     # rendering is engine-generated and bound to the record by digest, so a
     # drifted `placement.md` is not new content to re-approve — it is a file
     # that no longer matches the decision already in the shared catalog.
@@ -10631,7 +10631,7 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
             "unknown_gate", f"'{args.gate}' is not a registered gate key.",
             {"gate": args.gate},
         )
-    # ADR-013 D15, the sibling door to `_approve_drift`'s refusal. The
+    # ADR-013, the sibling door to `_approve_drift`'s refusal. The
     # architecture rendering is engine-generated and bound by digest to a
     # decision already in the shared catalog, so re-baselining it here would
     # leave the catalog's `renderedSha256` permanently describing a file that
@@ -11835,7 +11835,7 @@ def cmd_restart(args, paths: Paths) -> int:
         )
 
     state["pending_confirm_action"] = None
-    # ADR-013, D14. Rolling back to or past `architecture_placement` discards
+    # ADR-013. Rolling back to or past `architecture_placement` discards
     # this WorkItem's placement, and an approved placement is shared evidence
     # a later WorkItem may already have reasoned from. It is *disposed of*,
     # never deleted: the decision becomes ABANDONED and any service it had
@@ -11906,7 +11906,7 @@ def cmd_reset(args, paths: Paths) -> int:
             {"pending": state.get("pending_confirm_action")},
         )
 
-    # ADR-013, D14 — and note the asymmetry with `restart`: this command
+    # ADR-013 — and note the asymmetry with `restart`: this command
     # deletes `audit.md`, so there is no ledger left to record the
     # abandonment in. The catalog disposition is the ONLY durable record a
     # reset abandonment will ever have, which is precisely why it is written

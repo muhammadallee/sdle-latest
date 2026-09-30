@@ -535,4 +535,4 @@ WorkItem in it will be `ITERATIVE`, and `BROWNFIELD_DISCOVERY` will be refused
   bootstrap failures.
 - **Something refused**: [`troubleshooting/`](../troubleshooting/README.md).
 - **Why the phases are in this order**:
-  [§7 of the Reference Guide](../SDLE-Reference-Guide.md#7-the-18-phase-workflow--detailed-reference).
+  [§7 of the Reference Guide](../SDLE-Reference-Guide.md#7-the-20-phase-workflow--detailed-reference).

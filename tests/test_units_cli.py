@@ -96,6 +96,7 @@ def test_skill_root_can_be_pointed_elsewhere(project):
     result = project.run_cli("constants")
     assert result.exit_code == EXIT_OK
     # The registry's non-terminal count, not GREENFIELD's: the registry is the
-    # catalogue of phases that exist (21 as of T08, one of them terminal), and
-    # a flow is an ordered subset of it.
-    assert result.data["phase_count"] == 20
+    # catalogue of phases that exist (23 with ADR-013's `architecture_placement`
+    # and `gate_architecture`, one of them terminal), and a flow is an ordered
+    # subset of it.
+    assert result.data["phase_count"] == 22

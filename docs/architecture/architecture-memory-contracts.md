@@ -457,11 +457,14 @@ The placement artifact **never synthesizes a substitute constitution**.
 
 ```
 sdle.sh architecture schema                            no WorkItem, writes nothing
-sdle.sh architecture show [--workitem <id>]            read-only; valid on an empty catalog
+sdle.sh architecture show                              read-only; valid on an empty catalog
 sdle.sh architecture assess --input <proposal.json>    validate + persist WorkItem record & evidence
-sdle.sh architecture apply   --workitem <id>           gate-approval path only
-sdle.sh architecture realize --workitem <id>           gate_implement-approval path only
+sdle.sh --workitem <id> architecture apply             gate-approval path only
+sdle.sh --workitem <id> architecture realize           gate_implement-approval path only
 ```
+
+`--workitem` (and `--session`) are global options and go before the subcommand;
+any command may take them, and `show` and `schema` need neither.
 
 New sub-parser names for `COMMANDS` in `test_units_invariants.py`:
 `architecture`, `apply`, `realize` (`schema`, `assess`, `show` already exist).

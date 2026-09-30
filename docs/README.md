@@ -87,6 +87,21 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-010](architecture/ADR-010-no-state-migration.md) | No state migration: another schema is refused, the retired runtime is detected |
 | [ADR-011](architecture/ADR-011-pinned-governance-policy.md) | The policy a WorkItem started under is pinned, so relaxing it mid-run cannot drop a gate |
 | [ADR-012](architecture/ADR-012-requirements-source-binding.md) | A WorkItem declares the requirement documents it is about, instead of inheriting a directory |
+| [ADR-013](architecture/ADR-013-project-architecture-memory.md) | Repository-level architecture memory, and the placement phase and gate that read and write it |
+| [ADR-014](architecture/ADR-014-constitution-guidelines-and-precedence.md) | The constitution as the engineering profile, advisory guidelines, and the decision precedence chain |
+
+The frozen contracts ADR-013 was built against — catalog and proposal schemas, command surface, refusal reasons, revision and replay semantics — are in [`architecture/architecture-memory-contracts.md`](architecture/architecture-memory-contracts.md).
+
+## Enhancement records
+
+How the architecture-memory enhancement was delivered: what changed, how it was checked, and what the independent reviews found and how each finding was dispositioned.
+
+| Record | Holds |
+|---|---|
+| [DELIVERY.md](enhancements/architecture-memory/DELIVERY.md) | The delivery report: decisions realized, tests, limitations, verification output |
+| [PROGRESS.md](enhancements/architecture-memory/PROGRESS.md) | The resumability log: as-is map, checkpoints, deviations, decisions taken |
+| [REVIEW-ROUND-1.md](enhancements/architecture-memory/REVIEW-ROUND-1.md) | The first independent review, verbatim, with dispositions |
+| [REVIEW-ROUND-2.md](enhancements/architecture-memory/REVIEW-ROUND-2.md) | The second independent review, verbatim, with dispositions |
 
 ## Specification — not documentation
 

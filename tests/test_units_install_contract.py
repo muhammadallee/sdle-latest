@@ -243,9 +243,13 @@ EXPECTED_AGENTS = {
     "sdle-code-review.md", "sdle-design-review.md", "sdle-discovery.md",
     "sdle-security-review.md"}
 EXPECTED_SKILL_FILES = {
-    "SKILL.md", "modules/code-review.md", "modules/design-review.md",
-    "modules/gate-protocol.md", "modules/phase-execution.md",
-    "modules/security-review.md", "templates/state.json"}
+    "SKILL.md", "modules/architecture-placement.md", "modules/code-review.md",
+    "modules/design-review.md", "modules/gate-protocol.md",
+    "modules/phase-execution.md", "modules/security-review.md",
+    "guidelines/architecture-placement.md", "guidelines/constitution.md",
+    "guidelines/implementation.md", "guidelines/service-design.md",
+    "guidelines/service-planning.md", "guidelines/task-generation.md",
+    "templates/state.json"}
 EXPECTED_HOOK_FILES = {"hooks.py", "run-hook.sh"}
 
 
@@ -270,10 +274,12 @@ def test_the_guide_states_the_counts_of_the_install_directories():
     guide = GUIDE.read_text(encoding="utf-8").replace("\r\n", "\n")
     layout = re.search(r"(?s)## 7\..*?(?=\n## 8\.)", guide).group(0)
     modules = sum(1 for name in EXPECTED_SKILL_FILES if name.startswith("modules/"))
-    words = {4: "four", 5: "five", 9: "nine"}
+    guidelines = sum(1 for name in EXPECTED_SKILL_FILES if name.startswith("guidelines/"))
+    words = {4: "four", 5: "five", 6: "six", 9: "nine"}
     for phrase in (f"{words[len(EXPECTED_COMMANDS)]} command files",
                    f"{words[len(EXPECTED_AGENTS)]} `sdle-*` agent files",
-                   f"{words[modules]} files under `modules/`"):
+                   f"{words[modules]} files under `modules/`",
+                   f"{words[guidelines]} under `guidelines/`"):
         assert phrase in layout, (phrase, "the guide's counts have drifted from the shipped set")
 
 
