@@ -7844,7 +7844,7 @@ def abandon_architecture_decisions(paths: Paths, disposition: str) -> dict | Non
     lock would create `.sdle/architecture/` in a repository that never had a
     placement approved.
     """
-    if not paths.architecture_catalog_file.exists():
+    if not (paths.project_root / architecture_catalog_relative(paths)).exists():
         return None
     with architecture_catalog_lock(paths):
         return _abandon_architecture_decisions_locked(paths, disposition)
@@ -8353,7 +8353,7 @@ def architecture_realize(paths: Paths, stamp: str) -> dict:
     With no catalog file the inner function refuses on its own, and a refusal
     must not leave a directory behind, so that case is not locked.
     """
-    if not paths.architecture_catalog_file.exists():
+    if not (paths.project_root / architecture_catalog_relative(paths)).exists():
         return _architecture_realize_locked(paths, stamp)
     with architecture_catalog_lock(paths):
         return _architecture_realize_locked(paths, stamp)
