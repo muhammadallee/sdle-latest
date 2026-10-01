@@ -102,7 +102,7 @@ def plant_legacy_workflow(bare_project: Project) -> None:
 
 
 def drive_full_workflow(view: Project, feature: str) -> None:
-    """All 18 phases, with `feature bind` at every generation phase.
+    """Every GREENFIELD phase, with `feature bind` at every generation phase.
 
     Mirrors the transcript order in test_integration_01; the difference is
     that each Spec Kit generation phase is preceded by the bind call the

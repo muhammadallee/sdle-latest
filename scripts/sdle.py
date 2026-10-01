@@ -19,6 +19,7 @@ never restated here. See ``Constants``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import json
@@ -385,6 +386,11 @@ class Paths:
     @property
     def architecture_catalog_file(self) -> Path:
         return self.architecture_dir / "catalog.json"
+
+    @property
+    def architecture_lock_file(self) -> Path:
+        """Held only across one read-check-write of the catalog."""
+        return self.architecture_dir / "catalog.lock"
 
     @property
     def agents_dir(self) -> Path:
@@ -6645,6 +6651,11 @@ def architecture_catalog_relative(paths: Paths) -> str:
             .relative_to(paths.project_root).as_posix())
 
 
+def architecture_lock_relative(paths: Paths) -> str:
+    return (paths.architecture_lock_file
+            .relative_to(paths.project_root).as_posix())
+
+
 def write_architecture_catalog(paths: Paths, catalog: dict) -> str:
     """Validate, then write atomically. Returns the repo-relative path.
 
@@ -6659,6 +6670,68 @@ def write_architecture_catalog(paths: Paths, catalog: dict) -> str:
     write_atomic(paths.architecture_catalog_file,
                  json.dumps(catalog, indent=2) + "\n")
     return relative
+
+
+# Seconds. The lock is held for one read-check-write of a small JSON file, so
+# a holder that has not released within the stale age is a dead process, not
+# a slow one.
+ARCHITECTURE_LOCK_TIMEOUT = 10.0
+ARCHITECTURE_LOCK_STALE_AFTER = 60.0
+ARCHITECTURE_LOCK_POLL = 0.05
+
+
+@contextlib.contextmanager
+def architecture_catalog_lock(paths: Paths):
+    """Serialise one read-check-write of the shared catalog.
+
+    The revision check is an optimistic-concurrency check, and a check is only
+    as good as the interval between it and the write it guards. The atomic
+    replace keeps a reader from seeing half a file; it does not stop two WorkItems that
+    both read revision N from both passing `baseRevision == N` and the second
+    replacement erasing the first decision. So each catalog mutation re-reads
+    the catalog *under* this lock, makes its revision and replay decision
+    there, writes, and lets go.
+
+    Not a lifecycle lock: nothing else takes it, it is never held across a
+    gate or a phase, and a reader (`architecture show`) never waits for it.
+    A lock left behind by a process that died is broken once it is older than
+    `ARCHITECTURE_LOCK_STALE_AFTER`; one that is still fresh after
+    `ARCHITECTURE_LOCK_TIMEOUT` is a refusal, not a hang.
+    """
+    lock = paths.architecture_lock_file
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + ARCHITECTURE_LOCK_TIMEOUT
+    while True:
+        try:
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age > ARCHITECTURE_LOCK_STALE_AFTER:
+                with contextlib.suppress(FileNotFoundError):
+                    lock.unlink()
+                continue
+            if time.monotonic() >= deadline:
+                raise Refused(
+                    "architecture_catalog_locked",
+                    "Another process is updating the architecture catalog "
+                    f"and has held {architecture_catalog_relative(paths)}'s "
+                    "lock for longer than expected. Nothing was written; "
+                    "retry in a moment.",
+                    {"lock": architecture_lock_relative(paths),
+                     "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
+            time.sleep(ARCHITECTURE_LOCK_POLL)
+            continue
+        break
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as owner:
+            owner.write(f"{os.getpid()} {now_iso()}\n")
+        yield
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            lock.unlink()
 
 
 def architecture_digest(payload) -> str:
@@ -7488,11 +7561,34 @@ def render_placement(record: dict) -> str:
         bootstrap = record["bootstrapDelta"]
         lines += ["", "## Existing architecture recorded at bootstrap", "",
                   f"Basis: **{bootstrap['basis']}**", ""]
+        # Everything `apply_bootstrap_delta` writes is shown here, because
+        # the human approves this rendering and the catalog receives the
+        # structured delta: a value only the second carries was never
+        # approved.
+        none = "none"
         for entry in bootstrap["services"]:
-            lines.append(f"- service `{entry['serviceId']}` — "
-                         + (", ".join(entry["repositoryPaths"]) or "no paths cited"))
+            lines.append(
+                f"- service `{entry['serviceId']}` ({entry['name']}) — "
+                + (", ".join(entry["repositoryPaths"]) or "no paths cited"))
+            lines.append("  - capabilities: "
+                         + (", ".join(f"`{c}`" for c in entry["capabilities"])
+                            or none))
+            lines.append("  - owned data: "
+                         + (", ".join(f"`{d}`" for d in entry["ownedData"])
+                            or none))
+            lines.append("  - dependencies: "
+                         + (", ".join(f"`{d}`" for d in entry["dependencies"])
+                            or none))
         for entry in bootstrap["capabilities"]:
-            lines.append(f"- capability `{entry['id']}` ({entry['status']})")
+            lines.append(
+                f"- capability `{entry['id']}` ({entry['name']}, "
+                f"{entry['status']}), owned by "
+                f"`{entry['ownerService'] or none}`: {entry['description']}")
+        for entry in bootstrap["dataOwnership"]:
+            lines.append(
+                f"- data `{entry['data']}` owned by `{entry['ownerService']}`"
+                f" via `{entry['viaCapability'] or none}`"
+                + (" (embedded)" if entry["embedded"] else ""))
         lines += ["", "Evidence:", ""]
         for entry in bootstrap["evidence"]:
             lines.append(f"- {entry['statement']} — "
@@ -7742,6 +7838,20 @@ def abandon_or_supersede_prior(catalog: dict, workitem: str, disposition: str,
 
 
 def abandon_architecture_decisions(paths: Paths, disposition: str) -> dict | None:
+    """`_abandon_architecture_decisions_locked`, under the catalog lock.
+
+    No catalog means nothing to dispose of, and nothing to lock: taking the
+    lock would create `.sdle/architecture/` in a repository that never had a
+    placement approved.
+    """
+    if not paths.architecture_catalog_file.exists():
+        return None
+    with architecture_catalog_lock(paths):
+        return _abandon_architecture_decisions_locked(paths, disposition)
+
+
+def _abandon_architecture_decisions_locked(paths: Paths,
+                                           disposition: str) -> dict | None:
     """Engine-driven abandonment for `restart` and `reset` (ADR-013).
 
     Returns ``None`` when there was nothing to dispose of, so the callers stay
@@ -8085,7 +8195,13 @@ def cmd_architecture_assess(args, paths: Paths) -> int:
         lambda eid: f"architecture-{eid}.json")
     decision_id = next_decision_id(
         catalog or empty_architecture_catalog(), paths.workitem)
-    digest = architecture_digest(evaluation["placement"])
+    # The whole of what `apply` will fold into the shared catalog: the
+    # placement AND the bootstrap delta. Digesting the placement alone let two
+    # proposals that mutate the catalog differently share one identity.
+    digest = architecture_digest({
+        "placement": evaluation["placement"],
+        "bootstrapDelta": evaluation["bootstrapDelta"],
+    })
     rendered_relative = architecture_rendering_relative(paths)
 
     record = {
@@ -8156,6 +8272,17 @@ def cmd_architecture_assess(args, paths: Paths) -> int:
 
 
 def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
+    """`_architecture_apply_locked`, under the catalog lock.
+
+    The catalog is re-read inside the lock, so the revision and replay
+    decisions are made against the file that is about to be replaced, not
+    against whatever it held when the caller started.
+    """
+    with architecture_catalog_lock(paths):
+        return _architecture_apply_locked(paths, record, stamp)
+
+
+def _architecture_apply_locked(paths: Paths, record: dict, stamp: str) -> dict:
     """Fold an approved placement into the catalog, or explain why not.
 
     The replay rule is the whole of ADR-013's replay safety. A crashed `apply` that had already
@@ -8221,6 +8348,18 @@ def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
 
 
 def architecture_realize(paths: Paths, stamp: str) -> dict:
+    """`_architecture_realize_locked`, under the catalog lock.
+
+    With no catalog file the inner function refuses on its own, and a refusal
+    must not leave a directory behind, so that case is not locked.
+    """
+    if not paths.architecture_catalog_file.exists():
+        return _architecture_realize_locked(paths, stamp)
+    with architecture_catalog_lock(paths):
+        return _architecture_realize_locked(paths, stamp)
+
+
+def _architecture_realize_locked(paths: Paths, stamp: str) -> dict:
     """Realize this WorkItem's approved placement. Idempotent by the same rule.
 
     Every "nothing to do here" branch is a **refusal**, not a silent pass.
@@ -8244,6 +8383,23 @@ def architecture_realize(paths: Paths, stamp: str) -> dict:
             "and approve it.",
             {"workitem": paths.workitem, "decision": record["decisionId"],
              "catalog": architecture_catalog_relative(paths)})
+    # The id alone does not identify the decision this WorkItem approved: a
+    # record whose digest no longer matches, or an id the catalog attributes
+    # to another WorkItem, is a different decision wearing this one's name.
+    # Checked before either branch below, so not even the IMPLEMENTED replay
+    # can report success for it.
+    if (decision.get("workItem") != paths.workitem
+            or decision.get("proposalDigest") != record["proposalDigest"]):
+        raise Refused(
+            "architecture_decision_conflict",
+            f"Decision {decision['id']} in the catalog does not belong to "
+            f"WorkItem '{paths.workitem}' with this placement's digest, so it "
+            "cannot be realized on this WorkItem's behalf. Re-run "
+            f"{ARCHITECTURE_PHASE} so the WorkItem proposes afresh.",
+            {"decision": decision["id"], "workitem": paths.workitem,
+             "catalog_workitem": decision.get("workItem"),
+             "applied_digest": decision.get("proposalDigest"),
+             "record_digest": record["proposalDigest"]})
     if decision.get("status") == "IMPLEMENTED":
         return {"replayed": True, "decision": decision["id"],
                 "revision": catalog["revision"],
@@ -8283,10 +8439,11 @@ def cmd_architecture_apply(args, paths: Paths) -> int:
         state, consts, ARCHITECTURE_GATE_KEY, paths)
     architecture_binding_precondition(paths, record, resolved)
 
-    if not (state.get("approvals") or {}).get(ARCHITECTURE_GATE_KEY):
+    if approval_decision(state, ARCHITECTURE_GATE_KEY) != "approved":
         raise Refused(
             "gate_required",
-            f"{ARCHITECTURE_GATE_KEY} has not been approved, and an "
+            f"{ARCHITECTURE_GATE_KEY} has not been approved (a rejected or "
+            "omitted gate is not an approval), and an "
             "architecture decision enters the shared catalog only on a "
             "human's approval. Approve the gate; the approval applies the "
             "decision for you.",
@@ -8319,10 +8476,11 @@ def cmd_architecture_realize(args, paths: Paths) -> int:
     paths = bind_for_architecture(args, paths)
     state = read_state(paths)
 
-    if not (state.get("approvals") or {}).get("gate_implement"):
+    if approval_decision(state, "gate_implement") != "approved":
         raise Refused(
             "gate_required",
-            "gate_implement has not been approved, and a planned service "
+            "gate_implement has not been approved (a rejected gate is not "
+            "an approval), and a planned service "
             "becomes implemented only once a human has accepted the work "
             "that built it. Approve the implementation gate; the approval "
             "realizes the decision for you.",
@@ -14343,11 +14501,11 @@ def documented_flow_counts(consts: Constants) -> dict[str, tuple[int, int]]:
     rather than to re-derive it beside it (invariant 7).
 
     So the convention is not a choice this function makes. `phase_count`
-    **excludes the terminal `complete`** -- its own docstring calls it "the N
-    in 'N/18'" -- because `complete` is a state a WorkItem lands in, not a
-    phase anybody executes: `PROGRESS_MAP` numbers GREENFIELD 1 through 18 and
-    gives `complete` no number of its own, sharing `18/18` with
-    `gate_security`. A document that counted it printed a table disagreeing
+    **excludes the terminal `complete`** -- its own docstring calls it the
+    denominator of the progress fraction -- because `complete` is a state a
+    WorkItem lands in, not a phase anybody executes: `PROGRESS_MAP` numbers
+    GREENFIELD from 1 to its last phase and gives `complete` no number of its
+    own, sharing the final fraction with `gate_security`. A document that counted it printed a table disagreeing
     with the progress header the user reads on every single turn, which is
     exactly what `docs/lifecycle/README.md` did until this check existed.
     """

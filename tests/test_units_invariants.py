@@ -115,7 +115,12 @@ WRITE_PRIMITIVE_COUNTS = {
     # 8 -> 10: `architecture assess` creates `workitems/<id>/architecture/`
     # for the rendering, and `write_architecture_catalog` creates
     # `.sdle/architecture/` for the catalog.
-    '.mkdir(': 10,
+    #
+    # 10 -> 11: `architecture_catalog_lock` creates `.sdle/architecture/` before
+    # it takes the lock, because the lock file lives beside the catalog and
+    # the first placement in a repository takes it before anything else has
+    # created the directory.
+    '.mkdir(': 11,
 }
 
 COMMANDS = (

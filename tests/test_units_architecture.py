@@ -652,6 +652,259 @@ def test_the_realize_command_needs_the_implementation_gate(at_placement):
     assert catalog_of(at_placement)["services"][0]["status"] == "PLANNED"
 
 
+def test_a_rejected_architecture_gate_cannot_be_applied_by_the_replay_verb(
+        at_placement):
+    """`gate reject` writes a truthy `{"decision": "rejected"}`. `apply` tested
+    only that an entry existed, so a human's explicit rejection did not stop
+    the replay verb from writing the rejected placement into the shared
+    catalog. The test is the decision, never the presence of an entry."""
+    assess(at_placement, proposal())
+    shown = at_placement.ok("gate", "show", "--gate", "gate_architecture").data
+    at_placement.ok("artifact", "review", "--path", shown["artifact_path"],
+                    "--type", "architecture-placement", "--result", "PASS",
+                    "--actor-type", "test", "--actor-name", "suite")
+    at_placement.ok("advance", "--to", "gate_architecture")
+    at_placement.ok("gate", "reject", "--gate", "gate_architecture",
+                    "--reason", "Not yet.")
+
+    result = at_placement.run("architecture", "apply")
+    assert result.exit_code == 1
+    assert result.reason == "gate_required"
+    assert not (at_placement.root / ".sdle" / "architecture").exists()
+
+
+def test_a_rejected_implementation_gate_cannot_realize_a_decision(
+        at_placement):
+    """The same defect on the other verb: a rejected `gate_implement` is a
+    truthy approvals entry, and `realize` promoted PLANNED to IMPLEMENTED on
+    it."""
+    assess(at_placement, proposal())
+    approve_placement(at_placement)
+    state = at_placement.state()
+    state["approvals"]["gate_implement"] = {
+        "decision": "rejected", "comments": "no", "timestamp": "2026-01-01T00:00:00Z"}
+    at_placement.state_file.write_text(
+        json.dumps(state, indent=2), encoding="utf-8", newline="\n")
+
+    result = at_placement.run("architecture", "realize")
+    assert result.exit_code == 1
+    assert result.reason == "gate_required"
+    catalog = catalog_of(at_placement)
+    assert catalog["services"][0]["status"] == "PLANNED"
+    assert catalog["decisions"][0]["status"] == "APPROVED_PENDING_IMPLEMENTATION"
+
+
+def _bootstrap(statement: str, paths: list[str]) -> dict:
+    return {
+        "basis": "BASELINE",
+        "services": [{"serviceId": OWNER, "name": OWNER,
+                      "repositoryPaths": ["requirements"]}],
+        "capabilities": [], "dataOwnership": [],
+        "evidence": [{"statement": statement, "paths": paths}],
+    }
+
+
+def test_the_proposal_digest_covers_the_bootstrap_delta(at_placement):
+    """Replay safety tells an identical replay from a different decision by
+    the digest. The bootstrap delta is applied to the shared catalog, so a
+    digest that ignored it would call two different catalog mutations the
+    same decision."""
+    def digest_for(statement: str) -> str:
+        document = proposal(
+            outcome="KEEP_EMBEDDED_AND_MONITOR",
+            placement={"currentOwner": OWNER, "targetOwner": None,
+                       "candidates": [{"id": "ARCH-CAND-009",
+                                       "capability": CAPABILITY,
+                                       "currentOwner": OWNER,
+                                       "reevaluateWhen": ["a second WorkItem"]}]})
+        document["bootstrapDelta"] = _bootstrap(statement, ["requirements"])
+        assess(at_placement, document)
+        paths = sdle.bind_workitem(
+            sdle.resolve_paths(str(at_placement.root), None),
+            at_placement.workitem)
+        return json.loads(paths.architecture_placement_file.read_text(
+            encoding="utf-8"))["proposalDigest"]
+
+    assert digest_for("the first thing observed") != digest_for(
+        "a different thing observed"), (
+        "two proposals differing only in bootstrapDelta share a digest")
+
+
+def test_realize_refuses_a_decision_that_is_not_this_workitems_or_digest(
+        at_placement):
+    """Realization matched on the decision id alone, so a record whose digest
+    no longer matched the applied decision - or a decision belonging to
+    another WorkItem - was reported as a successful realization, and even as
+    an idempotent replay once the decision was IMPLEMENTED."""
+    assess(at_placement, proposal())
+    approve_placement(at_placement)
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(at_placement.root), None), at_placement.workitem)
+    before = (at_placement.root / ".sdle" / "architecture"
+              / "catalog.json").read_bytes()
+
+    record = json.loads(
+        paths.architecture_placement_file.read_text(encoding="utf-8"))
+    record["proposalDigest"] = "sha256:not-the-applied-one"
+    paths.architecture_placement_file.write_text(
+        json.dumps(record, indent=2), encoding="utf-8", newline="\n")
+    state = at_placement.state()
+    state["approvals"]["gate_implement"] = {
+        "decision": "approved", "comments": "", "timestamp": "2026-01-01T00:00:00Z"}
+    at_placement.state_file.write_text(
+        json.dumps(state, indent=2), encoding="utf-8", newline="\n")
+
+    result = at_placement.run("architecture", "realize")
+    assert result.exit_code == 1
+    assert result.reason == "architecture_decision_conflict"
+    assert (at_placement.root / ".sdle" / "architecture"
+            / "catalog.json").read_bytes() == before
+
+
+def test_the_gated_rendering_discloses_every_bootstrap_value_it_applies(
+        at_placement):
+    """The human approves the rendering, and the catalog receives the
+    structured delta. A bootstrap value the rendering leaves out is one the
+    human never saw, so every field `apply` writes must appear in it."""
+    document = proposal(
+        outcome="KEEP_EMBEDDED_AND_MONITOR",
+        placement={"currentOwner": OWNER, "targetOwner": None,
+                   "candidates": [{"id": "ARCH-CAND-009",
+                                   "capability": CAPABILITY,
+                                   "currentOwner": OWNER,
+                                   "reevaluateWhen": ["a second WorkItem"]}]})
+    document["bootstrapDelta"] = {
+        "basis": "BASELINE",
+        "services": [{"serviceId": OWNER, "name": "Application Service",
+                      "repositoryPaths": ["requirements"],
+                      "capabilities": ["CAP-APPLICATION"],
+                      "ownedData": ["Application"],
+                      "dependencies": ["identity-provider"]}],
+        "capabilities": [{"id": "CAP-APPLICATION", "name": "Applications",
+                          "description": "Taking an application in.",
+                          "status": "ESTABLISHED", "ownerService": OWNER}],
+        "dataOwnership": [{"data": "Application", "ownerService": OWNER,
+                           "viaCapability": "CAP-APPLICATION",
+                           "embedded": False}],
+        "evidence": [{"statement": "one component exists",
+                      "paths": ["requirements"]}],
+    }
+    data = assess(at_placement, document).data
+    rendered = (at_placement.root / data["rendered"]).read_text(
+        encoding="utf-8")
+    for value in ("Application Service", "CAP-APPLICATION", "Applications",
+                  "Taking an application in.", "ESTABLISHED", "Application",
+                  "identity-provider", "requirements"):
+        assert value in rendered, f"{value!r} is applied but not rendered"
+    section = rendered.split("## Existing architecture recorded at bootstrap")[1]
+    assert "identity-provider" in section and "ownedData" not in section
+
+
+def _two_competing_records(view) -> tuple[dict, dict, "sdle.Paths"]:
+    """Two placements reasoned against the same revision, as two WorkItems
+    would hold them, built from one real assessed record."""
+    assess(view, proposal())
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(view.root), None), view.workitem)
+    base = json.loads(
+        paths.architecture_placement_file.read_text(encoding="utf-8"))
+    first, second = dict(base), dict(base)
+    first.update(decisionId="AP-wa-001", workitem="wa",
+                 proposalDigest="sha256:first")
+    second.update(decisionId="AP-wb-001", workitem="wb",
+                  proposalDigest="sha256:second")
+    return first, second, paths
+
+
+def test_concurrent_applies_cannot_silently_overwrite_each_other(
+        at_placement, monkeypatch):
+    """Two WorkItems both read revision 0 and both pass `baseRevision == 0`;
+    without the lock the second replacement erases the first decision and
+    nothing says so. The read is slowed so the window is wide enough to hit
+    every time."""
+    import threading
+    import time
+
+    first, second, paths = _two_competing_records(at_placement)
+    real_read = sdle.read_architecture_catalog
+
+    def slow_read(p):
+        catalog = real_read(p)
+        time.sleep(0.4)
+        return catalog
+
+    monkeypatch.setattr(sdle, "read_architecture_catalog", slow_read)
+    outcomes: dict[str, object] = {}
+
+    def run(name: str, record: dict) -> None:
+        try:
+            outcomes[name] = sdle.architecture_apply(
+                paths, record, sdle.now_iso())
+        except sdle.Refused as refusal:
+            outcomes[name] = refusal
+
+    threads = [threading.Thread(target=run, args=("a", first)),
+               threading.Thread(target=run, args=("b", second))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    refused = [v for v in outcomes.values() if isinstance(v, sdle.Refused)]
+    applied = [v for v in outcomes.values() if isinstance(v, dict)]
+    assert len(applied) == 1 and len(refused) == 1, outcomes
+    assert refused[0].reason == "architecture_catalog_stale"
+    catalog = catalog_of(at_placement)
+    assert catalog["revision"] == 1
+    assert [d["id"] for d in catalog["decisions"]] == [applied[0]["decision"]]
+    assert not paths.architecture_lock_file.exists(), "the lock was left held"
+
+
+def test_a_held_catalog_lock_is_a_refusal_not_a_hang(
+        at_placement, monkeypatch):
+    first, _second, paths = _two_competing_records(at_placement)
+    monkeypatch.setattr(sdle, "ARCHITECTURE_LOCK_TIMEOUT", 0.2)
+    paths.architecture_dir.mkdir(parents=True, exist_ok=True)
+    paths.architecture_lock_file.write_text("held", encoding="utf-8")
+
+    with pytest.raises(sdle.Refused) as raised:
+        sdle.architecture_apply(paths, first, sdle.now_iso())
+
+    assert raised.value.reason == "architecture_catalog_locked"
+    assert not paths.architecture_catalog_file.exists()
+    assert paths.architecture_lock_file.read_text(encoding="utf-8") == "held", (
+        "a refused caller must not release a lock it never held")
+
+
+def test_a_lock_left_by_a_dead_process_is_broken_once_stale(
+        at_placement, monkeypatch):
+    import os
+
+    first, _second, paths = _two_competing_records(at_placement)
+    monkeypatch.setattr(sdle, "ARCHITECTURE_LOCK_STALE_AFTER", 5.0)
+    paths.architecture_dir.mkdir(parents=True, exist_ok=True)
+    paths.architecture_lock_file.write_text("dead", encoding="utf-8")
+    old = paths.architecture_lock_file.stat().st_mtime - 3600
+    os.utime(paths.architecture_lock_file, (old, old))
+
+    result = sdle.architecture_apply(paths, first, sdle.now_iso())
+
+    assert result["replayed"] is False
+    assert catalog_of(at_placement)["revision"] == 1
+    assert not paths.architecture_lock_file.exists()
+
+
+def test_the_lock_is_released_when_the_guarded_work_refuses(at_placement):
+    first, _second, paths = _two_competing_records(at_placement)
+    first["baseRevision"] = 7
+
+    with pytest.raises(sdle.Refused) as raised:
+        sdle.architecture_apply(paths, first, sdle.now_iso())
+
+    assert raised.value.reason == "architecture_catalog_stale"
+    assert not paths.architecture_lock_file.exists()
+
+
 def test_realize_refuses_when_the_catalog_has_no_such_decision(at_placement):
     """Contract 12: a missing decision at realization is a refusal, never a
     tolerated no-op that leaves a service PLANNED for ever."""

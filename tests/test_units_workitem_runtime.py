@@ -58,7 +58,7 @@ def legacy_state(project: Project, **overrides) -> dict:
 def at_implement(view: Project) -> None:
     state = view.state()
     state["current_phase"] = "implement"
-    state["progress"] = "15/18"
+    state["progress"] = "17/20"
     view.write_state(state)
 
 
@@ -378,7 +378,7 @@ def test_the_phase_17_diff_excludes_the_workitem_runtime(git_project):
 
     state = git_project.state()
     state["current_phase"] = "security_review"
-    state["progress"] = "17/18"
+    state["progress"] = "19/20"
     git_project.write_state(state)
     result = git_project.ok("security-review", "evidence", session="s")
 
