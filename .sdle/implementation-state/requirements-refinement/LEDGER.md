@@ -54,6 +54,39 @@ the identical baseline, and the three partial files are committed as evidence of
 `open-items-01-02` committed its own reaped round 2. A stray `codex.exe` was still alive afterwards; any
 output it writes later is not validated by the harness and is not to be used as a review.
 
+**Level 1, attempt 2 (`20261001T162206-stage2-codex-plan-level1-attempt2`): PASS.** Same baseline, same
+worktree, one authorised retry; completed on the first harness attempt (exit 0, schema-valid, `reviewed_commit`
+`6162064`). **19 findings, all `defect/*`, none `improvement/*`: 1 critical, 10 high, 8 medium.** Coverage the
+reviewer declared *not* reached: the full pytest/lint suites (read-only sandbox), fresh assessor dispatches,
+and production behaviour (the artifact is a plan). Output preserved unedited in
+`runs/20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json`.
+
+**Claude's responses** are in `stage2/level1-responses.md`. Every load-bearing claim was checked against the
+repository before it was dispositioned (several by execution). Result: **15 ACCEPT, 3 PARTIALLY ACCEPT (008,
+010, 018), 1 OWNER DECISION (011); none challenged outright.** That is stated as a claim for Level 2 to test,
+not as evidence of quality. `PLAN.md` is **not** edited: corrections are proposed in the responses and applied
+only at reconciliation, so Level 2 reviews the baseline and can attack the corrections themselves.
+
+Headline findings: **S2-L1-001 (critical)** — the planned flip refusal, read literally, persists the forbidden
+PASS as the latest `governance.json` (the engine writes that record *before* a blocking refusal, and
+`governance_precondition` reads only the latest record), turning `quality_verdict_flip` into a bypass; the fix
+is to refuse before any write and record the attempt in evidence only. **S2-L1-008** corrects a claim of this
+re-baseline's own (§0.4(7)): a shared-document edit by another WorkItem *can* leave a placement derived from
+older bytes, because the placement record pins no requirements digest — a gap that predates refinement and
+belongs to the already-merged architecture design, so it is routed to the §9 register, not fixed here.
+**S2-L1-006** is partly this re-baseline's own doing (§0.4(3) and D2 specified two different locks).
+
+**ESCALATED TO THE OWNER — S2-L1-011 (high).** `todo-api.md` is measured as blocked 3/3 on `dependencies`
+(false positives under the committed clean label; `recompute_metrics.py`: `dependencies` recall 0.00,
+precision 0.00), but brief scenario 1 requires it to pass unchanged with no loop. Options: (1) refine the
+`dependencies` check definition so the existing document passes; (2) amend the document with explicit
+authorisation and update scenario 1; (3) amend scenario 1. Agents may not resolve this (brief §5). It blocks
+Phase A, because the check-definition table (S2-L1-009) is what option (1) would change. **Open.**
+
+**Level 2: prepared, not started.** `stage2/level2.prompt.md` is written; the worktree is created at the
+commit that holds the findings and responses. Level 2 has not been launched pending the owner's go-ahead,
+because the previous background run was stopped by the memory reaper and the retry was authorised once.
+
 **Pause note, as written when Stage 1 stopped (kept for the record):**
 
 **Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. **Paused here deliberately, by the
