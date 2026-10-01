@@ -455,7 +455,7 @@ $ sdle.sh gate show --gate gate_security
 --- exit 0 ---
 ```
 
-Gate numbers are flow-relative. This is Gate 4 of 4 here and Gate 8 of 8 in
+Gate numbers are flow-relative. This is Gate 4 of 4 here and Gate 9 of 9 in
 `GREENFIELD`; it is the same gate, over the same artifact, with the same
 approval requirement.
 

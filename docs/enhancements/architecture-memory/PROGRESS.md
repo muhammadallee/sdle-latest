@@ -26,6 +26,8 @@ The delivery report is [`DELIVERY.md`](DELIVERY.md); the independent review is
 | T5 (first attempt) | CI on `d1b203a` | **FAILED** — 22 failed / 3323 passed on both jobs. See *Incident: Stage 0 reverted by the copy*. |
 | Reconciliation | `fbd7e7f` restores Stage 0; `7600a03` fixes the architecture defects. Locally: `lint-skill`, then every module that failed in CI and every module previously listed as not re-run, in foreground batches | **PASS** (1202 + 351 + 170 + 397 + 230 tests in separate batches) |
 | Round 3 | independent reviewer, fresh context, Read/Grep/Glob only, reviewing `git diff d1b203a..HEAD` | 8 findings — 1 HIGH (a regression the merge introduced, `R3-001`); 3 accepted, 5 rejected as pre-existing Stage 0 issues, recorded in `claude-review-rejections.md` |
+| Round 3, second reviewer | the `codex:codex-rescue` agent, review-only, over the same patch at `ac97c8e`, at the user's request | 16 findings — 1 CRITICAL (a rejected gate still let `architecture apply`/`realize` mutate the shared catalog), 3 HIGH. **9 accepted and fixed**, each with a test that failed first; 7 rejected as pre-existing or duplicate (RR-001..RR-009, two surfaced to the owner). The user chose the catalog lock for the concurrency finding. See `REVIEW-ROUND-3-CODEX.md`. |
+| Codex fixes | catalog lock, approved-decision check, full-proposal digest, realize identity check, full bootstrap rendering, prompt/engine alignment, and the stale-documentation sweep | local targeted batches PASS; CI run recorded in `DELIVERY.md` |
 | T5 | the full suite | **CI** — the run on the final commit is recorded in `DELIVERY.md` |
 
 ### Incident: Stage 0 reverted by the copy

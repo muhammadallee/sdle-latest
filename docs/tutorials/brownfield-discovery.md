@@ -11,7 +11,7 @@ So SDLE discovers **once per repository**, and writes the result to a durable
 artifact that every later WorkItem converges onto.
 
 That is what this flow is. It is `GREENFIELD` plus one gateless phase at the
-front — `discovery` — and the same eight gates. The phase has no gate of its
+front — `discovery` — and the same nine gates. The phase has no gate of its
 own because what it produces is not a document for a human to approve; it is a
 set of classified claims about the repository, and the engine checks the
 classification mechanically.
@@ -185,9 +185,9 @@ $ sdle.sh governance assess --input governance-input.json
 
 Three signals weighing 2 + 2 + 2 = 6 clear the `HIGH` threshold of 5. The
 proposal of `MEDIUM` had no effect except to be recorded as
-`loweringAttempted: true`. At `HIGH`, every one of the flow's eight gates
+`loweringAttempted: true`. At `HIGH`, every one of the flow's nine gates
 becomes required — `gate_tasks`, `gate_analyze`, `gate_design` and
-`gate_security` all join the four that are always required, and nothing is
+`gate_security` all join the five that are always required, and nothing is
 omittable.
 
 ---

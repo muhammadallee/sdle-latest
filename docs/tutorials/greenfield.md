@@ -336,7 +336,7 @@ once and nothing re-binds it.
 
 ## 5. Which gates this WorkItem must clear
 
-`GREENFIELD` *contains* eight gates. How many you must approve is derived per
+`GREENFIELD` *contains* nine gates. How many you must approve is derived per
 WorkItem:
 
 ```

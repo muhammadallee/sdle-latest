@@ -426,7 +426,8 @@ that shared record.
 | `architecture_decision_unresolved` | 1 | `gate approve` was issued on an `ARCHITECTURE_REVIEW_REQUIRED` placement, or realization was attempted on a decision that is neither pending implementation nor already implemented (it was abandoned or superseded) | That outcome records that the evidence does not support a placement. Resolve the open questions, reject the gate, and re-run `architecture_placement` so the artifact ends in one of the four actionable outcomes |
 | `architecture_artifact_binding_invalid` | 1 | The rendered `placement.md` is missing, its SHA-256 no longer matches the record, or it no longer carries the record's decision id and proposal digest | The rendering is generated from the record and is never edited by hand. Re-run `architecture assess --input <path>`, review the new rendering, and approve that |
 | `architecture_catalog_stale` | 1 | Another WorkItem's placement was approved between this proposal and this approval, so the pinned base revision is behind | Nothing was written. Run `architecture show` to see the current architecture, re-run `architecture_placement` against it, review the new rendering and approve again |
-| `architecture_decision_conflict` | 1 | A decision with this id is already in the catalog with a *different* proposal digest; or it was abandoned or superseded; or `architecture assess` was run again after `gate_architecture` was already approved or omitted | Two different placements cannot share one decision id, and a decision already in the shared catalog is not re-assessable. **A *rejected* gate is not this case** — rejection reopens the phase through the ordinary remediation path and a fresh assessment is expected there |
+| `architecture_decision_conflict` | 1 | A decision with this id is already in the catalog with a *different* proposal digest, or `architecture realize` found a decision that belongs to another WorkItem or whose digest differs from this WorkItem's record; or it was abandoned or superseded; or `architecture assess` was run again after `gate_architecture` was already approved or omitted | Two different placements cannot share one decision id, and a decision already in the shared catalog is not re-assessable. **A *rejected* gate is not this case** — rejection reopens the phase through the ordinary remediation path and a fresh assessment is expected there |
+| `architecture_catalog_locked` | 1 | Another process has held `.sdle/architecture/catalog.lock` for longer than ten seconds. The lock is taken only around one read-check-write of the catalog, so a holder this slow is almost always a process that died | Nothing was written. Retry. A lock older than sixty seconds is broken automatically by the next caller; if one is stuck fresh, make sure no other SDLE process is running in this checkout and delete the file |
 | `architecture_catalog_invalid` | 3 | `.sdle/architecture/catalog.json` cannot be read, is not an object, has a duplicate id, or holds a reference to something it does not define | An integrity failure, never an absence. Repair the file by hand or restore it from version control; SDLE never rewrites it to make it parse. Note that this also blocks `reset workflow`, deliberately: `reset` disposes of an approved placement in the catalog, and that disposition is the only durable record a reset leaves |
 | `architecture_catalog_version_unsupported` | 3 | The catalog declares a `catalogVersion` this engine does not read | The file is left exactly as it is. There is no migration |
 
@@ -436,8 +437,10 @@ policy override can relax it. Approve it, or reject it and remediate.
 
 **A rejected placement.** Rejection returns the WorkItem to
 `architecture_placement` through the ordinary remediation path and its rate
-limit. The re-run produces a **new** proposal, a new decision id and a new
-rendering; the previous placement is superseded, never edited.
+limit. The re-run produces a **new** proposal and a new rendering over the same
+placement record. A rejected placement was never applied to the catalog, so it
+keeps its decision id, and the earlier proposal is preserved in its
+`architecture-<execution-id>.json` evidence file rather than edited.
 
 **A `dirty_tree` on `.sdle/config.json` or `.sdle/policies/`.** Expected since
 ADR-013. Those two are human-authored and are visible to the implementation

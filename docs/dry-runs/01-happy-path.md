@@ -130,10 +130,56 @@ prompt's `Review:` line reports, `sdle.sh artifact review --path .specify/memory
 **SDLE:**
 
 ```
+<!-- SDLE_STATE phase=architecture_placement status=in_progress progress=4/20 -->
+📋 SDLE Status: Phase 4/20 — Architecture Placement [IN PROGRESS]
+
+Gate 1 approved. Baseline fingerprint recorded.
+
+Reading the repository's architecture catalog (uninitialized: this is the
+first WorkItem) and deciding where the capability lives before anything is
+specified...
+
+<!-- SDLE_STATE phase=gate_architecture status=awaiting_approval progress=5/20 -->
+📋 SDLE Status: Phase 5/20 — Gate 2: Architecture Placement Approval [AWAITING APPROVAL]
+
+---
+✋ APPROVAL REQUIRED — Gate 2/9: Architecture Placement Approval
+
+# Architecture Placement — todo-api
+
+- **Decision:** `CREATE_NEW_SERVICE` — `todo-service`
+- **Catalog revision reasoned against:** 0
+- **Rationale:** the first service in the repository; nothing exists to extend.
+[... abridged — the full rendered placement is displayed in a real run ...]
+
+Artifact path: workitems/todo-api/architecture/placement.md
+Fingerprint: 8d41c7e0…2b9f
+Review: architecture-placement | PASS | agent:sdle-orchestrator
+
+Please review the content above, then respond with:
+  • `approve` — Accept and advance to the next phase
+  • `approve with comments: <your notes>` — Accept with recorded feedback
+  • `reject with comments: <your feedback>` — Reject and trigger remediation
+---
+```
+
+*(Engine: `sdle.sh --workitem todo-api architecture assess --input <proposal.json>`
+validated the placement and wrote the record and its rendering;
+`sdle.sh artifact review --path workitems/todo-api/architecture/placement.md --type architecture-placement --result PASS --actor-type agent --actor-name sdle-orchestrator`
+recorded the review; then `sdle.sh advance --to gate_architecture`. This gate
+is required at every risk level and cannot be omitted. See dry-run 17.)*
+
+---
+
+**User:** `approve`
+
+**SDLE:**
+
+```
 <!-- SDLE_STATE phase=spec_draft status=in_progress progress=6/20 -->
 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
 
-Gate 1 approved. Baseline fingerprint recorded.
+Gate 2 approved. Baseline fingerprint recorded. Catalog revision 1 recorded.
 
 Generating specification...
 
@@ -148,7 +194,8 @@ Please answer the above questions — your response will be saved to
 clarifications/spec_draft-2026-09-10-1012.clarify. Say `continue` to skip without saving.
 ```
 
-*(Engine: `sdle.sh gate approve --gate gate_constitution`. Then, around the
+*(Engine: `sdle.sh gate approve --gate gate_architecture`, which applied the
+approved decision to the repository catalog (revision 1). Then, around the
 specification step: `sdle.sh feature bind` exported `SPECIFY_INIT_DIR`, Spec Kit
 created `specs/001-todo-api/`, and `sdle.sh feature resolve` found exactly one
 candidate and **moved** it into the WorkItem:
@@ -395,7 +442,7 @@ repository converge onto ITERATIVE against it.
 - `workitems/index.md` gained one row and `workitems/todo-api/workitem.json`
   was written, both by `workitem create`.
 - `workitems/todo-api/.sdle/state.json` traversed
-  `requirements_check → constitution_draft → gate_constitution → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
+  `requirements_check → constitution_draft → gate_constitution → architecture_placement → gate_architecture → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
 - All 8 `approvals.*` entries hold `decision: "approved"`, and `artifact_shas`
   holds 8 lowercase SHA-256 baselines.
 - `specKit.featureDirectory` is `workitems/todo-api/specs/001-todo-api`.

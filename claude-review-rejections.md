@@ -7,9 +7,12 @@ counter-review. Accepted findings are implemented, not listed.
 
 ## Index
 
-Round 1 and Round 2: nothing rejected. Round 3: five findings rejected (RR-001
-to RR-005), all of them defects or choices that exist identically in the Stage 0
-reference (`65b75df`) and were not introduced by the architecture enhancement.
+Round 1 and Round 2: nothing rejected. Round 3 (two reviewers — a Claude
+subagent and Codex): nine findings rejected (RR-001 to RR-009), every one of
+them a defect or choice that exists identically in the Stage 0 reference
+(`65b75df`) or in `main`, and not introduced by the architecture enhancement.
+Everything the Codex review found in the architecture code itself, including
+its one CRITICAL, was accepted and fixed.
 
 ## Round 1 — nothing rejected
 
@@ -97,3 +100,62 @@ missing recovery route is an engine design question, not a documentation gap.
 comment; `CLAUDE.md` says such pins change "on purpose and in the same
 commit". Only the value moved.
 **Disposition:** REJECTED.  **Residual risk:** None.
+
+---
+
+## Round 3, second reviewer (Codex) — rejected
+
+Codex's report is in
+[`docs/enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md`](docs/enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md).
+Of its sixteen findings, nine were accepted and fixed (C3-001 CRITICAL, C3-002
+HIGH, C3-005 HIGH, and six more); C3-011, C3-013 and C3-014 duplicate RR-001,
+RR-004 and RR-002. The four below are new, all inherited, and the first two are
+HIGH as raised — so, as with RR-002 and RR-003, they are surfaced to the owner
+rather than left to sit here.
+
+## RR-006 — drift re-approval runs before the precondition stack
+**Round:** 3 (Codex)  **Finding id:** C3-003  **Severity as raised:** HIGH
+**Reviewer finding:** `cmd_gate_approve` returns into `_approve_drift` before
+`gate_precondition_hook`, `governance_precondition` and the flow, discovery,
+impact and architecture preconditions, so a drift re-approval can proceed past
+a malformed acknowledgement store, stale governance, or a drifted
+implementation manifest that fails the test-evidence rules.
+**Affected files:** `scripts/sdle.py`
+**Counter-analysis:** the ordering is Stage 0's: `cmd_gate_approve` in
+`sdle.py.at-65b75df` already dispatches to `_approve_drift` first. The only
+change the architecture work made to `_approve_drift` is a new refusal for
+`gate_architecture`, which is stricter. Each listed scenario fails the same
+way in the Stage 0 reference.
+**Evidence:** function-body comparison against the Stage 0 reference.
+**Disposition:** REJECTED for this change, **recommended as a separate fix**.
+**Residual risk:** Medium — a governance and evidence bypass on the drift path.
+
+## RR-007 — an acknowledgement removed after assessment is not re-checked at advance
+**Round:** 3 (Codex)  **Finding id:** C3-004  **Severity as raised:** HIGH
+**Reviewer finding:** `governance_precondition` validates the acknowledgement
+store's structure but does not re-scan the bound bytes or check that flagged
+content still has an acknowledgement, so deleting the entry after assessment
+leaves `advance` and `gate approve` free to proceed.
+**Affected files:** `scripts/sdle.py`
+**Counter-analysis:** `governance_precondition` is byte-identical to
+`sdle.py.at-65b75df`. A gap in Stage 0's gate, which the owner closed as
+VERIFIED; the store is also inside the write-fence, so closing it is not a
+bypass available to the parent session.
+**Disposition:** REJECTED for this change, **recommended as a separate fix**.
+**Residual risk:** Medium.
+
+## RR-008 — post-init `accept-content --path` writes before it validates state
+**Round:** 3 (Codex)  **Finding id:** C3-009  **Severity as raised:** MEDIUM
+**Counter-analysis:** `cmd_accept_content` is byte-identical to the Stage 0
+reference. State and audit are left unchanged; only the acknowledgement store
+is touched by a refused call.
+**Disposition:** REJECTED for this change.  **Residual risk:** Low.
+
+## RR-009 — write-primitive pins are raw substring counts
+**Round:** 3 (Codex)  **Finding id:** C3-012  **Severity as raised:** LOW
+**Counter-analysis:** the pin is `ENGINE.count(needle)` on `main`. The AST
+rewrite the reviewer proposes is sound and is worth doing, but as its own
+change to the test's method. This change did not make it worse: the one
+docstring that named a pinned primitive was reworded instead of bumping the
+count.
+**Disposition:** REJECTED for this change.  **Residual risk:** Low.

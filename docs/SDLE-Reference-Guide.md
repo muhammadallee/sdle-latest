@@ -517,17 +517,17 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ## 7. The 20-Phase Workflow — Detailed Reference
 
-> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
+> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 23 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
 >
 > | Flow | Phases | Gates | What it is for |
 > |---|---:|---:|---|
-> | `GREENFIELD` | 18 | 8 | A new project, from first principles. Frozen in the engine and deliberately not declared in a table, so a new registry phase can never join it silently. |
-> | `BROWNFIELD_DISCOVERY` | 19 | 8 | An existing repository with no established baseline: adds `discovery` ahead of the constitution, so the repository is read before anything is drafted. |
-> | `ITERATIVE` | 16 | 7 | An existing codebase with an established baseline: the constitution is inherited, not re-drafted. |
-> | `DEFECT_FIX` | 14 | 6 | A defect in an existing system: adds `impact_analysis`; drops the checklist, the design phase and its gate. |
-> | `HOTFIX` | 10 | 3 | Shorter but never ungoverned — exactly the governance floor plus the impact analysis. |
+> | `GREENFIELD` | 20 | 9 | A new project, from first principles. Frozen in the engine and deliberately not declared in a table, so a new registry phase can never join it silently. |
+> | `BROWNFIELD_DISCOVERY` | 21 | 9 | An existing repository with no established baseline: adds `discovery` ahead of the constitution, so the repository is read before anything is drafted. |
+> | `ITERATIVE` | 18 | 8 | An existing codebase with an established baseline: the constitution is inherited, not re-drafted. |
+> | `DEFECT_FIX` | 16 | 7 | A defect in an existing system: adds `impact_analysis`; drops the checklist, the design phase and its gate. |
+> | `HOTFIX` | 12 | 4 | Shorter but never ungoverned — exactly the governance floor plus the impact analysis. |
 >
-> Every flow keeps a mandatory floor of ten phases, enforced by `lint-skill` **and** by the engine at load time, so "shorter" can never become "ungoverned". Progress fractions, gate numbers and gate labels are all derived from the bound flow, so `gate_implement` reads `Gate 2/3` under `HOTFIX` where it reads `Gate 7/8` under GREENFIELD. `sdle.sh flow show` reports the bound flow; `sdle.sh constants` reports all five. The design, the rejected alternatives and the human decisions behind it are in `docs/architecture/ADR-004-declarative-flow-model.md`.
+> Every flow keeps a mandatory floor of twelve phases, enforced by `lint-skill` **and** by the engine at load time, so "shorter" can never become "ungoverned". Progress fractions, gate numbers and gate labels are all derived from the bound flow, so `gate_implement` reads `Gate 3/4` under `HOTFIX` where it reads `Gate 8/9` under GREENFIELD. `sdle.sh flow show` reports the bound flow; `sdle.sh constants` reports all five. The design, the rejected alternatives and the human decisions behind it are in `docs/architecture/ADR-004-declarative-flow-model.md`.
 
 > Each entry below follows the same structure: **What it does** → **Why it matters** → **Engineering rationale** → **If this phase did not exist.** Gate phases additionally describe what is being approved and why that specific moment is high-leverage.
 
@@ -1075,8 +1075,8 @@ SDLE: (No status header: `init` has not run, so no state exists to assert.)
 
 User: yes
 
-SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
-      📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->
+      📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]
 
       Project name: "Order Tracking Service", from the primary document's
       heading. `requirements_check` completed during `init`; this is the first
@@ -1084,11 +1084,11 @@ SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
 
 User: yes
 
-SDLE: 📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 2/20 — Generate Constitution [IN PROGRESS]
       Generating constitution...
 
       ─────────────────────────────────
-      ✋ APPROVAL REQUIRED — Gate 1/8: Constitution Approval
+      ✋ APPROVAL REQUIRED — Gate 1/9: Constitution Approval
 
       [full content of .specify/memory/constitution.md displayed here]
 
@@ -1102,17 +1102,28 @@ SDLE: 📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
-      Gate 1 approved. Baseline fingerprint recorded. Moving to Specification.
+SDLE: 📋 SDLE Status: Phase 4/20 — Architecture Placement [IN PROGRESS]
+      Gate 1 approved. Baseline fingerprint recorded. Moving to Architecture
+      Placement: where does this WorkItem's capability live, given what the
+      repository's architecture catalog already holds?
+
+      ✋ APPROVAL REQUIRED — Gate 2/9: Architecture Placement Approval
+      [full content of the rendered placement: outcome, owning service,
+       evidence considered, data-ownership impact, open questions]
+
+User: approve
+
+SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
+      Gate 2 approved. Catalog revision 1 recorded. Moving to Specification.
       ...
 
-      ✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+      ✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
       [spec.md content]
 
 User: reject with comments: Acceptance criteria for the cancellation flow are
       missing. Add explicit criteria covering partial refunds.
 
-SDLE: 📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED — REMEDIATION NEEDED]
+SDLE: 📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [REJECTED — REMEDIATION NEEDED]
 
       Understood — I've recorded your feedback:
       "Acceptance criteria for the cancellation flow are missing. Add explicit
@@ -1122,26 +1133,26 @@ SDLE: 📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED 
 
 User: continue
 
-SDLE: 📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
       Remediation attempt 1/3 for spec_draft. Re-generating with your feedback...
 
-      ✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+      ✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
       [revised spec.md content, now including partial-refund criteria]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 8/20 — Generate Plan [IN PROGRESS]
       ...
 
-      [Phases 6–12 proceed similarly: Plan → Gate 3 → Checklist → Tasks →
-       Gate 4 (tasks + checklist shown together) → Analyze → Gate 5]
+      [Phases 8–14 proceed similarly: Plan → Gate 4 → Checklist → Tasks →
+       Gate 5 (tasks + checklist shown together) → Analyze → Gate 6]
 
 User: status
 
 SDLE: ## SDLE Workflow State
       | Field | Value |
       |---|---|
-      | Phase | gate_analyze (12/18) |
+      | Phase | gate_analyze (14/20) |
       | Status | awaiting_approval |
       | Verbose | false |
 
@@ -1149,6 +1160,7 @@ SDLE: ## SDLE Workflow State
       | Gate | Decision |
       |---|---|
       | gate_constitution | approved |
+      | gate_architecture | approved |
       | gate_spec | approved with comments |
       | gate_plan | approved |
       | gate_tasks | approved |
@@ -1159,31 +1171,31 @@ SDLE: ## SDLE Workflow State
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 13/18 — Generate Design [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 15/20 — Generate Design [IN PROGRESS]
       Generating application design (context diagram, component diagram,
       sequence diagrams, design decisions)...
       Persistent storage detected — generating database design as well.
 
-      ✋ APPROVAL REQUIRED — Gate 6/8: Design Approval
+      ✋ APPROVAL REQUIRED — Gate 7/9: Design Approval
       [design/app/app-design.md content, then design/db/db-design.md content]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 15/18 — Implement [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 17/20 — Implement [IN PROGRESS]
       Generating implementation per tasks.md, informed by design documents...
       Implementation manifest written: workitems/todo-api/.sdle/implementation-manifest.md
       (14 files changed/added)
 
-      ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
+      ✋ APPROVAL REQUIRED — Gate 8/9: Implementation Approval
       [implementation-manifest.md content: file list + summary]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 17/18 — Security Review [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 19/20 — Security Review [IN PROGRESS]
       Gathering evidence: constitution, spec, plan, tasks, git diff HEAD~1...
       Review written: reviews/security-review-2026-06-20-1430.md
 
-      ✋ APPROVAL REQUIRED — Gate 8/8: Security Review Approval
+      ✋ APPROVAL REQUIRED — Gate 9/9: Security Review Approval
       [security review content: disclaimer, OWASP relevance table, diff-derived
        findings, recommended tools, explicit scope limitations]
 
@@ -1191,11 +1203,11 @@ User: approve
 
 SDLE: ✅ Security review approved. Workflow complete!
 
-      All 8 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
+      All 9 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
       Security review: reviews/security-review-2026-06-20-1430.md
 ```
 
-**Illustrative drift scenario** (not part of the run above, shown separately for reference): if a reviewer had hand-edited `plan.md` after Gate 3 was approved, the next phase execution would halt with:
+**Illustrative drift scenario** (not part of the run above, shown separately for reference): if a reviewer had hand-edited `plan.md` after Gate 4 was approved, the next phase execution would halt with:
 
 ```
 ⚠️ Artifact drift detected — 1 previously-approved artifact changed since approval:

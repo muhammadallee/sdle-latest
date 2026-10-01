@@ -545,11 +545,25 @@ re-execution back to `architecture_placement`, SDLE-native, under the existing
 `realize` is the same shape: a decision already `IMPLEMENTED` with the same
 digest is an idempotent replay and must not mutate twice.
 
-`proposalDigest` = `sha256` over `json.dumps(validated_proposal, sort_keys=True,
-separators=(",", ":"))` — the validated proposal only, no timestamps, no
-execution id. Deterministic across machines.
+`proposalDigest` = `sha256` over `json.dumps({"placement": ..., "bootstrapDelta": ...},
+sort_keys=True, separators=(",", ":"))` — the validated placement **and** the
+bootstrap delta, because both are folded into the catalog and a digest that
+ignored either would call two different catalog mutations one decision. No
+timestamps, no execution id. Deterministic across machines.
 
-All writes go through `write_atomic`. **No global lock across the lifecycle.**
+`apply` and `realize` require the gate's recorded **decision** to be
+`approved`: a rejected or omitted gate leaves an approvals entry, and the
+presence of an entry is not an approval. `realize` additionally requires the
+catalog decision to belong to this WorkItem and to carry this record's digest,
+without which not even the `IMPLEMENTED` replay branch may report success.
+
+All writes go through `write_atomic`. **No lock spans the lifecycle.** The one
+lock there is, `.sdle/architecture/catalog.lock`, is taken around a single
+read-check-write of the catalog by `apply`, `realize` and the abandonment
+path, so two WorkItems that both read revision N cannot both write N+1. The
+catalog is re-read inside it; a reader never waits for it; a lock older than
+sixty seconds is a dead process and is broken; a fresh one that outlasts ten
+seconds is the refusal `architecture_catalog_locked`.
 
 ---
 
@@ -673,6 +687,7 @@ architecture knowledge — which ADR-002 did not contemplate.
 | `architecture_catalog_invalid` | 3 | catalog unreadable, unparseable, not an object, dangling reference, duplicate id |
 | `architecture_catalog_version_unsupported` | 3 | `catalogVersion` not `1` |
 | `architecture_catalog_stale` | 1 | `apply`/`realize` base revision ≠ current, and not an idempotent replay |
+| `architecture_catalog_locked` | 1 | The catalog lock is held by another process past the timeout; nothing was written |
 | `architecture_placement_missing` | 1 | `apply`/`realize`/`gate approve` with no WorkItem record |
 | `architecture_placement_invalid` | 1 | proposal fails envelope, enum, required-field or constitution-agreement validation |
 | `architecture_record_invalid` *(R2-008)* | 3 | the WorkItem's `architecture-placement.json` is unreadable, of another version, or names another WorkItem. Split from the row above because a corrupt engine-written record is an integrity failure with a different remedy, and one reason may not carry two exit codes |

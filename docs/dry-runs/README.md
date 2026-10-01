@@ -29,7 +29,7 @@ the build rather than drifting silently.
 
 | File | Scenario | Defects |
 |---|---|---|
-| [01-happy-path.md](01-happy-path.md) | DR-01 · Full success run: identity → preflight → governance → 18 phases → 8 approvals → `complete` and the repository baseline | D02, D03, D05 |
+| [01-happy-path.md](01-happy-path.md) | DR-01 · Full success run: identity → preflight → governance → 20 phases → 9 approvals → `complete` and the repository baseline | D02, D03, D05 |
 | [02-gate-rejection-remediation.md](02-gate-rejection-remediation.md) | DR-02 · Gate rejected, remediated, approved; then the remediation rate limit | — |
 | [03-technical-failure-retry-skip.md](03-technical-failure-retry-skip.md) | DR-03 · Generation fails; retries exhaust; two-step skip | — |
 | [04-artifact-drift-reapproval.md](04-artifact-drift-reapproval.md) | DR-04 · Approved artifact edited; drift, re-approve, reject, and the deleted-artifact refusal | D01 |

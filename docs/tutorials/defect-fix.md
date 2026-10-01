@@ -401,9 +401,9 @@ judgement Gate 3 is for.
 
 ## 5. The rest of the flow
 
-From `spec_draft` onward the pattern is `GREENFIELD`'s, with a 14-phase
+From `spec_draft` onward the pattern is `GREENFIELD`'s, with a 16-phase
 denominator and flow-relative gate numbers — `gate_spec` reports as *Gate 2 of
-6* here, where in `GREENFIELD` it is Gate 2 of 8. Generation phases write an
+7* here, where in `GREENFIELD` it is Gate 3 of 9. Generation phases write an
 artifact, `artifact record` fingerprints it, `advance` moves one step. Gate
 phases run `gate show`, `artifact review`, `gate approve`. The per-phase detail
 is in [greenfield.md §6](greenfield.md#6-walking-the-phases) and the

@@ -488,10 +488,24 @@ SDLE: 📋 SDLE Status: Phase 2/20 — Generate Constitution [IN PROGRESS]
 
 User: approve with comments: Add a section on API versioning constraints
 
-SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 4/20 — Architecture Placement [IN PROGRESS]
 
       Gate 1 approved. Baseline fingerprint recorded. Comments noted.
-      Moving to Phase 4: Generate Specification.
+      Moving to Phase 4: Architecture Placement — where this capability
+      lives, decided against the repository's architecture catalog before
+      anything is specified.
+
+      ─────────────────────────────────
+      ✋ APPROVAL REQUIRED — Gate 2/9: Architecture Placement Approval
+      ...
+      ─────────────────────────────────
+
+User: approve
+
+SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
+
+      Gate 2 approved. Catalog revision 1 recorded.
+      Moving to Phase 6: Generate Specification.
 
       Generating specification...
       [Invokes speckit-specify internally]

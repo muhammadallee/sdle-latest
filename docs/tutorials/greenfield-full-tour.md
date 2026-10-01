@@ -519,7 +519,7 @@ CLI surface rather than trusted to callers.
 
 ## 8. Omitting a gate
 
-At `LOW` risk with an `enhancement` type, three of `GREENFIELD`'s eight gates
+At `LOW` risk with an `enhancement` type, three of `GREENFIELD`'s nine gates
 are discretionary:
 
 ```
@@ -1057,7 +1057,7 @@ true, and nothing in `.sdle/` reaches them:
   the attempt is recorded as `loweringAttempted`.
 - **A repository policy may only make governance stricter.** Six weakening
   shapes, six refusals, and a malformed policy fails closed.
-- **Every flow contains the ten mandatory phases.** Enforced by the flow loader
+- **Every flow contains the twelve mandatory phases.** Enforced by the flow loader
   at load time, not only by the linter.
 - **`state.json` and `audit.md` have one writer.** Three settable fields at the
   CLI; everything else is derived from a transition, a verification or an
