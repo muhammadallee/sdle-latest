@@ -7,6 +7,117 @@ Baseline: `fca6c00` (branch `feat/requirements-refinement`), CI green on all fou
 command surface (`accept-content --path`) exist. Every fact below is re-verified against `fca6c00`, not
 assumed from the brief.
 
+## 0. Re-baseline at `276e152` (resumption, 2026-10-01)
+
+Stage 1 was paused at `65b75df`. While it was paused, the architecture-memory enhancement
+(ADR-013, ADR-014) was built, reviewed three times and merged into this branch by fast-forward, so the
+engine this plan will be implemented against is not the engine it was written against. This section is
+the delta, and **§§1–8 below are left exactly as written**: per the ledger, PLAN.md changes only through
+Stage 2 reconciliation, so a correction made here is a correction *proposed to* Stage 2, not a silent
+edit of it.
+
+Baseline: `276e152` on `feat/requirements-refinement`, identical to `feat/project-architecture-memory`;
+CI run `36806444263` green. Engine `CURRENT_VERSION` is `1.18` (it was `1.17`).
+
+### 0.1 What changed underneath the plan
+
+| Fact | At `fca6c00` | At `276e152` |
+|---|---|---|
+| Phase registry (`PHASE_SEQUENCE`) | 21 rows | 23 rows (`architecture_placement`, `gate_architecture`) |
+| GREENFIELD | 18 phases, 8 gates | 20 phases, 9 gates |
+| Mandatory governance floor | 10 phases | 12 phases |
+| Write-primitive pins (`WRITE_PRIMITIVE_COUNTS`) | 27 / 47 / 49 (`write_atomic` / `save_state` / `append_audit`) | 32 / 50 / 56; `.mkdir(` 10 → 11 |
+| Dry-run transcripts | sixteen | **twenty** (`test_dry_run_contracts.py` pins the number) |
+| ADRs | up to ADR-012 | ADR-013 and ADR-014 exist; **next free is ADR-015** |
+| Command surface | no `architecture` group | `architecture` added (`COMMANDS`, `RUNTIME_FREE_COMMANDS`) |
+| `.sdle/` boundary | `SDLE_OWNED_PREFIXES` names `.sdle/` whole | names `baseline.json`, `implementation-state/`, `architecture/` only |
+
+### 0.2 Brief §1 facts, re-verified against `276e152`
+
+| # | Status | Evidence |
+|---|---|---|
+| F1–F3 | **Hold** | `governance policy` reports the same twelve `quality_checks`, all twelve blocking, `optional_checks == ["nfrs"]` |
+| F4–F7 | Hold | `cmd_governance_assess`, `governance_precondition`, ADR-010/012 unchanged in intent |
+| F8 | Holds | convention-only, `CLAUDE.md` / ADR-007 §3 |
+| F9 | Holds | post-generation clarify still runs after `spec_draft` (now Phase 6) |
+| F10, F15, F16 | Hold as corrected in §1 below | the functions exist; only their line numbers moved (§0.3) |
+| **F11** | **Changed** | "exactly sixteen transcripts" is now **twenty** — `test_there_are_twenty_transcripts_and_they_are_numbered_densely`. OI-DOC-03 must change *that* assertion, not a sixteen one |
+| F12 | Holds | `ci.yml` matrix is unchanged: ubuntu/windows × 3.11/3.13 |
+| F13 | Holds | `import sdle` via the script path works (`CURRENT_VERSION == "1.18"`) |
+| F14 | Holds | `codex-cli 0.151.0` present; harness scripts exist in `open-items-01-02/runs/` and `runctl.py` here |
+
+### 0.3 Every `sdle.py:NNNN` citation in §§1–2, resolved to today
+
+No cited symbol has been removed or renamed. All twenty citing lines still resolve; only the numbers
+moved. **Cite by symbol, not by line, from here on.**
+
+| Symbol | Cited | Now |
+|---|---|---|
+| `governance_precondition` | 7427 | 9720 |
+| `cmd_governance_assess` | 5420 | 5516 |
+| `evaluate_quality` | 4791 | 4872 |
+| `requirements_sources` | 4694 | 4775 |
+| `unacknowledged_flagged_sources` | 9933 | 12370 |
+| `read_scan_acknowledgements` | 9810 | 12247 |
+| `write_content_acknowledgement` | 9897 | 12334 |
+| `record_scan_acknowledgement_audit` | 6935 | 9228 |
+| `_lexically_safe_path` / `safe_repo_path` | 4435 / 4478 | 4516 / 4559 |
+| `reserve_evidence` | 3005 | 3081 |
+| `append_audit` | 1407 | 1476 |
+| `bind_workitem` / `resolve_paths` | 2851 / 413 | 2927 / 472 |
+| `PRODUCT_AGENT_TOOLS` / `product_agent_files` | 11359 | 13893 / 14130 |
+| `_sources_digest` | 4742 | 4823 |
+
+### 0.4 What the architecture work changes for this plan
+
+1. **§3.b needs no re-measurement.** Its blast-radius concern was the lint *floor* breaking fixtures;
+   the owner's Option 3 decision (below, §3.b) ships the lint advisory-only, so nothing in this change
+   blocks on it and no `bare_project` fixture changes. What §3.b's decision *does* leave to verify is
+   §3.a's one test, `test_re_assessing_a_fixed_requirement_unblocks_the_same_advance`: it still exists
+   (`test_units_governance.py:919`) with the same premise.
+2. **C5 names the wrong ADR.** The brief's C5 and §6 phase E say "ADR-013". That number is now taken
+   by project architecture memory. The owner's decision is that *an ADR records the refinement record,
+   its refusals and the assessment-integrity rules* — the number was incidental. Proposed to Stage 2:
+   ADR-015, and every `ADR-013` in §7 of this plan is read as ADR-015.
+3. **D2 (the refusing lock) has a second precedent.** `architecture_catalog_lock` is a short-lived
+   exclusive `O_EXCL` lock with a stale-break age and a timeout that becomes a *refusal*
+   (`architecture_catalog_locked`), never a hang, and a reader that never waits for it. D2 should be
+   checked against it and should reuse its shape rather than invent a second one.
+4. **A closed set now polices the `.sdle/` boundary from the other side.**
+   `test_the_repository_configuration_members_have_a_closed_reference_set` fails if any new function
+   references a boundary member directly — it failed this branch's own CI once. `refinement.json` is
+   WorkItem-owned, so the loop should not need it; any helper that must name a boundary path goes
+   through `architecture_catalog_relative`-style sanctioned readers.
+5. **`workitem_runtime_member_names` must learn the new record.** It omits
+   `scan_acknowledgements_file` today (recorded as RR-004 in `claude-review-rejections.md`), so the
+   repository-boundary leak check does not cover that pre-init record. `refinement.json` is a second
+   one; fixing both belongs in this change.
+6. **Pins this change will move, each in the commit that causes it (D4):** `WRITE_PRIMITIVE_COUNTS`
+   (from 32 / 50 / 56 and `.mkdir(` 11), `COMMANDS` (the `refinement` group), `PRODUCT_AGENTS` in
+   `test_units_capabilities.py` (the new `sdle-requirements-review` agent) and the dry-run count
+   (twenty) if OI-DOC-03 is ever taken up. Also: no test or doc may hardcode a flow size, phase count
+   or progress fraction (`lint-skill` and `test_dry_run_contracts` enforce it); read them from the
+   engine.
+7. **Interaction with `architecture_placement` is benign but must be stated.** Refinement runs pre-`init`
+   (C4), at governance; `architecture_placement` runs later and reads the bound requirements through the
+   requirements binding (ADR-012, D8). A refinement edit therefore always lands *before* any placement
+   reads the documents, and cannot stale one. The case to attack in Stage 2 is the converse: a bound
+   document edited *after* placement exists is `governance_stale` today (C4) and must stay so.
+
+### 0.5 Inherited defects that fall inside this plan's impact surface
+
+Recorded in `claude-review-rejections.md` during the architecture reviews; each exists identically in
+the Stage 0 code this work builds on. Proposed disposition (owner to confirm):
+
+| Id | Defect | Disposition |
+|---|---|---|
+| RR-002 | `_lexically_safe_path` refuses `./x` and mis-messages it; its `cmd_scan` comment contradicts the code | **In scope** — D6 (path handling) must go through this function |
+| RR-007 | an acknowledgement removed after assessment is not re-checked at `advance` / `gate approve` | **In scope** — D7 (acknowledgement / refinement-edit interaction) |
+| RR-008 | post-init `accept-content --path` writes the store before it validates state | **In scope** — D7 |
+| RR-004 | `workitem_runtime_member_names` omits the acknowledgement store | **In scope** — 0.4(5) |
+| RR-003 | `scan_acknowledgements_invalid` (exit 3) has no in-band repair | §9 register — owner triage |
+| RR-006 | drift re-approval runs before the precondition stack | §9 register — owner triage |
+
 ## 1. §1 re-verification, corrected
 
 All facts F1–F14 hold as originally stated **except**:
@@ -454,6 +565,7 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 | IN_PROGRESS | `refinement propose` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
 | any | crash/interruption | resume | (none until next write) | Recovery reads `refinement.json`, finds the last-committed iteration, and either resumes (nothing pending) or replays a C1 intent (below) |
 | IN_PROGRESS | `refinement cancel` (D5) | CANCELLED | `refinement.json` closed, written by `cancel` | |
+| IN_PROGRESS | `refinement dispute`, with both an evidence citation and a recorded human decision | IN_PROGRESS (unchanged) | an entry appended to the current iteration's `disputeOutcomes[]` (§5.a), written by `dispute` | §3.4 / acceptance scenario 26. The assessor's original result stays in the iteration record and in evidence; nothing is mutated, only annotated alongside. Reported as `overturned_by_dispute`, **not** as improvement or progress, so it does not by itself empty Fₖ or open a new iteration. Refuses `refinement_dispute_incomplete` (§5.c, exit 1, nothing written) if either the evidence citation or the recorded decision is missing. **Flagged for Stage 2 (D9):** this must not become a second verdict channel that bypasses `evaluate_quality`'s own validation. **Naming mismatch for Stage 2 to settle:** D9's prose says a per-check `disputeOutcome` field, while §5.a and traceability row 26 show a `disputeOutcomes[]` array; this row follows §5.a, the contract that is actually written out. |
 | IN_PROGRESS | unrecoverable engine error | FAILED | `refinement.json` closed, error recorded, written by whichever command hit the error | Terminal; the WorkItem's `governance assess` remains usable independently — this record's terminal state does not itself block re-running `governance assess` by hand |
 | (none) | `governance assess`, hand re-run, no `refinement.json` ever created, FAIL→PASS at the same content digest | (unaffected) | `governance.json` only, refused | §3.a's identified test; D11 below — `quality_verdict_flip` reads the prior verdict and digest from `governance.json` itself, never from `refinement.json`, which need not exist for this refusal to fire |
 

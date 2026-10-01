@@ -6,6 +6,27 @@ directory). Branch `feat/requirements-refinement`, created from `0057425` (tip o
 
 ## Current status
 
+**Resumed 2026-10-01 at `276e152`.** The pause (below) ended when the architecture-memory enhancement
+that took priority was finished: it was merged into this branch by fast-forward (`65b75df..276e152`, no
+rewrite, nothing from Stage 0 or Stage 1 lost — the architecture branch had already restored Stage 0
+after a copy-over briefly reverted it, see `docs/enhancements/architecture-memory/PROGRESS.md`), and CI is
+green on all four cells (`36806444263`).
+
+**Re-baseline done:** `PLAN.md` §0 records what changed underneath the plan, re-verifies brief §1 facts
+F1–F14 against `276e152` (F11 changed: sixteen dry-run transcripts → twenty), resolves every stale
+`sdle.py:NNNN` citation to today's line (nothing was removed or renamed), corrects one thing this ledger
+had been about to carry forward (the lint floor's blast radius needs no re-measurement — Option 3 made it
+advisory-only), flags that **C5's "ADR-013" is now taken and the refinement ADR is ADR-015**, and
+proposes a disposition for the six inherited Stage 0 defects the architecture reviews recorded
+(`claude-review-rejections.md` RR-002/003/004/006/007/008). §0 is a *proposal to Stage 2*; §§1–8 are
+unedited.
+
+**Order of work from here (unchanged except for the added first step):** (0) re-baseline — done;
+(1) the `refinement dispute` row in §6; (2) record the Stage 2 review baseline SHA; (3) Stage 2, the
+two-level Codex review; (4) Stages 3–5. No production code before Stage 2 reconciles.
+
+**Pause note, as written when Stage 1 stopped (kept for the record):**
+
 **Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. **Paused here deliberately, by the
 owner's own choice, to prioritize other work — not blocked, not stuck.** Nothing below is mid-edit;
 every file is committed, `lint-skill` passes (`ok: true`), and the restatement/doc/collect-only tests
