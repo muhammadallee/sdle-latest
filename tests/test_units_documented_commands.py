@@ -229,8 +229,12 @@ def test_the_engine_messages_carry_the_tested_command():
 def test_the_spec_phase_instruction_states_the_engines_selection_rule():
     body = (REPO_ROOT / ".claude" / "skills" / "sdle" / "modules"
             / "phase-execution.md").read_text(encoding="utf-8")
-    spec_phase = body[body.index("**Phase 4 — `spec_draft`:**"):
-                      body.index("**Phase 5 — `gate_spec`:**")]
+    # Located by phase name, not ordinal: the ordinal is the phase's GREENFIELD
+    # position, which moves whenever a phase is inserted before it.
+    start = re.search(r"\*\*Phase \d+ — `spec_draft`:\*\*", body)
+    end = re.search(r"\*\*Phase \d+ — `gate_spec`:\*\*", body)
+    assert start and end, "phase-execution.md lost the spec_draft or gate_spec block"
+    spec_phase = body[start.start():end.start()]
     assert "takes the newest directory" not in spec_phase
     assert "share the newest timestamp" not in spec_phase
     assert "more than one is a refusal" in spec_phase

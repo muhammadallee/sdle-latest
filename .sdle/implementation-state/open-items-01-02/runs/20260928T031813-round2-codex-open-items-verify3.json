@@ -1,0 +1,58 @@
+{
+  "run_id": "20260928T031813-round2-codex-open-items-verify3",
+  "result": "PASS",
+  "task_ids": [
+    "OPEN-01",
+    "OPEN-02"
+  ],
+  "area": "open-items-verify3",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/sdle-review-worktrees/def-rr-verify3",
+  "candidate_sha": "79351866d0fa2f5bde211f230eb6b949de763540",
+  "timeout_seconds": 1800,
+  "prompt": "round2-verify3.prompt.md",
+  "prompt_sha256": "c7a9bc4582096148a9c4be700d18e64a75b5bdfd5861a1ba638e2e22215e1502",
+  "schema": "dispositions.schema.json",
+  "schema_sha256": "29affcfdb21cc8e6db2ddab7c0a0022d8645594f26d6ed65af2a4b1cfdcd4c66",
+  "started_utc": "2026-09-28T03:18:13Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "C:/Users/Ali/AppData/Local/Temp/sdle-review-worktrees/def-rr-verify3",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\open-items-01-02\\runs\\dispositions.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\open-items-01-02\\runs\\20260928T031813-round2-codex-open-items-verify3.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-09-28T03:18:13Z",
+      "exit_code": 0,
+      "finished_utc": "2026-09-28T03:25:16Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20260928T031813-round2-codex-open-items-verify3.a1.events.jsonl",
+        "stderr": "20260928T031813-round2-codex-open-items-verify3.a1.stderr.log",
+        "review": "20260928T031813-round2-codex-open-items-verify3.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-09-28T03:25:16Z",
+  "dispositions": 0,
+  "closure_assessment": {
+    "open_01_closed": false,
+    "open_02_closed": true,
+    "summary": "Owner escalation is required under the stopping rule: V3-01 through V3-04 are medium violations of stated audit-chain, path-containment, and scoped-acknowledgement guarantees, so there should be no fourth targeted pass. OPEN-01 is not closed because a stored path can still corrupt the audit chain, acknowledgement provenance is not enforced, and containment remains bypassable. OPEN-02's startup-contract coverage remains closed. No direct `_PathProblem` escape was found, and canonical-key threading is consistent for normally produced scan/accept-content records; the failures arise from discarded canonicalization, unstable filesystem resolution, and missed path surfaces."
+  },
+  "review_output": "20260928T031813-round2-codex-open-items-verify3.a1.review.json"
+}

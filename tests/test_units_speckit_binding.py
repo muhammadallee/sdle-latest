@@ -102,7 +102,7 @@ def plant_legacy_workflow(bare_project: Project) -> None:
 
 
 def drive_full_workflow(view: Project, feature: str) -> None:
-    """All 18 phases, with `feature bind` at every generation phase.
+    """Every GREENFIELD phase, with `feature bind` at every generation phase.
 
     Mirrors the transcript order in test_integration_01; the difference is
     that each Spec Kit generation phase is preceded by the bind call the
@@ -118,6 +118,7 @@ def drive_full_workflow(view: Project, feature: str) -> None:
     view.ok("advance", "--to", "gate_constitution")
     review_for_gate(view, "gate_constitution")  # T06: E2.
     view.ok("gate", "approve", "--gate", "gate_constitution")
+    view.pass_architecture_gate()  # ADR-013: placement before specification.
 
     view.ok("feature", "bind")
     view.write_artifact(f"{directory}/spec.md")
@@ -329,6 +330,7 @@ def test_n3_a_gate_refuses_another_workitems_artifact(bare_project):
     b.ok("advance", "--to", "gate_constitution")
     review_for_gate(b, "gate_constitution")  # T06: E2.
     b.ok("gate", "approve", "--gate", "gate_constitution")
+    b.pass_architecture_gate()  # ADR-013: placement before specification.
     b.write_artifact(f"{b.feature_dir('002-bravo')}/spec.md")
     b.ok("feature", "resolve")
     b.ok("advance", "--to", "gate_spec")

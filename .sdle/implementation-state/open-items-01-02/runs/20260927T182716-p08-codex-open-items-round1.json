@@ -1,0 +1,61 @@
+{
+  "run_id": "20260927T182716-p08-codex-open-items-round1",
+  "result": "PASS",
+  "task_ids": [
+    "P08"
+  ],
+  "ac_ids": [
+    "AC-01",
+    "AC-02",
+    "AC-19"
+  ],
+  "area": "open-items-round1",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/sdle-review-worktrees/open-items-review",
+  "candidate_sha": "0057425a6f9a28745e31e6af08a29e1099175795",
+  "timeout_seconds": 1800,
+  "prompt": "round1.prompt.md",
+  "prompt_sha256": "71598588a499a831032e1d4cffc39dfa22a446277eda9edf652d1893dd7f54bd",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-09-27T18:27:16Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "C:/Users/Ali/AppData/Local/Temp/sdle-review-worktrees/open-items-review",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\open-items-01-02\\runs\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\open-items-01-02\\runs\\20260927T182716-p08-codex-open-items-round1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-09-27T18:27:16Z",
+      "exit_code": 0,
+      "finished_utc": "2026-09-27T18:32:58Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20260927T182716-p08-codex-open-items-round1.a1.events.jsonl",
+        "stderr": "20260927T182716-p08-codex-open-items-round1.a1.stderr.log",
+        "review": "20260927T182716-p08-codex-open-items-round1.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-09-27T18:32:58Z",
+  "findings": 9,
+  "coverage_not_reviewed": [
+    "Test execution: the suite writes temporary projects and this review was constrained to read-only inspection",
+    "Full-suite result, which the packet explicitly reports as not run"
+  ],
+  "review_output": "20260927T182716-p08-codex-open-items-round1.a1.review.json"
+}

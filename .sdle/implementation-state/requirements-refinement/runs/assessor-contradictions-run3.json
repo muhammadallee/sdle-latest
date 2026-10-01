@@ -1,0 +1,20 @@
+{
+  "document": "defect-contradictions.md",
+  "blob_sha": "c174b89f24d5c2cccfe34ff3368717a35536c615",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "FAIL", "finding": "The Security and Data Handling section first states redirection is unauthenticated ('redirection itself is unauthenticated') but the very next bullet requires every request including redirects to be authenticated with no anonymous access permitted anywhere, directly conflicting with each other and with the Constraints section's statement that redirects are 'the one exception' to management-API authentication."},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  }
+}

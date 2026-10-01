@@ -1,0 +1,22 @@
+{
+  "document": "defect-security_data_implications.md",
+  "blob_sha": "8c6fd1bccd9ab57251dd3211d8d202d24341b439",
+  "run": 1,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-security_data_implications-run1-superseded.json (assessed pre-adjudication text carrying a dangling cross-reference, 'per Security and Data Handling below', to this document's own deliberately-omitted section - an unintended structural cue)",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "MISS: security_data_implications expected FAIL (no Security and Data Handling section). With the dangling cross-reference removed, this run missed it."
+}

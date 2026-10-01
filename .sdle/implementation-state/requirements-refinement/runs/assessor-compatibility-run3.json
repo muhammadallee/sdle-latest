@@ -1,0 +1,22 @@
+{
+  "document": "defect-compatibility.md",
+  "blob_sha": "5f410b033bfd59bbea933e6ffff206f17d1b4a03",
+  "run": 3,
+  "dispatched_at": "not recorded",
+  "supersedes": "assessor-compatibility-run3-superseded2.json and -superseded.json",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "FAIL", "finding": "The Purpose section states the service replaces an ad-hoc shortener whose links, issued over the last six months, are already embedded in docs and read by deployed link-preview bots, but no section addresses whether or how those existing legacy short links will continue to resolve or be migrated."},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "CAUGHT: 3/3 unanimous. Confirms this was a corpus-construction defect (missing relevance cue), not an assessor blind spot for structural absence."
+}

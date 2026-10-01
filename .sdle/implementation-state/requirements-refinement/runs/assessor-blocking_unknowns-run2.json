@@ -1,0 +1,21 @@
+{
+  "document": "defect-blocking_unknowns.md",
+  "blob_sha": "6eb2c2ceb76b087abcda63363c51283e240b4561",
+  "run": 2,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "FAIL", "finding": "Compatibility mandates HTTP 301 (a status browsers are known to cache hard, often ignoring later Cache-Control headers) while AC-2 relies on `Cache-Control: no-store` to ensure 'every visit reaches the service' and increments click_count, so the stated redirect code and the click-counting guarantee are in tension."},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "NOT_APPLICABLE", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "FAIL", "finding": "The Non-Functional Requirements section is an unresolved placeholder ('???'), and the Constraints section leaves the SSO/SAML scope open with 'TBD whether this covers service-to-service calls too.'"}
+  },
+  "note": "contradictions FAIL here is NOT in labels.json for this document. Genuine inter-run variance (see LEDGER note) - not a corpus bug, logged as-is per this session's discipline of not chasing findings away."
+}

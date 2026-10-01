@@ -61,7 +61,7 @@ def test_10_the_transcript_progress_fractions_are_what_the_engine_emits(
     flow = flow_of(git_project, "BROWNFIELD_DISCOVERY")
 
     assert flow.progress_for("discovery") == f"2/{flow.phase_count}"
-    assert flow.phase_count == 19
+    assert flow.phase_count == 21
     header = git_project.ok("header").data
     assert header["progress"] == f"2/{flow.phase_count}"
 
@@ -122,24 +122,25 @@ def test_11_iterative_without_a_baseline_is_refused(git_project):
     assert refused.reason == "baseline_required"
 
 
-def test_11_the_spec_gate_is_gate_one_of_seven_not_two_of_eight(git_project):
+def test_11_the_spec_gate_is_gate_two_of_eight_not_three_of_nine(git_project):
     """The transcript's central claim about numbering.
 
-    `gate_spec` is Gate 2 of 8 in GREENFIELD and Gate 1 of 7 here. A reader
-    who learned "the spec gate is Gate 2" is wrong for three flows out of
-    five, so this pins the derivation rather than the habit.
+    `gate_spec` is Gate 3 of 9 in GREENFIELD and Gate 2 of 8 here. A reader
+    who learned "the spec gate is Gate 3" is wrong for three flows out of
+    five, so this pins the derivation rather than the habit. ADR-013 moved
+    both ordinals, which is exactly the drift this test exists to catch.
     """
     bind(git_project, "ITERATIVE")
     iterative = flow_of(git_project, "ITERATIVE")
     greenfield = flow_of(git_project, "GREENFIELD")
 
-    assert (iterative.gate_number("gate_spec"), iterative.gate_total) == (1, 7)
+    assert (iterative.gate_number("gate_spec"), iterative.gate_total) == (2, 8)
     assert (greenfield.gate_number("gate_spec"),
-            greenfield.gate_total) == (2, 8)
+            greenfield.gate_total) == (3, 9)
 
     shown = git_project.ok("gate", "show", "--gate", "gate_spec").data
-    assert shown["gate_number"] == 1
-    assert shown["gate_total"] == 7
+    assert shown["gate_number"] == 2
+    assert shown["gate_total"] == 8
 
 
 def test_11_the_constitution_gate_is_not_in_flow_never_satisfied(git_project):
@@ -215,8 +216,8 @@ def test_12_the_flow_opens_on_the_impact_analysis(git_project):
 
     assert git_project.state()["current_phase"] == "impact_analysis"
     assert flow.progress_for("impact_analysis") == f"2/{flow.phase_count}"
-    assert flow.phase_count == 14
-    assert flow.gate_total == 6
+    assert flow.phase_count == 16
+    assert flow.gate_total == 7
 
 
 def test_12_writing_the_analysis_is_not_recording_it(git_project):
@@ -226,7 +227,8 @@ def test_12_writing_the_analysis_is_not_recording_it(git_project):
     bind(git_project, "DEFECT_FIX")
     git_project.write_artifact(IMPACT_ARTIFACT)
 
-    refused = git_project.run("advance", "--to", "spec_draft")
+    refused = git_project.run("advance", "--to",
+                              "architecture_placement")
 
     assert refused.exit_code == EXIT_REFUSED, refused
     assert refused.reason == "impact_analysis_missing"
@@ -240,7 +242,7 @@ def test_12_recording_alone_does_not_lift_the_refusal(git_project):
     git_project.ok("artifact", "record", "--phase", "impact_analysis",
                    "--path", IMPACT_ARTIFACT)
 
-    refused = git_project.run("advance", "--to", "spec_draft")
+    refused = git_project.run("advance", "--to", "architecture_placement")
 
     assert refused.exit_code == EXIT_REFUSED, refused
     assert refused.reason == "impact_analysis_missing"
@@ -255,7 +257,7 @@ def test_12_editing_after_the_review_re_arms_the_refusal(git_project):
     git_project.write_artifact(
         IMPACT_ARTIFACT, "# Widened analysis\n\n" + "word " * 40)
 
-    refused = git_project.run("advance", "--to", "spec_draft")
+    refused = git_project.run("advance", "--to", "architecture_placement")
 
     assert refused.exit_code == EXIT_REFUSED, refused
     assert refused.reason == "impact_analysis_missing"
@@ -293,12 +295,12 @@ def test_13_hotfix_is_the_floor_plus_the_impact_analysis(git_project):
     assert phases - {"impact_analysis"} == set(sdle.MANDATORY_FLOW_PHASES)
 
 
-def test_13_ten_phases_three_gates(git_project):
+def test_13_twelve_phases_four_gates(git_project):
     flow = flow_of(git_project, "HOTFIX")
-    assert (flow.phase_count, flow.gate_total) == (10, 3)
+    assert (flow.phase_count, flow.gate_total) == (12, 4)
 
 
-def test_13_five_gates_are_not_in_flow_and_none_is_omitted(git_project):
+def test_13_the_absent_gates_are_not_in_flow_and_none_is_omitted(git_project):
     """The disposition report the transcript prints. A gate the policy wanted
     and the flow does not have is `not_in_flow` — never "omitted", which would
     imply it could have been required, and never quietly satisfied."""
@@ -336,7 +338,7 @@ def test_13_the_impact_analysis_is_still_enforced_under_pressure(git_project):
     """`HOTFIX` drops five gates. It does not drop this."""
     bind(git_project, "HOTFIX")
 
-    refused = git_project.run("advance", "--to", "spec_draft")
+    refused = git_project.run("advance", "--to", "architecture_placement")
 
     assert refused.exit_code == EXIT_REFUSED, refused
     assert refused.reason == "impact_analysis_missing"

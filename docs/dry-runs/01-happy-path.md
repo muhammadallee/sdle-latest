@@ -4,11 +4,11 @@
 |---|---|
 | **Scenario ID** | DR-01 |
 | **Flow** | `GREENFIELD` |
-| **Purpose** | The complete success flow for a new project: WorkItem identity, preflight, governance, then **18 phases, 8 gates.** through to `complete` and the repository baseline. |
+| **Purpose** | The complete success flow for a new project: WorkItem identity, preflight, governance, then **20 phases, 9 gates.** through to `complete` and the repository baseline. |
 | **Defect IDs** | D02, D03, D05 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6 installed with the README's tested command. Generation is simulated |
 | **Starting conditions** | A new git repository with one commit. SpecKit initialised (`.specify/`, `.claude/skills/speckit-*`). `requirements/todo-api.md` present. No WorkItem registered, no `.sdle/baseline.json`. Governance input classifies it `GREENFIELD` at LOW risk. No feature directory bound yet |
-| **Guardrails exercised** | Bootstrap order, gate discipline, status headers, TP-011 review before every approval, Gate 7 test evidence bound to the manifest, change set measured from the pinned base, completion summary, baseline establishment |
+| **Guardrails exercised** | Bootstrap order, gate discipline, status headers, TP-011 review before every approval, Gate 8 test evidence bound to the manifest, change set measured from the pinned base, completion summary, baseline establishment |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
 > It was written from the skill files and the engine's real messages; no model
@@ -69,7 +69,7 @@ I found requirements/:
 Content scan passed. Project name inferred: "Todo List REST API".
 
 Governance: requirements quality PASS; classified as an enhancement on
-GREENFIELD — 18 phases, 8 gates; risk LOW. At LOW risk the design gate is
+GREENFIELD — 20 phases, 9 gates; risk LOW. At LOW risk the design gate is
 omittable; I will still ask you to approve it, which is always permitted.
 
 I'll now generate the project constitution. Shall I proceed?
@@ -89,15 +89,15 @@ I'll now generate the project constitution. Shall I proceed?
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=2/18 -->
-📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
+<!-- SDLE_STATE phase=constitution_draft status=in_progress progress=2/20 -->
+📋 SDLE Status: Phase 2/20 — Generate Constitution [IN PROGRESS]
 
 Generating constitution...
 
 Constitution generated at .specify/memory/constitution.md (4.1 KB, verified).
 
 ---
-✋ APPROVAL REQUIRED — Gate 1/8: Constitution Approval
+✋ APPROVAL REQUIRED — Gate 1/9: Constitution Approval
 
 # Todo List REST API — Project Constitution
 
@@ -130,10 +130,56 @@ prompt's `Review:` line reports, `sdle.sh artifact review --path .specify/memory
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=spec_draft status=in_progress progress=4/18 -->
-📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
+<!-- SDLE_STATE phase=architecture_placement status=in_progress progress=4/20 -->
+📋 SDLE Status: Phase 4/20 — Architecture Placement [IN PROGRESS]
 
 Gate 1 approved. Baseline fingerprint recorded.
+
+Reading the repository's architecture catalog (uninitialized: this is the
+first WorkItem) and deciding where the capability lives before anything is
+specified...
+
+<!-- SDLE_STATE phase=gate_architecture status=awaiting_approval progress=5/20 -->
+📋 SDLE Status: Phase 5/20 — Gate 2: Architecture Placement Approval [AWAITING APPROVAL]
+
+---
+✋ APPROVAL REQUIRED — Gate 2/9: Architecture Placement Approval
+
+# Architecture Placement — todo-api
+
+- **Decision:** `CREATE_NEW_SERVICE` — `todo-service`
+- **Catalog revision reasoned against:** 0
+- **Rationale:** the first service in the repository; nothing exists to extend.
+[... abridged — the full rendered placement is displayed in a real run ...]
+
+Artifact path: workitems/todo-api/architecture/placement.md
+Fingerprint: 8d41c7e0…2b9f
+Review: architecture-placement | PASS | agent:sdle-orchestrator
+
+Please review the content above, then respond with:
+  • `approve` — Accept and advance to the next phase
+  • `approve with comments: <your notes>` — Accept with recorded feedback
+  • `reject with comments: <your feedback>` — Reject and trigger remediation
+---
+```
+
+*(Engine: `sdle.sh --workitem todo-api architecture assess --input <proposal.json>`
+validated the placement and wrote the record and its rendering;
+`sdle.sh artifact review --path workitems/todo-api/architecture/placement.md --type architecture-placement --result PASS --actor-type agent --actor-name sdle-orchestrator`
+recorded the review; then `sdle.sh advance --to gate_architecture`. This gate
+is required at every risk level and cannot be omitted. See dry-run 17.)*
+
+---
+
+**User:** `approve`
+
+**SDLE:**
+
+```
+<!-- SDLE_STATE phase=spec_draft status=in_progress progress=6/20 -->
+📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
+
+Gate 2 approved. Baseline fingerprint recorded. Catalog revision 1 recorded.
 
 Generating specification...
 
@@ -148,7 +194,8 @@ Please answer the above questions — your response will be saved to
 clarifications/spec_draft-2026-09-10-1012.clarify. Say `continue` to skip without saving.
 ```
 
-*(Engine: `sdle.sh gate approve --gate gate_constitution`. Then, around the
+*(Engine: `sdle.sh gate approve --gate gate_architecture`, which applied the
+approved decision to the repository catalog (revision 1). Then, around the
 specification step: `sdle.sh feature bind` exported `SPECIFY_INIT_DIR`, Spec Kit
 created `specs/001-todo-api/`, and `sdle.sh feature resolve` found exactly one
 candidate and **moved** it into the WorkItem:
@@ -167,13 +214,13 @@ would have refused `feature_ambiguous` and listed them.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=5/18 -->
-📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=7/20 -->
+📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [AWAITING APPROVAL]
 
 ✓ Clarification saved to clarifications/spec_draft-2026-09-10-1012.clarify.
 
 ---
-✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
 
 # Feature Specification: Todo List REST API
 
@@ -194,20 +241,20 @@ Review: specification-review | PASS | agent:sdle-design-review
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=in_progress progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
+<!-- SDLE_STATE phase=plan_draft status=in_progress progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [IN PROGRESS]
 
-Gate 2 approved. Baseline fingerprint recorded. Comments noted.
+Gate 3 approved. Baseline fingerprint recorded. Comments noted.
 Generating plan...
 ```
 
-*(Gate 3, Plan Approval, follows the same prompt structure and the user
+*(Gate 4, Plan Approval, follows the same prompt structure and the user
 approves. Compacted:)*
 
 ```
-<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=7/18 -->
-📋 SDLE Status: Phase 7/18 — Gate 3: Plan Approval [AWAITING APPROVAL]
-✋ APPROVAL REQUIRED — Gate 3/8: Plan Approval
+<!-- SDLE_STATE phase=gate_plan status=awaiting_approval progress=9/20 -->
+📋 SDLE Status: Phase 9/20 — Gate 4: Plan Approval [AWAITING APPROVAL]
+✋ APPROVAL REQUIRED — Gate 4/9: Plan Approval
 [workitems/todo-api/specs/001-todo-api/plan.md displayed in full — abridged]
 ```
 
@@ -216,21 +263,21 @@ approves. Compacted:)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=checklist_draft status=in_progress progress=8/18 -->
-📋 SDLE Status: Phase 8/18 — Generate Checklist [IN PROGRESS]
+<!-- SDLE_STATE phase=checklist_draft status=in_progress progress=10/20 -->
+📋 SDLE Status: Phase 10/20 — Generate Checklist [IN PROGRESS]
 
-Gate 3 approved. Baseline fingerprint recorded.
-Checklist generated (verified). Proceeding directly to Phase 9: Generate Tasks —
-no gate between these phases; both are reviewed together at Gate 4.
+Gate 4 approved. Baseline fingerprint recorded.
+Checklist generated (verified). Proceeding directly to Phase 11: Generate Tasks —
+no gate between these phases; both are reviewed together at Gate 5.
 
 Tasks generated at workitems/todo-api/specs/001-todo-api/tasks.md (verified).
 
-### Checklist (Phase 8 output — review alongside Tasks)
+### Checklist (Phase 10 output — review alongside Tasks)
 - [ ] Every endpoint has input validation defined
 [... abridged ...]
 
 ---
-✋ APPROVAL REQUIRED — Gate 4/8: Tasks Approval
+✋ APPROVAL REQUIRED — Gate 5/9: Tasks Approval
 
 # Tasks: Todo List REST API
 T001. Scaffold project structure and dependency manifest
@@ -246,26 +293,26 @@ Fingerprint: 5e11f0ad…c773
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=analyze status=in_progress progress=11/18 -->
-📋 SDLE Status: Phase 11/18 — Analyze [IN PROGRESS]
+<!-- SDLE_STATE phase=analyze status=in_progress progress=13/20 -->
+📋 SDLE Status: Phase 13/20 — Analyze [IN PROGRESS]
 
-Gate 4 approved. Baseline fingerprint recorded.
+Gate 5 approved. Baseline fingerprint recorded.
 Running cross-artifact analysis...
 ```
 
-*(Analysis refines `tasks.md` in place. The engine re-baselines Gate 4's
+*(Analysis refines `tasks.md` in place. The engine re-baselines Gate 5's
 fingerprint to match (`sdle.sh drift rebaseline --gate gate_tasks`), so both
-gates can reference one file without a false drift alert. Gate 5, Analysis
+gates can reference one file without a false drift alert. Gate 6, Analysis
 Approval, shows the refined file. The user approves. Compacted.)*
 
 ```
-<!-- SDLE_STATE phase=design_generation status=in_progress progress=13/18 -->
-📋 SDLE Status: Phase 13/18 — Generate Design [IN PROGRESS]
+<!-- SDLE_STATE phase=design_generation status=in_progress progress=15/20 -->
+📋 SDLE Status: Phase 15/20 — Generate Design [IN PROGRESS]
 
-Gate 5 approved. Generating design/app/app-design.md and design/db/db-design.md...
+Gate 6 approved. Generating design/app/app-design.md and design/db/db-design.md...
 ```
 
-*(Gate 6, Design Approval, displays `design/app/app-design.md`. At LOW risk the
+*(Gate 7, Design Approval, displays `design/app/app-design.md`. At LOW risk the
 policy does not require it, so SDLE offers both `approve` and `gate omit`, and
 the user approves. Compacted.)*
 
@@ -274,10 +321,10 @@ the user approves. Compacted.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=in_progress progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [IN PROGRESS]
+<!-- SDLE_STATE phase=implement status=in_progress progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [IN PROGRESS]
 
-Gate 6 approved. Baseline fingerprint recorded.
+Gate 7 approved. Baseline fingerprint recorded.
 
 Working tree is clean — dirty-tree guard passed. Implementation base pinned:
 b9332aab…5ca9.
@@ -286,15 +333,15 @@ Implementing against tasks.md, informed by the approved design documents...
 
 Implementation complete. Building the implementation manifest...
 Secrets scan: no high-risk patterns found in the changed files.
-Test evidence: pytest detected — 28 passed (exit 0). Gate 7 can accept this.
+Test evidence: pytest detected — 28 passed (exit 0). Gate 8 can accept this.
 
 ---
-✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
+✋ APPROVAL REQUIRED — Gate 8/9: Implementation Approval
 
 # Implementation Manifest
 Generated: 2026-09-10T11:42:09Z
 Evidence: workitems/todo-api/.sdle/evidence/implementation-muh-20260910T114209Z-3a554ee0.json
-Phase: implement (15/18)
+Phase: implement (17/20)
 
 ## Changed/Added Files
 A design/app/app-design.md
@@ -334,7 +381,7 @@ before generation. Then `sdle.sh manifest build --summary "Implemented the Todo 
 listed every change **since that base**, whether committed, staged, unstaged
 or untracked, each with its git status letter. It wrote the evidence record the
 `Evidence:` line names: runner, command, exit code, status, this manifest's
-SHA-256, the base and the WorkItem. At approval, Gate 7 reads that record and
+SHA-256, the base and the WorkItem. At approval, Gate 8 reads that record and
 requires a run that actually passed, for these exact manifest bytes.)*
 
 ---
@@ -344,17 +391,17 @@ requires a run that actually passed, for these exact manifest bytes.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=security_review status=in_progress progress=17/18 -->
-📋 SDLE Status: Phase 17/18 — Security Review [IN PROGRESS]
+<!-- SDLE_STATE phase=security_review status=in_progress progress=19/20 -->
+📋 SDLE Status: Phase 19/20 — Security Review [IN PROGRESS]
 
-Gate 7 approved. Baseline fingerprint recorded.
+Gate 8 approved. Baseline fingerprint recorded.
 
 Gathering evidence: constitution, spec, plan, tasks, and the implementation diff
 from the pinned base (the same change set the manifest listed)...
 Review written to reviews/security-review-2026-09-10-1151.md (verified).
 
 ---
-✋ APPROVAL REQUIRED — Gate 8/8: Security Review Approval
+✋ APPROVAL REQUIRED — Gate 9/9: Security Review Approval
 
 # AI-Assisted Security Review — Todo List REST API
 **Disclaimer:** This is an AI-assisted review based on artifacts and a git diff.
@@ -378,12 +425,12 @@ reviewed before the gate.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=complete status=completed progress=18/18 -->
-📋 SDLE Status: Phase 18/18 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=20/20 -->
+📋 SDLE Status: Phase 20/20 — Complete [COMPLETED]
 
 ✅ Security review approved. Workflow complete!
 
-All 8 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
+All 9 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
 Repository baseline established: .sdle/baseline.json — later WorkItems in this
 repository converge onto ITERATIVE against it.
 ```
@@ -395,7 +442,7 @@ repository converge onto ITERATIVE against it.
 - `workitems/index.md` gained one row and `workitems/todo-api/workitem.json`
   was written, both by `workitem create`.
 - `workitems/todo-api/.sdle/state.json` traversed
-  `requirements_check → constitution_draft → gate_constitution → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
+  `requirements_check → constitution_draft → gate_constitution → architecture_placement → gate_architecture → spec_draft → gate_spec → plan_draft → gate_plan → checklist_draft → tasks_draft → gate_tasks → analyze → gate_analyze → design_generation → gate_design → implement → gate_implement → security_review → gate_security → complete`.
 - All 8 `approvals.*` entries hold `decision: "approved"`, and `artifact_shas`
   holds 8 lowercase SHA-256 baselines.
 - `specKit.featureDirectory` is `workitems/todo-api/specs/001-todo-api`.
@@ -406,14 +453,14 @@ repository converge onto ITERATIVE against it.
 - `audit.md` grew with every phase movement, review and gate decision, and
   `audit verify` reports an intact chain.
 - `completion-summary.json` and `.sdle/baseline.json` were each written
-  exactly once, at the Gate 8 approval.
+  exactly once, at the Gate 9 approval.
 
 ## Negative cases
 
 | Attempt | Result | State afterwards |
 |---|---|---|
 | `approve` at a gate whose artifact has no current PASS review | Refused `review_missing` | Phase, approvals and `audit.md` unchanged |
-| `approve` at Gate 7 on a manifest built with `--skip-tests` | Refused `tests_not_passed` | Same — see [DR-14](14-gate-evidence-refusals.md) |
+| `approve` at Gate 8 on a manifest built with `--skip-tests` | Refused `tests_not_passed` | Same — see [DR-14](14-gate-evidence-refusals.md) |
 | `manifest build` before `implement preflight` pinned a base | Refused `implementation_base_missing` | Nothing written — see [DR-15](15-committed-change-manifest.md) |
 
 ## Cleanup
@@ -425,12 +472,12 @@ removed by pytest.
 
 | Claim | Test |
 |---|---|
-| The traversal is exactly the 18 phases above | `tests/test_integration_01_happy_path.py::test_traversal_matches_the_transcript` |
-| All 8 gates approved with lowercase baselines | `tests/test_integration_01_happy_path.py::test_all_eight_gates_approved_with_baselines` |
-| Ends `complete` at `18/18` | `tests/test_integration_01_happy_path.py::test_workflow_ends_complete` |
+| The traversal is exactly the 20 phases above | `tests/test_integration_01_happy_path.py::test_traversal_matches_the_transcript` |
+| All 9 gates approved with lowercase baselines | `tests/test_integration_01_happy_path.py::test_all_nine_gates_approved_with_baselines` |
+| Ends `complete` at `20/20` | `tests/test_integration_01_happy_path.py::test_workflow_ends_complete` |
 | The audit chain survives the run | `tests/test_integration_01_happy_path.py::test_audit_chain_survives_the_whole_run` |
 | Completion summary written once | `tests/test_integration_01_happy_path.py::test_completion_summary_written_exactly_once` |
 | GREENFIELD completion establishes the baseline | `tests/test_units_baseline.py::test_n23_only_the_two_declared_flows_establish_a_baseline` |
-| Gate 7 approves a real passing pytest run | `tests/test_units_implementation_evidence.py::test_d02_8_a_real_passing_pytest_suite_approves` |
+| Gate 8 approves a real passing pytest run | `tests/test_units_implementation_evidence.py::test_d02_8_a_real_passing_pytest_suite_approves` |
 | An unreviewed artifact cannot be approved | `tests/test_units_artifact_review.py::test_an_unreviewed_artifact_cannot_be_approved` |
 | Identity before preflight | `tests/test_units_documented_commands.py::test_preflight_in_a_repository_with_no_workitem_asks_for_one_first` |

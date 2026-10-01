@@ -39,6 +39,13 @@ CONFIG_MEMBERS = (
     "policies_dir",
     "baseline_file",
     "implementation_state_dir",
+    # ADR-013: the shared architecture catalog. A configuration-boundary
+    # member by the same derivation rule, so it inherits every
+    # containment proof in this file — and, unlike the rest, the
+    # lifecycle genuinely reads and writes it, which ADR-013 records as
+    # an amendment to ADR-002 rather than a quiet exception.
+    "architecture_dir",
+    "architecture_catalog_file",
     # T06: the first executable policy under `.sdle/policies/`. It is a
     # repository-configuration member by the same derivation rule, so it
     # inherits every containment proof in this file.
@@ -638,7 +645,8 @@ CONFIG_MEMBER_NAMES = tuple(
     getattr(sdle.Paths(project_root=Path("/probe-root"),
                        skill_root=Path("/probe-skill")), member).name
     for member in ("config_file", "policies_dir",
-                   "baseline_file", "implementation_state_dir")
+                   "baseline_file", "implementation_state_dir",
+                   "architecture_dir")
 )
 
 
@@ -687,10 +695,18 @@ def test_the_runtime_member_names_are_derived_from_paths():
         # relationship between a document and a WorkItem is the WorkItem's
         # fact, and the same document may be bound by several of them.
         "requirements.json",
+        # ADR-013: the WorkItem's validated architecture placement.
+        # WorkItem-owned by the same argument as the three above — it is
+        # the decision *this* WorkItem made, and the repository catalog
+        # that outlives it records the decision rather than the record.
+        "architecture-placement.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "baseline.json",
         "implementation-state",
+        # ADR-013: repository-level architecture knowledge, at the
+        # configuration boundary's location and under its location rule.
+        "architecture",
     }
     assert not set(RUNTIME_MEMBER_NAMES) & set(CONFIG_MEMBER_NAMES)
 
@@ -872,14 +888,19 @@ def test_the_configuration_boundary_changes_no_lifecycle_behaviour(
     boundary_after = sha_map(configured.root / ".sdle")
     added = set(boundary_after) - set(boundary_before)
 
-    assert added == {"baseline.json"}, added
+    # ADR-013 adds the second lifecycle-written boundary entry: the
+    # architecture catalog, written at the architecture gate. The clause
+    # stays exact — these two and nothing else — so a third new file, or
+    # any mutation of `config.json`, still fails here.
+    assert added == {"baseline.json", "architecture/catalog.json"}, added
     assert {k: v for k, v in boundary_after.items() if k in boundary_before} \
         == boundary_before
     assert set(boundary_before) - set(boundary_after) == set()
     # And the plain repository — which never ran `config init` — gets the same
     # one file, so the baseline is a lifecycle artifact rather than something
     # the configuration boundary's existence provoked.
-    assert set(sha_map(plain.root / ".sdle")) == {"baseline.json"}
+    assert set(sha_map(plain.root / ".sdle")) == {
+        "baseline.json", "architecture/catalog.json"}
 
 
 def test_the_scrubbed_state_comparison_still_has_teeth(git_project):
@@ -888,9 +909,9 @@ def test_the_scrubbed_state_comparison_still_has_teeth(git_project):
     scrubbed = scrub(git_project.state())
 
     assert scrubbed["current_phase"] == "complete"
-    assert scrubbed["workflow_version"] == "1.17"
+    assert scrubbed["workflow_version"] == "1.18"
     assert scrubbed["workitem"] == git_project.workitem
-    assert scrubbed["progress"] == "18/18"
+    assert scrubbed["progress"] == "20/20"
     assert [entry["phase"] for entry in scrubbed["phase_history"]]
     assert all(entry["decision"] == "approved"
                for entry in scrubbed["approvals"].values())
@@ -935,6 +956,22 @@ CONFIG_REFERENCE_SITES = {
     "baseline_precondition",
     "cmd_baseline_show",
     "cmd_baseline_validate",
+    # ADR-013. The catalog is written by an approved gate and read by
+    # every placement, so the boundary gains a second family of
+    # readers and a second writer. The set stays closed and stays
+    # asserted by exact equality.
+    #
+    #   architecture_catalog_relative  the repo-relative path
+    #   read_architecture_catalog      the fail-closed reader
+    #   write_architecture_catalog     the ONLY writer
+    #
+    # Three names, not more: every other architecture function reaches the
+    # boundary *through* these, exactly as `cmd_gate_approve` reaches the
+    # baseline through `establish_baseline`. That is what keeps
+    # `test_no_lifecycle_command_reads_the_repository_configuration` true.
+    "architecture_catalog_relative",
+    "read_architecture_catalog",
+    "write_architecture_catalog",
     # T11 D6 (T04 N-7). The Gate 7 implementation diff names ONE boundary
     # member, `config_root_relative`, and uses it as a path prefix to
     # **exclude** the repository `.sdle/`. It reads no configuration value and
@@ -1103,10 +1140,34 @@ def test_an_uncommitted_boundary_is_treated_as_sdle_owned_from_t11(git_project):
     The contrast half is kept and asserted below, because that is the half
     that could actually regress: an uncommitted *source* change must still
     fail closed.
+
+    **ADR-013 re-values the T11 half, in the stricter direction.** Owning all
+    of `.sdle/` was too wide: `config.json` and `policies/` are *human*-
+    authored, and hiding them meant a policy edit made during an
+    implementation vanished from the guard AND from the change manifest. The
+    owned set is now the three members the engine actually writes —
+    `baseline.json`, `implementation-state/` and, new here, `architecture/`.
+    So the load-bearing premise survives unchanged (an engine write must not
+    trip another WorkItem's preflight) while the over-reach is withdrawn, and
+    this test asserts both halves separately.
     """
-    assert ".sdle/" in sdle.SDLE_OWNED_PREFIXES
+    assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
+    for owned in (".sdle/baseline.json", ".sdle/implementation-state/",
+                  ".sdle/architecture/"):
+        assert owned in sdle.SDLE_OWNED_PREFIXES, owned
+
     git_project.ok("init", session="dirty")
-    git_project.ok("config", "init")
+
+    # 1. The T08 premise, exercised on what the engine really writes: an
+    #    uncommitted `baseline.json` and an uncommitted architecture catalog
+    #    must not reach the guard. Both are written mid-run by a *different*
+    #    WorkItem's completion or gate.
+    boundary = git_project.root / ".sdle"
+    (boundary / "architecture").mkdir(parents=True, exist_ok=True)
+    (boundary / "baseline.json").write_text('{"baselineVersion": "1"}\n',
+                                            encoding="utf-8")
+    (boundary / "architecture" / "catalog.json").write_text(
+        '{"catalogVersion": 1}\n', encoding="utf-8")
 
     clean = git_project.run("implement", "preflight")
 
@@ -1114,6 +1175,22 @@ def test_an_uncommitted_boundary_is_treated_as_sdle_owned_from_t11(git_project):
     assert clean.data["dirty"] is False, clean
     entries = clean.data.get("entries") or []
     assert not [e for e in entries if ".sdle/" in e.replace("\\", "/")], entries
+
+    # 2. The ADR-013 half: human-authored boundary content is visible again.
+    #    `config init` writes `config.json`, and an uncommitted one is exactly
+    #    the change the guard exists to put in front of the operator.
+    git_project.ok("config", "init")
+
+    configured = git_project.run("implement", "preflight")
+
+    assert configured.exit_code == EXIT_REFUSED, configured
+    assert configured.reason == "dirty_tree"
+    shown = configured.data.get("entries") or []
+    assert any("config.json" in entry for entry in shown), shown
+    assert not [e for e in shown if "baseline.json" in e], shown
+
+    git_project.git("add", "-A")
+    git_project.git("commit", "-q", "-m", "configuration boundary")
 
     # The contrast, unchanged: ordinary uncommitted work still fails closed.
     (git_project.root / "src.py").write_text("print('work')\n", encoding="utf-8")
@@ -1124,7 +1201,6 @@ def test_an_uncommitted_boundary_is_treated_as_sdle_owned_from_t11(git_project):
     assert result.reason == "dirty_tree"
     dirty = result.data.get("entries") or []
     assert any("src.py" in entry for entry in dirty), dirty
-    assert not [e for e in dirty if ".sdle/" in e.replace("\\", "/")], dirty
 
 
 # --------------------------------------------------------------------------

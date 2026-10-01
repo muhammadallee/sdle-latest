@@ -16,7 +16,7 @@ to a WorkItem, never to the repository.
 The runtime is **WorkItem-scoped**, and that is the only runtime there is. A
 repository can carry as many WorkItems as you like, and their **records** never
 interact: state, audit, evidence, locks and identity are per WorkItem, and one
-WorkItem's records are excluded from another's Gate 7 manifest and security
+WorkItem's records are excluded from another's Gate 8 manifest and security
 evidence.
 
 **Two WorkItems may not implement in the same working directory at the same
@@ -73,7 +73,7 @@ that makes the behaviour above look inconsistent until you know it:
 | List | Used by | `requirements/`, `design/`, `reviews/`, `clarifications/`, `guidance/` |
 |---|---|---|
 | `SDLE_OWNED_PREFIXES` | `implement preflight`'s dirty-tree check | **Filtered out** — an uncommitted design does not make the tree dirty |
-| `implementation_exclusions` | Gate 7's manifest and the security-review evidence | **Kept in** — a design written during implementation is part of the change set |
+| `implementation_exclusions` | Gate 8's manifest and the security-review evidence | **Kept in** — a design written during implementation is part of the change set |
 
 So an uncommitted artifact in one of those directories will *not* stop you
 entering the implement phase, and *will* appear in the evidence at the end of

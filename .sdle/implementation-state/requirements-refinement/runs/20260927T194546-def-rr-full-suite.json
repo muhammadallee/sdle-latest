@@ -1,0 +1,29 @@
+{
+  "run_id": "20260927T194546-def-rr-full-suite",
+  "result": "INTERRUPTED",
+  "interrupted_reason": "Claude Code's background-shell memory reaper stopped the runner at ~9% progress (stdout shows through the ' [  9%]' line). Harness notice: \"stopped because the system is running low on memory\". phys_avail_gb was ~2.2 GB for the entire sampled window (19:45:47Z onward, before the run had even reached its first percent marker), commit_used_gb ~36.2 of a 41.54 GB limit (~87%) throughout — both far outside what the repository-cleanup ledger's own clean run recorded (min phys_avail 4.13 GB, never near a 90% alarm). This reads as a machine-wide condition present before the run started, not something the pytest process caused (python_ws_mb peaked under 110 in the samples taken, consistent with the prior clean run's 162 MB peak). Not restarted per the harness's own instruction; resolved by pushing the branch and reading the result from CI instead, per the same precedent workitem-docs-alignment's ledger recorded for an identical reap.",
+  "label": "def-rr-full-suite",
+  "task_ids": [],
+  "ac_ids": [],
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "d9f86378ebb1fb43b5998ba51aef4a61e0711ac6",
+  "content_fingerprint": "f814f8bb6c8cf35394df47d0a37e63745c85e50da49d39bbb090c3147f08da2f",
+  "manifest_paths": 4,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-09-27T19:45:46Z",
+  "runner_pid": 27944,
+  "stdout": "20260927T194546-def-rr-full-suite.stdout.log",
+  "stderr": "20260927T194546-def-rr-full-suite.stderr.log",
+  "note": "",
+  "memory_samples": "20260927T194546-def-rr-full-suite.mem.csv"
+}

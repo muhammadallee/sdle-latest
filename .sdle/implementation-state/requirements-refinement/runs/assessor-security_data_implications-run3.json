@@ -1,0 +1,22 @@
+{
+  "document": "defect-security_data_implications.md",
+  "blob_sha": "8c6fd1bccd9ab57251dd3211d8d202d24341b439",
+  "run": 3,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-security_data_implications-run3-superseded.json",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "MISS: same pattern as run 1. Final tally with the confound removed: 1 of 3 caught (down from 2 of 3 with the dangling cross-reference in place), confirming the cross-reference was inflating detection - the true recall on this document is lower than first measured, not higher."
+}

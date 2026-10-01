@@ -94,11 +94,11 @@ Preflight passed. This WorkItem is bound to:
 *(After `governance assess` and `init`, the first header a real run can show:)*
 
 ```
-<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
-📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->
+📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]
 ```
 
-*(Not `1/18 — Requirements Check`. `init` completes `requirements_check` within
+*(Not `1/20 — Requirements Check`. `init` completes `requirements_check` within
 itself and persists the flow's first generation phase, so no state ever holds
 phase 1 and no header can report it.)*
 

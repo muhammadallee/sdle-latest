@@ -1,0 +1,60 @@
+# Link Shortener Service
+
+## Purpose
+
+Internal teams currently paste long, unwieldy URLs into chat and documentation, which breaks link
+previews and makes tracking click-through hard. This service lets any employee turn a long URL into a
+short, memorable one and see how many times it was used. It replaces the current ad-hoc shortener;
+links it issued over the last six months are already embedded in docs and read by deployed
+link-preview bots.
+
+## Scope
+
+In scope:
+
+- Creating a short link from a long URL, with an optional custom slug
+- Redirecting a short link to its target URL
+- Reporting click counts per short link
+- Expiring a short link after a chosen date
+
+Out of scope:
+
+- Public (non-employee) link creation
+- Custom domains other than `go.internal.example`
+- Link preview generation or metadata scraping
+
+## Data Model
+
+A **Link** has: `slug` (string, unique), `target_url` (string), `created_by` (employee id),
+`created_at` (timestamp), `expires_at` (timestamp, optional), `click_count` (integer, defaults to 0).
+
+## Constraints
+
+- Must run inside the existing internal Kubernetes cluster, using the shared Postgres instance.
+- Must authenticate every management-API request (creating, updating, deleting or listing links) against the existing internal SSO (SAML), no separate login. Redirect requests are the one exception, per Security and Data Handling below.
+- Budget: no new paid third-party services; expiry is enforced by comparing `expires_at` at read time, not an external scheduler; expired rows are retained (not deleted), so a request against one returns 410 rather than 404.
+
+## Dependencies
+
+- Internal SSO service (SAML 2.0, existing internal endpoint).
+- Shared Postgres 14 instance (existing).
+
+## Security and Data Handling
+
+- Only authenticated employees may create links; redirection itself is unauthenticated (short links are
+  meant to be shared externally once created).
+- Target URLs are logged for audit; no other personal data is collected beyond `created_by`.
+- Slugs must not be guessable sequential integers, to prevent enumeration of internal links.
+
+## Non-Functional Requirements
+
+- A redirect must complete within 100 ms at the 95th percentile at up to 200 redirects per second.
+- The service must support at least 50 link creations per second at peak.
+
+## Acceptance
+
+1. AC-1: Creating a link with a valid URL and no slug returns a generated 6-character slug and a 201
+   response.
+2. AC-2: Visiting a valid short link returns an HTTP 301 to the target URL, served with `Cache-Control: no-store` so every visit reaches the service, and increments `click_count`.
+3. AC-3: Visiting an expired short link returns an HTTP 410.
+4. AC-4: Creating a link with a slug that is already taken returns an HTTP 409.

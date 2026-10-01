@@ -6,7 +6,7 @@ pin says a file did not change; it cannot say the file is *right*, and by this
 iteration they were not: Spec Kit paths under `.specify/specs/`, uppercase
 fingerprints the engine never prints, no WorkItem or governance step, and a
 Gate 7 with no test requirement. The byte pins were released deliberately and
-replaced by what this module asserts, for all sixteen transcripts alike:
+replaced by what this module asserts, for all twenty transcripts alike:
 
 * **structure** — the ten parts the stabilization plan requires (scenario id,
   flow, defect ids, runtime, starting conditions, setup, transcript,
@@ -38,7 +38,7 @@ from conftest import DRY_RUN_SUBSTITUTIONS, REPO_ROOT, sdle
 
 DRY_RUNS = REPO_ROOT / "docs" / "dry-runs"
 TRANSCRIPTS = sorted(p for p in DRY_RUNS.glob("*.md") if p.name[:2].isdigit())
-SCENARIO_COUNT = 16
+SCENARIO_COUNT = 20
 
 CONSTS = sdle.load_constants(sdle.resolve_paths(
     str(REPO_ROOT), str(REPO_ROOT / ".claude" / "skills" / "sdle")))
@@ -59,7 +59,7 @@ REFUSED = re.compile(r"Refused: `?([a-z_]+)`?")
 NODE = re.compile(r"`(tests/[\w/]+\.py)(?:::([\w\[\]\-. ]+))?`")
 
 
-def test_there_are_sixteen_transcripts_and_they_are_numbered_densely():
+def test_there_are_twenty_transcripts_and_they_are_numbered_densely():
     assert [p.name[:2] for p in TRANSCRIPTS] == [
         f"{n:02d}" for n in range(1, SCENARIO_COUNT + 1)], [
             p.name for p in TRANSCRIPTS]
@@ -133,6 +133,63 @@ def test_every_progress_fraction_and_gate_number_is_the_engines(path):
                                        sorted(gates))
             checked += 1
     assert checked, f"{path.name} shows no progress or gate number at all"
+
+
+PROSE_FRACTION = re.compile(r"\((\d{1,2})/(\d{1,2})\)")
+PROSE_GATE_TOTAL = re.compile(r"\b[Aa]ll (\d{1,2}) gates\b")
+PROSE_GATE_OF = re.compile(r"\bGate (\d{1,2}) of (\d{1,2})\b")
+
+
+@pytest.mark.parametrize("path", TRANSCRIPTS, ids=lambda p: p.name)
+def test_the_prose_ordinals_agree_with_the_engine_too(path):
+    """The gap ADR-013 found the hard way.
+
+    The checks above parse three *shapes* — the `SDLE_STATE` comment, the
+    status header and the `Gate k/T:` prompt — so a transcript could be
+    recomputed into perfect agreement with the engine in its machine-readable
+    lines while its prose still said "Gate 2 approved" about the same
+    approval, and "All 8 gates passed" about nine. Every one of those was
+    wrong in this repository at once, in the document set CLAUDE.md calls the
+    behavioural specification.
+
+    So the prose forms are checked too: a parenthesised `(k/T)` progress
+    fraction, an `All N gates` claim and a `Gate k of T` ordinal.
+    """
+    text = path.read_text(encoding="utf-8")
+    flow = CONSTS.flow(bound_flow(text))
+    positions = {flow.progress_for(phase) for phase in flow.phases}
+
+    for number, line in enumerate(text.splitlines(), start=1):
+        switch = FLOW_SWITCH.search(line)
+        if switch:
+            flow = CONSTS.flow(switch.group(1))
+            positions = {flow.progress_for(p) for p in flow.phases}
+            continue
+        where = f"{path.name}:{number}"
+
+        for done, total in PROSE_FRACTION.findall(line):
+            if int(total) != flow.phase_count:
+                continue  # a fraction about something else entirely
+            assert f"{done}/{total}" in positions, (where, flow.name)
+
+        for total in PROSE_GATE_TOTAL.findall(line):
+            assert int(total) == flow.gate_total, (
+                where, flow.name, flow.gate_total)
+
+        for shown, total in PROSE_GATE_OF.findall(line):
+            if int(total) != flow.gate_total:
+                continue  # a comparison against another flow's total
+            assert 1 <= int(shown) <= flow.gate_total, (where, flow.name)
+
+
+@pytest.mark.parametrize("path", TRANSCRIPTS, ids=lambda p: p.name)
+def test_no_transcript_states_a_pre_placement_flow_size(path):
+    """ADR-013 added two phases and one gate to every flow. A transcript that
+    still quotes the old size is stale whatever else it gets right."""
+    text = path.read_text(encoding="utf-8")
+    flow = CONSTS.flow(bound_flow(text))
+    stale = f"{flow.phase_count - 2} phases"
+    assert stale not in text, (path.name, stale)
 
 
 def engine_reasons() -> set[str]:

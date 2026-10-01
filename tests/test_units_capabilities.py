@@ -48,6 +48,10 @@ EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_INTEGRITY = 0, 1, 2, 3
 
 SKILL_ROOT = REPO_ROOT / ".claude" / "skills" / "sdle"
 MODULES = SKILL_ROOT / "modules"
+# ADR-014 adds a second capability home. Both are enumerated wherever
+# "what is on disk" is the question, because an unmapped guideline is
+# exactly as dead as an unmapped module.
+GUIDELINES = SKILL_ROOT / "guidelines"
 AGENTS = REPO_ROOT / ".claude" / "agents"
 
 PRODUCT_AGENTS = (
@@ -99,8 +103,17 @@ def capability_map(project: Project) -> dict[str, list[str]]:
     return project.ok("constants").data["capability_map"]
 
 
+def _key(value: str) -> str:
+    """A capability value as `<home>/<file>` - the form both sides use."""
+    path = Path(value)
+    return f"{path.parent.name}/{path.name}"
+
+
 def modules_on_disk() -> list[str]:
-    return sorted(p.name for p in MODULES.glob("*.md") if p.is_file())
+    """Every capability file on disk, in both homes, as `dir/name`."""
+    return sorted(f"{d.name}/{p.name}"
+                  for d in (MODULES, GUIDELINES) if d.is_dir()
+                  for p in d.glob("*.md") if p.is_file())
 
 
 # ==========================================================================
@@ -110,8 +123,8 @@ def modules_on_disk() -> list[str]:
 
 def test_the_registry_is_the_size_this_file_assumes():
     """Non-vacuity guard for every parametrisation below."""
-    assert len(REGISTRY) == 21
-    assert len(GATE_PHASES) == 8
+    assert len(REGISTRY) == 23
+    assert len(GATE_PHASES) == 9
 
 
 @pytest.mark.parametrize("phase", REGISTRY)
@@ -148,7 +161,7 @@ def test_n3_loading_is_progressive_and_the_union_is_what_is_on_disk(repo):
     union = {value for row in mapping.values() for value in row}
 
     assert len(union) >= 4, union
-    assert sorted(Path(v).name for v in union) == modules_on_disk()
+    assert sorted(_key(v) for v in union) == modules_on_disk()
 
     for phase, row in sorted(mapping.items()):
         assert set(row) < union, (
@@ -169,7 +182,7 @@ def test_n4_gate_protocol_is_loaded_at_every_gate_and_nowhere_else(repo):
 
 def test_n5_no_capability_file_on_disk_is_an_orphan(repo):
     """N5/A3. A module nothing maps is a file nobody is told to read."""
-    named = {Path(v).name
+    named = {_key(v)
              for row in capability_map(repo).values() for v in row}
     assert sorted(named) == modules_on_disk()
 
@@ -178,7 +191,7 @@ def test_n7_every_capability_cross_reference_resolves_and_is_mapped(repo):
     """N7/A5/F7. The map is a floor, not a ceiling: remediation at
     `gate_design` sends you back to phase execution and must keep working."""
     named = {value for row in capability_map(repo).values() for value in row}
-    pattern = re.compile(r"modules/[A-Za-z0-9._-]+\.md")
+    pattern = re.compile(r"(?:modules|guidelines)/[A-Za-z0-9._-]+\.md")
     seen = 0
     for value in sorted(named):
         body = (SKILL_ROOT / value).read_text(encoding="utf-8")
@@ -599,10 +612,14 @@ def test_a20_the_linted_file_set_is_derived_and_covers_the_new_files():
     extend — which is the reason the capability split strengthens the three
     content checks instead of diluting them."""
     paths = sdle.resolve_paths(str(REPO_ROOT), str(SKILL_ROOT))
+    # Keyed by `<home>/<file>` so the two capability homes stay distinguishable:
+    # a `guidelines/` file and a `modules/` file could otherwise share a name.
     covered = {p.name for p in sdle._skill_files(paths)}
+    covered_keyed = {f"{p.parent.name}/{p.name}"
+                     for p in sdle._skill_files(paths)}
 
     assert "SKILL.md" in covered
-    assert set(modules_on_disk()) <= covered
+    assert set(modules_on_disk()) <= covered_keyed
     assert set(PRODUCT_AGENTS) <= covered
     # `_skill_files` used to exclude the `sdle-transition-*` control plane by
     # prefix. The post-migration cleanup deleted the files and the exclusion
@@ -623,11 +640,20 @@ def test_a21_the_restatement_search_now_covers_the_product_agents():
 
 
 def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
-    """F-025. A maintenance run's ledger and run logs quote engine vocabulary by
-    design, so that one directory is outside the search. The exclusion must not
-    widen: a sibling under `.sdle/implementation-state/`, the policies and the
-    templates are product surface and stay searched."""
+    """F-025, widened twice in the requirements-refinement work: once for its
+    own execution record, once for open-items-01-02's (a Codex review run's
+    event stream, committed in the same session, quotes back whatever
+    vocabulary the reviewed diff discussed). All three have the same job:
+    quoting engine vocabulary — check ids, refusal codes — as evidence, not
+    as documentation. The exclusion is this **enumerated, named set of
+    three** directories and nothing wider: an unlisted sibling under
+    `.sdle/implementation-state/`, the policies and the templates are
+    product surface and stay searched. Widening the set is not a pattern
+    match on `implementation-state/*` — a fourth, unnamed sibling proves
+    that."""
     from conftest import MAINTENANCE_RECORDS
+
+    assert len(MAINTENANCE_RECORDS) == 3
 
     root = tmp_path
     kept = [root / ".sdle" / "policies" / "policy.json",
@@ -635,8 +661,10 @@ def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
             root / ".sdle" / "implementation-state" / "release-notes.md",
             root / ".sdle" / "implementation-state" / "repository-cleanup-old" / "x.md",
             root / ".sdle" / "config.json"]
-    skipped = [root / MAINTENANCE_RECORDS / "LEDGER.md",
-               root / MAINTENANCE_RECORDS / "runs" / "one.stdout.log"]
+    skipped = []
+    for record in MAINTENANCE_RECORDS:
+        skipped.append(root / record / "LEDGER.md")
+        skipped.append(root / record / "runs" / "one.stdout.log")
     for path in kept + skipped:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("body", encoding="utf-8")
@@ -680,6 +708,7 @@ BASELINE_CHECKS = (
     "next_phase_chains_sequence",
     "progress_denominator_matches_phase_count",
     "gate_registered_gate_constitution",
+    "gate_registered_gate_architecture",
     "gate_registered_gate_spec",
     "gate_registered_gate_plan",
     "gate_registered_gate_tasks",
@@ -742,6 +771,16 @@ T11_CHECKS = (
     "doc_flow_counts_match_engine",
 )
 
+# ADR-013 adds two checks, and both are properties the prose could otherwise
+# only assert: that the placement phase and its gate precede `spec_draft` in
+# every flow, and that no flow/type/risk combination makes that gate
+# omittable. Declared here rather than merely appearing, for the reason the
+# comment above gives.
+ADR_013_CHECKS = (
+    "architecture_phase_precedes_spec_in_every_flow",
+    "architecture_gate_is_universally_required",
+)
+
 
 def test_the_dry_run_index_lists_every_transcript_beside_it():
     """What replaces the byte-pin on `docs/dry-runs/README.md`.
@@ -773,7 +812,7 @@ def test_n26_every_baseline_check_is_still_present_and_passing(repo):
     report = repo.ok("lint-skill").data
     names = [c["name"] for c in report["checks"]]
 
-    expected = BASELINE_CHECKS + T10_CHECKS + T11_CHECKS
+    expected = BASELINE_CHECKS + T10_CHECKS + T11_CHECKS + ADR_013_CHECKS
     assert sorted(names) == sorted(expected), (
         sorted(set(names) ^ set(expected)))
     assert len(names) == len(set(names)), "a check name is emitted twice"

@@ -1,6 +1,6 @@
 # Tutorial — `DEFECT_FIX`: a bug, with time to do it properly
 
-**14 phases, 6 gates.** Use this flow when something is broken, you know it is
+**16 phases, 7 gates.** Use this flow when something is broken, you know it is
 broken, and you are not in an incident. If you *are* in an incident, read
 [hotfix.md](hotfix.md) instead — the difference is not urgency in the abstract,
 it is which four gates you are willing to give up.
@@ -197,7 +197,7 @@ $ sdle.sh init --project "Movement order"
     ],
     "current_phase": "impact_analysis",
     "status": "pending",
-    "progress": "2/14",
+    "progress": "2/16",
     "audit_sha": "49eb82ffd699cc6ef4658266df766a97f4518885f9ed5ebc0ac6b69860ee2b0a"
   }
 }
@@ -205,8 +205,8 @@ $ sdle.sh init --project "Movement order"
 
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=impact_analysis status=pending progress=2/14 -->
-📋 SDLE Status: Phase 2/14 — Impact Analysis [PENDING]
+<!-- SDLE_STATE phase=impact_analysis status=pending progress=2/16 -->
+📋 SDLE Status: Phase 2/16 — Impact Analysis [PENDING]
 --- exit 0 ---
 ```
 
@@ -249,7 +249,7 @@ $ sdle.sh flow show
     "gate_total": 6,
     "current_phase": "impact_analysis",
     "position": 2,
-    "progress": "2/14",
+    "progress": "2/16",
     "next_phase": "spec_draft",
     "gate_number": null,
     "label": "Impact Analysis",
@@ -352,7 +352,7 @@ $ sdle.sh advance --to spec_draft
     "from": "impact_analysis",
     "to": "spec_draft",
     "status": "pending",
-    "progress": "3/14"
+    "progress": "5/16"
   }
 }
 --- exit 0 ---
@@ -391,19 +391,19 @@ and the refusal returns. Record the review last.
 
 **Where the human reads it.** The phase has no gate, so the orchestrator
 displays the analysis in full in the conversation, and again immediately before
-the Gate 2 prompt — the first gate downstream of it. Gate 2 nominally approves
+the Gate 3 prompt — the first gate downstream of it. Gate 3 nominally approves
 the specification; in a defect flow it is the point at which somebody with the
 blast radius in front of them decides the fix is scoped correctly. The engine
 guarantees an analysis exists and was reviewed; whether it is *right* is the
-judgement Gate 2 is for.
+judgement Gate 3 is for.
 
 ---
 
 ## 5. The rest of the flow
 
-From `spec_draft` onward the pattern is `GREENFIELD`'s, with a 14-phase
-denominator and flow-relative gate numbers — `gate_spec` reports as *Gate 1 of
-6* here, where in `GREENFIELD` it is Gate 2 of 8. Generation phases write an
+From `spec_draft` onward the pattern is `GREENFIELD`'s, with a 16-phase
+denominator and flow-relative gate numbers — `gate_spec` reports as *Gate 2 of
+7* here, where in `GREENFIELD` it is Gate 3 of 9. Generation phases write an
 artifact, `artifact record` fingerprints it, `advance` moves one step. Gate
 phases run `gate show`, `artifact review`, `gate approve`. The per-phase detail
 is in [greenfield.md §6](greenfield.md#6-walking-the-phases) and the
@@ -417,8 +417,8 @@ deliberately with `drift rebaseline --gate gate_tasks` rather than letting the
 detector raise an alarm about a change everyone intended.
 
 **There is no `checklist_draft`.** In `GREENFIELD` the checklist is recorded
-`--optional` and reviewed alongside the tasks at Gate 4. `DEFECT_FIX` has no
-checklist phase at all; the task list is the whole of what Gate 3 reviews.
+`--optional` and reviewed alongside the tasks at Gate 5. `DEFECT_FIX` has no
+checklist phase at all; the task list is the whole of what Gate 4 reviews.
 
 ---
 
@@ -437,7 +437,7 @@ $ sdle.sh gate approve --gate gate_security
     "remaining_drift": [],
     "next_phase": "complete",
     "status": "completed",
-    "progress": "14/14",
+    "progress": "16/16",
     "completion_summary": "workitems/movement-order/.sdle/completion-summary.json",
     "baseline": null
   }

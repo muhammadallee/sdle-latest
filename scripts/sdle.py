@@ -19,6 +19,7 @@ never restated here. See ``Constants``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import json
@@ -155,6 +156,32 @@ class Paths:
         """
         return str(self.runtime.relative_to(self.project_root)).replace(os.sep, "/")
 
+    @property
+    def workitem_root_relative(self) -> str:
+        """The WorkItem directory as a repo-relative POSIX prefix.
+
+        The runtime's parent. Separate from ``runtime_relative`` because one
+        governed artifact — the architecture placement rendering — is a
+        WorkItem *deliverable* rather than engine bookkeeping, and lives beside
+        `.sdle/` rather than inside it (ADR-013).
+        """
+        root = self.workitem_root
+        if root is None:
+            return self.runtime_relative
+        return str(root.relative_to(self.project_root)).replace(os.sep, "/")
+
+    @property
+    def architecture_placement_file(self) -> Path:
+        """The WorkItem's validated placement record."""
+        return self.runtime / "architecture-placement.json"
+
+    @property
+    def architecture_placement_rendering(self) -> Path:
+        """The gated Markdown rendering of that record."""
+        root = self.workitem_root
+        base = self.runtime if root is None else root
+        return base / "architecture" / "placement.md"
+
     # `workflow` is retained as an alias so call sites that only ever meant
     # "the runtime directory" did not have to move.
     @property
@@ -216,6 +243,22 @@ class Paths:
         assessment read.
         """
         return self.runtime / "requirements.json"
+
+    @property
+    def scan_acknowledgements_file(self) -> Path:
+        """Explicitly acknowledged flagged content, keyed by path and SHA-256.
+
+        WorkItem-owned, for the same reason ``governance_file`` is: written
+        before ``init`` exists (`accept-content --path` works pre-init), read
+        by `governance assess`, which refuses a flagged bound source unless an
+        acknowledgement matching its *current* content is on file — editing a
+        flagged line invalidates the old acknowledgement rather than being
+        silently covered by it. Deliberately not a field of ``state.json``:
+        acknowledging a document's content is a fact about the document, not
+        about lifecycle state, and it must survive `init` unmigrated like
+        every other pre-init record (`requirements.json`, `governance.json`).
+        """
+        return self.runtime / "scan-acknowledgements.json"
 
     @property
     def discovery_file(self) -> Path:
@@ -316,6 +359,38 @@ class Paths:
         hand-maintained list of what is inside.
         """
         return self.skill_root / "modules"
+
+    @property
+    def guidelines_dir(self) -> Path:
+        """Where the built-in decision heuristics live (ADR-014).
+
+        A second capability-file home beside ``modules_dir``, and enumerated by
+        `lint-skill` the same way: a guideline no `CAPABILITY_MAP` row names is
+        an orphan and fails, and every guideline is inside the prompt-content
+        checks. Advisory content, never a rule — the precedence chain in
+        `modules/architecture-placement.md` puts it below approved artifacts.
+        """
+        return self.skill_root / "guidelines"
+
+    @property
+    def architecture_dir(self) -> Path:
+        """Repository-level architecture memory, `.sdle/architecture/`.
+
+        Configuration-boundary content by ADR-002's location rule and
+        *knowledge* by ADR-013's: derived from ``project_root`` alone, never
+        from the bound WorkItem, and shared by every WorkItem in the
+        repository.
+        """
+        return self.config_root / "architecture"
+
+    @property
+    def architecture_catalog_file(self) -> Path:
+        return self.architecture_dir / "catalog.json"
+
+    @property
+    def architecture_lock_file(self) -> Path:
+        """Held only across one read-check-write of the catalog."""
+        return self.architecture_dir / "catalog.lock"
 
     @property
     def agents_dir(self) -> Path:
@@ -567,6 +642,8 @@ GREENFIELD_V1_PHASES: tuple[str, ...] = (
     "requirements_check",
     "constitution_draft",
     "gate_constitution",
+    "architecture_placement",
+    "gate_architecture",
     "spec_draft",
     "gate_spec",
     "plan_draft",
@@ -592,9 +669,15 @@ DEFAULT_FLOW = "GREENFIELD"
 # enforced at lint time *and* at load time, because a flow that lost one would
 # not merely look wrong — it would break inside Spec Kit at run time.
 #
-#   requirements_check  bootstrap; `init` writes it as the first phase
+#   requirements_check      bootstrap; `init` writes it as the first phase
+#   architecture_placement  decides which service this WorkItem changes; a
+#                           specification written outside an approved boundary
+#                           is the thing ADR-013 exists to prevent
+#   gate_architecture       the human decision on that placement; universally
+#                           required, because the catalog it writes is shared
+#                           across WorkItems (see `gate_requirements`)
 #   spec_draft          the only phase that creates the feature directory
-#   gate_spec           the first human gate; without it nothing is governed
+#   gate_spec           the first Spec Kit human gate
 #   plan_draft          `speckit-tasks` derives from plan.md
 #   tasks_draft         `speckit-implement` derives from tasks.md
 #   implement           carries the secrets scan and the test evidence
@@ -604,6 +687,8 @@ DEFAULT_FLOW = "GREENFIELD"
 #   complete            terminal
 MANDATORY_FLOW_PHASES: tuple[str, ...] = (
     "requirements_check",
+    "architecture_placement",
+    "gate_architecture",
     "spec_draft",
     "gate_spec",
     "plan_draft",
@@ -675,7 +760,7 @@ class Flow:
 
     @property
     def phase_count(self) -> int:
-        """The N in 'N/18' — every phase except the terminal ``complete``."""
+        """The N in 'N/20' under GREENFIELD — every phase but ``complete``."""
         return len([p for p in self.phases if p != "complete"])
 
     @property
@@ -750,7 +835,7 @@ class Constants:
 
     @property
     def phase_count(self) -> int:
-        """The N in 'N/18' — every phase except the terminal ``complete``."""
+        """The N in 'N/20' under GREENFIELD — every phase but ``complete``."""
         return len([p for p in self.phase_sequence if p != "complete"])
 
     def index(self, phase: str) -> int:
@@ -1173,7 +1258,7 @@ def actor(paths: Paths) -> str:
 # State IO
 # --------------------------------------------------------------------------
 
-CURRENT_VERSION = "1.17"
+CURRENT_VERSION = "1.18"
 
 STATUS_DISPLAY = {
     "pending": "PENDING",
@@ -2414,6 +2499,13 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # invariant is a property of the repository, not of any WorkItem — so both
     # its readers resolve without one, exactly like `config`.
     "baseline",
+    # The architecture catalog is the repository's accumulated knowledge, not
+    # a WorkItem's (ADR-013), so `architecture schema` and `architecture show`
+    # must answer in a repository with no WorkItem at all — `show` is how a
+    # new WorkItem learns what already exists. The WorkItem-scoped members
+    # (`assess`, `apply`, `realize`) bind explicitly through
+    # `bind_for_architecture`, so the ladder is exercised, not bypassed.
+    "architecture",
 })
 
 
@@ -3428,6 +3520,7 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
         bound.lock_file, bound.evidence_dir, bound.manifest_file,
         bound.completion_file, bound.governance_file, bound.reviews_file,
         bound.discovery_file, bound.requirements_binding_file,
+        bound.architecture_placement_file,
     ))
 
 
@@ -3697,6 +3790,10 @@ def collect_validation_findings(paths: Paths, decision: Resolution) -> list[dict
         paths.policies_dir.name,
         paths.baseline_file.name,
         paths.implementation_state_dir.name,
+        # ADR-013: the shared architecture catalog lives at the configuration
+        # boundary, so a `.sdle/architecture/` inside a WorkItem runtime is
+        # the same class of mistake as a `.sdle/policies/` there.
+        paths.architecture_dir.name,
     )
 
     if paths.config_root.is_dir():
@@ -4407,6 +4504,105 @@ def _binding_refused(reason: str, message: str, **data) -> Refused:
     return Refused(reason, message, data)
 
 
+class _PathProblem(Exception):
+    """Internal signal only — never escapes `_lexically_safe_path`. Carries
+    which rule fired, so each of that function's two callers can raise its
+    own reason and wording for the same underlying fact."""
+
+    def __init__(self, kind: str):
+        self.kind = kind
+
+
+def _lexically_safe_path(paths: Paths, raw: str) -> str:
+    """Every lexical and containment check a repository-relative path must
+    pass, shared by `_binding_source` (a *bound* requirements source) and
+    `safe_repo_path` (any path the orchestrator names to `scan`/
+    `accept-content`) — the safety rules are identical; only the reason code
+    and wording differ per caller, which is why this raises `_PathProblem`
+    rather than a refusal itself. Kept as one function rather than two
+    independently-maintained copies after the second one was found to have
+    drifted the day it was written, missing the Windows-alias checks the
+    first already had.
+
+    Returns the normalised POSIX-relative path. Never checks existence or
+    whether it names a directory — callers that need a file to be there
+    check separately, with whatever reason fits their own contract.
+    """
+    text = str(raw).strip().replace(chr(92), "/")
+    # Windows resolves `file.md::$DATA` and `file.md.` to the ordinary file
+    # while the stored string stays distinct, so the same document could be
+    # matched twice and one spelling would not match the other. Rejected as
+    # syntax rather than normalised: a path SDLE records must mean one file on
+    # every platform, and a colon or a trailing dot in a component means it
+    # does not.
+    for part in text.split("/"):
+        if ":" in part or part != part.rstrip(". "):
+            raise _PathProblem("alias")
+    if any(ord(ch) < 32 for ch in text):
+        raise _PathProblem("control")
+    if not text:
+        raise _PathProblem("empty")
+    if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
+        raise _PathProblem("absolute")
+    normal = posixpath.normpath(text)
+    if normal == ".." or normal.startswith("../"):
+        raise _PathProblem("traversal")
+    target = paths.project_root / normal
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(paths.project_root.resolve())
+    except (OSError, ValueError):
+        raise _PathProblem("escape") from None
+    return normal
+
+
+def safe_repo_path(paths: Paths, raw: str) -> tuple[Path, str]:
+    """An arbitrary path the orchestrator names — for `scan --path` and
+    `accept-content --path`, never only a *bound* source — canonicalised and
+    checked against the repository root, or refused `path_invalid`.
+
+    `scan`/`accept-content` had no path safety at all before this: a `--path`
+    reading `../../outside.md`, an absolute path, a Windows-alias spelling,
+    or a symlink resolving outside the tree would be joined and read
+    unchecked. Returns `(target, canonical_relative_key)` — every caller
+    uses the *key* everywhere a path is stored, matched or emitted
+    (`pending_confirm_action`, the acknowledgement record, the audit message,
+    emitted `data`), never the raw string a user typed, so two spellings of
+    the same file can never appear to name two different ones.
+
+    Accepted as an engine-wide limitation, not fixed here: `target` is
+    reconstructed from the canonical key rather than the `resolved` handle
+    `_lexically_safe_path` already opened to check containment, so a symlink
+    retargeted in the gap between this check and the caller's later
+    `is_file()`/`read_bytes()` call is still followed. Returning the already-
+    resolved `Path` object instead would not close this — Python's file APIs
+    re-resolve at the syscall that actually opens the file regardless of
+    whether `.resolve()` was called on the object earlier, so the two forms
+    behave identically here. Closing it for real needs a file-descriptor-
+    anchored open (`O_NOFOLLOW`/`openat`), which every other path-based read
+    in this engine — including `requirements_sources`, which this mirrors —
+    also lacks; this is that same, pre-existing, engine-wide property, not a
+    gap specific to `scan`/`accept-content`.
+    """
+    try:
+        normal = _lexically_safe_path(paths, raw)
+    except _PathProblem as problem:
+        message = {
+            "alias": f"'{raw}' uses a spelling that names different files on "
+                     "different platforms (a ':' stream, or a trailing dot "
+                     "or space). Use the plain path.",
+            "control": f"'{raw}' is not a usable path.",
+            "empty": f"'{raw}' is not a usable path.",
+            "absolute": f"'{raw}' is an absolute path. Name it relative to "
+                        "the repository root.",
+            "traversal": f"'{raw}' leaves the repository.",
+            "escape": f"'{raw}' resolves outside the repository (a symlink "
+                      "or junction pointing away from it).",
+        }[problem.kind]
+        raise Refused("path_invalid", message, {"path": raw}) from None
+    return paths.project_root / normal, normal
+
+
 def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     """One bound path, validated and canonicalised, or a refusal.
 
@@ -4415,51 +4611,29 @@ def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
     directory whose contents can change underneath the record, would make the
     recorded set mean something other than what it says.
     """
-    text = str(raw).strip().replace(chr(92), "/")
-    # Windows resolves `file.md::$DATA` and `file.md.` to the ordinary file
-    # while the stored string stays distinct, so the same document could be
-    # bound twice and one spelling would not match the other. Rejected as
-    # syntax rather than normalised: a path SDLE records must mean one file on
-    # every platform, and a colon or a trailing dot in a component means it
-    # does not.
-    for part in text.split("/"):
-        if ":" in part or part != part.rstrip(". "):
-            raise _binding_refused(
-                "requirements_source_invalid",
-                f"'{raw}' uses a spelling that names different files on "
-                "different platforms (a ':' stream, or a trailing dot or "
-                "space). Bind the document by its plain path.", source=raw)
-    if any(ord(ch) < 32 for ch in text):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' contains a control character. A requirements source is "
-            "an ordinary repository path.", source=raw)
-    if not text:
-        raise _binding_refused(
-            "requirements_source_invalid",
-            "An empty path is not a requirements source.", source=raw)
-    if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' is an absolute path. Bind requirement sources by their "
-            "path relative to the repository root, so the record means the "
-            "same thing in every checkout.", source=raw)
-    normal = posixpath.normpath(text)
-    if normal == ".." or normal.startswith("../"):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' leaves the repository. A requirements source must be a "
-            "file inside it.", source=raw)
-    target = paths.project_root / normal
     try:
-        resolved = target.resolve()
-        resolved.relative_to(paths.project_root.resolve())
-    except (OSError, ValueError):
-        raise _binding_refused(
-            "requirements_source_invalid",
-            f"'{raw}' resolves outside the repository (a symlink or junction "
-            "pointing away from it). SDLE will not read requirements from "
-            "outside the tree it governs.", source=raw) from None
+        normal = _lexically_safe_path(paths, raw)
+    except _PathProblem as problem:
+        message = {
+            "alias": f"'{raw}' uses a spelling that names different files on "
+                     "different platforms (a ':' stream, or a trailing dot "
+                     "or space). Bind the document by its plain path.",
+            "control": f"'{raw}' contains a control character. A "
+                       "requirements source is an ordinary repository path.",
+            "empty": "An empty path is not a requirements source.",
+            "absolute": f"'{raw}' is an absolute path. Bind requirement "
+                        "sources by their path relative to the repository "
+                        "root, so the record means the same thing in every "
+                        "checkout.",
+            "traversal": f"'{raw}' leaves the repository. A requirements "
+                         "source must be a file inside it.",
+            "escape": f"'{raw}' resolves outside the repository (a symlink "
+                      "or junction pointing away from it). SDLE will not "
+                      "read requirements from outside the tree it governs.",
+        }[problem.kind]
+        raise _binding_refused("requirements_source_invalid", message,
+                               source=raw) from None
+    target = paths.project_root / normal
     if target.is_dir():
         raise _binding_refused(
             "requirements_source_invalid",
@@ -4599,8 +4773,14 @@ def bound_sources(paths: Paths) -> list[str]:
 
 
 def requirements_sources(paths: Paths, strict: bool = False
-                        ) -> tuple[list[dict], str]:
-    """Every **bound** requirement document with its SHA, plus one digest.
+                        ) -> tuple[list[dict], str, dict[str, bytes]]:
+    """Every **bound** requirement document with its SHA, one digest, and the
+    raw bytes actually read for each — each source is read from disk exactly
+    once, here, and the caller passes those same bytes on rather than
+    re-reading: two separate reads of the same bound source, at two
+    different times, is exactly the gap a concurrent edit can exploit —
+    `governance assess` used to hash here and re-read again in
+    `unacknowledged_flagged_sources`, so it no longer does.
 
     ``strict`` is what `governance assess` passes: an assessment may not be
     *recorded* against a document that is not there. Without it, deleting a
@@ -4618,14 +4798,16 @@ def requirements_sources(paths: Paths, strict: bool = False
     """
     sources: list[dict] = []
     missing: list[str] = []
+    raw_by_path: dict[str, bytes] = {}
     for relative in bound_sources(paths):
         target = paths.project_root / relative
         if not target.is_file():
             missing.append(relative)
-        sources.append({
-            "path": relative,
-            "sha256": sha256_file(target) if target.is_file() else None,
-        })
+            sources.append({"path": relative, "sha256": None})
+            continue
+        raw = target.read_bytes()
+        raw_by_path[relative] = raw
+        sources.append({"path": relative, "sha256": hashlib.sha256(raw).hexdigest()})
     if strict and missing:
         raise _binding_refused(
             "requirements_source_missing",
@@ -4635,7 +4817,7 @@ def requirements_sources(paths: Paths, strict: bool = False
             "re-run `requirements bind` with the documents it is about.",
             workitem=paths.workitem, missing=missing)
     sources.sort(key=lambda entry: entry["path"])
-    return sources, _sources_digest(sources)
+    return sources, _sources_digest(sources), raw_by_path
 
 
 def _sources_digest(sources: list[dict]) -> str:
@@ -5090,6 +5272,19 @@ def gate_requirements(consts: Constants, flow: Flow, classification: dict,
 
     Every ``required`` entry carries at least one reason, so "why did this
     gate stop me" always has a machine-readable answer.
+
+    Two of those reasons are **derived rather than declared**, and both are
+    deliberately out of reach of a policy file, because a policy dictionary
+    can only ever add to this set:
+
+      ``terminal_gate``      the last gate before completion, at every risk
+                             level, in every flow;
+      ``architecture_gate``  `gate_architecture` (ADR-013). The catalog it
+                             writes is shared cross-WorkItem memory, and an
+                             approved placement becomes evidence a later
+                             WorkItem reasons from, so no placement enters it
+                             without a human. There is no risk level and no
+                             WorkItem type at which this is omittable.
     """
     policy_reasons = _policy_gate_reasons(classification, final_level, policy)
     named = set(required_gate_set(classification, final_level, policy))
@@ -5101,6 +5296,8 @@ def gate_requirements(consts: Constants, flow: Flow, classification: dict,
         reasons = list(policy_reasons.get(gate_key) or [])
         if gate_key == terminal:
             reasons.append("terminal_gate")
+        if gate_key == ARCHITECTURE_GATE_KEY:
+            reasons.append("architecture_gate")
         dispositions.append({
             "gate": gate_key,
             "gate_phase": phase_for.get(gate_key),
@@ -5353,7 +5550,27 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # the assessment then refused `requirements_unbound` — an artifact of a
     # decision that was never taken, which is exactly what refusal atomicity
     # exists to prevent.
-    sources, digest = requirements_sources(paths, strict=True)
+    sources, digest, raw_by_path = requirements_sources(paths, strict=True)
+    # DEF-RR-001. Independent of whatever `scan` last recorded: a bound
+    # source nobody ever ran `scan` on must not reach `init` unexamined
+    # either. Before evidence is claimed, matching the refusal-atomicity
+    # comment above — a flagged, unacknowledged document is not a decision
+    # this assessment gets to make. `raw_by_path` threads through the exact
+    # bytes just hashed above, so this never re-reads a bound source (V-01).
+    offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
+    if offenders:
+        detail = "; ".join(
+            f"{o['path']} (line {o['matches'][0]['line']}: "
+            f"{o['matches'][0]['pattern']})" for o in offenders)
+        raise Refused(
+            "governance_content_unacknowledged",
+            "Bound document(s) contain unacknowledged content that looks "
+            f"like instructions directed at the workflow engine: {detail}. "
+            "Edit the flagged line(s) and re-assess, or acknowledge each "
+            "with `accept-content --path <file>` first.",
+            {"workitem": paths.workitem,
+             "offenders": [{"path": o["path"], "matches": o["matches"]}
+                           for o in offenders]})
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -6093,6 +6310,2198 @@ def discovery_precondition(paths: Paths, state: dict | None = None) -> None:
 
 
 # --------------------------------------------------------------------------
+# Project architecture memory — ADR-013
+# --------------------------------------------------------------------------
+#
+# A WorkItem is the unit of execution; the repository is the unit of
+# accumulated architectural knowledge. `.sdle/architecture/catalog.json` is
+# that knowledge: which capabilities exist, which services own them, which
+# boundaries are candidates rather than services, who owns which data, and the
+# decision history that produced all of it.
+#
+# The split is the one ADR-001 draws and ADR-005 repeated for discovery.
+# *"Does Risk Assessment deserve a service of its own?"* is judgement and
+# belongs to the model. *"Is the outcome one of the five? Does the base
+# revision still match? Does this candidate name a capability anybody knows?
+# Would this delta leave two services claiming the same data?"* is mechanism
+# and belongs here.
+#
+# Three properties this module exists to guarantee, none of which a prompt
+# could:
+#
+#   * **No placement enters the catalog without a human.** `gate_architecture`
+#     is required at every risk level, derived in `gate_requirements` rather
+#     than declared in a policy dictionary, so no policy file can relax it.
+#   * **Two WorkItems cannot silently overwrite each other.** Every proposal
+#     pins the revision it was reasoned against; `apply` refuses
+#     `architecture_catalog_stale` when the catalog has moved — unless the
+#     move was this very decision, which is an idempotent replay and must
+#     succeed.
+#   * **The rendering a human approved is the record that is applied.** The
+#     structured record and the Markdown carry the same decision id and
+#     proposal digest, and `apply` re-verifies the rendering's SHA. A
+#     hand-edited rendering fails rather than becoming architecture truth.
+
+ARCHITECTURE_PHASE = "architecture_placement"
+ARCHITECTURE_GATE_KEY = "gate_architecture"
+# Named here rather than spelled at the two use sites: placement reads the
+# constitution gate's decision and its registered artifact, and a literal in
+# both places is the second source of truth invariant 7 forbids.
+ARCHITECTURE_CONSTITUTION_GATE = "gate_constitution"
+
+ARCHITECTURE_CATALOG_VERSION = 1
+ARCHITECTURE_PROPOSAL_VERSIONS = ("1",)
+ARCHITECTURE_RECORD_VERSION = "1"
+
+ARCHITECTURE_APPLIED_EVENT = "architecture_applied"
+ARCHITECTURE_ASSESSED_EVENT = "architecture_assessed"
+ARCHITECTURE_REALIZED_EVENT = "architecture_realized"
+ARCHITECTURE_ABANDONED_EVENT = "architecture_decision_abandoned"
+
+# Exactly one primary outcome per placement. Closed, and ordered as ADR-013
+# orders them: the four actionable ones first, the escape hatch last.
+ARCHITECTURE_OUTCOMES = (
+    "EXTEND_EXISTING_SERVICE",
+    "CREATE_NEW_SERVICE",
+    "KEEP_EMBEDDED_AND_MONITOR",
+    "EXTRACT_EXISTING_CAPABILITY",
+    "ARCHITECTURE_REVIEW_REQUIRED",
+)
+ARCHITECTURE_UNRESOLVED_OUTCOME = ARCHITECTURE_OUTCOMES[-1]
+ARCHITECTURE_ACTIONABLE_OUTCOMES = ARCHITECTURE_OUTCOMES[:-1]
+
+# The two outcomes that establish something a constitution governs: a new
+# service boundary, or a transfer of one. Neither is defensible before the
+# engineering rules exist (ADR-014).
+ARCHITECTURE_CONSTITUTION_REQUIRED = (
+    "CREATE_NEW_SERVICE", "EXTRACT_EXISTING_CAPABILITY",
+)
+
+CAPABILITY_STATUSES = ("EMERGING", "ESTABLISHED", "EMBEDDED", "EXTRACTING")
+SERVICE_STATUSES = ("PLANNED", "IMPLEMENTED", "SUPERSEDED", "WITHDRAWN")
+CANDIDATE_STATES = ("OPEN", "EXTRACTING", "EXTRACTED", "DISMISSED", "ABANDONED")
+# `PLANNED` is the pre-realization state, exactly as it is for a service. It
+# exists so the "one ACTIVE owner per datum" invariant stays literally true
+# between `apply` and `realize`, when the old owner still owns the data and the
+# new one does not yet.
+DATA_OWNERSHIP_STATUSES = ("PLANNED", "ACTIVE", "SUPERSEDED", "WITHDRAWN")
+DECISION_STATUSES = (
+    "APPROVED_PENDING_IMPLEMENTATION", "IMPLEMENTED", "SUPERSEDED", "ABANDONED",
+)
+
+# Evidence, not a scorecard. ADR-013 is explicit that no numeric
+# "microservice score" is computed, accepted or stored: a proposal addresses
+# the dimensions its outcome makes relevant, and the engine checks that the
+# named dimensions are ones it knows — never whether a finding is true.
+ARCHITECTURE_DIMENSIONS = (
+    "business_capability_cohesion",
+    "business_responsibility",
+    "domain_aggregate_invariants",
+    "data_ownership",
+    "transactional_boundaries",
+    "lifecycle_independence",
+    "change_coupling",
+    "integration_dependencies",
+    "security_boundary",
+    "independent_scaling",
+    "availability_differences",
+    "deployment_independence",
+    "existing_code_ownership",
+    "related_workitems",
+    "existing_adrs",
+    "existing_candidates",
+)
+
+# Which dimensions an outcome must address. A floor, never a checklist to
+# pass: "we considered data ownership and it does not separate" is a finding.
+ARCHITECTURE_REQUIRED_DIMENSIONS = {
+    "EXTEND_EXISTING_SERVICE": ("business_capability_cohesion", "data_ownership"),
+    "CREATE_NEW_SERVICE": (
+        "business_capability_cohesion", "data_ownership",
+        "lifecycle_independence", "deployment_independence",
+    ),
+    "KEEP_EMBEDDED_AND_MONITOR": (
+        "business_capability_cohesion", "data_ownership", "change_coupling",
+    ),
+    "EXTRACT_EXISTING_CAPABILITY": (
+        "business_capability_cohesion", "data_ownership",
+        "lifecycle_independence", "change_coupling", "existing_candidates",
+    ),
+    "ARCHITECTURE_REVIEW_REQUIRED": (),
+}
+
+ARCHITECTURE_PROPOSAL_SECTIONS = (
+    "architectureProposalVersion", "baseArchitectureRevision", "placement",
+)
+
+CONSTITUTION_PRESENT, CONSTITUTION_ABSENT = "PRESENT", "ABSENT"
+
+
+def empty_architecture_catalog() -> dict:
+    """The shape an uninitialized repository is treated as having.
+
+    Never written to disk by itself: `architecture show` reports
+    ``initialized: false`` rather than materialising a file nobody asked for,
+    and the first `apply` writes revision 1.
+    """
+    return {
+        "catalogVersion": ARCHITECTURE_CATALOG_VERSION,
+        "revision": 0,
+        "updatedAt": None,
+        "capabilities": [],
+        "services": [],
+        "candidates": [],
+        "dataOwnership": [],
+        "decisions": [],
+    }
+
+
+ARCHITECTURE_COLLECTIONS = (
+    "capabilities", "services", "candidates", "dataOwnership", "decisions",
+)
+
+
+def _architecture_invalid(relative: str, detail: str, **data) -> IntegrityError:
+    return IntegrityError(
+        "architecture_catalog_invalid",
+        f"{relative} cannot be used: {detail}. The architecture catalog is "
+        "shared across every WorkItem in this repository, so a catalog the "
+        "engine cannot trust is an integrity failure, never an empty one. "
+        "Repair it by hand or restore it from version control; SDLE never "
+        "rewrites it to make it parse.",
+        {"path": relative, "detail": detail, **data},
+    )
+
+
+def validate_architecture_catalog(catalog, relative: str) -> dict:
+    """Structural validation of a catalog document. Raises, or returns it.
+
+    Deliberately total about *structure* and silent about *architecture*: it
+    checks that ids are unique, that every reference resolves, that every enum
+    is closed and that no datum has two active owners. It has no opinion on
+    whether the architecture described is a good one.
+    """
+    if not isinstance(catalog, dict):
+        raise _architecture_invalid(relative, "it is not a JSON object")
+
+    version = catalog.get("catalogVersion")
+    if version != ARCHITECTURE_CATALOG_VERSION:
+        raise IntegrityError(
+            "architecture_catalog_version_unsupported",
+            f"{relative} declares catalogVersion {version!r}; this engine "
+            f"reads {ARCHITECTURE_CATALOG_VERSION!r}. The catalog is left "
+            "exactly as it is — there is no migration.",
+            {"path": relative, "found": version,
+             "supported": ARCHITECTURE_CATALOG_VERSION},
+        )
+
+    revision = catalog.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise _architecture_invalid(
+            relative, f"revision {revision!r} is not a non-negative integer")
+
+    for name in ARCHITECTURE_COLLECTIONS:
+        value = catalog.get(name)
+        if not isinstance(value, list) or any(
+                not isinstance(entry, dict) for entry in value):
+            raise _architecture_invalid(
+                relative, f"'{name}' is not a list of objects")
+
+    capability_ids = _architecture_unique_ids(
+        relative, catalog["capabilities"], "id", "capability")
+    service_ids = _architecture_unique_ids(
+        relative, catalog["services"], "serviceId", "service")
+    _architecture_unique_ids(relative, catalog["candidates"], "id", "candidate")
+    _architecture_unique_ids(relative, catalog["decisions"], "id", "decision")
+
+    _architecture_enum(relative, catalog["capabilities"], "status",
+                       CAPABILITY_STATUSES, "capability")
+    _architecture_enum(relative, catalog["services"], "status",
+                       SERVICE_STATUSES, "service")
+    _architecture_enum(relative, catalog["candidates"], "state",
+                       CANDIDATE_STATES, "candidate")
+    _architecture_enum(relative, catalog["dataOwnership"], "status",
+                       DATA_OWNERSHIP_STATUSES, "dataOwnership")
+    _architecture_enum(relative, catalog["decisions"], "status",
+                       DECISION_STATUSES, "decision")
+    _architecture_enum(relative, catalog["decisions"], "outcome",
+                       ARCHITECTURE_OUTCOMES, "decision")
+
+    # `introducedBy` is what the abandonment cascade selects on, so an entity
+    # without one is an entity the first decision to re-state it could
+    # withdraw. Required rather than defaulted: silently adopting an orphan
+    # is the defect the field was added to prevent.
+    for name, key in (("capabilities", "id"), ("services", "serviceId"),
+                      ("candidates", "id"), ("dataOwnership", "data")):
+        for entry in catalog[name]:
+            if "introducedBy" not in entry:
+                raise _architecture_invalid(
+                    relative,
+                    f"{name} entry {entry.get(key)!r} carries no "
+                    "'introducedBy', so no decision owns it and an unrelated "
+                    "WorkItem's restart could withdraw it")
+
+    for capability in catalog["capabilities"]:
+        owner = capability.get("ownerService")
+        if owner is not None and owner not in service_ids:
+            raise _architecture_invalid(
+                relative,
+                f"capability {capability.get('id')!r} names owner {owner!r}, "
+                "which is not a service in this catalog")
+    for candidate in catalog["candidates"]:
+        if candidate.get("capability") not in capability_ids:
+            raise _architecture_invalid(
+                relative,
+                f"candidate {candidate.get('id')!r} names capability "
+                f"{candidate.get('capability')!r}, which this catalog does "
+                "not define")
+    for service in catalog["services"]:
+        unknown = [name for name in (service.get("capabilities") or [])
+                   if name not in capability_ids]
+        if unknown:
+            raise _architecture_invalid(
+                relative,
+                f"service {service.get('serviceId')!r} claims capability "
+                + ", ".join(repr(name) for name in unknown)
+                + ", which this catalog does not define")
+    for entry in catalog["dataOwnership"]:
+        if entry.get("ownerService") not in service_ids:
+            raise _architecture_invalid(
+                relative,
+                f"data ownership for {entry.get('data')!r} names service "
+                f"{entry.get('ownerService')!r}, which this catalog does not "
+                "define")
+
+    _architecture_single_active_owner(relative, catalog["dataOwnership"])
+    return catalog
+
+
+def _architecture_unique_ids(relative: str, entries: list, key: str,
+                             label: str) -> set:
+    seen: set = set()
+    for entry in entries:
+        value = entry.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise _architecture_invalid(
+                relative, f"a {label} entry has no usable {key}")
+        if value in seen:
+            raise _architecture_invalid(
+                relative, f"{label} id {value!r} appears more than once")
+        seen.add(value)
+    return seen
+
+
+def _architecture_enum(relative: str, entries: list, key: str,
+                       permitted: tuple, label: str) -> None:
+    for entry in entries:
+        value = entry.get(key)
+        if value not in permitted:
+            raise _architecture_invalid(
+                relative,
+                f"{label} {key} {value!r} is not one of "
+                + ", ".join(permitted))
+
+
+def _architecture_single_active_owner(relative: str, entries: list) -> None:
+    """One ACTIVE owner per datum. The invariant the catalog exists to keep.
+
+    `PLANNED` rows are excluded on purpose: between `apply` and `realize` the
+    old owner still owns the data and the new one does not yet, and that is a
+    correct state rather than a conflict.
+    """
+    owners: dict[str, str] = {}
+    for entry in entries:
+        if entry.get("status") != "ACTIVE":
+            continue
+        datum = entry.get("data")
+        owner = entry.get("ownerService")
+        if datum in owners and owners[datum] != owner:
+            raise Refused(
+                "architecture_conflicting_ownership",
+                f"{relative} would leave {datum!r} owned by both "
+                f"{owners[datum]!r} and {owner!r}. Exactly one service owns a "
+                "datum at a time; the previous owner's entry must be "
+                "superseded rather than left active.",
+                {"data": datum, "owners": sorted({owners[datum], owner})},
+            )
+        owners[str(datum)] = str(owner)
+
+
+def read_architecture_catalog(paths: Paths) -> dict | None:
+    """The catalog, or ``None`` when the repository has none.
+
+    Fail-closed in the same direction as ``read_governance_record``: absent is
+    ``None`` and is a perfectly ordinary state; unreadable, unparseable or of
+    another schema version is an integrity failure that leaves the file alone.
+    """
+    target = paths.architecture_catalog_file
+    relative = architecture_catalog_relative(paths)
+    if not target.is_file():
+        return None
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise _architecture_invalid(relative, f"it cannot be read ({exc})") from None
+    return validate_architecture_catalog(document, relative)
+
+
+def architecture_catalog_relative(paths: Paths) -> str:
+    """Derived from `Paths`, never rebuilt: the directory name has one home."""
+    return (paths.architecture_catalog_file
+            .relative_to(paths.project_root).as_posix())
+
+
+def architecture_lock_relative(paths: Paths) -> str:
+    return (paths.architecture_lock_file
+            .relative_to(paths.project_root).as_posix())
+
+
+def write_architecture_catalog(paths: Paths, catalog: dict) -> str:
+    """Validate, then write atomically. Returns the repo-relative path.
+
+    Validation runs on the *outgoing* document, not only the incoming one: a
+    delta that would produce a catalog this engine could not read back is
+    refused before it reaches disk, so `architecture show` can never be the
+    command that discovers a corruption `apply` created.
+    """
+    relative = architecture_catalog_relative(paths)
+    validate_architecture_catalog(catalog, relative)
+    paths.architecture_dir.mkdir(parents=True, exist_ok=True)
+    write_atomic(paths.architecture_catalog_file,
+                 json.dumps(catalog, indent=2) + "\n")
+    return relative
+
+
+# Seconds. The lock is held for one read-check-write of a small JSON file, so
+# a holder that has not released within the stale age is a dead process, not
+# a slow one.
+ARCHITECTURE_LOCK_TIMEOUT = 10.0
+ARCHITECTURE_LOCK_STALE_AFTER = 60.0
+ARCHITECTURE_LOCK_POLL = 0.05
+
+
+@contextlib.contextmanager
+def architecture_catalog_lock(paths: Paths):
+    """Serialise one read-check-write of the shared catalog.
+
+    The revision check is an optimistic-concurrency check, and a check is only
+    as good as the interval between it and the write it guards. The atomic
+    replace keeps a reader from seeing half a file; it does not stop two WorkItems that
+    both read revision N from both passing `baseRevision == N` and the second
+    replacement erasing the first decision. So each catalog mutation re-reads
+    the catalog *under* this lock, makes its revision and replay decision
+    there, writes, and lets go.
+
+    Not a lifecycle lock: nothing else takes it, it is never held across a
+    gate or a phase, and a reader (`architecture show`) never waits for it.
+    A lock left behind by a process that died is broken once it is older than
+    `ARCHITECTURE_LOCK_STALE_AFTER`; one that is still fresh after
+    `ARCHITECTURE_LOCK_TIMEOUT` is a refusal, not a hang.
+    """
+    lock = paths.architecture_lock_file
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + ARCHITECTURE_LOCK_TIMEOUT
+    while True:
+        try:
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age > ARCHITECTURE_LOCK_STALE_AFTER:
+                with contextlib.suppress(FileNotFoundError):
+                    lock.unlink()
+                continue
+            if time.monotonic() >= deadline:
+                raise Refused(
+                    "architecture_catalog_locked",
+                    "Another process is updating the architecture catalog "
+                    f"and has held {architecture_catalog_relative(paths)}'s "
+                    "lock for longer than expected. Nothing was written; "
+                    "retry in a moment.",
+                    {"lock": architecture_lock_relative(paths),
+                     "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
+            time.sleep(ARCHITECTURE_LOCK_POLL)
+            continue
+        break
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as owner:
+            owner.write(f"{os.getpid()} {now_iso()}\n")
+        yield
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            lock.unlink()
+
+
+def architecture_digest(payload) -> str:
+    """A deterministic content digest for a validated proposal.
+
+    Sorted keys and no whitespace, so two machines that validated the same
+    proposal agree on the digest and an idempotent replay is recognisable.
+    """
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def resolve_constitution_status(paths: Paths, state: dict,
+                                consts: Constants) -> dict:
+    """PRESENT / ABSENT, resolved by the engine rather than claimed.
+
+    Two routes, in priority order:
+
+      1. this WorkItem decided `gate_constitution` **and** the constitution
+         the gate is registered against is on disk;
+      2. a readable repository baseline whose `references.constitution`
+         resolves — the `ITERATIVE` case, where the flow never runs
+         `constitution_draft` at all and reporting ABSENT would be a lie.
+
+    The gate test is "decided", not "approved": `gate_constitution` sits in the
+    built-in policy's `required_gates_always` today, so it cannot be omitted —
+    but the effective policy is read from a file, and this rule should not
+    quietly depend on that staying true.
+    """
+    decision = (state.get("approvals") or {}).get(ARCHITECTURE_CONSTITUTION_GATE)
+    if decision:
+        resolved, _ = resolve_artifact_path(
+            state, consts, ARCHITECTURE_CONSTITUTION_GATE, paths)
+        if resolved and (paths.project_root / resolved).is_file():
+            return {"status": CONSTITUTION_PRESENT, "source": "workitem",
+                    "path": resolved}
+
+    try:
+        baseline = read_baseline(paths)
+    except IntegrityError:
+        baseline = None
+    reference = ((baseline or {}).get("references") or {}).get("constitution")
+    if isinstance(reference, dict) and reference.get("path"):
+        if (paths.project_root / reference["path"]).is_file():
+            return {"status": CONSTITUTION_PRESENT, "source": "baseline",
+                    "path": reference["path"]}
+
+    return {"status": CONSTITUTION_ABSENT, "source": None, "path": None}
+
+
+def _placement_invalid(detail: str, **data) -> Refused:
+    return Refused(
+        "architecture_placement_invalid",
+        f"The architecture proposal cannot be accepted: {detail}. Run "
+        "`architecture schema` for the contract; nothing has been written.",
+        {"detail": detail, **data},
+    )
+
+
+def _text(value) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _str_entries(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value
+            if isinstance(item, str) and item.strip()]
+
+
+def read_architecture_input(target: Path, relative: str) -> dict:
+    """Read and shape-check the proposal document. Writes nothing."""
+    if not target.is_file():
+        raise _placement_invalid(
+            f"{relative} does not exist", path=relative)
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise _placement_invalid(
+            f"{relative} is not readable JSON ({exc})", path=relative) from None
+    if not isinstance(document, dict):
+        raise _placement_invalid(
+            f"{relative} is not a JSON object", path=relative)
+    version = document.get("architectureProposalVersion")
+    if version not in ARCHITECTURE_PROPOSAL_VERSIONS:
+        raise _placement_invalid(
+            f"architectureProposalVersion {version!r} is not one of "
+            + ", ".join(repr(v) for v in ARCHITECTURE_PROPOSAL_VERSIONS),
+            path=relative, found=version)
+    missing = [key for key in ARCHITECTURE_PROPOSAL_SECTIONS
+               if key not in document]
+    if missing:
+        raise _placement_invalid(
+            "the envelope is missing " + ", ".join(missing),
+            path=relative, missing=missing)
+    return document
+
+
+def evaluate_architecture_proposal(document: dict, paths: Paths, state: dict,
+                                   consts: Constants, catalog: dict | None,
+                                   relative: str) -> dict:
+    """Validate a proposal against the catalog and the constitution rules.
+
+    Returns the **validated placement**, normalised — the value the digest is
+    taken over and the record stores. Every refusal here fires before the
+    caller's first write, mirroring `discovery assess`: there is nothing to
+    remediate in a document the engine could not parse, and a half-validated
+    placement must never become the thing that authorises leaving the phase.
+    """
+    known = catalog or empty_architecture_catalog()
+    initialized = catalog is not None
+
+    revision = document.get("baseArchitectureRevision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise _placement_invalid(
+            f"baseArchitectureRevision {revision!r} is not a non-negative "
+            "integer", path=relative)
+
+    placement = document.get("placement")
+    if not isinstance(placement, dict):
+        raise _placement_invalid("'placement' is not an object", path=relative)
+
+    technology_decision = bool(document.get("introducesTechnologyDecision"))
+    if "introducesTechnologyDecision" in placement:
+        raise _placement_invalid(
+            "introducesTechnologyDecision belongs to the proposal envelope, "
+            "not to 'placement' — it is a statement about the proposal. "
+            "Run `architecture schema` for the shape",
+            path=relative)
+
+    outcome = placement.get("outcome")
+    if outcome not in ARCHITECTURE_OUTCOMES:
+        raise _placement_invalid(
+            f"outcome {outcome!r} is not one of "
+            + ", ".join(ARCHITECTURE_OUTCOMES),
+            path=relative, found=outcome, permitted=list(ARCHITECTURE_OUTCOMES))
+
+    bootstrap = _validate_bootstrap_delta(
+        document.get("bootstrapDelta"), paths, initialized, relative)
+
+    capability = placement.get("capability")
+    if not isinstance(capability, dict) or not _text(capability.get("id")):
+        raise _placement_invalid(
+            "placement.capability must name the business capability this "
+            "WorkItem is about", path=relative)
+
+    service_ids = {entry["serviceId"] for entry in known["services"]}
+    service_ids |= {entry["serviceId"] for entry in bootstrap["services"]}
+    capability_ids = {entry["id"] for entry in known["capabilities"]}
+    capability_ids |= {entry["id"] for entry in bootstrap["capabilities"]}
+
+    current_owner = _text(placement.get("currentOwner")) or None
+    target_owner = _text(placement.get("targetOwner")) or None
+    affected = _str_entries(placement.get("affectedServices"))
+
+    dimensions = _validate_dimensions(placement.get("dimensions"), outcome,
+                                      relative)
+    rationale = _text(placement.get("rationale"))
+    if not rationale and outcome != ARCHITECTURE_UNRESOLVED_OUTCOME:
+        raise _placement_invalid(
+            "placement.rationale is empty; a decision with no stated reason "
+            "is not evidence a later WorkItem can use", path=relative)
+
+    confidence = _text(placement.get("confidence")).upper() or "MEDIUM"
+    if confidence not in ("HIGH", "MEDIUM", "LOW"):
+        raise _placement_invalid(
+            f"confidence {confidence!r} is not HIGH, MEDIUM or LOW",
+            path=relative)
+
+    candidates = _validate_candidates(placement.get("candidates"), relative)
+    ownership = _validate_data_ownership(placement.get("dataOwnership"),
+                                         relative)
+    open_questions = _str_entries(placement.get("openQuestions"))
+
+    # A placement may *create* a service, so the service it introduces counts
+    # as known for the reference check — otherwise every CREATE_NEW_SERVICE
+    # would refuse on its own target. What it may not do is reference a
+    # service it neither creates nor finds.
+    introduced = {target_owner} if outcome in (
+        "CREATE_NEW_SERVICE", "EXTRACT_EXISTING_CAPABILITY") else set()
+    introduced.discard(None)
+    _require_known_services(
+        [current_owner] + affected + [entry["ownerService"] for entry in ownership]
+        + [entry["currentOwner"] for entry in candidates],
+        service_ids | introduced, relative)
+    for entry in candidates:
+        if entry["capability"] not in capability_ids | {capability["id"].strip()}:
+            raise Refused(
+                "architecture_capability_unknown",
+                f"Candidate {entry['id']!r} names capability "
+                f"{entry['capability']!r}, which neither the catalog nor this "
+                "proposal defines.",
+                {"candidate": entry["id"], "capability": entry["capability"]})
+
+    _validate_outcome_requirements(
+        outcome, current_owner, target_owner, known,
+        candidates, ownership, placement, open_questions, relative)
+
+    constitution = resolve_constitution_status(paths, state, consts)
+    # The bootstrap's services are *observed existing* architecture, not new
+    # boundaries this WorkItem establishes — so they count as known for the
+    # constitution rule, exactly as they do for the reference check above.
+    _enforce_constitution_rule(
+        outcome, constitution, technology_decision, ownership, known,
+        bootstrap, target_owner, relative)
+
+    validated = {
+        "outcome": outcome,
+        "capability": {
+            "id": capability["id"].strip(),
+            "name": _text(capability.get("name")) or capability["id"].strip(),
+            "description": _text(capability.get("description")),
+        },
+        "currentOwner": current_owner,
+        "targetOwner": target_owner,
+        "affectedServices": sorted(set(affected) | (introduced - {None})),
+        "dimensions": dimensions,
+        "rationale": rationale,
+        "migrationImplications": _text(placement.get("migrationImplications")),
+        "integrationImpact": _text(placement.get("integrationImpact")),
+        "dataOwnership": ownership,
+        "candidates": candidates,
+        "reevaluateWhen": _str_entries(placement.get("reevaluateWhen")),
+        "confidence": confidence,
+        "openQuestions": open_questions,
+        "relatedWorkItems": _str_entries(placement.get("relatedWorkItems")),
+        # Envelope-level, beside `bootstrapDelta`: it is a statement about the
+        # proposal rather than about the placement, and it is the one ADR-014
+        # input the engine cannot derive for itself. Normalised into the
+        # validated placement so the record carries it, but READ from the
+        # document.
+        "introducesTechnologyDecision": technology_decision,
+    }
+    return {
+        "placement": validated,
+        "bootstrapDelta": bootstrap if bootstrap["declared"] else None,
+        "baseRevision": revision,
+        "constitution": constitution,
+    }
+
+
+def _require_known_services(names, service_ids: set, relative: str) -> None:
+    unknown = sorted({name for name in names if name and name not in service_ids})
+    if unknown:
+        raise Refused(
+            "architecture_service_unknown",
+            "The proposal references service(s) neither the catalog nor this "
+            "proposal defines: " + ", ".join(unknown) + ". A placement may "
+            "create a service, but it may not silently assume one.",
+            {"unknown": unknown, "known": sorted(service_ids),
+             "path": relative})
+
+
+def _validate_dimensions(raw, outcome: str, relative: str) -> list[dict]:
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise _placement_invalid("placement.dimensions is not a list",
+                                 path=relative)
+    findings: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise _placement_invalid(
+                "every dimension entry must be an object", path=relative)
+        name = _text(entry.get("dimension"))
+        if name not in ARCHITECTURE_DIMENSIONS:
+            raise _placement_invalid(
+                f"dimension {name!r} is not one of the declared evidence "
+                "dimensions", path=relative, found=name,
+                permitted=list(ARCHITECTURE_DIMENSIONS))
+        finding = _text(entry.get("finding"))
+        if not finding:
+            raise _placement_invalid(
+                f"dimension {name!r} carries no finding; naming a dimension "
+                "without saying what it showed is not evidence",
+                path=relative)
+        findings.append({"dimension": name, "finding": finding})
+
+    named = {entry["dimension"] for entry in findings}
+    missing = [name for name in ARCHITECTURE_REQUIRED_DIMENSIONS[outcome]
+               if name not in named]
+    if missing:
+        raise _placement_invalid(
+            f"outcome {outcome} requires a finding for " + ", ".join(missing)
+            + " — a finding may say the dimension does not separate, but it "
+              "may not be absent", path=relative, missing=missing)
+    return findings
+
+
+def _validate_candidates(raw, relative: str) -> list[dict]:
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise _placement_invalid("placement.candidates is not a list",
+                                 path=relative)
+    entries: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise _placement_invalid("every candidate must be an object",
+                                     path=relative)
+        identifier = _text(entry.get("id"))
+        capability = _text(entry.get("capability"))
+        owner = _text(entry.get("currentOwner"))
+        if not identifier or not capability or not owner:
+            raise _placement_invalid(
+                "a candidate needs id, capability and currentOwner",
+                path=relative)
+        state_value = _text(entry.get("state")).upper() or "OPEN"
+        if state_value not in CANDIDATE_STATES:
+            raise _placement_invalid(
+                f"candidate state {state_value!r} is not one of "
+                + ", ".join(CANDIDATE_STATES), path=relative)
+        entries.append({
+            "id": identifier,
+            "capability": capability,
+            "currentOwner": owner,
+            "state": state_value,
+            "evidence": _str_entries(entry.get("evidence")),
+            "reevaluateWhen": _str_entries(entry.get("reevaluateWhen")),
+        })
+    return entries
+
+
+def _validate_data_ownership(raw, relative: str) -> list[dict]:
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise _placement_invalid("placement.dataOwnership is not a list",
+                                 path=relative)
+    entries: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise _placement_invalid("every dataOwnership entry must be an "
+                                     "object", path=relative)
+        datum = _text(entry.get("data"))
+        owner = _text(entry.get("ownerService"))
+        if not datum or not owner:
+            raise _placement_invalid(
+                "a dataOwnership entry needs data and ownerService",
+                path=relative)
+        entries.append({
+            "data": datum,
+            "ownerService": owner,
+            "viaCapability": _text(entry.get("viaCapability")) or None,
+            "embedded": bool(entry.get("embedded")),
+        })
+    return entries
+
+
+def _validate_outcome_requirements(outcome, current_owner, target_owner,
+                                   known, candidates, ownership,
+                                   placement, open_questions,
+                                   relative: str) -> None:
+    """The per-outcome floor. One place, so no caller re-derives it."""
+    # A service a WorkItem may extend is one that is live or on its way
+    # there. A `WITHDRAWN` or `SUPERSEDED` boundary is *reclaimed* by a new
+    # placement, never extended by one.
+    extendable = {entry["serviceId"] for entry in known["services"]
+                  if entry.get("status") in ("PLANNED", "IMPLEMENTED")}
+    live = {entry["serviceId"] for entry in known["services"]
+            if entry.get("status") == "IMPLEMENTED"}
+
+    if outcome == "EXTEND_EXISTING_SERVICE":
+        if not current_owner or current_owner != target_owner:
+            raise _placement_invalid(
+                "EXTEND_EXISTING_SERVICE means the capability stays where it "
+                "is: currentOwner and targetOwner must name the same existing "
+                "service", path=relative)
+        if known["services"] and current_owner not in extendable:
+            raise _placement_invalid(
+                f"service {current_owner!r} is not implemented or planned, so "
+                "there is nothing to extend. A withdrawn or superseded "
+                "boundary is reclaimed by CREATE_NEW_SERVICE, not extended",
+                path=relative)
+
+    elif outcome == "CREATE_NEW_SERVICE":
+        if not target_owner:
+            raise _placement_invalid(
+                "CREATE_NEW_SERVICE must name the targetOwner it creates",
+                path=relative)
+        if target_owner in live:
+            raise _placement_invalid(
+                f"service {target_owner!r} already exists; the outcome for an "
+                "existing owner is EXTEND_EXISTING_SERVICE", path=relative)
+
+    elif outcome == "KEEP_EMBEDDED_AND_MONITOR":
+        if not current_owner:
+            raise _placement_invalid(
+                "KEEP_EMBEDDED_AND_MONITOR must name the service the "
+                "capability stays inside", path=relative)
+        if not candidates:
+            raise _placement_invalid(
+                "KEEP_EMBEDDED_AND_MONITOR records a boundary worth watching, "
+                "so it must record at least one candidate", path=relative)
+        if any(not entry["reevaluateWhen"] for entry in candidates):
+            raise _placement_invalid(
+                "every candidate needs reevaluateWhen conditions; a candidate "
+                "nobody will revisit is not monitoring", path=relative)
+
+    elif outcome == "EXTRACT_EXISTING_CAPABILITY":
+        if not current_owner or not target_owner:
+            raise _placement_invalid(
+                "EXTRACT_EXISTING_CAPABILITY must name both the current owner "
+                "and the service being extracted", path=relative)
+        if current_owner == target_owner:
+            raise _placement_invalid(
+                "EXTRACT_EXISTING_CAPABILITY moves the capability out of its "
+                "current owner; currentOwner and targetOwner cannot match",
+                path=relative)
+        if not _text(placement.get("migrationImplications")):
+            raise _placement_invalid(
+                "an extraction must state its migration implications: "
+                "existing behaviour has to keep working", path=relative)
+        if not ownership:
+            raise _placement_invalid(
+                "an extraction moves data ownership, so the proposal must say "
+                "which data moves", path=relative)
+
+    elif outcome == ARCHITECTURE_UNRESOLVED_OUTCOME and not open_questions:
+        raise _placement_invalid(
+            "ARCHITECTURE_REVIEW_REQUIRED must name the questions a human has "
+            "to resolve", path=relative)
+
+
+def _enforce_constitution_rule(outcome: str, constitution: dict,
+                               technology_decision: bool, ownership: list,
+                               known: dict, bootstrap: dict | None,
+                               target_owner: str | None,
+                               relative: str) -> None:
+    """ADR-014's availability rule. Outcome-sensitive, never blanket.
+
+    A legacy defect fix in a repository that never had a constitution is a
+    legitimate thing to run; establishing a service boundary in one is not.
+    ADR-014 names **three** things such a WorkItem may not do without one, and
+    all three are checked here: a new service boundary, a transfer of
+    ownership, and a new technology or platform decision. Two of them are
+    derivable from the proposal and the catalog, which is why they are checked
+    rather than asked for.
+    """
+    if constitution["status"] == CONSTITUTION_PRESENT:
+        return
+    if outcome == ARCHITECTURE_UNRESOLVED_OUTCOME:
+        return
+
+    def refuse(detail: str) -> Refused:
+        return Refused(
+            "architecture_constitution_required",
+            f"{outcome} {detail}, and this repository has no approved "
+            "constitution — neither this WorkItem's own nor one referenced by "
+            "a sound baseline. Establish the engineering rules first, or "
+            f"record {ARCHITECTURE_UNRESOLVED_OUTCOME} and resolve it with a "
+            "human.",
+            {"outcome": outcome, "constitution": CONSTITUTION_ABSENT,
+             "detail": detail, "path": relative})
+
+    if outcome in ARCHITECTURE_CONSTITUTION_REQUIRED:
+        raise refuse("establishes or transfers a service boundary")
+
+    if technology_decision:
+        raise refuse("declares that it introduces a new technology or "
+                     "platform decision")
+
+    existing = {entry["serviceId"] for entry in known.get("services") or []}
+    existing |= {entry["serviceId"]
+                 for entry in (bootstrap or {}).get("services") or []}
+    if target_owner and target_owner not in existing:
+        raise refuse(f"would establish a new service boundary "
+                     f"({target_owner})")
+
+    active = {entry["data"]: entry["ownerService"]
+              for entry in known.get("dataOwnership") or []
+              if entry.get("status") == "ACTIVE"}
+    moved = sorted({entry["data"] for entry in ownership
+                    if entry["data"] in active
+                    and active[entry["data"]] != entry["ownerService"]})
+    if moved:
+        raise refuse("would transfer ownership of " + ", ".join(moved))
+
+
+def _validate_bootstrap_delta(raw, paths: Paths, initialized: bool,
+                              relative: str) -> dict:
+    """Optional, evidence-backed description of architecture that already exists.
+
+    Two rules carry the whole of ADR-013's bootstrap caution:
+
+      * it is only meaningful while the catalog is uninitialized — once the
+        repository has a catalog, "what already exists" is the catalog;
+      * every evidence entry cites at least one path that is really there, so
+        a bootstrap cannot invent a service. It still cannot *assert* that a
+        directory is a service — that is the author's claim, exactly as an
+        OBSERVED discovery finding is.
+    """
+    empty = {"declared": False, "basis": None, "capabilities": [],
+             "services": [], "dataOwnership": [], "evidence": []}
+    if raw is None:
+        return empty
+    if not isinstance(raw, dict):
+        raise _placement_invalid("bootstrapDelta is not an object",
+                                 path=relative)
+    if initialized:
+        raise _placement_invalid(
+            "bootstrapDelta describes architecture that already exists and is "
+            "only accepted while the catalog is uninitialized; this "
+            "repository already has one", path=relative)
+
+    basis = _text(raw.get("basis")).upper()
+    if basis not in ("DISCOVERY", "BASELINE"):
+        raise _placement_invalid(
+            "bootstrapDelta.basis must be DISCOVERY or BASELINE — the two "
+            "evidence sources ADR-013 admits", path=relative, found=basis)
+
+    evidence = raw.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        raise _placement_invalid(
+            "bootstrapDelta must carry evidence", path=relative)
+    records: list[dict] = []
+    for entry in evidence:
+        if not isinstance(entry, dict):
+            raise _placement_invalid("every bootstrap evidence entry must be "
+                                     "an object", path=relative)
+        statement = _text(entry.get("statement"))
+        cited = _str_entries(entry.get("paths"))
+        if not statement or not cited:
+            raise _placement_invalid(
+                "bootstrap evidence needs a statement and at least one path",
+                path=relative)
+        absent = [item for item in cited
+                  if not _inside_repository(paths, item)]
+        if absent:
+            raise _placement_invalid(
+                "bootstrap evidence cites path(s) that are not in this "
+                "repository: " + ", ".join(absent), path=relative,
+                absent=absent)
+        records.append({"statement": statement, "paths": cited})
+
+    services = []
+    for entry in raw.get("services") or []:
+        identifier = _text((entry or {}).get("serviceId"))
+        if not identifier:
+            raise _placement_invalid(
+                "every bootstrap service needs a serviceId", path=relative)
+        services.append({
+            "serviceId": identifier,
+            "name": _text(entry.get("name")) or identifier,
+            "repositoryPaths": _str_entries(entry.get("repositoryPaths")),
+            "capabilities": _str_entries(entry.get("capabilities")),
+            "ownedData": _str_entries(entry.get("ownedData")),
+            "dependencies": _str_entries(entry.get("dependencies")),
+        })
+
+    capabilities = []
+    for entry in raw.get("capabilities") or []:
+        identifier = _text((entry or {}).get("id"))
+        if not identifier:
+            raise _placement_invalid(
+                "every bootstrap capability needs an id", path=relative)
+        status = _text(entry.get("status")).upper() or "ESTABLISHED"
+        if status not in CAPABILITY_STATUSES:
+            raise _placement_invalid(
+                f"bootstrap capability status {status!r} is not one of "
+                + ", ".join(CAPABILITY_STATUSES), path=relative)
+        capabilities.append({
+            "id": identifier,
+            "name": _text(entry.get("name")) or identifier,
+            "description": _text(entry.get("description")),
+            "status": status,
+            "ownerService": _text(entry.get("ownerService")) or None,
+        })
+
+    ownership = _validate_data_ownership(raw.get("dataOwnership"), relative)
+
+    # Contract §5 promises reference checking at `assess`. Without it a
+    # dangling bootstrap reference survives validation, the human approves the
+    # gate, and `write_architecture_catalog` then raises an *integrity*
+    # failure (exit 3) for what was a malformed proposal — the wrong exit code,
+    # at the wrong moment, to the wrong person.
+    declared_services = {entry["serviceId"] for entry in services}
+    declared_capabilities = {entry["id"] for entry in capabilities}
+    for entry in capabilities:
+        if entry["ownerService"] and entry["ownerService"] not in declared_services:
+            raise Refused(
+                "architecture_service_unknown",
+                f"Bootstrap capability {entry['id']!r} names owner "
+                f"{entry['ownerService']!r}, which the bootstrap does not "
+                "declare.",
+                {"capability": entry["id"], "service": entry["ownerService"],
+                 "declared": sorted(declared_services)})
+    for entry in services:
+        unknown = [name for name in entry["capabilities"]
+                   if name not in declared_capabilities]
+        if unknown:
+            raise Refused(
+                "architecture_capability_unknown",
+                f"Bootstrap service {entry['serviceId']!r} claims capability "
+                + ", ".join(unknown) + ", which the bootstrap does not declare.",
+                {"service": entry["serviceId"], "unknown": unknown})
+    for entry in ownership:
+        if entry["ownerService"] not in declared_services:
+            raise Refused(
+                "architecture_service_unknown",
+                f"Bootstrap data ownership for {entry['data']!r} names "
+                f"{entry['ownerService']!r}, which the bootstrap does not "
+                "declare.",
+                {"data": entry["data"], "service": entry["ownerService"],
+                 "declared": sorted(declared_services)})
+
+    return {"declared": True, "basis": basis, "capabilities": capabilities,
+            "services": services, "dataOwnership": ownership,
+            "evidence": records}
+
+
+def _inside_repository(paths: Paths, relative: str) -> bool:
+    """Is ``relative`` a path that really is inside this repository?
+
+    `project_root / item` silently discards `project_root` for an absolute
+    `item`, and `../..` walks out of the tree — so the plain `.exists()` the
+    evidence check used to do did not check what its refusal message claimed.
+    """
+    candidate = Path(relative)
+    if candidate.is_absolute():
+        return False
+    try:
+        resolved = (paths.project_root / candidate).resolve()
+        resolved.relative_to(paths.project_root.resolve())
+    except (OSError, ValueError):
+        return False
+    return resolved.exists()
+
+
+# -- the WorkItem placement record ------------------------------------------
+
+
+def architecture_record_relative(paths: Paths) -> str:
+    return f"{paths.runtime_relative}/{paths.architecture_placement_file.name}"
+
+
+def architecture_rendering_relative(paths: Paths) -> str:
+    return (paths.architecture_placement_rendering
+            .relative_to(paths.project_root).as_posix())
+
+
+def architecture_record_is_disposed(paths: Paths, record: dict) -> bool:
+    """Has the engine already disposed of the decision this record names?
+
+    `restart` and `reset` mark a decision `ABANDONED` in the catalog but leave
+    the WorkItem's record and rendering where they are — deleting them would
+    destroy the evidence of what was decided. So "a record exists" stops being
+    the same question as "this WorkItem has a live placement", and a gate that
+    asked only the first would put a voided decision in front of a human for
+    approval (ADR-013, invariant 4).
+    """
+    try:
+        catalog = read_architecture_catalog(paths)
+    except IntegrityError:
+        return False  # reported by its own refusal, not silently by this one
+    decision = next((entry for entry in (catalog or {}).get("decisions") or []
+                     if entry.get("id") == record.get("decisionId")), None)
+    return bool(decision) and decision.get("status") in (
+        "ABANDONED", "SUPERSEDED")
+
+
+def read_architecture_record(paths: Paths) -> dict | None:
+    """The WorkItem's validated placement, or ``None``.
+
+    A malformed record is an integrity failure rather than an absence, for the
+    reason ``read_governance_record`` gives: "absent" would let a corrupt file
+    read as "not assessed yet" and be silently overwritten.
+    """
+    target = paths.architecture_placement_file
+    if not target.is_file():
+        return None
+    try:
+        record = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise IntegrityError(
+            "architecture_record_invalid",
+            f"{architecture_record_relative(paths)} cannot be read: {exc}. "
+            "Re-run `architecture assess --input <path>`.",
+            {"path": str(target), "error": str(exc)}) from None
+    if not isinstance(record, dict) or record.get(
+            "architecturePlacementVersion") != ARCHITECTURE_RECORD_VERSION:
+        raise IntegrityError(
+            "architecture_record_invalid",
+            f"{architecture_record_relative(paths)} is not a placement record "
+            f"of version {ARCHITECTURE_RECORD_VERSION}.",
+            {"path": str(target)})
+    if record.get("workitem") != paths.workitem:
+        raise IntegrityError(
+            "architecture_record_invalid",
+            f"{architecture_record_relative(paths)} belongs to WorkItem "
+            f"{record.get('workitem')!r}, not to {paths.workitem!r}. A "
+            "WorkItem's gate never approves another WorkItem's placement.",
+            {"path": str(target), "found": record.get("workitem"),
+             "expected": paths.workitem})
+    return record
+
+
+def require_architecture_record(paths: Paths) -> dict:
+    record = read_architecture_record(paths)
+    if record is None:
+        raise Refused(
+            "architecture_placement_missing",
+            f"WorkItem '{paths.workitem}' has no architecture placement. Run "
+            "`architecture assess --input <path>` at "
+            f"{ARCHITECTURE_PHASE}; `architecture schema` reports what the "
+            "proposal must contain.",
+            {"workitem": paths.workitem,
+             "path": architecture_record_relative(paths)})
+    if architecture_record_is_disposed(paths, record):
+        raise Refused(
+            "architecture_placement_missing",
+            f"WorkItem '{paths.workitem}' holds placement "
+            f"{record['decisionId']}, which the engine has already disposed "
+            "of — a restart, a reset or a rerun superseded it. Re-run "
+            f"{ARCHITECTURE_PHASE} so this WorkItem proposes afresh.",
+            {"workitem": paths.workitem, "decision": record["decisionId"],
+             "path": architecture_record_relative(paths)})
+    return record
+
+
+def next_decision_id(catalog: dict, workitem: str) -> str:
+    """`AP-<workitem>-<NNN>`, counting this WorkItem's catalog decisions.
+
+    Minted at `assess` and stored, never re-minted by `apply` — that is what
+    makes a crashed `apply` replayable rather than duplicable. A rerun
+    placement that was never applied reuses the number, which is harmless
+    because nothing with that id ever reached the catalog.
+    """
+    prefix = f"AP-{workitem}-"
+    taken = [entry["id"] for entry in catalog.get("decisions") or []
+             if str(entry.get("id", "")).startswith(prefix)]
+    return f"{prefix}{len(taken) + 1:03d}"
+
+
+def render_placement(record: dict) -> str:
+    """The gated artifact: the same decision, in the form a human reads.
+
+    Generated from the record and never hand-maintained, so the two cannot
+    drift. `apply` re-checks this file's SHA against the record before the
+    catalog is touched, which is what stops an edited rendering from becoming
+    architecture truth.
+    """
+    placement = record["placement"]
+    lines = [
+        f"# Architecture Placement — {record['workitem']}",
+        "",
+        "<!-- Generated by `sdle architecture assess`. Do not edit: the gate "
+        "verifies this file's SHA-256 against the structured record. -->",
+        "",
+        f"- **Decision id:** `{record['decisionId']}`",
+        f"- **Proposal digest:** `{record['proposalDigest']}`",
+        f"- **Catalog revision reasoned against:** {record['baseRevision']}",
+        f"- **Constitution status:** {record['constitutionStatus']}",
+        f"- **Confidence:** {placement['confidence']}",
+        "",
+        "## Business capability",
+        "",
+        f"**{placement['capability']['name']}** (`{placement['capability']['id']}`)",
+        "",
+        placement["capability"]["description"] or "_No description supplied._",
+        "",
+        "## Decision",
+        "",
+        f"**{placement['outcome']}**",
+        "",
+        f"- Current owner: {placement['currentOwner'] or '_none_'}",
+        f"- Target owner: {placement['targetOwner'] or '_unchanged_'}",
+        "- Affected services: "
+        + (", ".join(placement["affectedServices"]) or "_none_"),
+        "",
+        "## Rationale",
+        "",
+        placement["rationale"] or "_Not applicable._",
+        "",
+        "## Evidence dimensions considered",
+        "",
+    ]
+    if placement["dimensions"]:
+        lines.append("| Dimension | Finding |")
+        lines.append("|---|---|")
+        for entry in placement["dimensions"]:
+            finding = entry["finding"].replace("|", "\\|")
+            lines.append(f"| `{entry['dimension']}` | {finding} |")
+    else:
+        lines.append("_None recorded._")
+
+    lines += ["", "## Data ownership impact", ""]
+    if placement["dataOwnership"]:
+        for entry in placement["dataOwnership"]:
+            embedded = " (embedded)" if entry["embedded"] else ""
+            via = f" via `{entry['viaCapability']}`" if entry["viaCapability"] else ""
+            lines.append(
+                f"- `{entry['data']}` → `{entry['ownerService']}`{via}{embedded}")
+    else:
+        lines.append("_No change._")
+
+    lines += ["", "## Candidates affected", ""]
+    if placement["candidates"]:
+        for entry in placement["candidates"]:
+            lines.append(
+                f"- `{entry['id']}` — `{entry['capability']}` inside "
+                f"`{entry['currentOwner']}` ({entry['state']})")
+            for condition in entry["reevaluateWhen"]:
+                lines.append(f"  - re-evaluate when: {condition}")
+    else:
+        lines.append("_None._")
+
+    lines += [
+        "", "## Integration impact", "",
+        placement["integrationImpact"] or "_None identified._",
+        "", "## Migration implications", "",
+        placement["migrationImplications"] or "_None: no behaviour moves._",
+        "", "## Re-evaluation conditions", "",
+    ]
+    lines += ([f"- {item}" for item in placement["reevaluateWhen"]]
+              or ["_None recorded._"])
+
+    lines += ["", "## Known related WorkItems", ""]
+    lines += ([f"- {item}" for item in placement["relatedWorkItems"]]
+              or ["_None visible from the bound requirements._"])
+
+    lines += ["", "## Open architecture questions", ""]
+    lines += ([f"- {item}" for item in placement["openQuestions"]]
+              or ["_None._"])
+
+    if record.get("bootstrapDelta"):
+        bootstrap = record["bootstrapDelta"]
+        lines += ["", "## Existing architecture recorded at bootstrap", "",
+                  f"Basis: **{bootstrap['basis']}**", ""]
+        # Everything `apply_bootstrap_delta` writes is shown here, because
+        # the human approves this rendering and the catalog receives the
+        # structured delta: a value only the second carries was never
+        # approved.
+        none = "none"
+        for entry in bootstrap["services"]:
+            lines.append(
+                f"- service `{entry['serviceId']}` ({entry['name']}) — "
+                + (", ".join(entry["repositoryPaths"]) or "no paths cited"))
+            lines.append("  - capabilities: "
+                         + (", ".join(f"`{c}`" for c in entry["capabilities"])
+                            or none))
+            lines.append("  - owned data: "
+                         + (", ".join(f"`{d}`" for d in entry["ownedData"])
+                            or none))
+            lines.append("  - dependencies: "
+                         + (", ".join(f"`{d}`" for d in entry["dependencies"])
+                            or none))
+        for entry in bootstrap["capabilities"]:
+            lines.append(
+                f"- capability `{entry['id']}` ({entry['name']}, "
+                f"{entry['status']}), owned by "
+                f"`{entry['ownerService'] or none}`: {entry['description']}")
+        for entry in bootstrap["dataOwnership"]:
+            lines.append(
+                f"- data `{entry['data']}` owned by `{entry['ownerService']}`"
+                f" via `{entry['viaCapability'] or none}`"
+                + (" (embedded)" if entry["embedded"] else ""))
+        lines += ["", "Evidence:", ""]
+        for entry in bootstrap["evidence"]:
+            lines.append(f"- {entry['statement']} — "
+                         + ", ".join(f"`{p}`" for p in entry["paths"]))
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+# -- catalog mutation -------------------------------------------------------
+
+
+def _upsert(entries: list[dict], key: str, value: str, fields: dict,
+            introduced_by: str | None = None) -> dict:
+    """Create or update an entity, recording which decision *introduced* it.
+
+    `decisionReference` says "the last decision that touched this"; it moves.
+    `introducedBy` says "the decision this entity would not exist without";
+    it is written once, at creation, and never again. The abandonment cascade
+    reads the second, because disposing of a decision may only dispose of what
+    that decision brought into being — a candidate another WorkItem created
+    and this one merely re-stated is not this one's to withdraw (ADR-013).
+    """
+    for entry in entries:
+        if entry.get(key) == value:
+            entry.update(fields)
+            entry.setdefault("introducedBy", introduced_by)
+            return entry
+    entry = {key: value, **fields, "introducedBy": introduced_by}
+    entries.append(entry)
+    return entry
+
+
+def apply_bootstrap_delta(catalog: dict, bootstrap: dict | None,
+                          decision_id: str) -> None:
+    """Fold observed existing architecture into an uninitialized catalog."""
+    if not bootstrap:
+        return
+    for entry in bootstrap["services"]:
+        _upsert(catalog["services"], "serviceId", entry["serviceId"], {
+            "name": entry["name"],
+            "status": "IMPLEMENTED",
+            "capabilities": entry["capabilities"],
+            "repositoryPaths": entry["repositoryPaths"],
+            "ownedData": entry["ownedData"],
+            "dependencies": entry["dependencies"],
+            "decisionReference": decision_id,
+        }, introduced_by=decision_id)
+    for entry in bootstrap["capabilities"]:
+        _upsert(catalog["capabilities"], "id", entry["id"], {
+            "name": entry["name"],
+            "description": entry["description"],
+            "status": entry["status"],
+            "ownerService": entry["ownerService"],
+            "relatedWorkItems": [],
+            "evidence": [item["statement"] for item in bootstrap["evidence"]],
+        }, introduced_by=decision_id)
+    for entry in bootstrap["dataOwnership"]:
+        _upsert(catalog["dataOwnership"], "data", entry["data"], {
+            "ownerService": entry["ownerService"],
+            "viaCapability": entry["viaCapability"],
+            "embedded": entry["embedded"],
+            "status": "ACTIVE",
+            "decisionReference": decision_id,
+        }, introduced_by=decision_id)
+
+
+# Which capability status each outcome leaves behind. Declared rather than
+# branched, so "what does this outcome do to the capability" has one answer.
+# `EXTEND_EXISTING_SERVICE` is deliberately absent: extending a capability
+# says nothing about whether it is embedded. Writing `ESTABLISHED` there
+# would clear an `EMBEDDED` status while its candidate was still `OPEN`, so
+# the capability and the candidate would describe different architectures.
+# An absent key leaves the existing status alone.
+OUTCOME_CAPABILITY_STATUS = {
+    "CREATE_NEW_SERVICE": "ESTABLISHED",
+    "KEEP_EMBEDDED_AND_MONITOR": "EMBEDDED",
+    "EXTRACT_EXISTING_CAPABILITY": "EXTRACTING",
+}
+
+
+def apply_architecture_delta(catalog: dict, record: dict, stamp: str) -> dict:
+    """Fold an approved placement into the catalog. Pure: returns a new dict.
+
+    Nothing here decides anything — every value was validated at `assess` and
+    approved by a human at the gate. What this function owns is that the
+    *shape* of the resulting catalog is still one the engine can read back,
+    which `write_architecture_catalog` re-checks before the bytes land.
+    """
+    catalog = copy.deepcopy(catalog)
+    placement = record["placement"]
+    decision_id = record["decisionId"]
+    workitem = record["workitem"]
+    outcome = placement["outcome"]
+
+    apply_bootstrap_delta(catalog, record.get("bootstrapDelta"), decision_id)
+
+    superseded = abandon_or_supersede_prior(
+        catalog, workitem, "superseded", stamp, exclude=decision_id)
+
+    owner = placement["targetOwner"] or placement["currentOwner"]
+    if outcome in ("CREATE_NEW_SERVICE", "EXTRACT_EXISTING_CAPABILITY"):
+        existing = next((entry for entry in catalog["services"]
+                         if entry["serviceId"] == placement["targetOwner"]), None)
+        # A WITHDRAWN service is reclaimable: a later WorkItem may take up a
+        # boundary an abandoned decision had planned (ADR-013).
+        status = "PLANNED" if not existing or existing["status"] in (
+            "WITHDRAWN", "PLANNED") else existing["status"]
+        _upsert(catalog["services"], "serviceId", placement["targetOwner"], {
+            "name": (existing or {}).get("name") or placement["targetOwner"],
+            "status": status,
+            "capabilities": sorted(set(
+                ((existing or {}).get("capabilities") or [])
+                + [placement["capability"]["id"]])),
+            "repositoryPaths": (existing or {}).get("repositoryPaths") or [],
+            "ownedData": sorted(set(
+                ((existing or {}).get("ownedData") or [])
+                + [entry["data"] for entry in placement["dataOwnership"]])),
+            "dependencies": (existing or {}).get("dependencies") or [],
+            "decisionReference": decision_id,
+        }, introduced_by=decision_id)
+    elif owner:
+        existing = next((entry for entry in catalog["services"]
+                         if entry["serviceId"] == owner), None)
+        if existing is not None:
+            existing["capabilities"] = sorted(set(
+                (existing.get("capabilities") or [])
+                + [placement["capability"]["id"]]))
+
+    capability_id = placement["capability"]["id"]
+    known = next((entry for entry in catalog["capabilities"]
+                  if entry["id"] == capability_id), None)
+    _upsert(catalog["capabilities"], "id", capability_id, {
+        "name": placement["capability"]["name"],
+        "description": placement["capability"]["description"]
+                       or (known or {}).get("description", ""),
+        "status": OUTCOME_CAPABILITY_STATUS.get(
+            outcome, (known or {}).get("status") or "EMERGING"),
+        "ownerService": owner,
+        "relatedWorkItems": sorted(set(
+            ((known or {}).get("relatedWorkItems") or []) + [workitem])),
+        "evidence": (known or {}).get("evidence") or [],
+    }, introduced_by=decision_id)
+
+    for entry in placement["candidates"]:
+        _upsert(catalog["candidates"], "id", entry["id"], {
+            "capability": entry["capability"],
+            "currentOwner": entry["currentOwner"],
+            "state": ("EXTRACTING" if outcome == "EXTRACT_EXISTING_CAPABILITY"
+                      else entry["state"]),
+            "evidence": sorted(set(entry["evidence"] + [workitem])),
+            "reevaluateWhen": entry["reevaluateWhen"],
+            "decisionReference": decision_id,
+        }, introduced_by=decision_id)
+
+    # New ownership enters PLANNED: until `realize` runs, the previous owner
+    # still owns the datum and the invariant "one ACTIVE owner" stays true.
+    for entry in placement["dataOwnership"]:
+        already = next((row for row in catalog["dataOwnership"]
+                        if row["data"] == entry["data"]
+                        and row["ownerService"] == entry["ownerService"]), None)
+        if already is not None and already["status"] == "ACTIVE":
+            already.update({"viaCapability": entry["viaCapability"],
+                            "embedded": entry["embedded"],
+                            "decisionReference": decision_id})
+            continue
+        if already is not None:
+            already.update({"status": "PLANNED",
+                            "viaCapability": entry["viaCapability"],
+                            "embedded": entry["embedded"],
+                            "decisionReference": decision_id})
+            continue
+        catalog["dataOwnership"].append({
+            "data": entry["data"],
+            "ownerService": entry["ownerService"],
+            "viaCapability": entry["viaCapability"],
+            "embedded": entry["embedded"],
+            "status": "PLANNED",
+            "decisionReference": decision_id,
+            "introducedBy": decision_id,
+        })
+
+    catalog["decisions"].append({
+        "id": decision_id,
+        "workItem": workitem,
+        "outcome": outcome,
+        "baseRevision": record["baseRevision"],
+        "appliedRevision": catalog["revision"] + 1,
+        "proposalDigest": record["proposalDigest"],
+        "renderedArtifact": record["renderedArtifact"],
+        "renderedSha256": record["renderedSha256"],
+        "status": "APPROVED_PENDING_IMPLEMENTATION",
+        "appliedAt": stamp,
+        "realizedAt": None,
+        "abandonedAt": None,
+        "abandonedBy": None,
+        "supersedes": superseded,
+    })
+    catalog["revision"] += 1
+    catalog["updatedAt"] = stamp
+    return catalog
+
+
+def abandon_or_supersede_prior(catalog: dict, workitem: str, disposition: str,
+                               stamp: str, exclude: str | None = None) -> list[str]:
+    """Dispose of this WorkItem's still-pending decisions. Append-only.
+
+    History is never rewritten: the decision keeps its id, its digest and its
+    applied revision, and gains a disposition. A `PLANNED` service it created
+    becomes `WITHDRAWN` rather than disappearing, so a later WorkItem can
+    reclaim the boundary instead of colliding with a ghost (ADR-013).
+    """
+    # `SUPERSEDED` rather than `ABANDONED` for a rerun: the decision was not
+    # walked away from, it was replaced by a later one for the same WorkItem,
+    # and the two read differently in `architecture show`. Both dispositions
+    # are audited by their caller.
+    status = "ABANDONED" if disposition != "superseded" else "SUPERSEDED"
+    touched: list[str] = []
+    for decision in catalog.get("decisions") or []:
+        if decision.get("workItem") != workitem:
+            continue
+        if decision.get("status") != "APPROVED_PENDING_IMPLEMENTATION":
+            continue
+        if exclude and decision.get("id") == exclude:
+            continue
+        decision["status"] = status
+        decision["abandonedAt"] = stamp
+        decision["abandonedBy"] = disposition
+        touched.append(decision["id"])
+
+    if not touched:
+        return []
+    # `introducedBy`, not `decisionReference`: only what this decision
+    # brought into being is its to dispose of.
+    for service in catalog.get("services") or []:
+        if (service.get("introducedBy") in touched
+                and service.get("status") == "PLANNED"):
+            service["status"] = "WITHDRAWN"
+    for candidate in catalog.get("candidates") or []:
+        if candidate.get("introducedBy") in touched:
+            candidate["state"] = "ABANDONED"
+    for entry in catalog.get("dataOwnership") or []:
+        if (entry.get("introducedBy") in touched
+                and entry.get("status") == "PLANNED"):
+            entry["status"] = "WITHDRAWN"
+    return touched
+
+
+def abandon_architecture_decisions(paths: Paths, disposition: str) -> dict | None:
+    """`_abandon_architecture_decisions_locked`, under the catalog lock.
+
+    No catalog means nothing to dispose of, and nothing to lock: taking the
+    lock would create `.sdle/architecture/` in a repository that never had a
+    placement approved.
+    """
+    if not (paths.project_root / architecture_catalog_relative(paths)).exists():
+        return None
+    with architecture_catalog_lock(paths):
+        return _abandon_architecture_decisions_locked(paths, disposition)
+
+
+def _abandon_architecture_decisions_locked(paths: Paths,
+                                           disposition: str) -> dict | None:
+    """Engine-driven abandonment for `restart` and `reset` (ADR-013).
+
+    Returns ``None`` when there was nothing to dispose of, so the callers stay
+    silent in the overwhelmingly common case. `reset` deletes `audit.md`, so
+    for that disposition the catalog entry is the only durable record there
+    will ever be — which is exactly why it is a catalog write.
+    """
+    catalog = read_architecture_catalog(paths)
+    if catalog is None or not paths.workitem:
+        return None
+    stamp = now_iso()
+    touched = abandon_or_supersede_prior(
+        catalog, paths.workitem, disposition, stamp)
+    if not touched:
+        return None
+    catalog["revision"] += 1
+    catalog["updatedAt"] = stamp
+    relative = write_architecture_catalog(paths, catalog)
+    return {"decisions": touched, "revision": catalog["revision"],
+            "catalog": relative, "disposition": disposition}
+
+
+def realize_architecture_decision(catalog: dict, decision: dict,
+                                  capability_id: str | None,
+                                  stamp: str) -> dict:
+    """Turn an approved placement into a realized one. Pure.
+
+    ``capability_id`` is this decision's own capability, and it is a required
+    argument rather than a lookup because the catalog is shared: an unfiltered
+    sweep would close another WorkItem's in-flight extraction and leave its
+    later placement reasoning from a state nobody decided.
+    """
+    catalog = copy.deepcopy(catalog)
+    decision_id = decision["id"]
+    target = next(entry for entry in catalog["decisions"]
+                  if entry["id"] == decision_id)
+
+    for service in catalog["services"]:
+        if (service.get("decisionReference") == decision_id
+                and service.get("status") == "PLANNED"):
+            service["status"] = "IMPLEMENTED"
+
+    for entry in catalog["dataOwnership"]:
+        if entry.get("decisionReference") != decision_id:
+            continue
+        if entry.get("status") != "PLANNED":
+            continue
+        for other in catalog["dataOwnership"]:
+            if (other is not entry and other.get("data") == entry.get("data")
+                    and other.get("status") == "ACTIVE"):
+                other["status"] = "SUPERSEDED"
+        entry["status"] = "ACTIVE"
+
+    if target["outcome"] == "EXTRACT_EXISTING_CAPABILITY":
+        for candidate in catalog["candidates"]:
+            if candidate.get("state") == "EXTRACTING" and candidate.get(
+                    "decisionReference") == decision_id:
+                candidate["state"] = "EXTRACTED"
+        for capability in catalog["capabilities"]:
+            if (capability.get("id") == capability_id
+                    and capability.get("status") == "EXTRACTING"):
+                capability["status"] = "ESTABLISHED"
+
+    target["status"] = "IMPLEMENTED"
+    target["realizedAt"] = stamp
+    catalog["revision"] += 1
+    catalog["updatedAt"] = stamp
+    return catalog
+
+
+# -- integrity of the structured ↔ rendered pair ----------------------------
+
+
+def architecture_binding_precondition(paths: Paths, record: dict,
+                                      resolved: str | None = None) -> str:
+    """The rendering the human is approving *is* the record being applied.
+
+    A pure reader, called from `gate_precondition_hook` before the first
+    write. Three things have to agree, and all three are cheap:
+
+      * the rendering exists where the record says it does;
+      * its SHA-256 is the one the record captured at `assess`;
+      * it still prints the record's decision id and proposal digest.
+
+    The third looks redundant next to the second and is not: it is what makes
+    the failure *legible*. A SHA mismatch alone says "something changed"; the
+    header check says which decision the file on disk claims to be.
+    """
+    relative = record.get("renderedArtifact")
+    if resolved and relative and relative != resolved:
+        raise Refused(
+            "architecture_artifact_binding_invalid",
+            f"The gate fingerprinted {resolved}, but the placement record "
+            f"names {relative}. They must be the same file.",
+            {"workitem": paths.workitem, "gate_artifact": resolved,
+             "record_artifact": relative})
+    target = paths.project_root / relative if relative else None
+    if not relative or target is None or not target.is_file():
+        raise Refused(
+            "architecture_artifact_binding_invalid",
+            f"The placement record names {relative or 'no rendering'}, which "
+            "is not on disk. Re-run `architecture assess --input <path>`; the "
+            "rendering is generated from the record and is never written by "
+            "hand.",
+            {"workitem": paths.workitem, "rendered": relative})
+
+    current = sha256_file(target)
+    if current != record.get("renderedSha256"):
+        raise Refused(
+            "architecture_artifact_binding_invalid",
+            f"{relative} has changed since it was generated. The structured "
+            "record and the rendering are one decision, bound by digest: an "
+            "edited rendering is not an architecture decision. Re-run "
+            "`architecture assess --input <path>`.",
+            {"workitem": paths.workitem, "rendered": relative,
+             "recorded_sha": record.get("renderedSha256"),
+             "current_sha": current})
+
+    body = target.read_text(encoding="utf-8", errors="replace")
+    for label, value in (("decision id", record.get("decisionId")),
+                         ("proposal digest", record.get("proposalDigest"))):
+        if not value or value not in body:
+            raise Refused(
+                "architecture_artifact_binding_invalid",
+                f"{relative} does not carry the record's {label} "
+                f"({value!r}).",
+                {"workitem": paths.workitem, "rendered": relative,
+                 "missing": label})
+    return relative
+
+
+def architecture_outcome_precondition(record: dict) -> None:
+    """`ARCHITECTURE_REVIEW_REQUIRED` is not an approvable placement.
+
+    It means the evidence is insufficient or contradictory. A human resolves
+    the questions and the phase is re-run into one of the four actionable
+    outcomes; approving the escape hatch would put "we do not know" into the
+    catalog as though it were a decision.
+    """
+    outcome = (record.get("placement") or {}).get("outcome")
+    if outcome != ARCHITECTURE_UNRESOLVED_OUTCOME:
+        return
+    raise Refused(
+        "architecture_decision_unresolved",
+        "This placement is ARCHITECTURE_REVIEW_REQUIRED, which is not an "
+        "approvable outcome: it records that the evidence does not yet "
+        "support a placement. Resolve the open questions with the "
+        "architecture owner, then reject this gate and re-run "
+        f"{ARCHITECTURE_PHASE} so the artifact ends in one of: "
+        + ", ".join(ARCHITECTURE_ACTIONABLE_OUTCOMES) + ".",
+        {"outcome": outcome,
+         "questions": (record.get("placement") or {}).get("openQuestions") or [],
+         "actionable": list(ARCHITECTURE_ACTIONABLE_OUTCOMES)})
+
+
+def architecture_precondition(paths: Paths, state: dict) -> None:
+    """A WorkItem may not leave `architecture_placement` without a record.
+
+    The same shape as `discovery_precondition`, and enforced from
+    ``apply_advance`` for the same reason: `skip` exists for a *failed*
+    generation step, and a placement that was never produced is exactly that
+    case — but a specification drafted outside an approved boundary is the
+    thing ADR-013 exists to prevent, so `skip` may not walk past it either.
+    """
+    if (state or {}).get("current_phase") != ARCHITECTURE_PHASE:
+        return None
+    record = read_architecture_record(paths)
+    if record is not None and not architecture_record_is_disposed(
+            paths, record):
+        return None
+    raise Refused(
+        "architecture_placement_missing",
+        f"WorkItem '{paths.workitem}' is at {ARCHITECTURE_PHASE} and has no "
+        "live placement, so the workflow cannot leave the phase — a record "
+        "the engine has already disposed of (by restart, reset or a rerun) "
+        "does not count, or a human would be shown a voided decision to "
+        "approve. Run `architecture assess --input <path>`; `architecture "
+        "schema` reports what the proposal must contain.",
+        {"workitem": paths.workitem, "phase": ARCHITECTURE_PHASE,
+         "path": architecture_record_relative(paths),
+         "disposed": record is not None})
+
+
+# -- commands ---------------------------------------------------------------
+
+
+def bind_for_architecture(args, paths: Paths) -> Paths:
+    """`architecture` is runtime-free at the group level so `schema` and
+    `show` answer without a WorkItem — the catalog is the repository's, not a
+    WorkItem's. Its WorkItem-scoped members bind here, through the ladder."""
+    return bind_workitem(paths, args.workitem)
+
+
+def cmd_architecture_schema(args, paths: Paths) -> int:
+    """The closed vocabulary, emitted rather than restated. Writes nothing."""
+    emit("architecture schema", {
+        "input_versions": list(ARCHITECTURE_PROPOSAL_VERSIONS),
+        "envelope": list(ARCHITECTURE_PROPOSAL_SECTIONS),
+        "outcomes": list(ARCHITECTURE_OUTCOMES),
+        "actionable_outcomes": list(ARCHITECTURE_ACTIONABLE_OUTCOMES),
+        "unresolved_outcome": ARCHITECTURE_UNRESOLVED_OUTCOME,
+        "dimensions": list(ARCHITECTURE_DIMENSIONS),
+        "required_dimensions": {k: list(v) for k, v
+                                in ARCHITECTURE_REQUIRED_DIMENSIONS.items()},
+        "constitution_required_outcomes":
+            list(ARCHITECTURE_CONSTITUTION_REQUIRED),
+        "statuses": {
+            "capability": list(CAPABILITY_STATUSES),
+            "service": list(SERVICE_STATUSES),
+            "candidate": list(CANDIDATE_STATES),
+            "dataOwnership": list(DATA_OWNERSHIP_STATUSES),
+            "decision": list(DECISION_STATUSES),
+        },
+        "catalog_version": ARCHITECTURE_CATALOG_VERSION,
+        "record_version": ARCHITECTURE_RECORD_VERSION,
+        "bootstrap_bases": ["DISCOVERY", "BASELINE"],
+        # Envelope-level fields, beside `placement` and `bootstrapDelta`.
+        # `introducesTechnologyDecision` is the one ADR-014 input the engine
+        # cannot derive, so the prompt layer reads its location from here
+        # rather than from prose.
+        "envelope_fields": {
+            "architectureProposalVersion": "one of input_versions",
+            "baseArchitectureRevision":
+                "the revision `architecture show` reported",
+            "introducesTechnologyDecision":
+                "true when this WorkItem chooses a technology or platform "
+                "the project has not already committed to; consulted only "
+                "when no constitution resolves",
+            "bootstrapDelta": "optional; only while the catalog is "
+                              "uninitialized",
+            "placement": "required; exactly one primary outcome",
+        },
+        "enforced": [
+            "exactly one primary outcome, from the declared five",
+            "the outcome's required evidence dimensions each carry a finding",
+            "every service and capability referenced is one the catalog "
+            "knows or this proposal introduces",
+            "a new service boundary or an ownership transfer needs an "
+            "approved constitution",
+            "bootstrap evidence cites paths that exist, and is accepted only "
+            "while the catalog is uninitialized",
+            "the delta leaves exactly one active owner per datum",
+        ],
+        "not_enforced": [
+            "whether the placement is the architecturally right one",
+            "whether a stated finding is true of the code it describes",
+            "whether the evidence considered is complete",
+        ],
+        "never": [
+            "a numeric microservice score is neither computed nor accepted",
+        ],
+    })
+    return EXIT_OK
+
+
+def cmd_architecture_show(args, paths: Paths) -> int:
+    """The repository's architecture memory. Read-only, WorkItem-free.
+
+    Valid on an empty catalog and **invents nothing**: an uninitialized
+    repository reports `initialized: false`, not a fabricated architecture.
+    """
+    catalog = read_architecture_catalog(paths)
+    relative = architecture_catalog_relative(paths)
+    if catalog is None:
+        emit("architecture show", {
+            "initialized": False, "revision": 0, "path": relative,
+            "catalog": None,
+            "message": "This repository has no architecture catalog yet. The "
+                       "first approved placement creates it.",
+        })
+        return EXIT_OK
+
+    decisions = catalog["decisions"]
+    emit("architecture show", {
+        "initialized": True,
+        "revision": catalog["revision"],
+        "path": relative,
+        "catalog": catalog,
+        "counts": {name: len(catalog[name]) for name in ARCHITECTURE_COLLECTIONS},
+        "decisions_by_status": {
+            status: [entry["id"] for entry in decisions
+                     if entry.get("status") == status]
+            for status in DECISION_STATUSES
+        },
+    })
+    return EXIT_OK
+
+
+def cmd_architecture_assess(args, paths: Paths) -> int:
+    """Validate a placement proposal and record it, with its rendering.
+
+    Every refusal fires before the first write, so a refused assess leaves the
+    record, the rendering, `audit.md` and `state.json` exactly as they were —
+    `discovery assess`'s rule, for `discovery assess`'s reason.
+    """
+    consts = load_constants(paths)
+    paths = bind_for_architecture(args, paths)
+    state = read_state(paths)
+
+    # An approved placement has already entered the shared catalog, and the
+    # decision id is minted from what the catalog holds — so re-assessing
+    # afterwards would rebind this WorkItem's record to an id nothing applied,
+    # and `realize` would then find no decision to realize. Remediation runs
+    # through `gate reject`, which clears the approval and reopens the phase.
+    # The test is the *decision*, not the presence of an entry. `gate
+    # reject` writes a truthy `{"decision": "rejected"}` and nothing clears
+    # it, so guarding on presence turned a rejection into a dead end — the
+    # one path `gate-protocol.md`, `architecture-placement.md` and the
+    # troubleshooting guide all name as the remedy, and the only exit
+    # `ARCHITECTURE_REVIEW_REQUIRED` has.
+    decided = (state.get("approvals") or {}).get(ARCHITECTURE_GATE_KEY) or {}
+    if isinstance(decided, dict) and decided.get("decision") in (
+            "approved", GATE_OMITTED_DECISION):
+        raise Refused(
+            "architecture_decision_conflict",
+            f"{ARCHITECTURE_GATE_KEY} has already been decided for "
+            f"'{paths.workitem}', and its decision is in the repository "
+            "catalog. Re-assessing now would replace this WorkItem's record "
+            "with a decision nobody approved. Reject the gate first, which "
+            f"reopens {ARCHITECTURE_PHASE} through the remediation path.",
+            {"workitem": paths.workitem, "gate": ARCHITECTURE_GATE_KEY,
+             "decision": decided.get("decision")})
+
+    target = Path(args.input)
+    if not target.is_absolute():
+        target = paths.project_root / args.input
+    relative = args.input.replace(os.sep, "/")
+
+    catalog = read_architecture_catalog(paths)
+    document = read_architecture_input(target, relative)
+    evaluation = evaluate_architecture_proposal(
+        document, paths, state, consts, catalog, relative)
+
+    stamp = now_iso()
+    # Reserved BEFORE the first `write_atomic`, exactly as `discovery assess`
+    # does it: `reserve_evidence` can refuse `execution_id_collision`, and a
+    # refusal after the rendering had been replaced would leave the record's
+    # `renderedSha256` describing a file that no longer exists in that form.
+    execution_id, evidence = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"architecture-{eid}.json")
+    decision_id = next_decision_id(
+        catalog or empty_architecture_catalog(), paths.workitem)
+    # The whole of what `apply` will fold into the shared catalog: the
+    # placement AND the bootstrap delta. Digesting the placement alone let two
+    # proposals that mutate the catalog differently share one identity.
+    digest = architecture_digest({
+        "placement": evaluation["placement"],
+        "bootstrapDelta": evaluation["bootstrapDelta"],
+    })
+    rendered_relative = architecture_rendering_relative(paths)
+
+    record = {
+        "architecturePlacementVersion": ARCHITECTURE_RECORD_VERSION,
+        "workitem": paths.workitem,
+        "recordedAt": stamp,
+        "decisionId": decision_id,
+        "proposalDigest": digest,
+        "baseRevision": evaluation["baseRevision"],
+        "catalogRevisionNow": (catalog or {}).get("revision", 0),
+        "constitutionStatus": evaluation["constitution"]["status"],
+        "constitutionSource": evaluation["constitution"]["source"],
+        "placement": evaluation["placement"],
+        "bootstrapDelta": evaluation["bootstrapDelta"],
+        "renderedArtifact": rendered_relative,
+        "renderedSha256": None,
+    }
+
+    paths.architecture_placement_rendering.parent.mkdir(
+        parents=True, exist_ok=True)
+    write_atomic(paths.architecture_placement_rendering, render_placement(record))
+    record["renderedSha256"] = sha256_file(paths.architecture_placement_rendering)
+    record["executionId"] = execution_id
+    write_atomic(paths.architecture_placement_file,
+                 json.dumps(record, indent=2) + "\n")
+    write_atomic(evidence, json.dumps({
+        "kind": "architecture_placement",
+        "executionId": execution_id,
+        "recordedAt": stamp,
+        "workitem": paths.workitem,
+        "input": {"path": relative, "document": document},
+        "record": record,
+    }, indent=2) + "\n")
+
+    append_audit(
+        paths, state,
+        phase=state.get("current_phase") or ARCHITECTURE_PHASE,
+        event=ARCHITECTURE_ASSESSED_EVENT,
+        message=(
+            f"Architecture placement recorded: {evaluation['placement']['outcome']} "
+            f"for {evaluation['placement']['capability']['id']} "
+            f"(decision {decision_id}, base revision "
+            f"{evaluation['baseRevision']}, constitution "
+            f"{evaluation['constitution']['status']})."
+        ),
+        artifact=rendered_relative,
+        artifact_sha=record["renderedSha256"],
+        evidence_id=execution_id,
+    )
+    save_state(paths, state, args.session)
+
+    emit("architecture assess", {
+        "workitem": paths.workitem,
+        "decisionId": decision_id,
+        "proposalDigest": digest,
+        "outcome": evaluation["placement"]["outcome"],
+        "baseRevision": evaluation["baseRevision"],
+        "constitutionStatus": evaluation["constitution"]["status"],
+        "record": architecture_record_relative(paths),
+        "rendered": rendered_relative,
+        "renderedSha256": record["renderedSha256"],
+        "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "bootstrap": bool(evaluation["bootstrapDelta"]),
+        "approvable": evaluation["placement"]["outcome"]
+                      != ARCHITECTURE_UNRESOLVED_OUTCOME,
+    })
+    return EXIT_OK
+
+
+def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
+    """`_architecture_apply_locked`, under the catalog lock.
+
+    The catalog is re-read inside the lock, so the revision and replay
+    decisions are made against the file that is about to be replaced, not
+    against whatever it held when the caller started.
+    """
+    with architecture_catalog_lock(paths):
+        return _architecture_apply_locked(paths, record, stamp)
+
+
+def _architecture_apply_locked(paths: Paths, record: dict, stamp: str) -> dict:
+    """Fold an approved placement into the catalog, or explain why not.
+
+    The replay rule is the whole of ADR-013's replay safety. A crashed `apply` that had already
+    written revision N must be retryable: the same decision id with the same
+    proposal digest is *this* decision, already applied, and re-applying it
+    would bump the revision a second time and make every other WorkItem's
+    pinned base stale for no reason. The same id with a *different* digest is
+    a different decision wearing the same name, which is a conflict and never
+    a replay.
+    """
+    decision_id = record["decisionId"]
+    catalog = read_architecture_catalog(paths)
+    stored = next((entry for entry in (catalog or {}).get("decisions") or []
+                   if entry.get("id") == decision_id), None)
+
+    if stored is not None:
+        if stored.get("proposalDigest") != record["proposalDigest"]:
+            raise Refused(
+                "architecture_decision_conflict",
+                f"Decision {decision_id} is already in the catalog with a "
+                "different proposal digest. Two different placements cannot "
+                "share one decision id; re-run "
+                f"{ARCHITECTURE_PHASE} so this WorkItem proposes afresh.",
+                {"decision": decision_id,
+                 "applied_digest": stored.get("proposalDigest"),
+                 "record_digest": record["proposalDigest"]})
+        if stored.get("status") in ("ABANDONED", "SUPERSEDED"):
+            raise Refused(
+                "architecture_decision_conflict",
+                f"Decision {decision_id} was {stored['status'].lower()} and "
+                "cannot be re-applied. Re-run "
+                f"{ARCHITECTURE_PHASE} to propose again.",
+                {"decision": decision_id, "status": stored.get("status")})
+        return {"replayed": True, "decision": decision_id,
+                "revision": catalog["revision"],
+                "appliedRevision": stored.get("appliedRevision"),
+                "catalog": architecture_catalog_relative(paths),
+                "superseded": stored.get("supersedes") or []}
+
+    current = (catalog or empty_architecture_catalog())["revision"]
+    if record["baseRevision"] != current:
+        raise Refused(
+            "architecture_catalog_stale",
+            f"This placement was reasoned against architecture revision "
+            f"{record['baseRevision']}, and the catalog is now at {current} — "
+            "another WorkItem's placement was approved in between. Nothing "
+            f"has been written. Re-run {ARCHITECTURE_PHASE} against the "
+            "current architecture (`architecture show`) and re-approve.",
+            {"decision": decision_id, "base_revision": record["baseRevision"],
+             "catalog_revision": current,
+             "catalog": architecture_catalog_relative(paths)})
+
+    updated = apply_architecture_delta(
+        catalog or empty_architecture_catalog(), record, stamp)
+    relative = write_architecture_catalog(paths, updated)
+    applied = next(entry for entry in updated["decisions"]
+                   if entry["id"] == decision_id)
+    return {"replayed": False, "decision": decision_id,
+            "revision": updated["revision"],
+            "appliedRevision": applied["appliedRevision"],
+            "catalog": relative,
+            "superseded": applied.get("supersedes") or []}
+
+
+def architecture_realize(paths: Paths, stamp: str) -> dict:
+    """`_architecture_realize_locked`, under the catalog lock.
+
+    With no catalog file the inner function refuses on its own, and a refusal
+    must not leave a directory behind, so that case is not locked.
+    """
+    if not (paths.project_root / architecture_catalog_relative(paths)).exists():
+        return _architecture_realize_locked(paths, stamp)
+    with architecture_catalog_lock(paths):
+        return _architecture_realize_locked(paths, stamp)
+
+
+def _architecture_realize_locked(paths: Paths, stamp: str) -> dict:
+    """Realize this WorkItem's approved placement. Idempotent by the same rule.
+
+    Every "nothing to do here" branch is a **refusal**, not a silent pass.
+    After ADR-013 every WorkItem that reaches `gate_implement` has passed
+    `gate_architecture`, so a missing record, a missing catalog or a decision
+    the catalog does not hold all mean the same thing: something disposed of
+    the placement without the WorkItem noticing. Returning `None` there left a
+    service `PLANNED` for ever with no refusal and no audit entry.
+    """
+    record = require_architecture_record(paths)
+    catalog = read_architecture_catalog(paths)
+    decision = next((entry for entry in (catalog or {}).get("decisions") or []
+                     if entry.get("id") == record["decisionId"]), None)
+    if decision is None:
+        raise Refused(
+            "architecture_placement_missing",
+            f"WorkItem '{paths.workitem}' holds placement "
+            f"{record['decisionId']}, which is not in the repository catalog, "
+            "so there is nothing to realize. Its architecture decision was "
+            f"never applied or was disposed of; re-run {ARCHITECTURE_PHASE} "
+            "and approve it.",
+            {"workitem": paths.workitem, "decision": record["decisionId"],
+             "catalog": architecture_catalog_relative(paths)})
+    # The id alone does not identify the decision this WorkItem approved: a
+    # record whose digest no longer matches, or an id the catalog attributes
+    # to another WorkItem, is a different decision wearing this one's name.
+    # Checked before either branch below, so not even the IMPLEMENTED replay
+    # can report success for it.
+    if (decision.get("workItem") != paths.workitem
+            or decision.get("proposalDigest") != record["proposalDigest"]):
+        raise Refused(
+            "architecture_decision_conflict",
+            f"Decision {decision['id']} in the catalog does not belong to "
+            f"WorkItem '{paths.workitem}' with this placement's digest, so it "
+            "cannot be realized on this WorkItem's behalf. Re-run "
+            f"{ARCHITECTURE_PHASE} so the WorkItem proposes afresh.",
+            {"decision": decision["id"], "workitem": paths.workitem,
+             "catalog_workitem": decision.get("workItem"),
+             "applied_digest": decision.get("proposalDigest"),
+             "record_digest": record["proposalDigest"]})
+    if decision.get("status") == "IMPLEMENTED":
+        return {"replayed": True, "decision": decision["id"],
+                "revision": catalog["revision"],
+                "catalog": architecture_catalog_relative(paths)}
+    if decision.get("status") != "APPROVED_PENDING_IMPLEMENTATION":
+        raise Refused(
+            "architecture_decision_unresolved",
+            f"Decision {decision['id']} is {decision.get('status')}, so there "
+            "is nothing to realize. A WorkItem whose placement was abandoned "
+            f"must re-run {ARCHITECTURE_PHASE}.",
+            {"decision": decision["id"], "status": decision.get("status")})
+
+    updated = realize_architecture_decision(
+        catalog, decision, record["placement"]["capability"]["id"], stamp)
+    relative = write_architecture_catalog(paths, updated)
+    return {"replayed": False, "decision": decision["id"],
+            "revision": updated["revision"], "catalog": relative}
+
+
+def cmd_architecture_apply(args, paths: Paths) -> int:
+    """Apply an approved placement. Normally reached through `gate approve`.
+
+    Exposed as a command for the one case the gate path cannot cover: a crash
+    between the catalog write and the rest of the approval, where the operator
+    needs to replay the identical decision and see that it was already
+    applied.
+    """
+    paths = bind_for_architecture(args, paths)
+    state = read_state(paths)
+    consts = load_constants(paths)
+    record = require_architecture_record(paths)
+    architecture_outcome_precondition(record)
+    # The same path-equality check the gate makes: resolve what
+    # ARTIFACT_OWNERSHIP names and hand it to the binding, so the replay path
+    # cannot verify a different file from the one a gate would fingerprint.
+    resolved, _ = resolve_artifact_path(
+        state, consts, ARCHITECTURE_GATE_KEY, paths)
+    architecture_binding_precondition(paths, record, resolved)
+
+    if approval_decision(state, ARCHITECTURE_GATE_KEY) != "approved":
+        raise Refused(
+            "gate_required",
+            f"{ARCHITECTURE_GATE_KEY} has not been approved (a rejected or "
+            "omitted gate is not an approval), and an "
+            "architecture decision enters the shared catalog only on a "
+            "human's approval. Approve the gate; the approval applies the "
+            "decision for you.",
+            {"gate": ARCHITECTURE_GATE_KEY, "workitem": paths.workitem})
+
+    stamp = now_iso()
+    result = architecture_apply(paths, record, stamp)
+    if not result["replayed"]:
+        append_audit(
+            paths, state, phase=state.get("current_phase") or ARCHITECTURE_PHASE,
+            event=ARCHITECTURE_APPLIED_EVENT,
+            message=(f"Architecture decision {result['decision']} applied "
+                     f"(catalog revision {result['revision']})."),
+            artifact=result["catalog"])
+        save_state(paths, state, args.session)
+    emit("architecture apply", {"workitem": paths.workitem, **result})
+    return EXIT_OK
+
+
+def cmd_architecture_realize(args, paths: Paths) -> int:
+    """Mark an approved placement realized. Normally reached through the
+    implementation gate's approval; exposed for the same replay reason.
+
+    Gated on the same rule as `apply`, for the same reason: realization is a
+    catalog mutation — `PLANNED` becomes `IMPLEMENTED`, the previous owner of
+    moved data is closed — and ADR-013's guarantee is that no catalog
+    mutation happens without a human decision behind it. The human decision
+    realization rests on is the *implementation* gate.
+    """
+    paths = bind_for_architecture(args, paths)
+    state = read_state(paths)
+
+    if approval_decision(state, "gate_implement") != "approved":
+        raise Refused(
+            "gate_required",
+            "gate_implement has not been approved (a rejected gate is not "
+            "an approval), and a planned service "
+            "becomes implemented only once a human has accepted the work "
+            "that built it. Approve the implementation gate; the approval "
+            "realizes the decision for you.",
+            {"gate": "gate_implement", "workitem": paths.workitem})
+
+    stamp = now_iso()
+    result = architecture_realize(paths, stamp)
+    if not result["replayed"]:
+        append_audit(
+            paths, state, phase=state.get("current_phase") or "implement",
+            event=ARCHITECTURE_REALIZED_EVENT,
+            message=(f"Architecture decision {result['decision']} realized "
+                     f"(catalog revision {result['revision']})."),
+            artifact=result["catalog"])
+        save_state(paths, state, args.session)
+    emit("architecture realize",
+         {"workitem": paths.workitem, "realized": True, **result})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # The repository baseline — contract §14
 # --------------------------------------------------------------------------
 #
@@ -6593,18 +9002,23 @@ def resolve_artifact_path(
     Returns ``(resolved_path, skip_reason)``. A skip reason means the gate has
     no comparable artifact yet — not that something failed.
 
-    Two placeholders name a location only the active binding knows:
-    ``{workitem_runtime}`` is the WorkItem runtime and
-    ``{speckit_feature_directory}`` is ``specKit.featureDirectory``. ``paths``
-    is therefore a required argument — an omitted binding could otherwise
-    resolve a literal placeholder onto disk. The templates themselves carry
-    the placeholder.
+    Placeholders name a location only the active binding knows:
+    ``{workitem_runtime}`` is the WorkItem runtime, ``{workitem_root}`` is its
+    parent — the WorkItem directory itself, where deliverables that are not
+    engine bookkeeping live — and ``{speckit_feature_directory}`` is
+    ``specKit.featureDirectory``. ``paths`` is therefore a required argument —
+    an omitted binding could otherwise resolve a literal placeholder onto disk.
+    The templates themselves carry the placeholder.
+
+    The first two substitute unconditionally because a bound ``Paths`` always
+    knows them; the rest read state and may legitimately be unresolved.
     """
     template = consts.artifact_ownership.get(gate_key)
     if not template or template == "(none)":
         return None, "no artifact registered for this gate"
 
     resolved = template.replace("{workitem_runtime}", paths.runtime_relative)
+    resolved = resolved.replace("{workitem_root}", paths.workitem_root_relative)
 
     for placeholder, label, value in (
         ("{speckit_feature_directory}", "speckit_feature_directory",
@@ -6777,6 +9191,87 @@ def governance_downgrade_marker(execution_id: str) -> str:
     the two entries de-duplicate independently and neither can suppress the
     other."""
     return f"(governance downgrade {execution_id})"
+
+
+def content_acknowledgement_marker(path: str, sha256: str) -> str:
+    """The idiom `governance_audit_marker` uses, for a scan acknowledgement.
+    The full digest, not a prefix: `record_scan_acknowledgement_audit`'s
+    replay matches this structurally (event and artifact, not a text
+    search), but the marker is also what a human reads, and a truncated
+    hash inside two entries for the same path is exactly the kind of near
+    which that scenario means to guard against."""
+    return f"(content acknowledged {path} {sha256})"
+
+
+_AUDIT_EVENT = re.compile(r"^## AUDIT \[.*?\] \| .*? — (\S+)\s*$", re.MULTILINE)
+_AUDIT_ARTIFACT = re.compile(r"^\*\*Artifact:\*\* (.*)$", re.MULTILINE)
+
+
+def _already_recorded(entries: list[str], artifact: str, marker: str) -> bool:
+    """Structural de-duplication, not a text search over the whole ledger:
+    an entry counts only if its own event is `content_accepted`, its own
+    `Artifact` field equals this acknowledgement's path, and the marker
+    appears within that same entry's block — never a marker that happens to
+    appear inside an unrelated entry, a path, or a comment elsewhere in the
+    file (V2-05: a substring search over the whole file can be satisfied by
+    text that was never actually this acknowledgement)."""
+    for block in entries:
+        event = _AUDIT_EVENT.match(block)
+        artifact_line = _AUDIT_ARTIFACT.search(block)
+        if (event and event.group(1) == "content_accepted"
+                and artifact_line and artifact_line.group(1) == artifact
+                and marker in block):
+            return True
+    return False
+
+
+def record_scan_acknowledgement_audit(paths: Paths, state: dict | None) -> None:
+    """Carry every recorded content acknowledgement into the ledger, exactly
+    once each, DEF-RR-001's half of the same problem `record_governance_audit`
+    solves immediately above.
+
+    Validates the acknowledgement record whether or not `state` is given —
+    the same "pure reader" step the other preconditions in
+    `governance_precondition` already take with no `state` — so a malformed
+    file is caught before `cmd_gate_approve`'s, `cmd_gate_omit`'s and
+    `cmd_skip`'s own early, state-less calls, not only before `advance`'s.
+    Replay (the actual audit write) only happens when `state` is given.
+
+    `accept-content --path` cannot write this itself when it runs pre-init:
+    there is no `audit_sha` to rebaseline and no state file to save, for the
+    identical reason `governance assess` writes no audit entry of its own.
+    So a pre-init acknowledgement is replayed here, at the same first phase
+    movement that already carries the governance record in — de-duplicated
+    per acknowledgement by `(path, sha256)`, so replaying at every later
+    advance never doubles an entry, and acknowledging the same path twice
+    (different content each time) is two entries, not one overwritten.
+    """
+    doc = read_scan_acknowledgements(paths)  # validates even if state is None
+    if state is None:
+        return
+    acknowledgements = doc.get("acknowledgements") or []
+    if not acknowledgements:
+        return
+    existing_text = (
+        paths.audit_file.read_text(encoding="utf-8")
+        if paths.audit_file.is_file() else ""
+    )
+    entries = split_audit_entries(existing_text)
+    for ack in acknowledgements:
+        marker = content_acknowledgement_marker(ack["path"], ack["sha256"])
+        if _already_recorded(entries, ack["path"], marker):
+            continue
+        append_audit(
+            paths, state, phase=state.get("current_phase", "unknown"),
+            event="content_accepted",
+            message=f"User accepted flagged content in {ack['path']} {marker}.",
+            artifact=ack["path"],
+        )
+        existing_text = (
+            paths.audit_file.read_text(encoding="utf-8")
+            if paths.audit_file.is_file() else existing_text
+        )
+        entries = split_audit_entries(existing_text)
 
 
 def record_governance_audit(paths: Paths, state: dict, record: dict) -> None:
@@ -7308,6 +9803,29 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
 
     # Accepted. The facts enter the ledger here, after every refusal has had
     # its chance to fire, so a refused advance never writes anything.
+    #
+    # Acknowledgement *validation* runs unconditionally, even when `state` is
+    # `None` — `cmd_gate_approve`, `cmd_gate_omit` and `cmd_skip` each call
+    # this precondition once early, with no `state`, specifically so a
+    # refusal here happens before *their own* first irreversible append
+    # (`gate_approved`/`gate_omitted`/`skipped`), the same reason
+    # `cmd_gate_approve` gives for its own early call above. Gating the
+    # validation on `state is not None` left exactly that append unprotected
+    # for those three commands: a malformed acknowledgements file would only
+    # be discovered at their *second*, state-carrying call, by which point
+    # the append had already happened. Replay (the write) still only happens
+    # when `state` is given — `record_scan_acknowledgement_audit` itself
+    # returns immediately after validating if `state` is `None`.
+    #
+    # Acknowledgement validation/replay runs BEFORE `record_governance_audit`:
+    # its only possible failure (`read_scan_acknowledgements` raising on a
+    # malformed file) then happens before either function has appended
+    # anything, so a refusal here still leaves `audit.md` byte-identical.
+    # Reversed, a governance entry already written by `record_governance_audit`
+    # would survive an IntegrityError raised moments later by the
+    # acknowledgement read — a refused advance that had, in fact, already
+    # changed the ledger.
+    record_scan_acknowledgement_audit(paths, state)
     if state is not None:
         record_governance_audit(paths, state, record)
     return None
@@ -7446,6 +9964,7 @@ def apply_advance(
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
     impact_analysis_precondition(paths, state)
+    architecture_precondition(paths, state)
     governance_precondition(paths, state)
 
     if status is None:
@@ -7664,7 +10183,27 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
     impact_analysis_precondition(paths, state)
+    architecture_precondition(paths, state)
     revalidate_recorded_omissions(paths, state, consts, args.gate)
+
+    # ADR-013. BOTH catalog writes happen *here*, between the last refusal
+    # and the first ledger append, for the reason the comment above gives: a
+    # stale-revision, decision-conflict or unreadable-catalog refusal must
+    # leave `audit.md` byte-identical. Recording the approval first and then
+    # discovering the catalog had moved would put an approval in the ledger
+    # for a decision that never entered the architecture — and `realize` can
+    # refuse for exactly as many reasons as `apply` can, so it belongs on the
+    # same side of the line.
+    applied = realized = None
+    if args.gate == ARCHITECTURE_GATE_KEY:
+        applied = architecture_apply(
+            paths, require_architecture_record(paths), stamp)
+    elif args.gate == "gate_implement":
+        # Realization is the implementation gate's business: a service is
+        # PLANNED from approval until the work that built it has been
+        # accepted, and only then IMPLEMENTED. Idempotent, so a re-approval
+        # after drift does not mutate twice.
+        realized = architecture_realize(paths, stamp)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": "approved",
@@ -7684,6 +10223,41 @@ def cmd_gate_approve(args, paths: Paths) -> int:
         decision="APPROVED",
         comments=args.comments,
     )
+
+    if applied and not applied["replayed"]:
+        append_audit(
+            paths, state, phase=gate_phase, event=ARCHITECTURE_APPLIED_EVENT,
+            message=(
+                f"Architecture decision {applied['decision']} applied to the "
+                f"repository catalog (revision {applied['revision']})."),
+            artifact=applied["catalog"],
+        )
+        # A supersession disposes of a previously approved decision, and a
+        # disposition that reached the catalog with no ledger entry would be
+        # the one architecture change nobody could find afterwards.
+        if applied["superseded"]:
+            append_audit(
+                paths, state, phase=gate_phase,
+                event=ARCHITECTURE_ABANDONED_EVENT,
+                message=(
+                    "Approved-but-unrealized architecture decision(s) "
+                    + ", ".join(applied["superseded"])
+                    + " marked SUPERSEDED by this WorkItem's rerun placement "
+                    f"{applied['decision']}; planned services withdrawn."),
+                artifact=applied["catalog"],
+            )
+
+    if realized and not realized["replayed"]:
+        append_audit(
+            paths, state, phase=gate_phase,
+            event=ARCHITECTURE_REALIZED_EVENT,
+            message=(
+                f"Architecture decision {realized['decision']} realized: "
+                "planned services are now implemented and superseded "
+                f"ownership is closed (catalog revision "
+                f"{realized['revision']})."),
+            artifact=realized["catalog"],
+        )
 
     is_final = flow.next_phase(gate_phase) == "complete"
     moved = apply_advance(paths, state, consts, "complete" if is_final
@@ -7742,6 +10316,9 @@ def cmd_gate_approve(args, paths: Paths) -> int:
             # otherwise. Reported so the orchestrator can show it without
             # reading the repository configuration boundary itself.
             "baseline": baseline_path,
+            # ADR-013: `null` unless this approval moved the catalog.
+            "architecture_applied": applied,
+            "architecture_realized": realized,
         },
     )
     return EXIT_OK
@@ -7758,6 +10335,25 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             f"Drift re-approval is pending for {gate_key}; approve that first.",
             {"expected": gate_key, "requested": args.gate, "queue": queue},
         )
+
+    # ADR-013. `gate_architecture` has no drift re-approval: the
+    # rendering is engine-generated and bound to the record by digest, so a
+    # drifted `placement.md` is not new content to re-approve — it is a file
+    # that no longer matches the decision already in the shared catalog.
+    # Re-baselining it here would silently break the binding the whole design
+    # rests on, and there is no re-apply to put it back.
+    if gate_key == ARCHITECTURE_GATE_KEY:
+        raise Refused(
+            "architecture_artifact_binding_invalid",
+            "The architecture placement rendering has changed since it was "
+            "approved, and it cannot be re-approved through drift: it is "
+            "generated from the placement record and bound to the decision "
+            "already applied to the repository catalog. Restore the "
+            "generated file from version control, or `restart` to "
+            f"{ARCHITECTURE_PHASE} — which disposes of the applied decision "
+            "and lets this WorkItem propose afresh.",
+            {"gate": gate_key, "workitem": paths.workitem,
+             "queue": list(state.get("drift_queue") or [])})
 
     resolved, sha = required_gate_artifact(paths, state, consts, gate_key,
                                            "re-approve")
@@ -7928,6 +10524,7 @@ def cmd_gate_omit(args, paths: Paths) -> int:
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
     impact_analysis_precondition(paths, state)
+    architecture_precondition(paths, state)
 
     state.setdefault("approvals", {})[args.gate] = {
         "decision": GATE_OMITTED_DECISION,
@@ -8180,7 +10777,7 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
     """Move a gate's baseline to current content without a re-approval.
 
     Only legitimate where the same file is deliberately refined between two
-    gates that both own it — analyze refining tasks.md, which Gate 4 already
+    gates that both own it — analyze refining tasks.md, which the tasks gate already
     fingerprinted. Without this the drift check would raise a false alarm on a
     clean run.
     """
@@ -8192,6 +10789,23 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
             "unknown_gate", f"'{args.gate}' is not a registered gate key.",
             {"gate": args.gate},
         )
+    # ADR-013, the sibling door to `_approve_drift`'s refusal. The
+    # architecture rendering is engine-generated and bound by digest to a
+    # decision already in the shared catalog, so re-baselining it here would
+    # leave the catalog's `renderedSha256` permanently describing a file that
+    # no longer exists — and nothing downstream re-reads the binding once the
+    # gate is approved. Guarding one door is not guarding the artifact.
+    if args.gate == ARCHITECTURE_GATE_KEY:
+        raise Refused(
+            "architecture_artifact_binding_invalid",
+            "The architecture placement rendering cannot be re-baselined: it "
+            "is generated from the placement record and bound to the "
+            "decision already applied to the repository catalog. Restore the "
+            "generated file from version control, or `restart` to "
+            f"{ARCHITECTURE_PHASE} — which disposes of the applied decision "
+            "and lets this WorkItem propose afresh.",
+            {"gate": args.gate, "workitem": paths.workitem})
+
     if (state.get("artifact_shas") or {}).get(args.gate) is None:
         emit("drift rebaseline", {"gate": args.gate, "sha": None,
                                   "skipped": "no baseline recorded"})
@@ -8740,13 +11354,13 @@ REQUIRED_MANIFEST_SECTIONS = (
 )
 
 
-# Gate 7's verification evidence.
+# the implementation gate's verification evidence.
 #
 # `manifest build` writes one structured record per build beside the manifest
-# and names it from a line in the manifest. Gate 7 reads it back and binds it
+# and names it from a line in the manifest. the implementation gate reads it back and binds it
 # to the exact manifest bytes, the pinned implementation base and the bound
 # WorkItem, then requires a runner that actually ran and exited 0. The prose
-# statuses are for the reader; the record is what Gate 7 requires.
+# statuses are for the reader; the record is what the implementation gate requires.
 IMPLEMENTATION_EVIDENCE_KIND = "implementation"
 MANIFEST_EVIDENCE_LINE = re.compile(r"^Evidence: (\S+)\s*$", re.MULTILINE)
 TEST_STATUS_PASSED = "passed"
@@ -8790,7 +11404,7 @@ def _implementation_evidence_shape(document: object) -> str | None:
 def implementation_evidence_precondition(paths: Paths, state: dict,
                                          gate_key: str, resolved: str,
                                          body: str) -> None:
-    """Gate 7 requires evidence of a passing test run for *this* manifest."""
+    """the implementation gate requires evidence of a passing test run for *this* manifest."""
     match = MANIFEST_EVIDENCE_LINE.search(body)
     if not match:
         raise Refused(
@@ -8862,7 +11476,7 @@ def implementation_evidence_precondition(paths: Paths, state: dict,
             f"'{tests['status']}'"
             + (f" (exit {tests['exit_code']})"
                if tests["exit_code"] is not None else "")
-            + ". Gate 7 needs a test run that actually ran and passed, and "
+            + ". the implementation gate needs a test run that actually ran and passed, and "
             "there is no exception path: a PASS review of the manifest does "
             "not change the result it reports. Fix the failures, or — if the "
             "runner was not detected or not installed — supply the project's "
@@ -8881,7 +11495,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
                            gate_key: str, resolved: str | None) -> None:
     """Gate-specific refusals that must hold at the choke point.
 
-    Gate 7 is the one gate whose artifact is machine-generated, so it is the
+    the implementation gate is the one gate whose artifact is machine-generated, so it is the
     one gate whose completeness can be checked mechanically. A hook can be
     skipped; this refusal cannot — an implementation whose secrets scan or
     tests never ran does not reach a human decision.
@@ -8891,7 +11505,18 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     WorkItem at another's directory; a WorkItem's gate must never approve
     another WorkItem's artifact. The containment rule applies to every
     resolvable Spec Kit gate.
+
+    `gate_architecture` carries a third: its artifact is *also* machine
+    generated, from a structured record the catalog is applied from, so the
+    rendering the human just read has to be provably the record about to be
+    applied (ADR-013). Both checks are pure readers, ahead of every write.
     """
+    if gate_key == ARCHITECTURE_GATE_KEY:
+        record = require_architecture_record(paths)
+        architecture_outcome_precondition(record)
+        architecture_binding_precondition(paths, record, resolved)
+        return None
+
     if gate_key in SPECKIT_GATE_KEYS:
         if not resolved:
             return None
@@ -8928,7 +11553,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     if missing:
         raise Refused(
             "manifest_incomplete",
-            f"Cannot approve Gate 7: {resolved} is missing "
+            f"Cannot approve {gate_key}: {resolved} is missing "
             f"{', '.join(missing)}. Rebuild it with `manifest build` so the "
             "secrets scan and test evidence are in front of the reviewer at "
             "the moment of decision.",
@@ -8989,7 +11614,7 @@ def cmd_artifact_record(args, paths: Paths) -> int:
         return EXIT_OK
 
     if args.optional:
-        # Phase 8's checklist: absent or thin is tolerated, and recorded.
+        # The checklist phase's artifact: absent or thin is tolerated, and recorded.
         append_audit(
             paths, state, phase=phase, event="artifact_absent",
             message=f"Optional artifact {args.path} not produced "
@@ -9289,6 +11914,7 @@ def cmd_skip(args, paths: Paths) -> int:
     flow_precondition(paths, state)
     discovery_precondition(paths, state)
     impact_analysis_precondition(paths, state)
+    architecture_precondition(paths, state)
 
     state["pending_confirm_action"] = None
     state["current_artifact"] = None
@@ -9367,6 +11993,17 @@ def cmd_restart(args, paths: Paths) -> int:
         )
 
     state["pending_confirm_action"] = None
+    # ADR-013. Rolling back to or past `architecture_placement` discards
+    # this WorkItem's placement, and an approved placement is shared evidence
+    # a later WorkItem may already have reasoned from. It is *disposed of*,
+    # never deleted: the decision becomes ABANDONED and any service it had
+    # planned becomes WITHDRAWN, so the boundary stays reclaimable and the
+    # history stays append-only.
+    abandoned = None
+    if (flow.contains(ARCHITECTURE_PHASE)
+            and args.to <= flow.index(ARCHITECTURE_PHASE)):
+        abandoned = abandon_architecture_decisions(paths, "restart")
+
     for gate_key in cleared:
         (state.setdefault("approvals", {}))[gate_key] = None
         (state.setdefault("artifact_shas", {})).pop(gate_key, None)
@@ -9388,12 +12025,26 @@ def cmd_restart(args, paths: Paths) -> int:
         paths, state, phase=target, event="restart",
         message=f"Restart: rolled back to Phase {args.to} ({target}). "
                 f"Cleared downstream approvals: {', '.join(cleared) or 'none'}. "
-                f"phase_history trimmed by {trimmed}.",
+                f"phase_history trimmed by {trimmed}."
+                + (f" Architecture decision(s) abandoned: "
+                   f"{', '.join(abandoned['decisions'])}."
+                   if abandoned else ""),
     )
+    if abandoned:
+        append_audit(
+            paths, state, phase=target, event=ARCHITECTURE_ABANDONED_EVENT,
+            message=(
+                "Approved-but-unrealized architecture decision(s) "
+                f"{', '.join(abandoned['decisions'])} marked ABANDONED by "
+                f"restart; planned services withdrawn (catalog revision "
+                f"{abandoned['revision']})."),
+            artifact=abandoned["catalog"],
+        )
     save_state(paths, state, args.session)
     emit("restart", {"pending": False, "target": target, "index": args.to,
                      "label": consts.label_or(target, flow),
-                     "cleared_gates": cleared, "trimmed": trimmed})
+                     "cleared_gates": cleared, "trimmed": trimmed,
+                     "architecture_abandoned": abandoned})
     return EXIT_OK
 
 
@@ -9413,12 +12064,23 @@ def cmd_reset(args, paths: Paths) -> int:
             {"pending": state.get("pending_confirm_action")},
         )
 
+    # ADR-013 — and note the asymmetry with `restart`: this command
+    # deletes `audit.md`, so there is no ledger left to record the
+    # abandonment in. The catalog disposition is the ONLY durable record a
+    # reset abandonment will ever have, which is precisely why it is written
+    # here, before the deletion, rather than audited afterwards. A catalog
+    # the engine cannot read therefore blocks `reset` — fail-closed, because
+    # losing shared architectural history silently is the outcome this rule
+    # exists to prevent.
+    abandoned = abandon_architecture_decisions(paths, "reset")
+
     deleted = []
     for path in (paths.state_file, paths.audit_file, paths.lock_file):
         if path.is_file():
             path.unlink()
             deleted.append(path.name)
-    emit("reset", {"pending": False, "deleted": deleted})
+    emit("reset", {"pending": False, "deleted": deleted,
+                   "architecture_abandoned": abandoned})
     return EXIT_OK
 
 
@@ -9579,13 +12241,179 @@ def scan_text(text: str) -> list[dict]:
     return matches
 
 
+SCAN_ACKNOWLEDGEMENTS_VERSION = "1"
+
+
+def read_scan_acknowledgements(paths: Paths) -> dict:
+    """The WorkItem's explicit content acknowledgements, or an empty shell.
+
+    Absence is not an error — most WorkItems never flag anything — but a
+    present, unreadable or malformed file is: it would silently make
+    `governance assess` treat "acknowledgement unknown" as "acknowledgement
+    absent", which is the safe direction only for a file that never existed.
+    """
+    target = paths.scan_acknowledgements_file
+    if not target.is_file():
+        return {"scanAcknowledgementsVersion": SCAN_ACKNOWLEDGEMENTS_VERSION,
+                "workitem": paths.workitem, "acknowledgements": []}
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not "
+            f"readable JSON: {exc}.", {}) from exc
+    entries = doc.get("acknowledgements") if isinstance(doc, dict) else None
+    # V3-03: the writer always sets `workitem`, but nothing read it back —
+    # a store copied or symlinked in from another WorkItem's runtime (the
+    # same threat `validated_binding` already checks for the requirements
+    # binding) would silently transfer a decision that is documented and
+    # stored as WorkItem-scoped.
+    valid_shell = (
+        isinstance(doc, dict)
+        and doc.get("scanAcknowledgementsVersion") == SCAN_ACKNOWLEDGEMENTS_VERSION
+        and doc.get("workitem") == paths.workitem
+        and isinstance(entries, list))
+    # Every entry re-checked on every read, not only at write time: a merge,
+    # a restored backup or a hand edit can leave a well-formed shell around
+    # an entry the replay loop would otherwise fail on midway through —
+    # after it had already appended for the entries before it. Total, not
+    # merely present: `sha256` must be a *string* before the regex ever runs
+    # (an int or bool passed straight to `re.fullmatch` raises `TypeError`,
+    # not a refusal), and `path` is re-checked through the same lexical
+    # rules `safe_repo_path` enforces at write time — a control character or
+    # a line break in a stored path is not evidence of anything, and
+    # `record_scan_acknowledgement_audit` interpolates it into `audit.md`,
+    # whose parser treats a line starting `## AUDIT ` as a new entry.
+    def entry_ok(a: object) -> bool:
+        if (not isinstance(a, dict)
+                or set(a) - {"path", "sha256", "acknowledgedAt", "session"}
+                or not isinstance(a.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", a["sha256"])
+                or not isinstance(a.get("path"), str)):
+            return False
+        try:
+            canonical = _lexically_safe_path(paths, a["path"])
+        except _PathProblem:
+            return False
+        # Not merely "can be canonicalised without raising": `.strip()`
+        # inside `_lexically_safe_path` silently drops a *leading or
+        # trailing* control character (a literal newline) before the
+        # control-character check ever sees it, so a stored path carrying
+        # one would canonicalise cleanly while remaining, byte for byte,
+        # something `record_scan_acknowledgement_audit` would later
+        # interpolate into `audit.md` verbatim — forging an
+        # `## AUDIT ` line the parser reads as a new entry. Requiring the
+        # stored value to already equal its own canonical form closes that:
+        # nothing reaches replay that was not already exactly what a
+        # trusted write produced.
+        if a["path"] != canonical:
+            return False
+        acknowledged_at = a.get("acknowledgedAt")
+        session = a.get("session")
+        return (isinstance(acknowledged_at, str)
+                and (session is None or isinstance(session, str)))
+
+    entries_ok = valid_shell and all(entry_ok(a) for a in entries)
+    if not entries_ok:
+        raise IntegrityError(
+            "scan_acknowledgements_invalid",
+            f"{paths.runtime_relative}/scan-acknowledgements.json is not a "
+            "recognised acknowledgements record.", {})
+    return doc
+
+
+def is_content_acknowledged(doc: dict, path: str, sha256: str) -> bool:
+    """True only for an acknowledgement matching both the path and the
+    *current* content — editing a flagged line after acknowledging the old
+    text must not carry the acknowledgement over to the new one."""
+    return any(a.get("path") == path and a.get("sha256") == sha256
+               for a in doc.get("acknowledgements", []))
+
+
+def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
+                                 session: str | None) -> None:
+    """Append one acknowledgement, unless an identical one — same path,
+    same content — is already on file.
+
+    Append-only, matching every other ledger this engine keeps
+    (`audit.md`, `workitems/index.md`, `reviews.json`): acknowledging path A
+    then, later, different content at the same path is two human decisions,
+    not one overwriting the other, and `record_scan_acknowledgement_audit`'s
+    replay depends on both surviving to be carried into the audit chain.
+    An old acknowledgement for since-changed content is simply never matched
+    again by `is_content_acknowledged` (it checks path *and* content), so it
+    costs nothing to keep — the file grows by one entry per genuinely new
+    decision, not per repeat of the same one.
+
+    Accepted as a known limitation rather than fixed here: this is an
+    unlocked read-modify-write, so two concurrent acknowledgements can race
+    and one lose an update the other made in between. It fails closed — the
+    lost acknowledgement simply means that path is unacknowledged again,
+    which `governance assess` already refuses on its own, never a silent
+    pass — so it costs a repeat `accept-content --path`, not a bypass.
+    Serialising this belongs with the refusing lock primitive the
+    requirements-refinement work introduces for its own shared-document
+    transaction, not duplicated here for one file."""
+    doc = read_scan_acknowledgements(paths)
+    doc["workitem"] = paths.workitem
+    if is_content_acknowledged(doc, path, sha256):
+        return
+    doc["acknowledgements"].append({
+        "path": path, "sha256": sha256, "acknowledgedAt": now_iso(),
+        "session": session,
+    })
+    write_atomic(paths.scan_acknowledgements_file,
+                json.dumps(doc, indent=2) + "\n")
+
+
+def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
+                                  raw_by_path: dict[str, bytes]) -> list[dict]:
+    """Bound sources (as `requirements_sources` returns them — already
+    confirmed present on disk) that are currently flagged and have no
+    acknowledgement matching their content.
+
+    Independent of whatever `scan` last recorded: this re-scans every bound
+    source itself, so a source nobody ever ran `scan` on is caught here
+    rather than silently reaching `init` unexamined.
+
+    Takes `raw_by_path` — the exact bytes `requirements_sources`
+    already read `entry["sha256"]` from — rather than reading the file a
+    second time: two reads of the same path at two different times is
+    exactly the gap a concurrent edit can exploit (hash flagged content,
+    scan clean content substituted in between, or the reverse). Scanning and
+    hashing the identical bytes closes it structurally, not by comparison.
+    """
+    doc = read_scan_acknowledgements(paths)
+    offenders = []
+    for entry in sources:
+        raw = raw_by_path.get(entry["path"])
+        if raw is None:
+            continue  # missing; requirements_sources(strict=True) already
+                      # refused before this ever runs, for a non-strict caller
+                      # there is nothing to scan
+        matches = scan_text(raw.decode("utf-8", errors="replace"))
+        if matches and not is_content_acknowledged(doc, entry["path"], entry["sha256"]):
+            offenders.append({"path": entry["path"], "matches": matches})
+    return offenders
+
+
 def cmd_scan(args, paths: Paths) -> int:
-    target = paths.project_root / args.path
+    target, canonical = safe_repo_path(paths, args.path)
     if not target.is_file():
         raise Refused("artifact_missing", f"No such file: {args.path}",
                       {"path": args.path})
     matches = scan_text(target.read_text(encoding="utf-8", errors="replace"))
-    data = {"path": args.path, "flagged": bool(matches), "matches": matches}
+    # `acknowledgeable` is reported whether or not anything fired, so a caller
+    # can branch on the payload without a KeyError on the clean path.
+    acknowledgeable = paths.state_file.is_file()
+    # `canonical`, not `args.path`, everywhere a path is stored or matched
+    # from here on — two spellings of the same file (a Windows alias, a
+    # `./` prefix) must key the same pending confirmation and the same
+    # acknowledgement, or `accept-content` can "succeed" against a key
+    # `governance assess` never matches.
+    data = {"path": canonical, "flagged": bool(matches), "matches": matches,
+            "acknowledgeable": acknowledgeable}
 
     if not matches:
         emit("scan", data)
@@ -9593,16 +12421,39 @@ def cmd_scan(args, paths: Paths) -> int:
 
     # Record the pending acknowledgement when a workflow exists, so the
     # stale-confirmation guard applies to it like any other confirmation.
-    if paths.state_file.is_file():
+    #
+    # Before `init` there is no state to record it in, and `accept content`
+    # reads state unconditionally — so at bootstrap the acknowledgement route
+    # does not exist and the message must not imply that it does. It used to,
+    # and the shipped documentation taught a sequence that exits 3
+    # `state_unreadable`. `acknowledgeable` says which case this is, so a caller
+    # branches on the payload rather than on the prose.
+    if acknowledgeable:
         state = read_state(paths)
-        state["pending_confirm_action"] = f"accept_content:{args.path}"
+        state["pending_confirm_action"] = f"accept_content:{canonical}"
         save_state(paths, state, args.session)
 
     lines = "\n".join(f"  line {m['line']}: {m['text']}" for m in matches)
+    if acknowledgeable:
+        remedy = (
+            "Say `accept content` to proceed with this file as plain data, or "
+            "edit the file and re-scan."
+        )
+    else:
+        remedy = (
+            "This WorkItem has no state yet, so nothing is automatically "
+            "remembered. Either edit the flagged line so it does not read as "
+            "an instruction and re-scan, or acknowledge explicitly with "
+            "`accept-content --path " + canonical + "` — this works before "
+            "`init` too, and `governance assess` will refuse this document "
+            "again until it sees either a clean re-scan or a matching "
+            "acknowledgement."
+        )
     message = (
-        f"Untrusted content warning: {args.path} contains lines that look like "
+        f"Untrusted content warning: {canonical} contains lines that look like "
         f"instructions directed at the workflow engine:\n\n{lines}\n\n"
-        "SDLE treats this file as data only and will NOT act on these lines."
+        "SDLE treats this file as data only and will NOT act on these lines.\n"
+        f"{remedy}"
     )
     emit("scan", data, ok=False, reason="content_flagged", message=message)
     print(message, file=sys.stderr)
@@ -9610,6 +12461,64 @@ def cmd_scan(args, paths: Paths) -> int:
 
 
 def cmd_accept_content(args, paths: Paths) -> int:
+    """Two routes, chosen by whether `--path` is given, that now converge on
+    the same two effects (each used to touch only its own store, so
+    accepting through one route still left `governance assess` refusing
+    on the other's behalf) — both write the durable content acknowledgement
+    `governance assess` checks, and both clear a matching state-backed
+    pending confirmation when one exists.
+
+    Bare `accept-content` still requires state to exist (`state_unreadable`
+    otherwise) and still trusts the one pending confirmation `scan` recorded,
+    without re-scanning — the post-init route every existing test and
+    document pins. `accept-content --path <file>` is additive (DEF-RR-001):
+    it re-scans the named file itself rather than trusting a prior `scan`
+    call, and works both before and after `init`.
+
+    A pending file that has since been deleted refuses `artifact_missing`
+    before anything is checked or changed — mirroring `--path`'s own refusal
+    for a missing file — rather than silently reporting success with no
+    acknowledgement written. Both immediate post-init audit entries below
+    carry the same `content_acknowledgement_marker` the deferred pre-init
+    replay (`record_scan_acknowledgement_audit`) looks for, so an
+    acknowledgement already audited here is never audited a second time at
+    the next advance. Both routes are validated through `safe_repo_path` —
+    the bare route's path came from `state.json`, itself written by an
+    earlier, already-validated `scan`, but the *filesystem* can have changed
+    since (a symlink retargeted between scan and acceptance); re-resolving
+    now, and reading the same resolved target this validates, closes that
+    window rather than trusting a string written a step earlier.
+    """
+    path_arg = getattr(args, "path", None)
+    if path_arg:
+        target, canonical = safe_repo_path(paths, path_arg)
+        if not target.is_file():
+            raise Refused("artifact_missing", f"No such file: {path_arg}",
+                          {"path": path_arg})
+        raw = target.read_bytes()
+        matches = scan_text(raw.decode("utf-8", errors="replace"))
+        if not matches:
+            raise Refused("no_pending_confirmation",
+                          "No flagged content is pending acknowledgement.",
+                          {"path": path_arg})
+        sha = hashlib.sha256(raw).hexdigest()
+        write_content_acknowledgement(paths, canonical, sha, args.session)
+        if paths.state_file.is_file():
+            state = read_state(paths)
+            pending = state.get("pending_confirm_action") or ""
+            if pending == f"accept_content:{canonical}":
+                state["pending_confirm_action"] = None
+            append_audit(
+                paths, state, phase=state.get("current_phase", "unknown"),
+                event="content_accepted",
+                message=(f"User accepted flagged content in {canonical} "
+                         f"{content_acknowledgement_marker(canonical, sha)}."),
+                artifact=canonical,
+            )
+            save_state(paths, state, args.session)
+        emit("accept-content", {"file": canonical, "sha256": sha})
+        return EXIT_OK
+
     state = read_state(paths)
     pending = state.get("pending_confirm_action") or ""
     if not pending.startswith("accept_content:"):
@@ -9617,15 +12526,31 @@ def cmd_accept_content(args, paths: Paths) -> int:
                       "No flagged content is pending acknowledgement.",
                       {"pending": pending or None})
     flagged = pending.split(":", 1)[1]
+    # `flagged` is a key the engine itself wrote (by an earlier `scan`), so
+    # this is a live re-check of the filesystem, never a re-validation of
+    # untrusted input — but `safe_repo_path` refuses `path_invalid` for a
+    # spelling `scan` should never have produced, which surfaces a state
+    # corruption honestly instead of reading whatever `project_root / flagged`
+    # happens to resolve to.
+    target, canonical = safe_repo_path(paths, flagged)
+    if not target.is_file():
+        raise Refused("artifact_missing",
+                      f"No such file: {flagged} (the file the pending "
+                      "confirmation names is no longer on disk).",
+                      {"path": flagged})
+    raw = target.read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    write_content_acknowledgement(paths, canonical, sha, args.session)
     state["pending_confirm_action"] = None
     append_audit(
         paths, state, phase=state.get("current_phase", "unknown"),
         event="content_accepted",
-        message=f"User accepted flagged content in {flagged}.",
-        artifact=flagged,
+        message=(f"User accepted flagged content in {canonical} "
+                 f"{content_acknowledgement_marker(canonical, sha)}."),
+        artifact=canonical,
     )
     save_state(paths, state, args.session)
-    emit("accept-content", {"file": flagged})
+    emit("accept-content", {"file": canonical, "sha256": sha})
     return EXIT_OK
 
 
@@ -9672,15 +12597,39 @@ def cmd_guidance_path(args, paths: Paths) -> int:
 # --------------------------------------------------------------------------
 
 # Paths the dirty-tree guard treats as SDLE's own bookkeeping rather than the
-# user's implementation. It includes `.sdle/`: the
-# repository-global configuration root is written by `config` and by
-# `baseline`, both of which already produce their own audited records, so
-# excluding it loses no evidence — while *not* excluding it let one WorkItem's
-# `baseline.json` write trip another WorkItem's guard, which is the
-# cross-WorkItem isolation §8/§9 do guarantee. `workitems/<id>/.sdle/` is
-# already covered by the `workitems/` entry.
+# user's implementation.
+#
+# `.sdle/` used to be here whole. ADR-013 narrows it to the three members the
+# engine actually writes during a lifecycle, because the configuration root
+# also holds two things a human authors — `config.json` and `policies/` — and
+# an uncommitted edit to either is exactly the kind of change the guard exists
+# to surface before an implementation mixes it in. Narrowing makes the guard
+# strictly *stricter*; nothing that was reported before stops being reported.
+#
+#   .sdle/baseline.json          written by `establish_baseline` at the final
+#                                gate. Owned for the original reason the whole
+#                                directory was: one WorkItem's baseline write
+#                                must not trip another WorkItem's guard.
+#   .sdle/implementation-state/  execution records of maintenance runs.
+#   .sdle/architecture/          the shared architecture catalog, written by
+#                                `architecture apply`/`realize` during the very
+#                                lifecycle whose preflight this is (ADR-013).
+#
+# `workitems/<id>/.sdle/` and `workitems/<id>/architecture/` are both already
+# covered by the `workitems/` entry, so the WorkItem placement artifacts need
+# no rule of their own.
+# The `.sdle/` members are spelled relative to the repository root because
+# this tuple is compared against git status output, which is. They are the
+# only literals for those three directory names outside `Paths`; both lists
+# that need them (`implementation_exclusions` is the other) derive from
+# `Paths` where they can and are checked against each other by
+# `test_units_architecture.py`.
 SDLE_OWNED_PREFIXES = (
-    ".workflow/", ".sdle/", "workitems/", ".specify/", "design/", "reviews/",
+    ".workflow/",
+    ".sdle/baseline.json",
+    ".sdle/implementation-state/",
+    ".sdle/architecture/",
+    "workitems/", ".specify/", "design/", "reviews/",
     "clarifications/", "guidance/", "requirements/",
 )
 
@@ -9769,7 +12718,7 @@ TEXT_SUFFIXES = {
 
 def detect_test_runner(paths: Paths) -> tuple[str, list[str]] | None:
     """Find a runner we can actually execute. Item 11: an implementation whose
-    tests never ran must not reach Gate 7 unchallenged."""
+    tests never ran must not reach the implementation gate unchallenged."""
     root = paths.project_root
     package = root / "package.json"
     if package.is_file():
@@ -9906,7 +12855,7 @@ def registry_ids_at(paths: Paths, ref: str) -> set[str]:
 def implementation_exclusions(paths: Paths, state: dict) -> Exclusions:
     """Paths that are engine bookkeeping, never implementation.
 
-    One list for both consumers of the implementation change set — Gate 7's
+    One list for both consumers of the implementation change set — the implementation gate's
     manifest and the security-review evidence — so they cannot disagree about
     what the implementation is. It stays an explicit, narrow list and is
     deliberately **not** SDLE_OWNED_PREFIXES: that would silently drop
@@ -9948,10 +12897,23 @@ def implementation_exclusions(paths: Paths, state: dict) -> Exclusions:
     row whose id is not well formed is given no directory to own, so a
     malformed cell cannot hide a tree.
     """
+    # ADR-013 narrowed the dirty-tree guard's view of `.sdle/` to the three
+    # members the engine writes; this list is narrowed identically, so the
+    # two boundaries agree. The consequence is deliberate: a `config.json` or
+    # `policies/` edit made during an implementation now both trips the
+    # preflight AND appears in the manifest a reviewer reads, instead of
+    # tripping one and vanishing from the other.
+    # Named `boundary`, not `config_root`: the latter is a `Paths` member
+    # name, and the containment proof in `test_units_repo_config.py` reads
+    # every name a function references — a local that shadows a member name
+    # would read as a second boundary reader.
+    boundary = paths.config_root_relative
     excluded = [
-        paths.runtime_relative + "/",       # this WorkItem's runtime
-        paths.config_root_relative + "/",   # repository-global `.sdle/`
-        ".specify/",                        # Spec Kit's own tree
+        paths.runtime_relative + "/",          # this WorkItem's runtime
+        f"{boundary}/baseline.json",           # engine-written at the gate
+        f"{boundary}/implementation-state/",   # engine-written records
+        f"{boundary}/architecture/",           # the shared catalog
+        ".specify/",                           # Spec Kit's own tree
     ]
     feature_directory = speckit_ref(state)["featureDirectory"]
     if feature_directory:
@@ -9985,7 +12947,7 @@ def implementation_changes(paths: Paths, state: dict) -> list[dict]:
     changes committed after the base, staged changes and unstaged changes in
     one comparison — plus untracked files, which no diff reports. Comparing
     against the current ``HEAD`` instead would make a change committed during
-    implementation vanish from Gate 7 and from the secrets scan.
+    implementation vanish from the implementation gate and from the secrets scan.
 
     Each entry is ``{path, status, old_path, binary, untracked}``; ``status``
     is git's letter (A, M, D, R, T). Paths are POSIX, de-duplicated, sorted,
@@ -10167,8 +13129,9 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                     break
 
     if args.skip_tests:
-        # Kept, and recorded as exactly what it is. It cannot carry Gate 7:
-        # the gate refuses any result but a run that passed.
+        # Kept, and recorded as exactly what it is. It cannot carry the
+        # implementation gate: that gate refuses any result but a run that
+        # actually passed.
         tests = {"runner": None, "command": None, "exit_code": None,
                  "output": None, "status": "skipped by caller"}
     else:
@@ -10187,7 +13150,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
             + (f"\n\n```\n{tests['output']}\n```" if tests["output"] else "")
         )
 
-    # The structured record Gate 7 reads. Claimed before the manifest is
+    # The structured record the implementation gate reads. Claimed before the manifest is
     # written so the manifest can name it; filled after, so it can carry the
     # manifest's own fingerprint and nothing can be edited in between unseen.
     stamp = now_iso()
@@ -10200,7 +13163,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         "# Implementation Manifest\n"
         f"Generated: {stamp}\n"
         f"Evidence: {evidence_relative}\n"
-        f"Phase: implement ({state.get('progress', '15/18')})\n"
+        f"Phase: implement ({state.get('progress') or 'unknown'})\n"
         + (f"\n> {note}\n" if note else "")
         + "\n## Changed/Added Files\n"
         + ("\n".join(_manifest_line(entry) for entry in changes)
@@ -10248,8 +13211,8 @@ def cmd_manifest_build(args, paths: Paths) -> int:
     emit("manifest build", {
         "path": relative, "files": changed, "changes": changes,
         "secrets": findings, "tests": tests, "evidence": evidence_relative,
-        # Advisory, so the orchestrator can say *now* that Gate 7 will refuse
-        # rather than letting the user discover it at the gate. Gate 7 itself
+        # Advisory, so the orchestrator can say *now* that the implementation gate will refuse
+        # rather than letting the user discover it at the gate. the implementation gate itself
         # re-derives this from the evidence file; it never reads this flag.
         "tests_passed": (tests["status"] == TEST_STATUS_PASSED
                          and tests["exit_code"] == 0),
@@ -10266,7 +13229,7 @@ def cmd_security_review_evidence(args, paths: Paths) -> int:
               "note": "Git not available — diff analysis skipped."})
         return EXIT_OK
 
-    # The same change set Gate 7's manifest lists, from the same pinned
+    # The same change set the implementation gate's manifest lists, from the same pinned
     # base. An unpinned base is a refusal, exactly as for the manifest — never
     # a silent `HEAD~1`, a range nobody chose — because a review of the wrong
     # range is worse than no review.
@@ -10605,7 +13568,7 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
 
     # Block ordinals are the GREENFIELD positions, and every GREENFIELD phase's
     # block states its own. Renumbering the blocks to registry indices was
-    # rejected: `modules/security-review.md` cross-references "Phase 17" and is
+    # rejected: `modules/security-review.md` cross-references the security-review phase and is
     # must-not-change, so the registry index and the block ordinal deliberately
     # diverge — and this check is what keeps the divergence honest.
     position = {phase: i + 1 for i, phase in enumerate(greenfield.phases)}
@@ -10746,7 +13709,7 @@ def _check_flow_model(consts: Constants) -> list[Check]:
               else "every registry phase is named by at least one flow"))
 
     # A gate's ordinal is flow-relative, so it may not be re-hardcoded into the
-    # label: HOTFIX's `gate_implement` is Gate 2, GREENFIELD's is Gate 7.
+    # label: HOTFIX's `gate_implement` is Gate 3, GREENFIELD's is Gate 8.
     label_problems: list[str] = []
     for phase in consts.gate_phases:
         template = consts.phase_label_template.get(phase, "")
@@ -10760,12 +13723,65 @@ def _check_flow_model(consts: Constants) -> list[Check]:
               "; ".join(label_problems) if label_problems
               else f"all {len(consts.gate_phases)} gate labels are "
                    "flow-relative"))
+
+    # ADR-013's lifecycle invariant, stated as a property rather than as
+    # documentation: placement, then its gate, then the specification — in
+    # EVERY flow, GREENFIELD included. `MANDATORY_FLOW_PHASES` already forces
+    # both phases to be present; what it cannot express is the order, and an
+    # architecture gate that fell behind `spec_draft` would govern a boundary
+    # a specification had already assumed.
+    ordering: list[str] = []
+    for name, flow in sorted(flows.items()):
+        phases = list(flow.phases)
+        for phase in (ARCHITECTURE_PHASE, ARCHITECTURE_GATE_KEY, "spec_draft"):
+            if phase not in phases:
+                ordering.append(f"{name} does not contain {phase}")
+        if any(f"{name} does not contain" in problem for problem in ordering):
+            continue
+        placement = phases.index(ARCHITECTURE_PHASE)
+        gate = phases.index(ARCHITECTURE_GATE_KEY)
+        spec = phases.index("spec_draft")
+        # Adjacency, not merely order: ADR-013 says *immediately* precedes
+        # twice, and a phase slipped between the placement and its gate — or
+        # between the gate and the specification — would be governed by
+        # neither.
+        if (gate, spec) != (placement + 1, placement + 2):
+            ordering.append(
+                f"{name} orders them {placement}/{gate}/{spec}; the "
+                "placement must immediately precede its gate, which must "
+                "immediately precede spec_draft")
+    checks.append(
+        Check("architecture_phase_precedes_spec_in_every_flow", not ordering,
+              "; ".join(ordering) if ordering
+              else f"all {len(flows)} flows place {ARCHITECTURE_PHASE} before "
+                   f"{ARCHITECTURE_GATE_KEY} before spec_draft"))
+
+    # And its governance invariant: no classification, no risk level and no
+    # policy dictionary makes `gate_architecture` omittable. Exhaustive over
+    # the built-in policy's own vocabulary rather than argued in prose.
+    relaxable: list[str] = []
+    for name, flow in sorted(flows.items()):
+        if ARCHITECTURE_GATE_KEY not in flow.gate_keys:
+            continue
+        for wi_type in WORKITEM_TYPES:
+            for level in GOVERNANCE_LEVELS:
+                model = gate_requirements(
+                    consts, flow, {"type": wi_type, "flow": name}, level,
+                    GOVERNANCE_POLICY_BUILTIN)
+                if ARCHITECTURE_GATE_KEY not in model["required_gates"]:
+                    relaxable.append(f"{name}/{wi_type}/{level}")
+    checks.append(
+        Check("architecture_gate_is_universally_required", not relaxable,
+              "omittable at: " + ", ".join(relaxable) if relaxable
+              else f"{ARCHITECTURE_GATE_KEY} is required for every flow, "
+                   f"type and risk level ({len(WORKITEM_TYPES)}×"
+                   f"{len(GOVERNANCE_LEVELS)} combinations checked)"))
     return checks
 
 
 # A capability file may point at another one. The reference is a load
 # directive in prose, so it is matched as the literal path it has to be.
-_CAPABILITY_REF_RE = re.compile(r"modules/[A-Za-z0-9._-]+\.md")
+_CAPABILITY_REF_RE = re.compile(r"(?:modules|guidelines)/[A-Za-z0-9._-]+\.md")
 
 # The always-loaded orchestrator. Never a capability — see D1/`CAPABILITY_MAP`.
 ORCHESTRATOR_FILE = "SKILL.md"
@@ -10823,19 +13839,25 @@ def _check_capability_map(paths: Paths, consts: Constants) -> list[Check]:
     linted = {path.resolve() for path in _skill_files(paths)}
     unlinted = sorted(v for v, target in resolved.items()
                       if target.is_file() and target.resolve() not in linted)
-    on_disk = (sorted(p.name for p in paths.modules_dir.glob("*.md")
-                      if p.is_file()) if paths.modules_dir.is_dir() else [])
-    named = {Path(value).name for value in values}
+    # Orphan detection covers BOTH capability homes. A guideline no row names
+    # is exactly as dead as a module no row names, and worse in one way: an
+    # unmapped guideline reads like shipped product heuristics while never
+    # reaching a phase (ADR-014).
+    on_disk = sorted(
+        f"{directory.name}/{p.name}"
+        for directory in capability_directories(paths)
+        for p in directory.glob("*.md") if p.is_file())
+    named = {f"{Path(value).parent.name}/{Path(value).name}" for value in values}
     orphans = [name for name in on_disk if name not in named]
     coverage = []
     if unlinted:
         coverage.append(f"capabilities outside the linted file set: {unlinted}")
     if orphans:
-        coverage.append(f"modules/ files no row names: {orphans}")
+        coverage.append(f"capability files no row names: {orphans}")
     checks.append(Check(
         "every_capability_file_is_linted", not coverage,
         "; ".join(coverage) if coverage
-        else f"{len(resolved)} capability files, all linted, no orphan module"))
+        else f"{len(resolved)} capability files, all linted, no orphans"))
 
     saturated = sorted(phase for phase, row in mapping.items()
                        if set(row) == values)
@@ -11141,12 +14163,27 @@ def _skill_files(paths: Paths) -> list[Path]:
     offenders and reports them sorted or whole.
     """
     files = [paths.skill_md] if paths.skill_md.is_file() else []
-    if paths.modules_dir.is_dir():
+    for directory in capability_directories(paths):
         files.extend(sorted(
-            (p for p in paths.modules_dir.glob("*.md") if p.is_file()),
+            (p for p in directory.glob("*.md") if p.is_file()),
             key=lambda p: p.name))
     files.extend(product_agent_files(paths))
     return files
+
+
+def capability_directories(paths: Paths) -> tuple[Path, ...]:
+    """Every directory a `CAPABILITY_MAP` row may name a file in.
+
+    Two homes, one rule. `modules/` holds *procedure* — how a phase is
+    executed, how a gate is presented. `guidelines/` holds *heuristics* —
+    what to prefer and why (ADR-014). Both are lazily loaded capability
+    files, so both are enumerated here: the orphan check, the content checks
+    and the "is it linted" check all read this one function rather than
+    growing a second hand-maintained list.
+    """
+    return tuple(directory for directory
+                 in (paths.modules_dir, paths.guidelines_dir)
+                 if directory.is_dir())
 
 
 def _repo_root(paths: Paths) -> Path:
@@ -11464,11 +14501,11 @@ def documented_flow_counts(consts: Constants) -> dict[str, tuple[int, int]]:
     rather than to re-derive it beside it (invariant 7).
 
     So the convention is not a choice this function makes. `phase_count`
-    **excludes the terminal `complete`** -- its own docstring calls it "the N
-    in 'N/18'" -- because `complete` is a state a WorkItem lands in, not a
-    phase anybody executes: `PROGRESS_MAP` numbers GREENFIELD 1 through 18 and
-    gives `complete` no number of its own, sharing `18/18` with
-    `gate_security`. A document that counted it printed a table disagreeing
+    **excludes the terminal `complete`** -- its own docstring calls it the
+    denominator of the progress fraction -- because `complete` is a state a
+    WorkItem lands in, not a phase anybody executes: `PROGRESS_MAP` numbers
+    GREENFIELD from 1 to its last phase and gives `complete` no number of its
+    own, sharing the final fraction with `gate_security`. A document that counted it printed a table disagreeing
     with the progress header the user reads on every single turn, which is
     exactly what `docs/lifecycle/README.md` did until this check existed.
     """
@@ -11785,6 +14822,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     disc_show.set_defaults(handler=cmd_discovery_show)
 
+    architecture_p = subparsers.add_parser(
+        "architecture",
+        help="Repository architecture memory and WorkItem placement (ADR-013)."
+    )
+    architecture_sub = architecture_p.add_subparsers(
+        dest="subcommand", required=True)
+    arch_schema = architecture_sub.add_parser(
+        "schema", help="The closed placement vocabulary. Writes nothing."
+    )
+    arch_schema.set_defaults(handler=cmd_architecture_schema)
+    arch_show = architecture_sub.add_parser(
+        "show", help="The repository architecture catalog. Writes nothing."
+    )
+    arch_show.set_defaults(handler=cmd_architecture_show)
+    arch_assess = architecture_sub.add_parser(
+        "assess", help="Validate a placement proposal and record it."
+    )
+    arch_assess.add_argument(
+        "--input", required=True,
+        help="Path to the structured architecture proposal JSON.")
+    arch_assess.set_defaults(handler=cmd_architecture_assess)
+    arch_apply = architecture_sub.add_parser(
+        "apply",
+        help="Apply an approved placement to the catalog (replay-safe)."
+    )
+    arch_apply.set_defaults(handler=cmd_architecture_apply)
+    arch_realize = architecture_sub.add_parser(
+        "realize",
+        help="Mark an applied placement realized after implementation."
+    )
+    arch_realize.set_defaults(handler=cmd_architecture_realize)
+
     # Read-only by construction. There is deliberately no `flow set`: see
     # `cmd_flow_show`'s docstring for why a second writer of traversal
     # identity would be a governance bypass.
@@ -11941,7 +15010,7 @@ def build_parser() -> argparse.ArgumentParser:
     req_show = req_sub.add_parser("show", help="Report the binding.")
     req_show.set_defaults(handler=cmd_requirements_show)
 
-    sr_p = subparsers.add_parser("security-review", help="Phase 17 support.")
+    sr_p = subparsers.add_parser("security-review", help="Security-review support.")
     sr_sub = sr_p.add_subparsers(dest="subcommand", required=True)
     sr_begin = sr_sub.add_parser("begin", help="Pin the review filename.")
     sr_begin.set_defaults(handler=cmd_security_review_begin)
@@ -11961,7 +15030,7 @@ def build_parser() -> argparse.ArgumentParser:
     recorded.add_argument("--phase")
     recorded.add_argument("--path", required=True)
     recorded.add_argument("--optional", action="store_true",
-                          help="Absence is tolerated (Phase 8 checklist).")
+                          help="Absence is tolerated (checklist_draft).")
     recorded.set_defaults(handler=cmd_artifact_record)
     reviewed = artifact_sub.add_parser(
         "review", help="Record a review of an artifact's current content."
@@ -12044,9 +15113,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "accept-state", help="Acknowledge a detected state jump."
     ).set_defaults(handler=cmd_accept_state)
-    subparsers.add_parser(
+    accept_content_p = subparsers.add_parser(
         "accept-content", help="Acknowledge flagged file content."
-    ).set_defaults(handler=cmd_accept_content)
+    )
+    accept_content_p.add_argument(
+        "--path", required=False,
+        help="Acknowledge this file explicitly (works before init too), "
+             "instead of consuming state.json's one pending confirmation.")
+    accept_content_p.set_defaults(handler=cmd_accept_content)
     subparsers.add_parser(
         "repo-staleness", help="Commits newer than the newest approval."
     ).set_defaults(handler=cmd_repo_staleness)
@@ -12071,7 +15145,7 @@ def build_parser() -> argparse.ArgumentParser:
     gpath.add_argument("--phase", required=True)
     gpath.set_defaults(handler=cmd_guidance_path)
 
-    impl_p = subparsers.add_parser("implement", help="Phase 15 support.")
+    impl_p = subparsers.add_parser("implement", help="Implementation support.")
     impl_sub = impl_p.add_subparsers(dest="subcommand", required=True)
     ipre = impl_sub.add_parser(
         "preflight", help="Dirty-tree guard; pin implementation_base_ref."
@@ -12080,7 +15154,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Proceed despite a dirty tree (logged).")
     ipre.set_defaults(handler=cmd_implement_preflight)
 
-    man_p = subparsers.add_parser("manifest", help="Gate 7 artifact.")
+    man_p = subparsers.add_parser("manifest", help="Implementation-gate artifact.")
     man_sub = man_p.add_subparsers(dest="subcommand", required=True)
     mbuild = man_sub.add_parser("build", help="File list, secrets scan, tests.")
     mbuild.add_argument("--summary")

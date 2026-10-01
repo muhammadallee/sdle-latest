@@ -58,7 +58,7 @@ def legacy_state(project: Project, **overrides) -> dict:
 def at_implement(view: Project) -> None:
     state = view.state()
     state["current_phase"] = "implement"
-    state["progress"] = "15/18"
+    state["progress"] = "17/20"
     view.write_state(state)
 
 
@@ -303,12 +303,12 @@ def test_init_refuses_legacy_state_even_with_a_workitem_registered(bare_project)
 # ==========================================================================
 
 
-def test_the_shipped_template_is_1_17_and_carries_the_workitem_field(bare_project):
+def test_the_shipped_template_is_1_18_and_carries_the_workitem_field(bare_project):
     template = json.loads(
         (bare_project.skill_root / "templates" / "state.json")
         .read_text(encoding="utf-8")
     )
-    assert template["workflow_version"] == "1.17"
+    assert template["workflow_version"] == "1.18"
     assert template["workitem"] is None
     assert list(template)[:2] == ["workflow_version", "workitem"]
 
@@ -342,7 +342,7 @@ def test_execution_identity_is_written_at_init_and_is_not_the_workitem(project):
     doc = json.loads((project.runtime / "execution.json").read_text(encoding="utf-8"))
     assert doc["executionId"] == execution_id
     assert doc["workitem"] == FIXTURE_WORKITEM_ID
-    assert doc["sdleVersion"] == "1.17"
+    assert doc["sdleVersion"] == "1.18"
     assert doc["startedAt"].endswith("Z")
     # Contract §8: execution identity is execution metadata, never the
     # WorkItem name, and nothing resolves a WorkItem from it.
@@ -378,7 +378,7 @@ def test_the_phase_17_diff_excludes_the_workitem_runtime(git_project):
 
     state = git_project.state()
     state["current_phase"] = "security_review"
-    state["progress"] = "17/18"
+    state["progress"] = "19/20"
     git_project.write_state(state)
     result = git_project.ok("security-review", "evidence", session="s")
 

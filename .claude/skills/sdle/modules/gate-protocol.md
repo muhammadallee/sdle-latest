@@ -7,13 +7,14 @@ Use this table in Step 7 (Rejection & Remediation) to determine whether re-execu
 | gate_key | execution_phase | type |
 |---|---|---|
 | gate_constitution | constitution_draft | SpecKit (`speckit-constitution`) |
+| gate_architecture | architecture_placement | SDLE-native (`modules/architecture-placement.md`) |
 | gate_spec | spec_draft | SpecKit (`speckit-specify`) |
 | gate_plan | plan_draft | SpecKit (`speckit-plan`) |
 | gate_tasks | tasks_draft | SpecKit (`speckit-tasks`) |
 | gate_analyze | analyze | SpecKit (`speckit-analyze`) |
-| gate_design | design_generation | SDLE-native (Phase 13 in `modules/phase-execution.md`) |
+| gate_design | design_generation | SDLE-native (Phase 15 in `modules/phase-execution.md`) |
 | gate_implement | implement | SpecKit (`speckit-implement`) |
-| gate_security | security_review | SDLE-native (Phase 17 via `modules/security-review.md`) |
+| gate_security | security_review | SDLE-native (Phase 19 via `modules/security-review.md`) |
 
 ---
 
@@ -167,8 +168,9 @@ Say "continue" to re-run the {Phase Label} step with this feedback applied.
 
    On success it increments the counter, sets `status: in_progress`, and writes `.specify/sdle-feedback.md` from canonical state.
 
-5. **If execution type is SDLE-native** (gate_design or gate_security):
-   - **For `gate_design`:** Read `modules/phase-execution.md`. Re-execute Phase 13 (`design_generation`) with this context prepended: `"REMEDIATION RUN — Reviewer feedback to incorporate: <paste feedback text>. Ensure both design documents address these concerns."` After generation and Post-SpecKit Verification, proceed to step 7.
+5. **If execution type is SDLE-native** (gate_architecture, gate_design or gate_security):
+   - **For `gate_architecture`:** Read `modules/architecture-placement.md`. Re-execute `architecture_placement` with this context prepended: `"REMEDIATION RUN — Reviewer feedback to incorporate: <paste feedback text>."` The rerun produces a **new** proposal and a new rendering over the same placement record. A rejected placement was never applied to the catalog, so it keeps its `decisionId` — nothing carrying that id ever reached the shared architecture — and the earlier proposal is preserved in its `architecture-<execution-id>.json` evidence file rather than edited. Only a decision that had already been *applied* is superseded under a new id. After `architecture assess` and the governed artifact review, proceed to step 7.
+   - **For `gate_design`:** Read `modules/phase-execution.md`. Re-execute the `design_generation` phase with this context prepended: `"REMEDIATION RUN — Reviewer feedback to incorporate: <paste feedback text>. Ensure both design documents address these concerns."` After generation and Post-SpecKit Verification, proceed to step 7.
    - **For `gate_security`:** Run `sdle.sh security-review begin`; it names a new `review_filename` with an updated timestamp and pins it as `security_review_artifact`. Read `modules/security-review.md`. Re-run the security review with this context prepended: `"REMEDIATION RUN — Reviewer feedback to address: <paste feedback text>."` Pass the new `review_filename` as the output path. After generation and Post-SpecKit Verification, proceed to step 7.
 6. **If execution type is SpecKit:**
    - If `.specify/sdle-feedback.md` content does not match current state (re-check after writing in step 4), re-write it. The file must match canonical state before invoking SpecKit.

@@ -1,0 +1,22 @@
+{
+  "document": "todo-api.md",
+  "blob_sha": "5df4fe9461342564cd9ada0f8f8b7ac656a37a4c",
+  "run": 2,
+  "dispatched_at": "not recorded",
+  "tool_uses": 0,
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "FAIL", "finding": "The Scope section only says 'Persistence to a relational store' without naming which database product, version, or driver/library is depended on, so the actual external dependency is unidentifiable."},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "UNEXPECTED FAIL, same pattern as run 1 - unanimous, not a fluke."
+}

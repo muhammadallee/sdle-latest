@@ -1,0 +1,22 @@
+{
+  "run_id": "20260927T204859-round2-codex-open-items-round2",
+  "result": "INTERRUPTED",
+  "task_ids": [
+    "OPEN-01",
+    "OPEN-02"
+  ],
+  "area": "open-items-round2",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/sdle-review-worktrees/def-rr-round2",
+  "candidate_sha": "62c1f180b88c0c66312b82006282a827df42efc8",
+  "timeout_seconds": 1800,
+  "prompt": "round2.prompt.md",
+  "prompt_sha256": "4c748199d266ece3c3a3a237c39e87cb84be9df561ebbcef8c53f175eda8d8db",
+  "schema": "dispositions.schema.json",
+  "schema_sha256": "29affcfdb21cc8e6db2ddab7c0a0022d8645594f26d6ed65af2a4b1cfdcd4c66",
+  "started_utc": "2026-09-27T20:48:59Z",
+  "attempts": [],
+  "interrupted_reason": "Claude Code's background-shell memory reaper stopped the runner mid-attempt-1 (120 KB of events written, exploring the repository, attempts: [] - the subprocess.run call itself never returned). Harness notice: \"stopped because the system is running low on memory\". Direct check via PowerShell Get-CimInstance Win32_OperatingSystem at the time: FreePhysicalMemory 2.14 GB of 15.89 GB total. Top processes by working set were Memory Compression (752 MB), bdservicehost (628 MB, antivirus), three msedge processes (over 1.3 GB combined), Code (452 MB) and claude itself (422 MB) - no python.exe or codex process in the top 8, confirming this is host-wide pressure from other applications, not this work. This is the second reap this session (the full-suite run was the first, .../requirements-refinement/runs/20260927T194546-def-rr-full-suite.json). Not restarted, per the harness's explicit instruction not to retry a reaped command unattended; reported to the owner instead."
+}

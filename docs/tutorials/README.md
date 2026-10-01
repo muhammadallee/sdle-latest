@@ -81,11 +81,11 @@ naming a file that no longer exists — blocks `ITERATIVE` outright. See
 
 | Flow | Phases | Gates | Distinctive phase | Use when |
 |---|---:|---:|---|---|
-| `GREENFIELD` | 18 | 8 | — | New product, nothing to discover |
-| `BROWNFIELD_DISCOVERY` | 19 | 8 | `discovery` | Existing codebase, first WorkItem |
-| `ITERATIVE` | 16 | 7 | — | Existing codebase with a valid baseline |
-| `DEFECT_FIX` | 14 | 6 | `impact_analysis` | A bug, with time to do it properly |
-| `HOTFIX` | 10 | 3 | `impact_analysis` | An incident. Shorter, never ungoverned |
+| `GREENFIELD` | 20 | 9 | — | New product, nothing to discover |
+| `BROWNFIELD_DISCOVERY` | 21 | 9 | `discovery` | Existing codebase, first WorkItem |
+| `ITERATIVE` | 18 | 8 | — | Existing codebase with a valid baseline |
+| `DEFECT_FIX` | 16 | 7 | `impact_analysis` | A bug, with time to do it properly |
+| `HOTFIX` | 12 | 4 | `impact_analysis` | An incident. Shorter, never ungoverned |
 
 These counts are the **progress denominators** — the `M` in the `Phase N/M`
 header — and they exclude the terminal `complete` phase. The `phases` array the
@@ -118,7 +118,7 @@ is why `HOTFIX` — the shortest flow, at three gates — still cannot reach
 
 | Tutorial | Flow | What it is for |
 |---|---|---|
-| [greenfield.md](greenfield.md) | `GREENFIELD` | A new project, 18 phases and 8 gates, ending in the baseline it establishes |
+| [greenfield.md](greenfield.md) | `GREENFIELD` | A new project, 20 phases and 9 gates, ending in the baseline it establishes |
 | [brownfield-discovery.md](brownfield-discovery.md) | `BROWNFIELD_DISCOVERY` | Reading an existing codebase: the `discovery` phase, its evidence rules, and the baseline |
 | [iterative.md](iterative.md) | `ITERATIVE` | The second WorkItem in the same repository, and why discovery does not run again |
 | [defect-fix.md](defect-fix.md) | `DEFECT_FIX` | A bug, entered through `impact_analysis`; what a defect classification adds |

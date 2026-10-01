@@ -1,0 +1,20 @@
+{
+  "document": "defect-blocking_unknowns.md",
+  "blob_sha": "6eb2c2ceb76b087abcda63363c51283e240b4561",
+  "run": 1,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "NOT_APPLICABLE", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "FAIL", "finding": "The Non-Functional Requirements section is an unresolved placeholder (\"???\") and the Constraints section leaves whether SSO authentication covers service-to-service calls marked \"TBD\", both blocking a complete reading of what is being asked for."}
+  }
+}

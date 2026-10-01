@@ -1,0 +1,21 @@
+{
+  "document": "defect-security_data_implications.md",
+  "blob_sha": "39d80cb83697e3a17303533f69c95a1dbbeb55c1",
+  "run": 1,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "FAIL", "finding": "The Constraints section says the redirect-endpoint auth exception is explained 'per Security and Data Handling below,' but no such section exists anywhere in the document, so the security rationale for the unauthenticated redirect path and any data-handling implications (e.g. arbitrary target URLs, click analytics exposure) are never actually addressed."},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "FAIL", "finding": "The document points to a 'Security and Data Handling' section ('below') that does not exist anywhere in the text, leaving the redirect authentication exception and related security details unresolved."}
+  },
+  "note": "CAUGHT (correctly, both security_data_implications and a bonus blocking_unknowns hit for the dangling cross-reference). Contrast with run2's miss on the identical document. Likely cause: this session's own auth-wording fix added 'per Security and Data Handling below' to the Constraints section of every document, and in THIS document that phrase is a dangling reference to a section that doesn't exist - a strong structural cue, similar to the out_of_scope pattern. An honest, unplanned interaction between an earlier corpus fix and this seeded defect; not itself a defect."
+}

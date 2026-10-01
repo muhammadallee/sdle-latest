@@ -4,7 +4,7 @@
 | Field | Value |
 |---|---|
 | **Document title** | SDLE Design, Architecture & Phase Reference |
-| **Covers software version** | SDLE v1.17 (21-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 18 phases and 8 approval gates) |
+| **Covers software version** | SDLE v1.18 (23-phase registry, five flows, deterministic core, WorkItem-scoped runtime; the GREENFIELD flow is 20 phases and 9 approval gates) |
 | **Document version** | 1.6 |
 | **Audience** | Engineering leadership, delivery managers, platform/DevEx teams, security & compliance reviewers, individual contributors operating SDLE |
 | **Classification** | Internal — Engineering Reference |
@@ -21,7 +21,7 @@
 4. [System Architecture](#4-system-architecture)
 5. [Glossary of Key Terms](#5-glossary-of-key-terms)
 6. [Commonly Misunderstood Terms](#6-commonly-misunderstood-terms)
-7. [The 18-Phase Workflow — Detailed Reference](#7-the-18-phase-workflow--detailed-reference)
+7. [The 20-Phase Workflow — Detailed Reference](#7-the-20-phase-workflow--detailed-reference)
 8. [Flow Diagrams](#8-flow-diagrams)
 9. [Approval Gate Mechanics](#9-approval-gate-mechanics)
 10. [Rejection, Remediation & Rate Limiting](#10-rejection-remediation--rate-limiting)
@@ -40,7 +40,7 @@
 
 ## 1. Executive Summary
 
-SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a governed, auditable software delivery lifecycle*. A WorkItem traverses exactly one of five flows, chosen from a 21-phase registry when it starts. The new-project flow, `GREENFIELD`, runs requirements → constitution → specification → plan → checklist/tasks → analysis → design → implementation → security review across 18 phases with eight human approval gates; the other four flows (`BROWNFIELD_DISCOVERY` 19 phases and 8 gates, `ITERATIVE` 16 and 7, `DEFECT_FIX` 14 and 6, `HOTFIX` 10 and 3) are shorter, never ungoverned, because each keeps the same ten-phase governance floor and ends at a required human decision.
+SDLE (**Spec Driven Lifecycle Engine**) is a governed orchestration layer that runs on top of SpecKit inside Claude Code. It turns an AI coding assistant from a tool that *responds to prompts* into a system that *executes a governed, auditable software delivery lifecycle*. A WorkItem traverses exactly one of five flows, chosen from a 23-phase registry when it starts. The new-project flow, `GREENFIELD`, runs requirements → constitution → architecture placement → specification → plan → checklist/tasks → analysis → design → implementation → security review across 20 phases with nine human approval gates; the other four flows (`BROWNFIELD_DISCOVERY` 21 phases and 9 gates, `ITERATIVE` 18 and 8, `DEFECT_FIX` 16 and 7, `HOTFIX` 12 and 4) are shorter, never ungoverned, because each keeps the same twelve-phase governance floor and ends at a required human decision.
 
 The problem SDLE solves is not "can an LLM write code" — it is **"can an organization trust, govern, and audit a workflow in which an LLM writes code."** Left unconstrained, an AI assistant will happily skip straight from a one-line prompt to a finished pull request, silently inventing scope, architecture, and security posture as it goes, with no record of what was decided, why, or who agreed to it. SDLE replaces that ad hoc path with the bound flow's sequence of small, reviewable, written artifacts, each one gated by an explicit, recorded decision before the next is generated: a human approval or, where the governance policy permits it for that gate, an omission the audit records.
 
@@ -122,7 +122,7 @@ SDLE Orchestrator (Claude Code Skill)
 │     • How the code review is conducted, finding shape, how the parent
 │       records the outcome
 │
-├── modules/security-review.md       Loaded only at Phase 17 (security_review)
+├── modules/security-review.md       Loaded only at `security_review`
 │     • Evidence-gathering procedure and review template
 │
 │     Which of these a phase requires is CAPABILITY_MAP in SKILL.md, parsed by
@@ -149,14 +149,14 @@ SDLE Orchestrator (Claude Code Skill)
 |---|---|---|
 | `requirements/` | User | Ground-truth input; the only thing SDLE never generates |
 | `.specify/memory/constitution.md` | Phase 2 | Project ground rules and constraints |
-| `workitems/<id>/specs/<feature-id>/spec.md` | Phase 4 | Functional specification |
-| `workitems/<id>/specs/<feature-id>/plan.md` | Phase 6 | Technical implementation plan |
-| `workitems/<id>/specs/<feature-id>/checklist.md` | Phase 8 | Independent completeness checklist |
-| `workitems/<id>/specs/<feature-id>/tasks.md` | Phase 9 (refined Phase 11) | Granular task breakdown |
-| `design/app/app-design.md` | Phase 13 | Architecture & sequence diagrams, design decisions |
-| `design/db/db-design.md` | Phase 13 (conditional) | ERD, data dictionary, data design decisions |
-| `workitems/<id>/.sdle/implementation-manifest.md` | Phase 15 | Reviewable summary of all files changed by implementation, including a mandatory secrets-scan section |
-| `reviews/security-review-<timestamp>.md` | Phase 17 | Evidence-based security review |
+| `workitems/<id>/specs/<feature-id>/spec.md` | Phase 6 | Functional specification |
+| `workitems/<id>/specs/<feature-id>/plan.md` | Phase 8 | Technical implementation plan |
+| `workitems/<id>/specs/<feature-id>/checklist.md` | Phase 10 | Independent completeness checklist |
+| `workitems/<id>/specs/<feature-id>/tasks.md` | Phase 11 (refined Phase 13) | Granular task breakdown |
+| `design/app/app-design.md` | Phase 15 | Architecture & sequence diagrams, design decisions |
+| `design/db/db-design.md` | Phase 15 (conditional) | ERD, data dictionary, data design decisions |
+| `workitems/<id>/.sdle/implementation-manifest.md` | Phase 17 | Reviewable summary of all files changed by implementation, including a mandatory secrets-scan section |
+| `reviews/security-review-<timestamp>.md` | Phase 19 | Evidence-based security review |
 | `workitems/<id>/.sdle/state.json` | Orchestrator | Canonical workflow state (the single source of truth) |
 | `workitems/<id>/.sdle/audit.md` | Orchestrator | Append-only event ledger, hash-chained via `state.json → audit_sha` |
 | `workitems/<id>/.sdle/lock` | Orchestrator | Session lock (timestamp + session token) for concurrent-session detection |
@@ -164,7 +164,7 @@ SDLE Orchestrator (Claude Code Skill)
 | `workitems/<id>/.sdle/execution.json` | `init` | Execution identity (`<3-letter-git-prefix>-<UTC>-<8 hex>`), start instant, and the `git` object recording the branch, starting SHA and worktree this run began on |
 | `workitems/index.md`, `workitems/<id>/workitem.json` | `workitem create` | Append-only registry and immutable WorkItem identity |
 | `workitems/.active-context.json` | `init`, `workitem use` | Developer-local active WorkItem for this working directory. Gitignored, disposable, and never written by resolution itself |
-| `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 11 analyze prompt |
+| `clarifications/*.clarify` | User (via clarify loop) | Persisted answers to the spec-phase SpecKit `clarify` questions, or free-text context from the Phase 13 analyze prompt |
 | `guidance/*.md` | User (optional) | Per-phase steering content, read if present |
 
 ### WorkItem identity
@@ -476,11 +476,11 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 | **Plan** | The Phase 6 artifact defining *how* the spec will be technically realized: architecture, stack, integration approach. |
 | **Checklist** | The Phase 8 artifact: an independent completeness check cross-referenced against the plan, displayed alongside tasks at Gate 4 but not itself gated. |
 | **Tasks** | The Phase 9 artifact: the granular, ordered work breakdown derived from the plan. Refined again during `analyze` (Phase 11). |
-| **Analyze** | Phase 11: an automated cross-consistency pass across constitution, spec, plan, and tasks, run by SpecKit before any code is written. |
-| **Design Generation** | Phase 13: an SDLE-native (non-SpecKit) phase producing application and (conditionally) database design documents *before* implementation. |
-| **Implementation Manifest** | The Phase 15 artifact: a git-derived list of every file changed during implementation, used as the reviewable surface at Gate 7 instead of asking the reviewer to inspect the whole repository. |
-| **Security Review** | The Phase 17 artifact: an evidence-based, git-diff-driven, OWASP-mapped review with an explicit disclaimer and a list of recommended tools. AI-assisted, not a substitute for SAST/DAST or a professional audit. |
-| **Completion Summary** | `workitems/<id>/.sdle/completion-summary.json`, written only when Gate 8 is approved. The formal closure record of the workflow. |
+| **Analyze** | Phase 13: an automated cross-consistency pass across constitution, spec, plan, and tasks, run by SpecKit before any code is written. |
+| **Design Generation** | Phase 15: an SDLE-native (non-SpecKit) phase producing application and (conditionally) database design documents *before* implementation. |
+| **Implementation Manifest** | The Phase 17 artifact: a git-derived list of every file changed during implementation, used as the reviewable surface at Gate 8 instead of asking the reviewer to inspect the whole repository. |
+| **Security Review** | The Phase 19 artifact: an evidence-based, git-diff-driven, OWASP-mapped review with an explicit disclaimer and a list of recommended tools. AI-assisted, not a substitute for SAST/DAST or a professional audit. |
+| **Completion Summary** | `workitems/<id>/.sdle/completion-summary.json`, written only when Gate 9 is approved. The formal closure record of the workflow. |
 | **Artifact Fingerprint (SHA-256)** | A cryptographic hash of an artifact's exact bytes, recorded at the moment of approval. The basis for drift detection. |
 | **Drift** | A change to an artifact's on-disk content *after* it was approved, detected by comparing its current SHA-256 against the approval-time SHA-256. Not related to git "drift" or merge conflicts. |
 | **Drift Queue** | The ordered list of gate keys awaiting re-approval because their artifacts drifted. Blocks normal phase execution until cleared. |
@@ -489,7 +489,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 | **Rate Limit** | A configurable per-phase cap on remediation attempts and retry attempts, preventing infinite loops against an unresolved root cause. |
 | **Phase Checkpoint** | A sub-step marker (`phase_checkpoint`) saved before any generation call, enabling crash-recovery without duplicate work. |
 | **Guidance File** | An optional, user-authored file in `guidance/` that, if present, is injected into the relevant phase's generation call to steer its output. Absence changes nothing. |
-| **Clarification** | A user response to a spec-phase SpecKit `clarify` question, or to the Phase 11 analyze prompt, persisted to `clarifications/` so it survives outside conversation memory. |
+| **Clarification** | A user response to a spec-phase SpecKit `clarify` question, or to the Phase 13 analyze prompt, persisted to `clarifications/` so it survives outside conversation memory. |
 | **Audit Trail (`audit.md`)** | The append-only, timestamped, attributed ledger of every meaningful workflow event. |
 | **Forward Jump** | An attempt for `current_phase` to be more than 2 phases ahead of the last confirmed history entry — flagged by the Recovery Consistency Check as a possible state inconsistency requiring explicit acknowledgement. |
 | **Restart Phase N** | A user command that rolls the workflow *backward* to phase N, clearing all approvals and history from that point forward. The only sanctioned way to undo progress. |
@@ -502,7 +502,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 | Term | Common (incorrect) reading | Correct reading |
 |---|---|---|
-| **"Approval"** | "I reviewed the code." | For Gates 1–6, there is no code yet — you are approving a *document* (constitution, spec, plan, tasks, analysis, design). Only Gate 7 (`gate_implement`) involves reviewing actual code. |
+| **"Approval"** | "I reviewed the code." | For Gates 1–7, there is no code yet — you are approving a *document* (constitution, architecture placement, spec, plan, tasks, analysis, design). Only Gate 8 (`gate_implement`) involves reviewing actual code. |
 | **"Security Review"** | A professional security audit / penetration test. | An AI-assisted, evidence-based review limited to artifacts and a git diff. It explicitly lists what it does *not* cover and recommends specific tools (SAST, dependency scanners, secret scanners) that must be run separately. |
 | **"Constitution"** | A legal, compliance, or HR-style governance document. | An engineering artifact: project principles, technical constraints, and guardrails that bind every later phase's output. |
 | **"Gate"** | An optional checkpoint that can be waved through. | A hard block. There is no command that advances past a gate without an `approve`. |
@@ -515,19 +515,19 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 
 ---
 
-## 7. The 18-Phase Workflow — Detailed Reference
+## 7. The 20-Phase Workflow — Detailed Reference
 
-> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 21 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
+> **Which of these phases actually run depends on the WorkItem's flow.** `PHASE_SEQUENCE` is a *registry* of 23 phases; a **flow** is an ordered subset of it, and a WorkItem traverses exactly one, bound once at `init` from the governance record and never re-bound. The numbered phases below are the **GREENFIELD** flow — the lifecycle a new project traverses, and the one this section's heading counts. The other four flows are drawn from the same registry: most are shorter, and two add a gateless phase GREENFIELD does not run (`discovery` in `BROWNFIELD_DISCOVERY`, `impact_analysis` in `DEFECT_FIX` and `HOTFIX`). For the phases and gates each flow runs, see [`docs/lifecycle/`](lifecycle/README.md).
 >
 > | Flow | Phases | Gates | What it is for |
 > |---|---:|---:|---|
-> | `GREENFIELD` | 18 | 8 | A new project, from first principles. Frozen in the engine and deliberately not declared in a table, so a new registry phase can never join it silently. |
-> | `BROWNFIELD_DISCOVERY` | 19 | 8 | An existing repository with no established baseline: adds `discovery` ahead of the constitution, so the repository is read before anything is drafted. |
-> | `ITERATIVE` | 16 | 7 | An existing codebase with an established baseline: the constitution is inherited, not re-drafted. |
-> | `DEFECT_FIX` | 14 | 6 | A defect in an existing system: adds `impact_analysis`; drops the checklist, the design phase and its gate. |
-> | `HOTFIX` | 10 | 3 | Shorter but never ungoverned — exactly the governance floor plus the impact analysis. |
+> | `GREENFIELD` | 20 | 9 | A new project, from first principles. Frozen in the engine and deliberately not declared in a table, so a new registry phase can never join it silently. |
+> | `BROWNFIELD_DISCOVERY` | 21 | 9 | An existing repository with no established baseline: adds `discovery` ahead of the constitution, so the repository is read before anything is drafted. |
+> | `ITERATIVE` | 18 | 8 | An existing codebase with an established baseline: the constitution is inherited, not re-drafted. |
+> | `DEFECT_FIX` | 16 | 7 | A defect in an existing system: adds `impact_analysis`; drops the checklist, the design phase and its gate. |
+> | `HOTFIX` | 12 | 4 | Shorter but never ungoverned — exactly the governance floor plus the impact analysis. |
 >
-> Every flow keeps a mandatory floor of ten phases, enforced by `lint-skill` **and** by the engine at load time, so "shorter" can never become "ungoverned". Progress fractions, gate numbers and gate labels are all derived from the bound flow, so `gate_implement` reads `Gate 2/3` under `HOTFIX` where it reads `Gate 7/8` under GREENFIELD. `sdle.sh flow show` reports the bound flow; `sdle.sh constants` reports all five. The design, the rejected alternatives and the human decisions behind it are in `docs/architecture/ADR-004-declarative-flow-model.md`.
+> Every flow keeps a mandatory floor of twelve phases, enforced by `lint-skill` **and** by the engine at load time, so "shorter" can never become "ungoverned". Progress fractions, gate numbers and gate labels are all derived from the bound flow, so `gate_implement` reads `Gate 3/4` under `HOTFIX` where it reads `Gate 8/9` under GREENFIELD. `sdle.sh flow show` reports the bound flow; `sdle.sh constants` reports all five. The design, the rejected alternatives and the human decisions behind it are in `docs/architecture/ADR-004-declarative-flow-model.md`.
 
 > Each entry below follows the same structure: **What it does** → **Why it matters** → **Engineering rationale** → **If this phase did not exist.** Gate phases additionally describe what is being approved and why that specific moment is high-leverage.
 
@@ -538,7 +538,7 @@ Conversation context is volatile: it can be summarized, truncated, or lost entir
 Two things it does **not** do, both of which this guide previously attributed to it:
 
 - **It does not infer a project name.** That happens at `init`; preflight's payload carries no name.
-- **It does not run the Untrusted Content Scan.** `scan` is a separate command taking `--path`, and it scans exactly the file it is given. The orchestrator is what invokes it once per bound document — a prompt-file instruction (SKILL.md), not an engine guarantee. So a caller driving the engine directly gets no scan unless it asks for one, per file. The scan's *effect* is enforced: a flagged file sets `pending_confirm_action` and requires an explicit `accept content`.
+- **It does not run the Untrusted Content Scan.** `scan` is a separate command taking `--path`, and it scans exactly the file it is given. The orchestrator is what invokes it once per bound document — a prompt-file instruction (SKILL.md), not an engine guarantee. So a caller driving the engine directly gets no scan unless it asks for one, per file. `scan` itself is advisory before `init` (there is no state to remember a pending confirmation in yet, and it says so), but the effect is enforced downstream regardless: `governance assess` independently re-scans every **bound** source and refuses `governance_content_unacknowledged` for anything still flagged with no matching acknowledgement — so a document nobody ever ran `scan` on cannot pass a governed assessment unexamined (governance is not an `init` precondition — `init` itself performs no content check — but nothing advances the lifecycle without a clean assessment). Post-init, a flagged file also sets `pending_confirm_action`, and the bare `accept content` consumes it; `accept-content --path <file>` works either way, acknowledging the file's *current* content explicitly.
 
 **Why it matters:** This is the only phase whose input is guaranteed to be human-authored, unmediated by the AI. Every subsequent artifact ultimately traces back to this one.
 
@@ -598,7 +598,33 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 4 — Generate Specification (`spec_draft`)
+### Phase 4 — Architecture Placement (`architecture_placement`)
+
+**What it does:** Reads the repository's accumulated architecture — `.sdle/architecture/catalog.json`, its capabilities, services, candidates, data ownership and decision history — together with this WorkItem's **bound** requirements, the constitution and any discovery or impact-analysis evidence the flow produced, and decides exactly one thing: where this WorkItem's business capability lives. The five permitted outcomes are `EXTEND_EXISTING_SERVICE`, `CREATE_NEW_SERVICE`, `KEEP_EMBEDDED_AND_MONITOR`, `EXTRACT_EXISTING_CAPABILITY` and `ARCHITECTURE_REVIEW_REQUIRED`. SDLE-native: SpecKit is not invoked.
+
+The proposal is validated by `architecture assess`, which writes the structured record and generates the Markdown rendering the gate displays. The two are bound by a shared decision id and proposal digest, and the gate re-verifies the rendering's SHA before anything reaches the catalog.
+
+**Why it matters:** A WorkItem is the unit of execution; the repository is the unit of accumulated architectural knowledge. Without this phase every WorkItem re-derives the system's shape from its own requirements alone, and the second WorkItem in a capability has no way to know that the first one already placed it. Placing the capability *before* the specification is what keeps a specification inside a boundary somebody approved, rather than a boundary it invented on the way past.
+
+**Rationale:** Architecture here is evolutionary, not forecast. `existing service → embedded capability → accumulated requirements → new independent service` is a supported path, and `KEEP_EMBEDDED_AND_MONITOR` exists so that "not yet, and here is what would change our mind" is a recordable answer rather than a decision deferred into nobody's hands. Two outcomes — creating a service and extracting a capability — additionally require an approved constitution, because both establish a boundary the constitution is what governs.
+
+**If this phase did not exist:** Service boundaries would be decided implicitly, inside a specification or a plan, once per WorkItem, with no memory. Two WorkItems could place the same capability in two services and nothing would notice; an embedded capability could grow for a year with no record that anyone had ever considered extracting it.
+
+---
+
+### Phase 5 — Gate 2: Architecture Placement Approval (`gate_architecture`)
+
+**What is being approved:** Where the capability lives, and therefore what every later artifact in this WorkItem is allowed to assume.
+
+**Why this gate can never be omitted:** Every other gate governs an artifact belonging to this WorkItem. This one governs a change to *shared, repository-level* memory that later WorkItems will reason from as established fact. A risk level low enough to skip a review of this WorkItem's own plan says nothing about whether the repository's architecture may be altered without a human. The engine therefore derives the requirement rather than reading it from a policy dictionary: `gate show --gate gate_architecture` reports `required` with the reason `architecture_gate` at every risk level, in every flow, and no policy override can relax it.
+
+**What approval does mechanically:** It checks that the pinned catalog revision is still current, applies the delta, increments the revision and records the decision as approved-pending-implementation. If another WorkItem's placement was approved in between, the approval refuses `architecture_catalog_stale`, writes nothing at all, and the remedy is to re-run the placement against the current catalog. `ARCHITECTURE_REVIEW_REQUIRED` is not approvable: it records that the evidence does not yet support a placement, and it stops here until a human resolves it.
+
+**If this gate did not exist:** An AI's architectural recommendation would become implementation truth, and then — because the catalog is read by every later WorkItem — would become the premise of every architectural decision after it.
+
+---
+
+### Phase 6 — Generate Specification (`spec_draft`)
 
 **What it does:** Invokes SpecKit's specification generator to produce a functional specification — user stories, scope boundaries, acceptance criteria — bound to the approved constitution.
 
@@ -610,7 +636,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 5 — Gate 2: Specification Approval (`gate_spec`)
+### Phase 7 — Gate 3: Specification Approval (`gate_spec`)
 
 **What is being approved:** The precise scope and acceptance criteria that the technical plan is about to be built against.
 
@@ -620,7 +646,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 6 — Generate Plan (`plan_draft`)
+### Phase 8 — Generate Plan (`plan_draft`)
 
 **What it does:** Invokes SpecKit's plan generator to produce a technical implementation plan from the approved specification and constitution: architecture, technology choices, integration approach.
 
@@ -632,7 +658,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 7 — Gate 3: Plan Approval (`gate_plan`)
+### Phase 9 — Gate 4: Plan Approval (`gate_plan`)
 
 **What is being approved:** The technical architecture and approach, before it is decomposed into a task list.
 
@@ -642,7 +668,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 8 — Generate Checklist (`checklist_draft`)
+### Phase 10 — Generate Checklist (`checklist_draft`)
 
 **What it does:** Invokes SpecKit's checklist generator to produce an independent completeness check against the plan. Not gated on its own; flows straight into Phase 9.
 
@@ -654,7 +680,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 9 — Generate Tasks (`tasks_draft`)
+### Phase 11 — Generate Tasks (`tasks_draft`)
 
 **What it does:** Invokes SpecKit's task generator to decompose the approved plan into discrete, ordered, verifiable units of work.
 
@@ -666,7 +692,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 10 — Gate 4: Tasks Approval (`gate_tasks`)
+### Phase 12 — Gate 5: Tasks Approval (`gate_tasks`)
 
 **What is being approved:** The granular task breakdown — displayed together with the Phase 8 checklist for combined review.
 
@@ -676,7 +702,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 11 — Analyze (`analyze`)
+### Phase 13 — Analyze (`analyze`)
 
 **What it does:** Invokes SpecKit's analysis pass to cross-check constitution, specification, plan, and tasks for mutual consistency, refining `tasks.md` in the process. Also updates the drift baseline so the refined tasks file doesn't trigger a false drift alert at the next gate.
 
@@ -688,7 +714,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 12 — Gate 5: Analysis Approval (`gate_analyze`)
+### Phase 14 — Gate 6: Analysis Approval (`gate_analyze`)
 
 **What is being approved:** The findings of the cross-document consistency pass and the resulting refined `tasks.md`.
 
@@ -698,7 +724,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 13 — Generate Design (`design_generation`)
+### Phase 15 — Generate Design (`design_generation`)
 
 **What it does:** An SDLE-native phase (no SpecKit call) that generates `design/app/app-design.md` — context diagram, component diagram, detail-level design narrative, sequence diagrams, and a table of significant design decisions with alternatives and trade-offs — and, conditionally, `design/db/db-design.md` (ERD, data dictionary, design decisions) if the feature involves persistent storage.
 
@@ -710,7 +736,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 14 — Gate 6: Design Approval (`gate_design`)
+### Phase 16 — Gate 7: Design Approval (`gate_design`)
 
 **What is being approved:** The application (and, where applicable, database) design — the structural blueprint implementation is about to follow.
 
@@ -720,7 +746,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 15 — Implement (`implement`)
+### Phase 17 — Implement (`implement`)
 
 **What it does:** First runs a **dirty-tree guard**: if the working tree has uncommitted changes (outside SDLE's own artifact directories), the phase halts and requires an explicit `confirm implement` — otherwise the user's own edits would be mixed into, or overwritten by, the generated implementation and misattributed in the manifest. It then invokes SpecKit's implementation generator against `tasks.md`, explicitly informed by the Phase 13 design documents. Afterward, SDLE measures the change set from `implementation_base_ref` — the commit the dirty-tree guard pinned before any code was written — to the working tree, plus every untracked file, so work committed during implementation, staged work and unstaged work are all listed, each with its git status letter (renames as `R old -> new`, binary files marked and never decoded). It refuses `implementation_base_missing` or `implementation_base_invalid` rather than measuring from any other commit. It then runs a **secrets scan** over the changed files that still exist as text (AWS keys, private key material, GitHub/API tokens, hardcoded credential assignments, bearer tokens — findings masked and audited), runs the project's tests — a detected runner (npm, pytest, cargo, maven, gradle), or the command given with `manifest build --test-command "<command>"` for any other — and writes `workitems/<id>/.sdle/implementation-manifest.md`: a complete, reviewable list of every changed or added file, a mandatory `Potential Secrets Detected` section, the `Test Evidence` section, and a summary of what was implemented. Beside it goes a structured evidence record, `evidence/implementation-<execution-id>.json`, which the manifest names on its `Evidence:` line and which carries the manifest's own SHA-256, the pinned implementation base and the test result.
 
@@ -732,7 +758,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 16 — Gate 7: Implementation Approval (`gate_implement`)
+### Phase 18 — Gate 8: Implementation Approval (`gate_implement`)
 
 **What is being approved:** The actual generated code, as summarized in the implementation manifest — the first and only gate at which real code, rather than a planning document, is under review. Because the manifest is the gate artifact and is displayed in full, any secrets-scan findings from Phase 15 are necessarily in front of the reviewer at the moment of decision; approving the gate is the explicit acknowledgement of those findings.
 
@@ -744,7 +770,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 17 — Security Review (`security_review`)
+### Phase 19 — Security Review (`security_review`)
 
 **What it does:** An SDLE-native phase that gathers evidence (constitution, spec, plan, tasks, and a real `git diff` of the implementation), maps the detected tech stack to OWASP Top 10 relevance, flags only patterns *actually observed* in the diff (never invented), recommends concrete tooling (`npm audit`, `bandit`, `semgrep`, `trufflehog`, etc.) tailored to the stack, and explicitly states what the review does not cover. Every review carries a mandatory disclaimer: AI-assisted, not a substitute for SAST/DAST tooling, dependency scanning, or a professional audit.
 
@@ -756,7 +782,7 @@ Two things it does **not** do, both of which this guide previously attributed to
 
 ---
 
-### Phase 18 — Gate 8: Security Review Approval (`gate_security`)
+### Phase 20 — Gate 9: Security Review Approval (`gate_security`)
 
 **What is being approved:** The security review's findings and recommendations — the final gate of the workflow.
 
@@ -1049,8 +1075,8 @@ SDLE: (No status header: `init` has not run, so no state exists to assert.)
 
 User: yes
 
-SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
-      📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->
+      📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]
 
       Project name: "Order Tracking Service", from the primary document's
       heading. `requirements_check` completed during `init`; this is the first
@@ -1058,11 +1084,11 @@ SDLE: <!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
 
 User: yes
 
-SDLE: 📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 2/20 — Generate Constitution [IN PROGRESS]
       Generating constitution...
 
       ─────────────────────────────────
-      ✋ APPROVAL REQUIRED — Gate 1/8: Constitution Approval
+      ✋ APPROVAL REQUIRED — Gate 1/9: Constitution Approval
 
       [full content of .specify/memory/constitution.md displayed here]
 
@@ -1076,17 +1102,28 @@ SDLE: 📋 SDLE Status: Phase 2/18 — Generate Constitution [IN PROGRESS]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
-      Gate 1 approved. Baseline fingerprint recorded. Moving to Specification.
+SDLE: 📋 SDLE Status: Phase 4/20 — Architecture Placement [IN PROGRESS]
+      Gate 1 approved. Baseline fingerprint recorded. Moving to Architecture
+      Placement: where does this WorkItem's capability live, given what the
+      repository's architecture catalog already holds?
+
+      ✋ APPROVAL REQUIRED — Gate 2/9: Architecture Placement Approval
+      [full content of the rendered placement: outcome, owning service,
+       evidence considered, data-ownership impact, open questions]
+
+User: approve
+
+SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
+      Gate 2 approved. Catalog revision 1 recorded. Moving to Specification.
       ...
 
-      ✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+      ✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
       [spec.md content]
 
 User: reject with comments: Acceptance criteria for the cancellation flow are
       missing. Add explicit criteria covering partial refunds.
 
-SDLE: 📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED — REMEDIATION NEEDED]
+SDLE: 📋 SDLE Status: Phase 7/20 — Gate 3: Specification Approval [REJECTED — REMEDIATION NEEDED]
 
       Understood — I've recorded your feedback:
       "Acceptance criteria for the cancellation flow are missing. Add explicit
@@ -1096,26 +1133,26 @@ SDLE: 📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [REJECTED 
 
 User: continue
 
-SDLE: 📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 6/20 — Generate Specification [IN PROGRESS]
       Remediation attempt 1/3 for spec_draft. Re-generating with your feedback...
 
-      ✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
+      ✋ APPROVAL REQUIRED — Gate 3/9: Specification Approval
       [revised spec.md content, now including partial-refund criteria]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 8/20 — Generate Plan [IN PROGRESS]
       ...
 
-      [Phases 6–12 proceed similarly: Plan → Gate 3 → Checklist → Tasks →
-       Gate 4 (tasks + checklist shown together) → Analyze → Gate 5]
+      [Phases 8–14 proceed similarly: Plan → Gate 4 → Checklist → Tasks →
+       Gate 5 (tasks + checklist shown together) → Analyze → Gate 6]
 
 User: status
 
 SDLE: ## SDLE Workflow State
       | Field | Value |
       |---|---|
-      | Phase | gate_analyze (12/18) |
+      | Phase | gate_analyze (14/20) |
       | Status | awaiting_approval |
       | Verbose | false |
 
@@ -1123,6 +1160,7 @@ SDLE: ## SDLE Workflow State
       | Gate | Decision |
       |---|---|
       | gate_constitution | approved |
+      | gate_architecture | approved |
       | gate_spec | approved with comments |
       | gate_plan | approved |
       | gate_tasks | approved |
@@ -1133,31 +1171,31 @@ SDLE: ## SDLE Workflow State
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 13/18 — Generate Design [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 15/20 — Generate Design [IN PROGRESS]
       Generating application design (context diagram, component diagram,
       sequence diagrams, design decisions)...
       Persistent storage detected — generating database design as well.
 
-      ✋ APPROVAL REQUIRED — Gate 6/8: Design Approval
+      ✋ APPROVAL REQUIRED — Gate 7/9: Design Approval
       [design/app/app-design.md content, then design/db/db-design.md content]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 15/18 — Implement [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 17/20 — Implement [IN PROGRESS]
       Generating implementation per tasks.md, informed by design documents...
       Implementation manifest written: workitems/todo-api/.sdle/implementation-manifest.md
       (14 files changed/added)
 
-      ✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
+      ✋ APPROVAL REQUIRED — Gate 8/9: Implementation Approval
       [implementation-manifest.md content: file list + summary]
 
 User: approve
 
-SDLE: 📋 SDLE Status: Phase 17/18 — Security Review [IN PROGRESS]
+SDLE: 📋 SDLE Status: Phase 19/20 — Security Review [IN PROGRESS]
       Gathering evidence: constitution, spec, plan, tasks, git diff HEAD~1...
       Review written: reviews/security-review-2026-06-20-1430.md
 
-      ✋ APPROVAL REQUIRED — Gate 8/8: Security Review Approval
+      ✋ APPROVAL REQUIRED — Gate 9/9: Security Review Approval
       [security review content: disclaimer, OWASP relevance table, diff-derived
        findings, recommended tools, explicit scope limitations]
 
@@ -1165,11 +1203,11 @@ User: approve
 
 SDLE: ✅ Security review approved. Workflow complete!
 
-      All 8 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
+      All 9 gates passed. Completion summary: workitems/todo-api/.sdle/completion-summary.json
       Security review: reviews/security-review-2026-06-20-1430.md
 ```
 
-**Illustrative drift scenario** (not part of the run above, shown separately for reference): if a reviewer had hand-edited `plan.md` after Gate 3 was approved, the next phase execution would halt with:
+**Illustrative drift scenario** (not part of the run above, shown separately for reference): if a reviewer had hand-edited `plan.md` after Gate 4 was approved, the next phase execution would halt with:
 
 ```
 ⚠️ Artifact drift detected — 1 previously-approved artifact changed since approval:
@@ -1190,7 +1228,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 
 | Field | Type | Description |
 |---|---|---|
-| `workflow_version` | string | State schema version (`1.17`). A state of any other version is refused `unsupported_state_version` and left untouched. |
+| `workflow_version` | string | State schema version (`1.18`). A state of any other version is refused `unsupported_state_version` and left untouched. |
 | `workitem` | string \| null | The WorkItem this state belongs to. Makes a state file self-describing and a misplaced one detectable. |
 | `flow` | string | The flow this WorkItem traverses: `GREENFIELD`, `BROWNFIELD_DISCOVERY`, `ITERATIVE`, `DEFECT_FIX` or `HOTFIX`. Bound once at `init` from the governance record and never re-bound. |
 | `project_name` | string \| null | Set once at `init`: `--project` if given, else the first `#` heading in the binding's **primary** document, else the WorkItem's title, else the project root's directory name. The user is never asked for it. |
@@ -1235,7 +1273,7 @@ This artifact must be re-approved before tasks_draft can proceed.
 | `restart phase <N>` | Roll back to phase N; clears all downstream approvals and history. Requires `confirm restart phase <N>`. |
 | `reset workflow` | Delete all workflow state (artifacts preserved). Requires `confirm reset`. |
 | `accept state` | Acknowledge a detected forward state jump and proceed. |
-| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file; proceed treating it as data. |
+| `accept content` | Acknowledge flagged instruction-like content in a requirements/guidance/clarification file; proceed treating it as data. Bare (no `--path`), it consumes the one pending confirmation `scan` recorded in `state.json` and requires a workflow to exist. `--path <file>` re-scans the file itself and records an acknowledgement of its *current* content, and works before `init` too — nothing else does, at bootstrap. |
 | `accept audit` | Acknowledge an audit-log integrity mismatch; re-baseline `audit_sha` (logged). |
 | `confirm implement` | Proceed with Phase 15 despite uncommitted working-tree changes (dirty-tree guard). |
 | `skip with warning` | Advance past a *failed* (not rejected) phase without a verified artifact. Logged, discouraged. Requires `confirm skip`. |

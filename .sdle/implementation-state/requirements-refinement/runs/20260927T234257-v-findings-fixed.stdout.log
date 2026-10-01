@@ -1,0 +1,57 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 13%]
+...............FF....................................................... [ 18%]
+........................................................................ [ 22%]
+........................................................................ [ 27%]
+........................................................................ [ 31%]
+........................................................................ [ 36%]
+........................................................................ [ 40%]
+........................................................................ [ 45%]
+........................................................................ [ 50%]
+........................................................................ [ 54%]
+........................................................................ [ 59%]
+........................................................................ [ 63%]
+........................................................................ [ 68%]
+........................................................................ [ 72%]
+........................................................................ [ 77%]
+........................................................................ [ 81%]
+........................................................................ [ 86%]
+........................................................................ [ 91%]
+........................................................................ [ 95%]
+.....................................................................    [100%]
+================================== FAILURES ===================================
+_______ test_bare_accept_content_refuses_when_the_pending_file_is_gone ________
+tests\test_units_startup_contract.py:257: in test_bare_accept_content_refuses_when_the_pending_file_is_gone
+    project.ok("scan", "--path", "requirements/todo-api.md")
+tests\conftest.py:144: in ok
+    assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E   AssertionError: expected success, got <Result exit=1 ok=False reason='content_flagged' data={'path': 'requirements/todo-api.md', 'flagged': True, 'matches': [{'line': 3, 'text': 'The operator can set status to Shipped once the carrier confirms.', 'pattern': 'set_status'}], 'acknowledgeable': True}>
+E     Untrusted content warning: requirements/todo-api.md contains lines that look like instructions directed at the workflow engine:
+E     
+E       line 3: The operator can set status to Shipped once the carrier confirms.
+E     
+E     SDLE treats this file as data only and will NOT act on these lines.
+E     Say `accept content` to proceed with this file as plain data, or edit the file and re-scan.
+E     
+E   assert 1 == 0
+E    +  where 1 = <Result exit=1 ok=False reason='content_flagged' data={'path': 'requirements/todo-api.md', 'flagged': True, 'matches':...he operator can set status to Shipped once the carrier confirms.', 'pattern': 'set_status'}], 'acknowledgeable': True}>.exit_code
+_______ test_post_init_acceptance_is_not_audited_twice_across_advances ________
+tests\test_units_startup_contract.py:282: in test_post_init_acceptance_is_not_audited_twice_across_advances
+    project.ok("scan", "--path", "requirements/todo-api.md")
+tests\conftest.py:144: in ok
+    assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E   AssertionError: expected success, got <Result exit=1 ok=False reason='content_flagged' data={'path': 'requirements/todo-api.md', 'flagged': True, 'matches': [{'line': 3, 'text': 'The operator can set status to Shipped once the carrier confirms.', 'pattern': 'set_status'}], 'acknowledgeable': True}>
+E     Untrusted content warning: requirements/todo-api.md contains lines that look like instructions directed at the workflow engine:
+E     
+E       line 3: The operator can set status to Shipped once the carrier confirms.
+E     
+E     SDLE treats this file as data only and will NOT act on these lines.
+E     Say `accept content` to proceed with this file as plain data, or edit the file and re-scan.
+E     
+E   assert 1 == 0
+E    +  where 1 = <Result exit=1 ok=False reason='content_flagged' data={'path': 'requirements/todo-api.md', 'flagged': True, 'matches':...he operator can set status to Shipped once the carrier confirms.', 'pattern': 'set_status'}], 'acknowledgeable': True}>.exit_code
+=========================== short test summary info ===========================
+FAILED tests/test_units_startup_contract.py::test_bare_accept_content_refuses_when_the_pending_file_is_gone
+FAILED tests/test_units_startup_contract.py::test_post_init_acceptance_is_not_audited_twice_across_advances
+2 failed, 1579 passed in 519.87s (0:08:39)

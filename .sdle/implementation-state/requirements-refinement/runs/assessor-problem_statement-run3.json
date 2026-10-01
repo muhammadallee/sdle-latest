@@ -1,0 +1,20 @@
+{
+  "document": "defect-problem_statement.md",
+  "blob_sha": "4e5e1f442838c830d457604c88057bc35025db50",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "FAIL", "finding": "The document opens directly into 'Scope' with no statement of what problem the link shortener solves or why it is needed, beyond incidental context (created_by, internal SSO) suggesting an employee audience."},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  }
+}

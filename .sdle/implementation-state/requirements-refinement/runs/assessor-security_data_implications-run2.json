@@ -1,0 +1,22 @@
+{
+  "document": "defect-security_data_implications.md",
+  "blob_sha": "8c6fd1bccd9ab57251dd3211d8d202d24341b439",
+  "run": 2,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-security_data_implications-run2-superseded.json",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "FAIL", "finding": "The Constraints section covers authentication (SSO/SAML for management-API requests) but never addresses authorization/ownership - e.g., whether an employee may edit or delete another employee's link - despite the Data Model recording created_by."},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "CAUGHT: security_data_implications correctly flagged - but via a different angle (authorization/ownership gap) than the seeded defect (whole section absent). Counted as TP for measurement purposes since the check itself correctly failed; the specific finding text differs from the intended reason."
+}

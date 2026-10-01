@@ -1,6 +1,6 @@
 # Tutorial — `BROWNFIELD_DISCOVERY`: the first WorkItem in an existing codebase
 
-**19 phases, 8 gates.** Use this flow the first time you run SDLE against a
+**21 phases, 9 gates.** Use this flow the first time you run SDLE against a
 repository that already contains code and has no baseline.
 
 An existing repository already holds the decisions a greenfield WorkItem would
@@ -11,7 +11,7 @@ So SDLE discovers **once per repository**, and writes the result to a durable
 artifact that every later WorkItem converges onto.
 
 That is what this flow is. It is `GREENFIELD` plus one gateless phase at the
-front — `discovery` — and the same eight gates. The phase has no gate of its
+front — `discovery` — and the same nine gates. The phase has no gate of its
 own because what it produces is not a document for a human to approve; it is a
 set of classified claims about the repository, and the engine checks the
 classification mechanically.
@@ -185,9 +185,9 @@ $ sdle.sh governance assess --input governance-input.json
 
 Three signals weighing 2 + 2 + 2 = 6 clear the `HIGH` threshold of 5. The
 proposal of `MEDIUM` had no effect except to be recorded as
-`loweringAttempted: true`. At `HIGH`, every one of the flow's eight gates
+`loweringAttempted: true`. At `HIGH`, every one of the flow's nine gates
 becomes required — `gate_tasks`, `gate_analyze`, `gate_design` and
-`gate_security` all join the four that are always required, and nothing is
+`gate_security` all join the five that are always required, and nothing is
 omittable.
 
 ---
@@ -210,7 +210,7 @@ $ sdle.sh init
     ],
     "current_phase": "discovery",
     "status": "pending",
-    "progress": "2/19",
+    "progress": "2/21",
     "audit_sha": "0aa11e0ee8a8b03bd0daf9dfb6e56af79f9d59d4b8f7f95cb03e78f4a8bc2c02"
   }
 }
@@ -218,8 +218,8 @@ $ sdle.sh init
 
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=discovery status=pending progress=2/19 -->
-📋 SDLE Status: Phase 2/19 — Repository Discovery [PENDING]
+<!-- SDLE_STATE phase=discovery status=pending progress=2/21 -->
+📋 SDLE Status: Phase 2/21 — Repository Discovery [PENDING]
 --- exit 0 ---
 ```
 
@@ -421,7 +421,7 @@ $ sdle.sh advance --to constitution_draft
     "from": "discovery",
     "to": "constitution_draft",
     "status": "pending",
-    "progress": "3/19"
+    "progress": "3/21"
   }
 }
 --- exit 0 ---
@@ -454,7 +454,7 @@ $ sdle.sh gate approve --gate gate_security
     "remaining_drift": [],
     "next_phase": "complete",
     "status": "completed",
-    "progress": "19/19",
+    "progress": "21/21",
     "completion_summary": "workitems/stock-reservations/.sdle/completion-summary.json",
     "baseline": ".sdle/baseline.json"
   }

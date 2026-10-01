@@ -1,0 +1,20 @@
+{
+  "document": "defect-acceptance_criteria.md",
+  "blob_sha": "79906f81031d4a785144414eda3fdd9bd88dc22c",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "FAIL", "finding": "The 'Acceptance' section gives no identifiable or observable done-criteria, only 'the feature is done when it works well and users are satisfied with how it behaves.'"},
+    "ambiguity": {"result": "FAIL", "finding": "The Acceptance section uses vague, unmeasurable language ('works well', 'users are satisfied') where a concrete, checkable statement was needed."},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  }
+}

@@ -4,11 +4,11 @@
 |---|---|
 | **Scenario ID** | DR-11 |
 | **Flow** | `ITERATIVE` |
-| **Purpose** | The flow almost every WorkItem after the first takes. It continues from DR-10: the repository's discovery has happened, and the second WorkItem reuses its baseline with no discovery and no constitution. **16 phases, 7 gates.** It also shows what happens when the baseline is invalid or merely stale. |
+| **Purpose** | The flow almost every WorkItem after the first takes. It continues from DR-10: the repository's discovery has happened, and the second WorkItem reuses its baseline with no discovery and no constitution. **18 phases, 8 gates.** It also shows what happens when the baseline is invalid or merely stale. |
 | **Defect IDs** | D01, D02 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
 | **Starting conditions** | The DR-10 repository after its completion: `.sdle/baseline.json` is VALID and was established by WorkItem `reporting-export` (`BROWNFIELD_DISCOVERY`). `requirements/export-csv.md` added. A second WorkItem, `export-csv`, is about to be created. LOW risk. No feature directory bound |
-| **Guardrails exercised** | Convergence onto `ITERATIVE` by refusal (`baseline_present`, `baseline_required`), baseline reuse without rewriting, flow-relative gate numbering (`gate_spec` is **Gate 1 of 7**), an inherited constitution, and invalid-vs-stale baselines |
+| **Guardrails exercised** | Convergence onto `ITERATIVE` by refusal (`baseline_present`, `baseline_required`), baseline reuse without rewriting, flow-relative gate numbering (`gate_spec` is **Gate 2 of 8**), an inherited constitution, and invalid-vs-stale baselines |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
 > It was written from the skill files and the engine's real messages; the
@@ -66,10 +66,10 @@ happening once is enforced by refusal, not by anybody remembering.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=spec_draft status=in_progress progress=2/16 -->
-📋 SDLE Status: Phase 2/16 — Generate Specification [IN PROGRESS]
+<!-- SDLE_STATE phase=spec_draft status=in_progress progress=4/18 -->
+📋 SDLE Status: Phase 4/18 — Generate Specification [IN PROGRESS]
 
-Bound to ITERATIVE: 16 phases, 7 gates, against the baseline 'reporting-export'
+Bound to ITERATIVE: 18 phases, 8 gates, against the baseline 'reporting-export'
 established. No discovery — the repository's discovery record is referenced, not
 repeated. No constitution phase — .specify/memory/constitution.md is inherited as the
 baseline recorded it.
@@ -86,11 +86,11 @@ first generation phase.)*
 **SDLE:** *(after `feature resolve` bound `workitems/export-csv/specs/001-export-csv`)*
 
 ```
-<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=3/16 -->
-📋 SDLE Status: Phase 3/16 — Gate 1: Specification Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_spec status=awaiting_approval progress=5/18 -->
+📋 SDLE Status: Phase 5/18 — Gate 2: Specification Approval [AWAITING APPROVAL]
 
 ---
-✋ APPROVAL REQUIRED — Gate 1/7: Specification Approval
+✋ APPROVAL REQUIRED — Gate 2/8: Specification Approval
 
 # CSV Export — Specification
 [... abridged ...]
@@ -100,37 +100,37 @@ Fingerprint: a3f1c0de…9c2e
 ---
 ```
 
-> **Read the gate number.** This is `gate_spec`, Gate 2 of 8 in `GREENFIELD`
-> and **Gate 1 of 7** here. The number is derived from the bound flow every
+> **Read the gate number.** This is `gate_spec`, Gate 3 of 9 in `GREENFIELD`
+> and **Gate 2 of 8** here. The number is derived from the bound flow every
 > time it is shown; it is not a property of the gate.
 
 **User:** `approve`
 
 ```
-<!-- SDLE_STATE phase=plan_draft status=in_progress progress=4/16 -->
-📋 SDLE Status: Phase 4/16 — Generate Plan [IN PROGRESS]
+<!-- SDLE_STATE phase=plan_draft status=in_progress progress=6/18 -->
+📋 SDLE Status: Phase 6/18 — Generate Plan [IN PROGRESS]
 ```
 
 > **The rest of the flow**, with its gate numbers:
 >
 > | Gate | Phase | Progress | In GREENFIELD this is |
 > |---:|---|---|---|
-> | 1/7 | `gate_spec` | 3/16 | Gate 2 of 8 |
-> | 2/7 | `gate_plan` | 5/16 | Gate 3 of 8 |
-> | 3/7 | `gate_tasks` | 8/16 | Gate 4 of 8 |
-> | 4/7 | `gate_analyze` | 10/16 | Gate 5 of 8 |
-> | 5/7 | `gate_design` | 12/16 | Gate 6 of 8 |
-> | 6/7 | `gate_implement` | 14/16 | Gate 7 of 8 |
-> | 7/7 | `gate_security` | 16/16 | Gate 8 of 8 |
+> | 2/8 | `gate_spec` | 5/18 | Gate 3 of 9 |
+> | 3/8 | `gate_plan` | 7/18 | Gate 4 of 9 |
+> | 4/8 | `gate_tasks` | 10/18 | Gate 5 of 9 |
+> | 5/8 | `gate_analyze` | 12/18 | Gate 6 of 9 |
+> | 6/8 | `gate_design` | 14/18 | Gate 7 of 9 |
+> | 7/8 | `gate_implement` | 16/18 | Gate 8 of 9 |
+> | 8/8 | `gate_security` | 18/18 | Gate 9 of 9 |
 
 **User:** `approve` *(at Gate 7/7)*
 
 ```
-<!-- SDLE_STATE phase=complete status=completed progress=16/16 -->
-📋 SDLE Status: Phase 16/16 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=18/18 -->
+📋 SDLE Status: Phase 18/18 — Complete [COMPLETED]
 
 ✅ Security review approved. Workflow complete!
-All 7 gates passed. Completion summary: workitems/export-csv/.sdle/completion-summary.json
+All 8 gates passed. Completion summary: workitems/export-csv/.sdle/completion-summary.json
 
 No baseline was written. An ITERATIVE WorkItem works against the baseline and leaves it
 alone: .sdle/baseline.json, the discovery record it references and the inherited
@@ -202,7 +202,7 @@ at, so a changed reference is information, not a reason to rediscover.)*
 | An invalid baseline does not authorise `ITERATIVE` | `tests/test_units_baseline.py::test_n26_an_invalid_baseline_does_not_authorise_iterative` |
 | A stale baseline does authorise it | `tests/test_units_baseline.py::test_n26_a_stale_baseline_authorises_iterative` |
 | A changed reference yields STALE with a warning | `tests/test_units_baseline.py::test_n19_a_changed_reference_is_a_warning_and_yields_stale` |
-| `gate_spec` is Gate 1 of 7 | `tests/test_integration_10_to_13.py::test_11_the_spec_gate_is_gate_one_of_seven_not_two_of_eight` |
+| `gate_spec` is Gate 2 of 8 | `tests/test_integration_10_to_13.py::test_11_the_spec_gate_is_gate_two_of_eight_not_three_of_nine` |
 | The constitution gate is not in the flow | `tests/test_integration_10_to_13.py::test_11_the_constitution_gate_is_not_in_flow_never_satisfied` |
 | The ITERATIVE run leaves the baseline untouched | `tests/test_integration_10_to_13.py::test_11_an_iterative_run_leaves_the_baseline_untouched` |
 | Null feature reference refused in this flow (D01) | `tests/test_units_gate_artifacts.py::test_d01_a_null_feature_reference_refuses_approval[ITERATIVE]` |

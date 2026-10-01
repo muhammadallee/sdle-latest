@@ -1,0 +1,22 @@
+{
+  "document": "defect-constraints.md",
+  "blob_sha": "c4b53af48dabaa8c32a9cc30a5f09484f8bd1f29",
+  "run": 1,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-constraints-run1-superseded.json (assessed pre-adjudication text whose Dependencies section carried a 'no schema changes to other services' tables' clause reading as constraint-flavored detail)",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "MISS (confirmed, clean): constraints expected FAIL (no Constraints section, and the platform/budget/auth-scope constraints it would have named are not stated anywhere else). The assessor passed it anyway."
+}

@@ -1,0 +1,23 @@
+{
+  "document": "defect-dependencies.md",
+  "blob_sha": "5d4e298a48b1fd7ea417ed84247267eece7cc28d",
+  "run": 2,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-dependencies-run2-superseded.json",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "FAIL", "finding": "The Constraints section's Kubernetes-cluster bullet says the service must run 'using some shared infrastructure,' an unmeasurable, unspecified phrase in a normative constraint."},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "MISS (confirmed, clean): same pattern as run 1.",
+  "note_correction": "2026-09-28: see run 1's note_correction - the dependencies check not firing is an attribution result on a document reliably blocked via ambiguity, not a demonstrated recall gap."
+}

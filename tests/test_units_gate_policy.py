@@ -465,12 +465,14 @@ def test_n3_the_inert_report_is_not_vacuous_today():
 @pytest.mark.parametrize("wi_type", sdle.WORKITEM_TYPES)
 def test_n4_hotfix_has_no_omittable_gate_at_any_level(wi_type, level):
     """N4/A7: §13's "shorter but never ungoverned" survives T09 as an
-    identity, not a judgement. HOTFIX's three gates are `gate_spec` and
-    `gate_implement` (always required) and `gate_security` (terminal), so
-    §15's LOW list cannot make it any shorter."""
+    identity, not a judgement. HOTFIX's four gates are `gate_spec` and
+    `gate_implement` (always required), `gate_security` (terminal) and
+    `gate_architecture` (ADR-013, required by derivation at every level),
+    so §15's LOW list cannot make it any shorter."""
     model = model_for("HOTFIX", level, wi_type)
     assert model["omittable_gates"] == []
-    assert model["required_gates"] == ["gate_implement", "gate_security",
+    assert model["required_gates"] == ["gate_architecture",
+                                       "gate_implement", "gate_security",
                                        "gate_spec"]
 
 
@@ -627,7 +629,8 @@ def test_the_record_declares_its_version_and_carries_both_gate_lists(project):
     assert record["pinnedPolicy"]["sha256"] is None, "the built-in floor"
     assert record["pinnedPolicy"]["policy"] == BUILTIN
     assert "wouldBeRequiredGates" not in record
-    assert record["requiredGates"] == ["gate_constitution", "gate_implement",
+    assert record["requiredGates"] == ["gate_architecture",
+                                       "gate_constitution", "gate_implement",
                                        "gate_plan", "gate_security",
                                        "gate_spec"]
     assert record["omittableGates"] == ["gate_analyze", "gate_design",
@@ -804,7 +807,7 @@ def test_n11_a_high_risk_workitem_cannot_skip_design_or_security(git_project,
     recorded = {gate: entry["decision"]
                 for gate, entry in state["approvals"].items() if entry}
     assert set(recorded.values()) == {"approved"}, recorded
-    assert len(recorded) == 8
+    assert len(recorded) == 9
 
 
 # --------------------------------------------------------------------------
@@ -1390,9 +1393,19 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
     assert skills == ["sdle"], skills
     modules = sorted(p.name for p in (REPO_ROOT / ".claude" / "skills" / "sdle"
                                       / "modules").glob("*.md"))
-    assert modules == ["code-review.md", "design-review.md",
-                       "gate-protocol.md", "phase-execution.md",
-                       "security-review.md"], modules
+    assert modules == ["architecture-placement.md", "code-review.md",
+                       "design-review.md", "gate-protocol.md",
+                       "phase-execution.md", "security-review.md"], modules
+    # ADR-014 adds a second capability home beside `modules/`. Same shape
+    # of assertion: exact equality against a written-out set, so a
+    # seventh guideline appearing without a plan fails here too.
+    guidelines = sorted(p.name for p in
+                        (REPO_ROOT / ".claude" / "skills" / "sdle"
+                         / "guidelines").glob("*.md"))
+    assert guidelines == ["architecture-placement.md", "constitution.md",
+                          "implementation.md", "service-design.md",
+                          "service-planning.md",
+                          "task-generation.md"], guidelines
 
 
 def test_t11_the_legacy_rung_is_gone():

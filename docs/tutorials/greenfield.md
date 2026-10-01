@@ -1,6 +1,6 @@
 # Tutorial — `GREENFIELD`: a new project
 
-**18 phases, 8 gates.** Use this flow when there is no code yet and nothing to
+**20 phases, 9 gates.** Use this flow when there is no code yet and nothing to
 discover — a new service, a new component, the first thing in an empty
 repository.
 
@@ -260,7 +260,7 @@ $ sdle.sh init
     ],
     "current_phase": "constitution_draft",
     "status": "pending",
-    "progress": "2/18",
+    "progress": "2/20",
     "audit_sha": "706136d52fdc08df37b067fa779cec60f7a29bf82957b33ef3792fe036207e79"
   }
 }
@@ -275,8 +275,8 @@ chain.
 ```
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/18 -->
-📋 SDLE Status: Phase 2/18 — Generate Constitution [PENDING]
+<!-- SDLE_STATE phase=constitution_draft status=pending progress=2/20 -->
+📋 SDLE Status: Phase 2/20 — Generate Constitution [PENDING]
 --- exit 0 ---
 ```
 
@@ -316,7 +316,7 @@ $ sdle.sh flow show
     "gate_total": 8,
     "current_phase": "constitution_draft",
     "position": 2,
-    "progress": "2/18",
+    "progress": "2/20",
     "next_phase": "gate_constitution",
     "gate_number": null,
     "label": "Generate Constitution",
@@ -336,7 +336,7 @@ once and nothing re-binds it.
 
 ## 5. Which gates this WorkItem must clear
 
-`GREENFIELD` *contains* eight gates. How many you must approve is derived per
+`GREENFIELD` *contains* nine gates. How many you must approve is derived per
 WorkItem:
 
 ```
@@ -402,8 +402,8 @@ exactly one step, and it refuses `forward_jump` if you ask for anything else.
 
 Two phases in `GREENFIELD` deviate slightly from the pattern. `checklist_draft`
 records its artifact as `--optional`, because a checklist is reviewed alongside
-the tasks at Gate 4 rather than gated on its own; and `analyze` refines
-`tasks.md`, a file Gate 4 already fingerprinted, so it calls `drift rebaseline
+the tasks at Gate 5 rather than gated on its own; and `analyze` refines
+`tasks.md`, a file Gate 5 already fingerprinted, so it calls `drift rebaseline
 --gate gate_tasks` to move that baseline deliberately rather than tripping the
 drift detector with a change everyone intended.
 
@@ -417,8 +417,8 @@ The full conversational walk is
 ```
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=complete status=completed progress=18/18 -->
-📋 SDLE Status: Phase 18/18 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=20/20 -->
+📋 SDLE Status: Phase 20/20 — Complete [COMPLETED]
 --- exit 0 ---
 ```
 
@@ -535,4 +535,4 @@ WorkItem in it will be `ITERATIVE`, and `BROWNFIELD_DISCOVERY` will be refused
   bootstrap failures.
 - **Something refused**: [`troubleshooting/`](../troubleshooting/README.md).
 - **Why the phases are in this order**:
-  [§7 of the Reference Guide](../SDLE-Reference-Guide.md#7-the-18-phase-workflow--detailed-reference).
+  [§7 of the Reference Guide](../SDLE-Reference-Guide.md#7-the-20-phase-workflow--detailed-reference).

@@ -1,0 +1,21 @@
+{
+  "document": "defect-security_data_implications.md",
+  "blob_sha": "39d80cb83697e3a17303533f69c95a1dbbeb55c1",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "FAIL", "finding": "The Constraints section refers to redirect auth as 'the one exception, per Security and Data Handling below,' but no 'Security and Data Handling' section exists anywhere in the document, leaving data handling (e.g. retention of expired link rows, employee id in created_by, target_url content) unaddressed."},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "CAUGHT (2/3 total on this document - run1 and run3 caught it via the dangling 'per Security and Data Handling below' cross-reference, run2 missed it). 2/3 agreement, not unanimous."
+}

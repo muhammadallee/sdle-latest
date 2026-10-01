@@ -1,0 +1,20 @@
+{
+  "document": "defect-nfrs.md",
+  "blob_sha": "6300df03e263703028d96882520ad118d1d89389",
+  "run": 1,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "FAIL", "finding": "The Non-Functional Requirements section uses unmeasurable language — 'fast enough that users do not notice any delay' and 'a high volume of link creations during peak traffic without degrading' — where a concrete threshold was needed."},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "FAIL", "finding": "The Non-Functional Requirements section makes quantitative performance and capacity claims ('fast enough', 'high volume of link creations during peak traffic') without stating any number or unit."},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  }
+}

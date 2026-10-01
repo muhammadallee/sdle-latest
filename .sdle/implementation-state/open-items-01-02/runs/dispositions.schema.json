@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewed_commit", "dispositions", "new_findings", "closure_assessment"],
+  "properties": {
+    "reviewed_commit": {"type": "string"},
+    "dispositions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "disposition", "rationale"],
+        "properties": {
+          "finding_id": {"type": "string"},
+          "disposition": {
+            "type": "string",
+            "enum": ["UPHELD", "REVISED", "WITHDRAWN", "RESOLVED"]
+          },
+          "rationale": {"type": "string"}
+        }
+      }
+    },
+    "new_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "category", "path", "line", "claim", "evidence",
+                     "evidence_type", "suggested_fix", "confidence"],
+        "properties": {
+          "id": {"type": "string"},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+          "category": {"type": "string"},
+          "path": {"type": "string"},
+          "line": {"type": ["integer", "null"]},
+          "claim": {"type": "string"},
+          "evidence": {"type": "string"},
+          "evidence_type": {"type": "string", "enum": ["executed", "static"]},
+          "suggested_fix": {"type": "string"},
+          "confidence": {"type": "string"}
+        }
+      }
+    },
+    "closure_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["open_01_closed", "open_02_closed", "summary"],
+      "properties": {
+        "open_01_closed": {"type": "boolean"},
+        "open_02_closed": {"type": "boolean"},
+        "summary": {"type": "string"}
+      }
+    }
+  }
+}

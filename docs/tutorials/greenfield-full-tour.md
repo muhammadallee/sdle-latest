@@ -1,6 +1,6 @@
 # Tutorial — the full tour: everything you can configure
 
-**`GREENFIELD`, 18 phases, 8 gates.** This is the same flow as
+**`GREENFIELD`, 20 phases, 9 gates.** This is the same flow as
 [greenfield.md](greenfield.md), walked a second time with every knob turned. If
 you want the shortest path through a new project, read that one. Read this one
 when you are deciding what your repository's governance should be, or when
@@ -519,7 +519,7 @@ CLI surface rather than trusted to callers.
 
 ## 8. Omitting a gate
 
-At `LOW` risk with an `enhancement` type, three of `GREENFIELD`'s eight gates
+At `LOW` risk with an `enhancement` type, three of `GREENFIELD`'s nine gates
 are discretionary:
 
 ```
@@ -567,7 +567,7 @@ $ sdle.sh gate omit --gate gate_analyze
 **An omittable gate is not an unreviewed gate.** Omission removes the
 requirement for a *human approval*; it does not remove the requirement that the
 artifact has been reviewed at the bytes currently on disk. `analyze` had just
-refined `tasks.md`, so the review recorded at Gate 4 no longer applied to it.
+refined `tasks.md`, so the review recorded at Gate 5 no longer applied to it.
 
 Record a review of the current content, and the omission goes through:
 
@@ -591,7 +591,7 @@ $ sdle.sh gate omit --gate gate_analyze
     "governance_downgrade": null,
     "next_phase": "design_generation",
     "status": "pending",
-    "progress": "13/18"
+    "progress": "15/20"
   }
 }
 --- exit 0 ---
@@ -639,8 +639,8 @@ $ sdle.sh artifact record --phase checklist_draft --path workitems/duty-roster/s
 
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=checklist_draft status=failed progress=8/18 -->
-📋 SDLE Status: Phase 8/18 — Generate Checklist [FAILED — ACTION REQUIRED]
+<!-- SDLE_STATE phase=checklist_draft status=failed progress=10/20 -->
+📋 SDLE Status: Phase 10/20 — Generate Checklist [FAILED — ACTION REQUIRED]
 --- exit 0 ---
 ```
 
@@ -674,7 +674,7 @@ $ sdle.sh skip --confirm
     "from": "checklist_draft",
     "to": "tasks_draft",
     "status": "pending",
-    "progress": "9/18",
+    "progress": "11/20",
     "next_label": "Generate Tasks"
   }
 }
@@ -712,7 +712,7 @@ $ sdle.sh restart --to 18
     "target": "gate_security",
     "suggest": 17
   },
-  "message": "Phase 18 is a gate phase — restarting a gate is not meaningful. Did you mean phase 17?"
+  "message": "Phase 20 is a gate phase — restarting a gate is not meaningful. Did you mean phase 19?"
 }
 --- exit 1 ---
 ```
@@ -721,7 +721,7 @@ A gate is a decision about an artifact, not a step that produces one; restarting
 *to* a gate would mean re-deciding without re-generating. The refusal suggests
 the execution phase that owns the artifact instead.
 
-Rolling back to phase 6 shows its cost before you pay it:
+Rolling back to phase 8 shows its cost before you pay it:
 
 ```
 $ sdle.sh restart --to 6
@@ -799,7 +799,7 @@ $ sdle.sh drift check
       {
         "gate": "gate_spec",
         "gate_phase": "gate_spec",
-        "label": "Gate 2: Specification Approval",
+        "label": "Gate 3: Specification Approval",
         "path": "workitems/duty-roster/specs/001-duty-roster/spec.md",
         "approved_sha": "20aa1b747a32ec2c4abbe62fcf2c0d165c76121a926221e6382cea201c2e78e4",
         "current_sha": "d9302759dcc7ba9aa272e497ade27c0578867c09d4759cf1457e6d3ea5ecf276",
@@ -836,8 +836,8 @@ $ sdle.sh drift check --queue
 
 $ sdle.sh header
 --- stderr ---
-<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=6/18 -->
-📋 SDLE Status: Phase 6/18 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
+<!-- SDLE_STATE phase=plan_draft status=awaiting_reapproval progress=8/20 -->
+📋 SDLE Status: Phase 8/20 — Generate Plan [AWAITING RE-APPROVAL (DRIFT DETECTED)]
 --- exit 0 ---
 ```
 
@@ -971,9 +971,9 @@ reasoning is not an independent reviewer.
 | Agent | Reads | Used at |
 |---|---|---|
 | `sdle-discovery` | an existing repository | the `discovery` phase, `BROWNFIELD_DISCOVERY` |
-| `sdle-design-review` | a design against its specification and plan | `design_generation` / Gate 6 |
-| `sdle-code-review` | an implementation diff against its tasks and plan | `implement` / Gate 7 |
-| `sdle-security-review` | the artifacts and the diff, for security findings | `security_review` / Gate 8 |
+| `sdle-design-review` | a design against its specification and plan | `design_generation` / Gate 7 |
+| `sdle-code-review` | an implementation diff against its tasks and plan | `implement` / Gate 8 |
+| `sdle-security-review` | the artifacts and the diff, for security findings | `security_review` / Gate 9 |
 
 All four are declared with `tools: Read, Grep, Glob` and a `PreToolUse` hook
 fencing `Write`, `Edit`, `MultiEdit`, `NotebookEdit` and `Bash`. Every one of
@@ -1057,7 +1057,7 @@ true, and nothing in `.sdle/` reaches them:
   the attempt is recorded as `loweringAttempted`.
 - **A repository policy may only make governance stricter.** Six weakening
   shapes, six refusals, and a malformed policy fails closed.
-- **Every flow contains the ten mandatory phases.** Enforced by the flow loader
+- **Every flow contains the twelve mandatory phases.** Enforced by the flow loader
   at load time, not only by the linter.
 - **`state.json` and `audit.md` have one writer.** Three settable fields at the
   CLI; everything else is derived from a transition, a verification or an

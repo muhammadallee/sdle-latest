@@ -1,14 +1,14 @@
-# Dry Run 06 — Dirty-Tree Guard & Secrets Scan at Gate 7
+# Dry Run 06 — Dirty-Tree Guard & Secrets Scan at Gate 8
 
 | | |
 |---|---|
 | **Scenario ID** | DR-06 |
 | **Flow** | `GREENFIELD` |
-| **Purpose** | The implementation-phase guards. Uncommitted user changes halt Phase 15 until confirmed. The manifest measures every change from the pinned base, a hardcoded credential is flagged in front of the reviewer at Gate 7, and Gate 7 needs a test run that passed. |
+| **Purpose** | The implementation-phase guards. Uncommitted user changes halt Phase 17 until confirmed. The manifest measures every change from the pinned base, a hardcoded credential is flagged in front of the reviewer at Gate 8, and Gate 8 needs a test run that passed. |
 | **Defect IDs** | D02, D03 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
-| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `implement` (`15/18`). Gates 1–6 approved. `specKit.featureDirectory` is bound. The user has an uncommitted edit to tracked `notes/ideas.md`. The project's tests run under pytest |
-| **Guardrails exercised** | The dirty-tree guard and `confirm implement`, the implementation base pin, the change set from the base, the secrets scan, Gate 7 test evidence, and remediation at Gate 7 |
+| **Starting conditions** | The DR-01 repository and WorkItem `todo-api`, at `implement` (`17/20`). Gates 1–6 approved. `specKit.featureDirectory` is bound. The user has an uncommitted edit to tracked `notes/ideas.md`. The project's tests run under pytest |
+| **Guardrails exercised** | The dirty-tree guard and `confirm implement`, the implementation base pin, the change set from the base, the secrets scan, Gate 8 test evidence, and remediation at Gate 8 |
 
 > **How to read this.** The conversation under *Transcript* is **SIMULATED**.
 > It was written from the skill files and the engine's real messages. Hashes
@@ -21,7 +21,7 @@
 
 ## Setup
 
-Follow DR-01 to Gate 6's approval. Commit, then edit `notes/ideas.md` without
+Follow DR-01 to Gate 7's approval. Commit, then edit `notes/ideas.md` without
 committing.
 
 ---
@@ -33,8 +33,8 @@ committing.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=pending progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [PENDING]
+<!-- SDLE_STATE phase=implement status=pending progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [PENDING]
 
 ⚠️ Uncommitted changes detected in the working tree:
 
@@ -59,8 +59,8 @@ whole: its leading space is data, not whitespace.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=implement status=in_progress progress=15/18 -->
-📋 SDLE Status: Phase 15/18 — Implement [IN PROGRESS]
+<!-- SDLE_STATE phase=implement status=in_progress progress=17/20 -->
+📋 SDLE Status: Phase 17/20 — Implement [IN PROGRESS]
 
 Proceeding despite uncommitted changes (logged).
 
@@ -71,12 +71,12 @@ Implementation complete, committed as two commits. Building the implementation m
 Test evidence: pytest — 28 passed (exit 0).
 
 ---
-✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
+✋ APPROVAL REQUIRED — Gate 8/9: Implementation Approval
 
 # Implementation Manifest
 Generated: 2026-09-10T14:20:44Z
 Evidence: workitems/todo-api/.sdle/evidence/implementation-muh-20260910T142044Z-12db09f4.json
-Phase: implement (15/18)
+Phase: implement (17/20)
 
 ## Changed/Added Files
 A design/app/app-design.md
@@ -119,8 +119,8 @@ first.)*
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_implement status=rejected progress=16/18 -->
-📋 SDLE Status: Phase 16/18 — Gate 7: Implementation Approval [REJECTED — REMEDIATION NEEDED]
+<!-- SDLE_STATE phase=gate_implement status=rejected progress=18/20 -->
+📋 SDLE Status: Phase 18/20 — Gate 8: Implementation Approval [REJECTED — REMEDIATION NEEDED]
 
 Understood — I've recorded your feedback. Say "continue" to re-run the Implement step
 with this feedback applied.
@@ -131,21 +131,21 @@ with this feedback applied.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=gate_implement status=in_progress progress=16/18 -->
-📋 SDLE Status: Phase 16/18 — Gate 7: Implementation Approval [IN PROGRESS]
+<!-- SDLE_STATE phase=gate_implement status=in_progress progress=18/20 -->
+📋 SDLE Status: Phase 18/20 — Gate 8: Implementation Approval [IN PROGRESS]
 
 Remediation attempt 1/3 for implement. Implementation updated. Rebuilding the manifest...
 Secrets scan: no high-risk patterns found in the changed files.
 Test evidence: pytest — 28 passed (exit 0).
 
 ---
-✋ APPROVAL REQUIRED — Gate 7/8: Implementation Approval
+✋ APPROVAL REQUIRED — Gate 8/9: Implementation Approval
 [... regenerated manifest: `None detected.`, a new Evidence: line naming a new record ...]
 ---
 ```
 
 *(The rebuilt manifest names a **new** evidence record under a fresh execution
-id. The old record stays on disk, unchanged. Gate 7 accepts only the record
+id. The old record stays on disk, unchanged. Gate 8 accepts only the record
 bound to the current manifest's SHA-256.)*
 
 **User:** `approve`
@@ -162,15 +162,15 @@ bound to the current manifest's SHA-256.)*
 - Secret findings are masked to four characters in the manifest and in the
   `secrets_flagged` audit entry. The secret is never reproduced.
 - The scan is a regex tripwire before human review, not a replacement for
-  `trufflehog` or `semgrep`, which the Phase 17 review recommends.
+  `trufflehog` or `semgrep`, which the Phase 19 review recommends.
 
 ## Negative cases
 
 | Attempt | Result | State afterwards |
 |---|---|---|
-| Gate 7 on a manifest built with `--skip-tests` | Refused `tests_not_passed` | Approvals unchanged |
-| Gate 7 on a hand-written manifest with the right headings | Refused `test_evidence_missing` | Unchanged |
-| Gate 7 on a manifest with no `## Test Evidence` section | Refused `manifest_incomplete` | Unchanged |
+| Gate 8 on a manifest built with `--skip-tests` | Refused `tests_not_passed` | Approvals unchanged |
+| Gate 8 on a hand-written manifest with the right headings | Refused `test_evidence_missing` | Unchanged |
+| Gate 8 on a manifest with no `## Test Evidence` section | Refused `manifest_incomplete` | Unchanged |
 | Security-review evidence with no pinned base | Refused `implementation_base_missing` | Unchanged, and no fallback range |
 
 ## Cleanup

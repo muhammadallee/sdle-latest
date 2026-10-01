@@ -4,7 +4,7 @@
 |---|---|
 | **Scenario ID** | DR-12 |
 | **Flow** | `DEFECT_FIX` |
-| **Purpose** | A reproducible defect in an existing system. `impact_analysis` opens the flow, and the phase cannot be left without a reviewed analysis. The fix is verified by the test that reproduced the defect. **14 phases, 6 gates.** |
+| **Purpose** | A reproducible defect in an existing system. `impact_analysis` opens the flow, and the phase cannot be left without a reviewed analysis. The fix is verified by the test that reproduced the defect. **16 phases, 7 gates.** |
 | **Defect IDs** | D01, D02 |
 | **Runtime** | SDLE v1.17 on `fix/defect-stabilization`; SpecKit v1.0.6. Generation is simulated |
 | **Starting conditions** | A repository with an established baseline. `requirements/login-reset-defect.md` describes a reported bug that reproduces: the project's `test_reset.py::test_login_after_reset` fails today. Governance classifies it `defect` on `DEFECT_FIX`, LOW risk. No feature directory bound. Clean working tree |
@@ -39,8 +39,8 @@ a failing regression test that reproduces the defect. The executable form uses
 WorkItem created: login-reset-defect, bound to requirements/login-reset-defect.md. Preflight passed.
 Content scan passed.
 
-This WorkItem is classified as a defect, so it is bound to DEFECT_FIX: 14 phases,
-6 gates. It opens with an impact analysis rather than a specification, and it drops the
+This WorkItem is classified as a defect, so it is bound to DEFECT_FIX: 16 phases,
+7 gates. It opens with an impact analysis rather than a specification, and it drops the
 checklist and the design phase but *keeps* the tasks gate — a defect always adds
 gate_tasks regardless of risk, because "we changed the thing next to the broken thing"
 is how a one-line fix becomes an outage.
@@ -63,8 +63,8 @@ requirement document like any other, and `preflight` refuses
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=impact_analysis status=in_progress progress=2/14 -->
-📋 SDLE Status: Phase 2/14 — Impact Analysis [IN PROGRESS]
+<!-- SDLE_STATE phase=impact_analysis status=in_progress progress=2/16 -->
+📋 SDLE Status: Phase 2/16 — Impact Analysis [IN PROGRESS]
 
 Analysis written to reviews/impact-analysis-2026-09-08-1030.md.
 
@@ -114,8 +114,8 @@ Recording the analysis and registering the review.
 **SDLE:**
 
 ```
-<!-- SDLE_STATE phase=spec_draft status=in_progress progress=3/14 -->
-📋 SDLE Status: Phase 3/14 — Generate Specification [IN PROGRESS]
+<!-- SDLE_STATE phase=spec_draft status=in_progress progress=5/16 -->
+📋 SDLE Status: Phase 5/16 — Generate Specification [IN PROGRESS]
 
 Generating specification, scoped to the blast radius recorded above...
 ```
@@ -123,7 +123,7 @@ Generating specification, scoped to the blast radius recorded above...
 **SDLE:** *(at the specification gate)*
 
 ```
-✋ APPROVAL REQUIRED — Gate 1/6: Specification Approval
+✋ APPROVAL REQUIRED — Gate 2/7: Specification Approval
 
 Before the specification, the impact analysis for this WorkItem, in full:
 [... reviews/impact-analysis-2026-09-08-1030.md re-displayed ...]
@@ -136,22 +136,22 @@ Before the specification, the impact analysis for this WorkItem, in full:
 >
 > | Gate | Phase | Progress | In GREENFIELD this is |
 > |---:|---|---|---|
-> | 1/6 | `gate_spec` | 4/14 | Gate 2 of 8 |
-> | 2/6 | `gate_plan` | 6/14 | Gate 3 of 8 |
-> | 3/6 | `gate_tasks` | 8/14 | Gate 4 of 8 |
-> | 4/6 | `gate_analyze` | 10/14 | Gate 5 of 8 |
-> | 5/6 | `gate_implement` | 12/14 | Gate 7 of 8 |
-> | 6/6 | `gate_security` | 14/14 | Gate 8 of 8 |
+> | 2/7 | `gate_spec` | 6/16 | Gate 3 of 9 |
+> | 3/7 | `gate_plan` | 8/16 | Gate 4 of 9 |
+> | 4/7 | `gate_tasks` | 10/16 | Gate 5 of 9 |
+> | 5/7 | `gate_analyze` | 12/16 | Gate 6 of 9 |
+> | 6/7 | `gate_implement` | 14/16 | Gate 8 of 9 |
+> | 7/7 | `gate_security` | 16/16 | Gate 9 of 9 |
 
 ---
 
 **SDLE:** *(at the implementation gate)*
 
 ```
-<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=12/14 -->
-📋 SDLE Status: Phase 12/14 — Gate 5: Implementation Approval [AWAITING APPROVAL]
+<!-- SDLE_STATE phase=gate_implement status=awaiting_approval progress=14/16 -->
+📋 SDLE Status: Phase 14/16 — Gate 6: Implementation Approval [AWAITING APPROVAL]
 
-✋ APPROVAL REQUIRED — Gate 5/6: Implementation Approval
+✋ APPROVAL REQUIRED — Gate 6/7: Implementation Approval
 
 # Implementation Manifest
 Evidence: workitems/login-reset-defect/.sdle/evidence/implementation-muh-20260908T114000Z-706077af.json
@@ -176,11 +176,11 @@ manifest would not change that.)*
 **User:** `approve` … `approve` *(at Gate 6/6)*
 
 ```
-<!-- SDLE_STATE phase=complete status=completed progress=14/14 -->
-📋 SDLE Status: Phase 14/14 — Complete [COMPLETED]
+<!-- SDLE_STATE phase=complete status=completed progress=16/16 -->
+📋 SDLE Status: Phase 16/16 — Complete [COMPLETED]
 
 ✅ Security review approved. Workflow complete!
-All 6 gates passed. Completion summary: workitems/login-reset-defect/.sdle/completion-summary.json
+All 7 gates passed. Completion summary: workitems/login-reset-defect/.sdle/completion-summary.json
 ```
 
 ---

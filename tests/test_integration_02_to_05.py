@@ -30,6 +30,9 @@ def at_gate_spec(project):
     project.ok("advance", "--to", "gate_constitution")
     review_for_gate(project, "gate_constitution")  # T06: E2.
     project.ok("gate", "approve", "--gate", "gate_constitution")
+    # ADR-013: placement and its gate sit between the constitution and
+    # the specification in every flow.
+    project.pass_architecture_gate()
     project.write_artifact(SPEC)
     project.ok("feature", "resolve")
     project.ok("advance", "--to", "gate_spec")

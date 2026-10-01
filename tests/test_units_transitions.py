@@ -19,15 +19,12 @@ def at(project, phase: str, status: str = "pending", **extra):
     state = project.state()
     state["current_phase"] = phase
     state["status"] = status
-    state["progress"] = {
-        "requirements_check": "1/18", "constitution_draft": "2/18",
-        "gate_constitution": "3/18", "spec_draft": "4/18", "gate_spec": "5/18",
-        "plan_draft": "6/18", "gate_plan": "7/18", "checklist_draft": "8/18",
-        "tasks_draft": "9/18", "gate_tasks": "10/18", "analyze": "11/18",
-        "gate_analyze": "12/18", "design_generation": "13/18",
-        "gate_design": "14/18", "implement": "15/18", "gate_implement": "16/18",
-        "security_review": "17/18", "gate_security": "18/18", "complete": "18/18",
-    }[phase]
+    # Derived rather than listed: after ADR-013 a hand-kept table here
+    # would be a second copy of PROGRESS_MAP, and the point of placing
+    # the workflow by hand is the phase, never the fraction.
+    state["progress"] = sdle.load_constants(
+        sdle.resolve_paths(str(project.root), str(project.skill_root))
+    ).greenfield.progress_for(phase)
     state.update(extra)
     project.write_state(state)
     return state
@@ -40,7 +37,7 @@ def test_advance_follows_next_phase(started):
     result = started.ok("advance", "--to", "gate_constitution")
     assert result.data["from"] == "constitution_draft"
     assert result.data["to"] == "gate_constitution"
-    assert result.data["progress"] == "3/18"
+    assert result.data["progress"] == "3/20"
 
 
 def test_advance_into_a_gate_awaits_approval(started):
@@ -52,7 +49,7 @@ def test_advance_into_a_generation_phase_is_pending(started):
     at(started, "gate_constitution", "awaiting_approval",
        approvals={"gate_constitution": {"decision": "approved",
                                         "comments": None, "timestamp": "x"}})
-    result = started.ok("advance", "--to", "spec_draft")
+    result = started.ok("advance", "--to", "architecture_placement")
     assert result.data["status"] == "pending"
 
 
@@ -88,7 +85,7 @@ def test_advance_refuses_backwards(started):
 
 def test_advance_refuses_to_leave_an_unapproved_gate(started):
     at(started, "gate_constitution", "awaiting_approval")
-    result = started.run("advance", "--to", "spec_draft")
+    result = started.run("advance", "--to", "architecture_placement")
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "gate_not_approved"
     assert started.state()["current_phase"] == "gate_constitution"
@@ -98,7 +95,7 @@ def test_advance_refuses_to_leave_a_rejected_gate(started):
     at(started, "gate_constitution", "rejected",
        approvals={"gate_constitution": {"decision": "rejected",
                                         "comments": "no", "timestamp": "x"}})
-    result = started.run("advance", "--to", "spec_draft")
+    result = started.run("advance", "--to", "architecture_placement")
     assert result.exit_code == EXIT_REFUSED
     assert result.reason == "gate_not_approved"
 
@@ -116,7 +113,7 @@ def test_gate_show_reports_number_label_and_path(started):
     at(started, "gate_constitution", "awaiting_approval")
     data = started.ok("gate", "show", "--gate", "gate_constitution").data
     assert data["gate_number"] == 1
-    assert data["gate_total"] == 8
+    assert data["gate_total"] == 9
     assert data["label"] == "Gate 1: Constitution Approval"
     assert data["artifact_path"] == ".specify/memory/constitution.md"
     assert data["exists"] is True
@@ -156,10 +153,10 @@ def test_gate_approve_records_baseline_and_advances(started):
     result = started.ok("gate", "approve", "--gate", "gate_constitution")
     state = started.state()
 
-    assert result.data["next_phase"] == "spec_draft"
+    assert result.data["next_phase"] == "architecture_placement"
     assert state["approvals"]["gate_constitution"]["decision"] == "approved"
     assert state["artifact_shas"]["gate_constitution"] == result.data["sha"]
-    assert state["current_phase"] == "spec_draft"
+    assert state["current_phase"] == "architecture_placement"
     assert state["status"] == "pending"
 
 
@@ -246,7 +243,7 @@ def test_final_gate_completes_the_workflow(started):
     import json
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
     assert summary["all_gates_approved"] is True
-    assert summary["workflow_version"] == "1.17"
+    assert summary["workflow_version"] == "1.18"
 # ==========================================================================
 # T11 N22 / D13 — an acknowledgement names one checkout
 #

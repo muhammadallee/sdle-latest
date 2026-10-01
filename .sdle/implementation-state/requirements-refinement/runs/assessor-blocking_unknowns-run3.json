@@ -1,0 +1,21 @@
+{
+  "document": "defect-blocking_unknowns.md",
+  "blob_sha": "6eb2c2ceb76b087abcda63363c51283e240b4561",
+  "run": 3,
+  "dispatched_at": "2026-09-28T00:00:00Z",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "PASS", "finding": null},
+    "contradictions": {"result": "FAIL", "finding": "Compatibility requires redirects to behave 'exactly as they do with the current ad-hoc shortener' via a permanent HTTP 301, but AC-2's need for every visit to reach the service (to increment click_count) and AC-3's live expiry check conflict with the permanent, cacheable semantics of a 301, which the added Cache-Control: no-store header may not fully override in bots or browsers that cache by status code."},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "NOT_APPLICABLE", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "FAIL", "finding": "The Non-Functional Requirements section is an unresolved placeholder ('???'), and the SSO constraint leaves 'TBD whether this covers service-to-service calls too' unanswered."}
+  },
+  "note": "contradictions FAIL here is NOT in labels.json for this document. 2/3 runs (this one and run2) independently raised the same 301-caching-vs-click-tracking concern this session already partially addressed with Cache-Control: no-store. Worth flagging to the human: the mitigation may be seen as insufficient by a careful reader. See LEDGER note."
+}

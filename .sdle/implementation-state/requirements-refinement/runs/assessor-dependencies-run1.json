@@ -1,0 +1,23 @@
+{
+  "document": "defect-dependencies.md",
+  "blob_sha": "5d4e298a48b1fd7ea417ed84247267eece7cc28d",
+  "run": 1,
+  "dispatched_at": "not recorded - see LEDGER.md provenance note, 2026-09-28 adjudication pass",
+  "supersedes": "assessor-dependencies-run1-superseded.json (assessed pre-adjudication text where this session's own earlier edit had concretely named the dependency, undermining the seeded defect - see LEDGER.md)",
+  "result": {
+    "problem_statement": {"result": "PASS", "finding": null},
+    "scope": {"result": "PASS", "finding": null},
+    "out_of_scope": {"result": "PASS", "finding": null},
+    "acceptance_criteria": {"result": "PASS", "finding": null},
+    "ambiguity": {"result": "FAIL", "finding": "The Constraints section states the service 'must run inside the existing internal Kubernetes cluster, using some shared infrastructure,' where 'some shared infrastructure' is vague, unmeasurable language in a normative statement."},
+    "contradictions": {"result": "PASS", "finding": null},
+    "constraints": {"result": "PASS", "finding": null},
+    "nfrs": {"result": "PASS", "finding": null},
+    "security_data_implications": {"result": "PASS", "finding": null},
+    "compatibility": {"result": "PASS", "finding": null},
+    "dependencies": {"result": "PASS", "finding": null},
+    "blocking_unknowns": {"result": "PASS", "finding": null}
+  },
+  "note": "MISS (confirmed, clean): dependencies expected FAIL (no Dependencies section, no external dependency named with enough detail). The assessor passed it anyway. ambiguity correctly caught as expected (dual-label).",
+  "note_correction": "2026-09-28, advisor review: the 'no external dependency named' clause above is FALSE. The Constraints section (lines 31-32 of this blob) does name both the Kubernetes cluster and the internal SSO. The document is reliably blocked (3/3 via ambiguity, see LEDGER.md's document-level blocking table), so this is an attribution result - the dependencies check specifically does not fire - not evidence the assessor failed to notice a missing dependency treatment. Do not cite this run as a clean recall miss without this caveat."
+}
