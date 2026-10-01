@@ -83,9 +83,42 @@ precision 0.00), but brief scenario 1 requires it to pass unchanged with no loop
 authorisation and update scenario 1; (3) amend scenario 1. Agents may not resolve this (brief §5). It blocks
 Phase A, because the check-definition table (S2-L1-009) is what option (1) would change. **Open.**
 
-**Level 2: prepared, not started.** `stage2/level2.prompt.md` is written; the worktree is created at the
-commit that holds the findings and responses. Level 2 has not been launched pending the owner's go-ahead,
-because the previous background run was stopped by the memory reaper and the retry was authorised once.
+**Level 2 (`20261001T163832-stage2-level2-codex-plan-level2`): PASS**, first attempt, same harness and
+sandbox, detached worktree at `a1a204f` (which holds the findings and the responses; `PLAN.md` was still the
+baseline's). Launched with the owner's go-ahead ("go ahead with level 2"). **19 dispositions: 11 RESOLVED, 4
+REVISED (002, 003, 005, 015), 4 UPHELD (006, 008, 011, 016); 3 new findings (S2-L2-001..003; two high, one
+medium). `plan_ready_to_freeze: false`**, with 11 blocking ids. Output unedited in
+`runs/20261001T163832-stage2-level2-codex-plan-level2.a1.review.json`; the review worktree is removed.
+
+**Reconciliation** is `PLAN.md` §0.6: one amendment per finding (A1–A19), each overridden section marked
+"Superseded in part by §0.6", nothing deleted. Honest account of what Level 2 changed my mind on:
+- **S2-L1-006 — Level 2 was right and my response was wrong.** I had reframed the long apply→re-assessment
+  interval as protected by the C1 `PENDING` intent. Reading brief §3.5 again, it contains two different things:
+  the C1 transaction (steps 1–4, ending at `COMMITTED`, short) and a *separate* last bullet — "the session lock
+  is held from apply through re-assessment; a second invocation refuses" — which is the **originating
+  WorkItem's own** lock. Level 1 and I had both merged them. The corrected design (A5): a short repository
+  mutex for the transaction, a per-WorkItem `AWAITING_REASSESSMENT` state for the long interval, and **no
+  cross-WorkItem hold** — so there is no abandonment authority to design and a vanished origin blocks no one.
+  Optimistic base-SHA checks and `governance_stale` protect other sharers, as brief §3.5's last C1 bullet says.
+- **S2-L2-002 — my Level 1 response created a defect.** Per-WorkItem `pendingTransactions[]` pointers would
+  have written into other WorkItems' records, violating scenario 12. Replaced by one repository transaction
+  index (A6).
+- **S2-L1-001 and §0.4(7)** corrections as recorded in §0.6.1.
+
+**Open — two owner decisions, neither resolvable by the agents (brief §5):**
+1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
+   above).
+2. **A8 / S2-L1-008** — placement staleness under a C1 shared edit. **A genuine surviving disagreement**: Claude
+   held it is a pre-existing architecture-memory gap to fix separately; Codex held, and Level 2 upheld, that a
+   C1 edit is engine-authorised and so the guarantee cannot be left weakened. Options: (A) pin the bound
+   requirements' digest in the placement record and refuse approval on mismatch (small change to the merged
+   design; also closes today's hand-edit case); (B) invalidate affected placements in the C1 transaction
+   (rejected: writes into other WorkItems' records); (C) accept the weakened guarantee. Claude recommends (A)
+   as its own change before Phase A.
+
+**Not yet done:** the brief's targeted Codex verification of the *changed material* (§0.6) — "substantial
+changes after Level 2 get targeted Codex verification of the changed material only" — which should follow the
+two owner decisions so the verified text is the final text. `PLAN.md` is therefore **not frozen**.
 
 **Pause note, as written when Stage 1 stopped (kept for the record):**
 
