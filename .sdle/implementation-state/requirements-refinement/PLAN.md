@@ -107,7 +107,9 @@ moved. **Cite by symbol, not by line, from here on.**
 ### 0.5 Inherited defects that fall inside this plan's impact surface
 
 Recorded in `claude-review-rejections.md` during the architecture reviews; each exists identically in
-the Stage 0 code this work builds on. Proposed disposition (owner to confirm):
+the Stage 0 code this work builds on. Disposition **confirmed by the owner, 2026-10-01** ("go ahead", in
+reply to this exact split): RR-002, RR-004, RR-007 and RR-008 are in scope; RR-003 and RR-006 go to the §9
+register for owner triage and are *not* fixed by this change.
 
 | Id | Defect | Disposition |
 |---|---|---|
