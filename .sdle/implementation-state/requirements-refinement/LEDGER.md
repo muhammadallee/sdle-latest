@@ -22,8 +22,37 @@ proposes a disposition for the six inherited Stage 0 defects the architecture re
 unedited.
 
 **Order of work from here (unchanged except for the added first step):** (0) re-baseline — done;
-(1) the `refinement dispute` row in §6; (2) record the Stage 2 review baseline SHA; (3) Stage 2, the
-two-level Codex review; (4) Stages 3–5. No production code before Stage 2 reconciles.
+(1) the `refinement dispute` row in §6 — done; (2) record the Stage 2 review baseline SHA — done, below;
+(3) Stage 2, the two-level Codex review — **Level 1 launched**, below; (4) Stages 3–5. No production code
+before Stage 2 reconciles.
+
+**Stage 2 review baseline: `6162064`** (`feat/requirements-refinement`, pushed). It is the commit with
+`PLAN.md` §0 (the re-baseline), the `refinement dispute` row, and the owner's confirmation of the §0.5
+triage ("go ahead", 2026-10-01: RR-002, RR-004, RR-007 and RR-008 in scope; RR-003 and RR-006 to the §9
+register). Nothing in `PLAN.md` is marked FROZEN: only Stage 2 reconciliation freezes it. CI at the parent
+commit's tree: green on all four cells (`36806444263`).
+
+**Stage 2 harness.** `stage2/` holds relabelled copies of the repository-cleanup P08 harness (brief F14):
+`codexrun_stage2.py` (Level 1) and `codexrun_stage2_level2.py` (Level 2), with `review.schema.json` and
+`dispositions.schema.json`. The invocation (`codex exec --sandbox read-only --ephemeral --json
+--output-schema`), the one-retry policy and the output validation are the originals'. Only the run-id
+label and recorded stage label changed — and the Level 2 `closure_assessment` shape, whose
+`open_01_closed` / `open_02_closed` booleans were specific to the OPEN-01/02 review, became
+`plan_ready_to_freeze` + `blocking_disputes` + `summary`. Review worktrees are detached, outside the
+repository, and removed afterwards.
+
+**Level 1:** `codex-cli 0.151.0`, read-only sandbox, ephemeral, detached worktree at `6162064`, prompt
+`stage2/level1.prompt.md` (it names the brief's attack list, D1/D8–D11, the `todo-api.md` dependencies
+finding, §0.5, and the §0.4 items that are new since the plan was written), timeout 2700 s.
+
+**Level 1, attempt 1 (`20261001T033954-stage2-codex-plan-level1`): INTERRUPTED — not a review.** The
+background runner was stopped by Claude Code's memory-pressure reaper while Codex was still reading
+(`result` is still `IN_PROGRESS`, zero completed attempts, 8 event lines written, no `review.json`). It
+produced no findings and none is claimed. Per the reaper's own notice it was **not restarted by the
+agent**; the next step is the owner's choice. The detached worktree at `6162064` is kept so a rerun reviews
+the identical baseline, and the three partial files are committed as evidence of the attempt, the way
+`open-items-01-02` committed its own reaped round 2. A stray `codex.exe` was still alive afterwards; any
+output it writes later is not validated by the harness and is not to be used as a review.
 
 **Pause note, as written when Stage 1 stopped (kept for the record):**
 
