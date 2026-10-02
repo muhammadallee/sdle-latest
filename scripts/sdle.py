@@ -6212,6 +6212,124 @@ def bind_for_governance(args, paths: Paths) -> Paths:
     return bind_workitem(paths, args.workitem)
 
 
+# --------------------------------------------------------------------------
+# Assessment integrity: one content, one verdict
+#
+# A check that FAILed at a given content must not later read PASS at that same
+# content: a requirements document that did not change cannot have become
+# adequate, so the second answer is the assessor changing its mind, not the
+# requirements improving. "Same content" is the presentation-neutral content
+# digest, never the raw bytes - otherwise a whitespace edit, which is neutral,
+# would unlock the flip.
+#
+# The history is this WorkItem's own: every `evidence/governance-*.json` whose
+# `kind` is "governance" (never by file name - a refused attempt is evidence of
+# another kind and is not history), plus the current record as the last entry,
+# because the record is written before its evidence and a crash can leave one
+# without the other. An assessment recorded before the digest existed carries
+# none and is "unknown" - except that one whose raw requirements digest equals
+# today's was made over byte-identical text, so its content is known.
+# --------------------------------------------------------------------------
+
+
+def _history_invalid(path: Path, why: str) -> IntegrityError:
+    return IntegrityError(
+        "governance_history_invalid",
+        f"{path.name} is not an assessment record the engine wrote ({why}), "
+        "so the assessment history cannot be trusted and no assessment is "
+        "recorded. Restore the file from version control; it is never edited "
+        "or skipped.",
+        {"path": str(path), "detail": why})
+
+
+def _history_entry(record, source: Path, raw_digest: str,
+                   content_digest: str) -> dict:
+    if not isinstance(record, dict):
+        raise _history_invalid(source, "the record is not an object")
+    quality = record.get("quality")
+    checks = quality.get("checks") if isinstance(quality, dict) else None
+    if not isinstance(checks, list):
+        raise _history_invalid(source, "it has no list of quality checks")
+    results: dict[str, str] = {}
+    for check in checks:
+        if (not isinstance(check, dict) or not isinstance(check.get("id"), str)
+                or check.get("result") not in QUALITY_RESULTS):
+            raise _history_invalid(source, "a quality check is malformed")
+        results[check["id"]] = check["result"]
+    block = record.get("requirements")
+    if not isinstance(block, dict):
+        raise _history_invalid(source, "it has no requirements block")
+    recorded = block.get("contentDigest")
+    if recorded is None and block.get("digest") == raw_digest:
+        recorded = content_digest
+    if recorded is not None and not (
+            isinstance(recorded, str) and re.fullmatch(r"[0-9a-f]{64}", recorded)):
+        raise _history_invalid(source, "its content digest is malformed")
+    return {"source": source.name, "contentDigest": recorded,
+            "executionId": record.get("executionId"), "results": results}
+
+
+def governance_assessment_history(paths: Paths, raw_digest: str,
+                                  content_digest: str) -> list[dict]:
+    """This WorkItem's recorded assessments, oldest evidence first and the
+    current record last. See the block above for what counts and why."""
+    entries: list[dict] = []
+    if paths.evidence_dir.is_dir():
+        for source in sorted(paths.evidence_dir.glob("governance-*.json")):
+            if source.stat().st_size == 0:
+                continue  # an id claimed and never filled; not evidence
+            try:
+                payload = json.loads(source.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise _history_invalid(source, f"it cannot be read: {exc}") from None
+            if not isinstance(payload, dict):
+                raise _history_invalid(source, "it is not an object")
+            kind = payload.get("kind")
+            if not isinstance(kind, str):
+                raise _history_invalid(source, "it declares no kind of evidence")
+            if kind != "governance":
+                continue
+            entries.append(_history_entry(
+                payload.get("record"), source, raw_digest, content_digest))
+    current = read_governance_record(paths)
+    if current is not None:
+        entries.append(_history_entry(
+            current, paths.governance_file, raw_digest, content_digest))
+    return entries
+
+
+def overturned_assessment_results(paths: Paths) -> set[tuple[str, str]]:
+    """The (check, content digest) pairs whose earlier FAIL a recorded dispute
+    overturned. Only these are exempt from the flip rule; the original result
+    stays in the history."""
+    record = read_refinement_record(paths)
+    if record is None:
+        return set()
+    return {(dispute["checkId"], dispute["contentDigest"])
+            for entry in record["iterations"]
+            for dispute in entry["disputeOutcomes"]}
+
+
+def verdict_flips(paths: Paths, quality: dict, raw_digest: str,
+                  content_digest: str) -> list[str]:
+    """The checks this assessment answers PASS or NOT_APPLICABLE although an
+    earlier assessment of the same content answered FAIL, and which no recorded
+    dispute overturned."""
+    history = governance_assessment_history(paths, raw_digest, content_digest)
+    overturned = overturned_assessment_results(paths)
+    flipped = []
+    for check in quality["checks"]:
+        if check["result"] == "FAIL":
+            continue
+        if (check["id"], content_digest) in overturned:
+            continue
+        if any(entry["contentDigest"] == content_digest
+               and entry["results"].get(check["id"]) == "FAIL"
+               for entry in history):
+            flipped.append(check["id"])
+    return flipped
+
+
 def cmd_governance_assess(args, paths: Paths) -> int:
     """Evaluate Claude's structured proposal against the policy and persist
     the verdict.
@@ -6259,6 +6377,40 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
     if offenders:
         raise content_unacknowledged_refusal(paths, offenders)
+    content_digest = requirements_content_digest(raw_by_path)
+    # Before `governance.json` is touched and before this assessment's own
+    # evidence is claimed: a refused flip must leave the recorded verdict
+    # byte-identical, because `governance_precondition` authorises progression
+    # from the latest record alone. The attempt itself is recorded, as
+    # evidence of another kind that is not part of the assessment history.
+    flipped = verdict_flips(paths, quality, digest, content_digest)
+    if flipped:
+        attempt_id, attempt = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"governance-flip-attempt-{eid}.json")
+        write_atomic(attempt, json.dumps({
+            "kind": "governance-flip-attempt",
+            "status": "REFUSED",
+            "executionId": attempt_id,
+            "recordedAt": stamp,
+            "workitem": paths.workitem,
+            "flippedChecks": flipped,
+            "contentDigest": content_digest,
+            "input": {"path": relative, "document": document},
+            "proposedQuality": quality,
+        }, indent=2) + "\n")
+        raise Refused(
+            "quality_verdict_flip",
+            "These checks failed in an earlier assessment of requirements with "
+            f"exactly this content, and now read as passing: {', '.join(flipped)}. "
+            "Unchanged requirements cannot have become adequate, so the earlier "
+            "result stands and nothing was recorded as the verdict. Change the "
+            "requirements substantively and assess again; an earlier result is "
+            "overturned only by a recorded dispute.",
+            {"workitem": paths.workitem, "flipped": flipped,
+             "contentDigest": content_digest,
+             "evidence": attempt.relative_to(paths.project_root).as_posix()},
+        )
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -6297,6 +6449,9 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         "requirements": {
             "sources": sources,
             "digest": digest,
+            # The presentation-neutral digest, which the verdict-flip rule
+            # compares; `digest` above stays the raw one freshness uses.
+            "contentDigest": content_digest,
             "bindingDigest": binding_digest(bound_sources(paths)),
         },
         "quality": quality,

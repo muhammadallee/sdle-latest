@@ -101,7 +101,7 @@ STATE_FIELDS = (
 # `record_scan_acknowledgement_audit` replays a pre-init acknowledgement into
 # the ledger at the first advance, mirroring `record_governance_audit`.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 33,
+    'write_atomic': 34,
     'save_state': 50,
     'append_audit': 56,
     'record_audit': 0,

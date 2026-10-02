@@ -1001,6 +1001,13 @@ def test_re_assessing_a_fixed_requirement_unblocks_the_same_advance(project):
     assert project.run("advance", "--to", "gate_constitution").reason \
         == "governance_blocked"
 
+    # The requirement is actually fixed: an unchanged document cannot turn a
+    # recorded FAIL into a PASS (`quality_verdict_flip`).
+    requirement = project.root / "requirements" / "todo-api.md"
+    requirement.write_text(
+        requirement.read_text(encoding="utf-8")
+        + "\n## Acceptance\n\n- AC-1: Creating a todo returns status 201.\n",
+        encoding="utf-8", newline="\n")
     assert assess(project).exit_code == EXIT_OK
 
     project.ok("advance", "--to", "gate_constitution")
