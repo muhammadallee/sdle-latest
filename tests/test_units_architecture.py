@@ -905,6 +905,137 @@ def test_the_lock_is_released_when_the_guarded_work_refuses(at_placement):
     assert not paths.architecture_lock_file.exists()
 
 
+# -- the placement is bound to the requirements it was reasoned from --------
+
+
+def _edit_bound_requirements(view) -> None:
+    target = view.root / "requirements" / "todo-api.md"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nA requirement added after the placement was assessed.\n",
+        encoding="utf-8", newline="\n")
+
+
+def _placement_record(view) -> dict:
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(view.root), None), view.workitem)
+    return json.loads(
+        paths.architecture_placement_file.read_text(encoding="utf-8"))
+
+
+def _review_and_stand_at_gate(view) -> None:
+    shown = view.ok("gate", "show", "--gate", "gate_architecture").data
+    view.ok("artifact", "review", "--path", shown["artifact_path"],
+            "--type", "architecture-placement", "--result", "PASS",
+            "--actor-type", "test", "--actor-name", "suite")
+    view.ok("advance", "--to", "gate_architecture")
+
+
+def test_assess_records_the_requirements_the_placement_was_reasoned_from(
+        at_placement):
+    """The placement reads the bound requirements, so the record has to say
+    which bytes it read: without that, nothing can tell a placement derived
+    from the documents as they are from one derived from documents that have
+    since changed."""
+    assess(at_placement, proposal())
+    record = _placement_record(at_placement)
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(at_placement.root), None), at_placement.workitem)
+    sources, digest, _ = sdle.requirements_sources(paths)
+
+    assert record["requirementsDigest"] == digest
+    assert record["requirementsSources"] == sources
+
+
+def test_a_requirements_edit_after_placement_refuses_the_gate(at_placement):
+    """The case a shared-document edit makes real: the placement was derived
+    from the old bytes, governance is re-assessed against the new ones, and
+    nothing compared the two. Governance going stale is not enough, because
+    re-assessing clears it and the old placement would then be approved."""
+    assess(at_placement, proposal())
+    _review_and_stand_at_gate(at_placement)
+    _edit_bound_requirements(at_placement)
+    at_placement.record_governance()
+    audit_before = at_placement.audit_file.read_bytes()
+
+    result = at_placement.run("gate", "approve", "--gate", "gate_architecture")
+
+    assert result.exit_code == 1, result
+    assert result.reason == "architecture_requirements_stale"
+    assert result.data["changed"] == ["requirements/todo-api.md"]
+    assert not (at_placement.root / ".sdle" / "architecture").exists()
+    assert at_placement.audit_file.read_bytes() == audit_before, (
+        "a refused approval must not touch the ledger")
+
+
+def test_a_requirements_edit_is_caught_before_the_gate_is_reached(
+        at_placement):
+    """A human should not be shown a placement that is already known to be
+    stale, so the refusal is raised on leaving the phase as well."""
+    assess(at_placement, proposal())
+    _edit_bound_requirements(at_placement)
+    at_placement.record_governance()
+
+    result = at_placement.run("advance", "--to", "gate_architecture")
+
+    assert result.exit_code == 1, result
+    assert result.reason == "architecture_requirements_stale"
+    assert at_placement.state()["current_phase"] == "architecture_placement"
+
+
+def test_re_running_the_placement_clears_the_staleness(at_placement):
+    assess(at_placement, proposal())
+    _review_and_stand_at_gate(at_placement)
+    _edit_bound_requirements(at_placement)
+    at_placement.record_governance()
+    assert at_placement.run(
+        "gate", "approve", "--gate", "gate_architecture").exit_code == 1
+
+    fresh = assess(at_placement, proposal()).data
+    shown = at_placement.ok("gate", "show", "--gate", "gate_architecture").data
+    at_placement.ok("artifact", "review", "--path", shown["artifact_path"],
+                    "--type", "architecture-placement", "--result", "PASS",
+                    "--actor-type", "test", "--actor-name", "suite")
+    at_placement.ok("gate", "approve", "--gate", "gate_architecture")
+
+    assert catalog_of(at_placement)["revision"] == 1
+    assert fresh["decisionId"] == catalog_of(at_placement)["decisions"][0]["id"]
+
+
+def test_an_applied_decision_replays_even_after_the_requirements_change(
+        at_placement):
+    """The check guards a decision *entering* the catalog. One already in it
+    is a replay, and refusing that would leave an approved gate unable to
+    finish after a crash."""
+    assess(at_placement, proposal())
+    approve_placement(at_placement)
+    _edit_bound_requirements(at_placement)
+
+    replay = at_placement.ok("architecture", "apply").data
+
+    assert replay["replayed"] is True
+    assert catalog_of(at_placement)["revision"] == 1
+
+
+def test_a_placement_record_with_no_requirements_basis_is_refused(
+        at_placement):
+    """Fail closed: a record that does not say which documents it was
+    reasoned from cannot be shown to match the ones now bound."""
+    assess(at_placement, proposal())
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(at_placement.root), None), at_placement.workitem)
+    record = _placement_record(at_placement)
+    record.pop("requirementsDigest")
+    record.pop("requirementsSources")
+    paths.architecture_placement_file.write_text(
+        json.dumps(record, indent=2), encoding="utf-8", newline="\n")
+
+    result = at_placement.run("advance", "--to", "gate_architecture")
+
+    assert result.exit_code == 1, result
+    assert result.reason == "architecture_requirements_stale"
+
+
 def test_realize_refuses_when_the_catalog_has_no_such_decision(at_placement):
     """Contract 12: a missing decision at realization is a refusal, never a
     tolerated no-op that leaves a service PLANNED for ever."""
