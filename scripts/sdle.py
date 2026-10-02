@@ -4918,6 +4918,102 @@ def _sources_digest(sources: list[dict]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# --------------------------------------------------------------------------
+# The presentation-neutral normal form of a requirements document
+#
+# Two versions of a document that differ only in how they are laid out must
+# have one normal form, so a re-assessment cannot be told the document changed
+# when only its whitespace did - and, the other way round, so that a change which
+# alters what a reader sees can never hide inside a "formatting" edit. The
+# engine decides neutrality from this form, never the proposer.
+#
+# What is neutral: the line-ending convention; whitespace-only lines and runs of
+# two or more blank lines; the number of blank lines or newlines at the end of
+# the file; runs of spaces inside the text of a prose line (not its leading
+# indentation, not a code span, not an indented or fenced code line, not a table
+# row); and trailing whitespace on blank lines, table rows and inside fenced
+# blocks. What is NOT neutral, on purpose: trailing whitespace on a non-blank
+# prose line. Two trailing spaces are Markdown's hard line break, so removing
+# them changes what renders; they are kept, and a change to them is a change.
+# Nothing else is normalised - headings, list markers, emphasis, links and table
+# cells compare as written.
+#
+# Line endings are unified FIRST. A carriage return left on the end of a line
+# would otherwise read as trailing whitespace, and the hard-break rule would
+# misfire on every file that arrives with Windows line endings.
+# --------------------------------------------------------------------------
+
+_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _collapse_spaces_outside_code_spans(text: str) -> str:
+    out: list[str] = []
+    position = 0
+    for span in _CODE_SPAN.finditer(text):
+        out.append(re.sub(r" {2,}", " ", text[position:span.start()]))
+        out.append(span.group(0))
+        position = span.end()
+    out.append(re.sub(r" {2,}", " ", text[position:]))
+    return "".join(out)
+
+
+def requirements_normal_form(text: str) -> str:
+    """The presentation-neutral normal form of one document's text. Pure and
+    idempotent; see the block comment above for exactly what it does and does
+    not treat as neutral."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    fence: tuple[str, int] | None = None  # (character, run length)
+    previous_blank = False
+    for line in lines:
+        if fence is not None:
+            closing = re.match(r"^ {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})\s*$", line)
+            out.append(line.rstrip())
+            if closing:
+                fence = None
+            previous_blank = False
+            continue
+        opening = _FENCE_OPEN.match(line)
+        if opening:
+            fence = (opening.group(1)[0], len(opening.group(1)))
+            out.append(line.rstrip())
+            previous_blank = False
+            continue
+        if not line.strip():
+            if not previous_blank:
+                out.append("")
+            previous_blank = True
+            continue
+        previous_blank = False
+        if line.lstrip().startswith("|"):
+            out.append(line.rstrip())  # a table row keeps its spacing
+            continue
+        if line.startswith("    ") or line.startswith("\t"):
+            out.append(line)  # indented: code or a continuation; left as written
+            continue
+        body = line.rstrip()
+        trailing = line[len(body):]
+        indent = re.match(r"^ *", body).group(0)
+        out.append(indent + _collapse_spaces_outside_code_spans(body[len(indent):]) + trailing)
+    while out and out[-1] == "":
+        out.pop()
+    return "\n".join(out) + "\n" if out else ""
+
+
+def requirements_content_digest(raw_by_path: dict[str, bytes]) -> str:
+    """One digest for a bound set, over each document's normal form. The same
+    shape as `_sources_digest` - sorted paths, one line each - but a document
+    contributes the SHA-256 of its normal form, so two sets that differ only in
+    presentation have one digest. Pure: it reads nothing."""
+    lines = []
+    for path in sorted(raw_by_path):
+        normal = requirements_normal_form(
+            raw_by_path[path].decode("utf-8", errors="replace"))
+        lines.append(f"{path} {hashlib.sha256(normal.encode('utf-8')).hexdigest()}")
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
 def read_governance_input(target: Path, relative: str) -> dict:
     """Parse and envelope-validate Claude's structured proposal. Fail-closed:
     nothing here returns a default."""
