@@ -171,6 +171,34 @@ the design on all of them, and also corrects §0.6.1 and §0.6.5, which still de
 found more detail in the *shared-document* machinery (C1: the transaction, the index, the claim, the override).
 That machinery is needed only when a document is bound by more than one WorkItem.
 
+**Consultation on the shared-document design, 2026-10-02 (owner-requested, two rounds with Codex).** Prompted by
+the owner's observation that in a team a refinement edit is not visible to anyone else until it is committed and
+pushed. Two questions: (1) drop decision (D)'s in-flight claim? (2) amend C1 so no WorkItem's audit is appended to
+by another?
+
+*Round 1* (`20261002T150413-stage2-consult-codex-round1`, PASS, `3fc2cb8`): Codex **agreed with both** and did not
+want even a local claim kept. It added: the brief contradicts itself (scenario 12 forbids one WorkItem writing
+another's record; C1 requires it); only `audit verify` detects a divergent chain (state loading and drift do not);
+git does not guarantee a conflict for disjoint edits, so safety rests on the digest and base-SHA checks; and what
+machinery can go. All six points accepted (`stage2/consult1-responses.md`). **The audit hazard was then
+reproduced**, not only reasoned: two branches that each append one chained entry to one WorkItem's audit conflict in
+`audit.md` and `state.json`, and keeping both by hand leaves a chain `audit verify` rejects (`audit_chain_broken`,
+exit 3) — `stage2/consultation-evidence/`. Correction to my own claim: `audit rebaseline` can rechain it as a
+deliberate, logged repair.
+
+*Round 2* (`20261002T151050-stage2-consult-codex-round2`, PASS, `3fa9d2f`): of the six round-1 ids, 5 RESOLVED and
+1 REVISED; 4 new findings (S2-C2-001..004); **`plan_ready_to_freeze: true`, no blocking disputes: "adopt Design R with
+specific changes".** My dispositions: 001 (the notification claim was false and provenance is lost) **accept**;
+004 (stale text throughout) **accept**; 002 (recovery discovery by affected WorkItems) **partially accept** — the
+affected-WorkItem audit entries it protected are exactly what Design R deletes, so B depends on nothing A recovers,
+and a pending transaction lags only A's own record; at most a read-only diagnostic is warranted; 003 (widen the A5
+mutex to advance / gate approve / gate omit / skip) **partially accept** — real, but the same TOCTOU class as a hand
+edit between a freshness check and a write, which no lock can prevent, and widening the mutex across every
+progression command is disproportionate for a rare same-checkout simultaneity; recommend a documented residual.
+
+**Awaiting the owner:** Design R changes the owner's constraint **C1** (and the brief's §3.5 and scenarios 12, 18
+and 29), so only the owner can adopt it. `PLAN.md` is not yet changed by any of this.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).
