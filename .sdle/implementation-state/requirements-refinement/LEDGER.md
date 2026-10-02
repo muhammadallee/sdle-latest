@@ -1189,3 +1189,25 @@ tool use; `tool_uses: 0` is recorded on the three newest run files (`todo-api.md
 tool was actually invoked to discover it, matching PLAN.md §3.c's own note that filename neutrality was
 never the real guard. Earlier run files do not carry `tool_uses` (not captured at the time) — treat its
 absence there as "not recorded," not as evidence either way.
+
+## Phase A — steps 3, 4, 5 (2026-10-03)
+
+- **Step 3 (`69fa700`)**: `refinement.json` record (strict validator, `refinement_record_invalid` exit 3, one
+  validated writer, cap ceiling `REFINEMENT_ITERATION_CAP_MAX = 3`), lint-evidence validator (`floorEnforced`
+  must be false). `scan-acknowledgements.json` and `refinement.json` added to the runtime-member leak check
+  (the acknowledgement store had been missing from it). `write_atomic` pin 32 -> 33.
+- **Step 4**: `requirements_lint` + `REQUIREMENTS_LINT_RULES` (applicability declared per rule; normative text
+  only for line rules; code/quote/comment excluded; section and duplicate-id rules judge the bound set; ids
+  count only as definitions). Advisory: nothing on the assessment path reads it (AST test over four functions).
+  One finding from building it: the prototype's `out_of_scope` rule would have been a false positive on
+  `clean-baseline.md` and `todo-api.md` (an "Out of scope:" label inside a Scope section); the shipped rule
+  accepts a heading or a label. Corpus result: zero floor-eligible findings on the two clean documents; the
+  rules find the blocking_unknowns, out_of_scope and acceptance_criteria defects and the ambiguity defect.
+  `vague_term` fires on `defect-dependencies.md` and `defect-nfrs.md` (not their target) - which is why it and
+  `quantity_without_measure` are `floorEligible: false`.
+- **Step 5**: corpus additions are runtime-built fixtures in `test_units_refinement_lint.py` (duplicate-id pair
+  across documents, per-kind positives, neighbouring-kind negatives), not checked-in files.
+  **Re-measurement of the amended `todo-api.md`** against the engine's final `QUALITY_CHECK_DEFINITIONS`
+  (prompt identical modulo whitespace to the measured v2 prompt, verified in code), same method as before
+  (fresh agent, single Read, single Write, 3 runs): **3 of 3 pass all twelve checks**. Outputs in
+  `stage2/final-measurement/`. Exploratory (3 runs, one model), as the earlier measurement was.
