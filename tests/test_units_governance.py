@@ -245,6 +245,7 @@ MALFORMED_CASES = {
     "json_string": '"policy"\n',
     "unknown_key": json.dumps({"blocking_chekcs": []}),
     "quality_checks_not_overridable": json.dumps({"quality_checks": []}),
+    "check_definitions_not_overridable": json.dumps({"check_definitions": {}}),
     "bad_version": json.dumps({"policyVersion": "9"}),
     "blocking_checks_wrong_type": json.dumps({"blocking_checks": "all"}),
     "blocking_checks_unknown_id": json.dumps(
@@ -519,6 +520,83 @@ def test_no_policy_default_value_is_restated_outside_sdle_py():
         if hits:
             offenders[path.relative_to(REPO_ROOT).as_posix()] = hits
     assert offenders == {}, f"policy defaults restated outside sdle.py: {offenders}"
+
+
+# --------------------------------------------------------------------------
+# The check definitions: one engine-owned table, read by everything else
+# --------------------------------------------------------------------------
+
+# The digest of each definition's text, one line, whitespace collapsed. These
+# are the words the corpus was measured against; changing one is allowed, but
+# only on purpose and after re-measuring, which is what editing this table is.
+DEFINITION_DIGESTS = {
+    "problem_statement": "bdd5ec404512c60206e32bfcdec81ef0716659267610e117d43f0b3924faf3de",
+    "scope": "9d1352e5ad1f9465577efca6aa63e4e25165d2017da549e26358335df78e362b",
+    "out_of_scope": "3334d99a1dc39aae590d1e2ec0b271059cab665df4792b68de243c1db3949056",
+    "acceptance_criteria": "9cc850ec23e257f52f242874072012493a78d8ec356760171edf8d0619cea5df",
+    "ambiguity": "57559d865a8786b4eeeb6da1a92c24cb07c2867f08d1a985379d6f502c58f68e",
+    "contradictions": "6f222f6e1fa2580bfdeb0f8036a00b172862b5b24fc4b67fc6909db088a10fc1",
+    "constraints": "3fe4742f100306925b3eea0878f6e1d3af1e9276edb2af9480d6e26744050532",
+    "nfrs": "cf8993e8a94ea33d16ea35164c5ad01a29c6720e71d3665deedb38c3a0bd3e10",
+    "security_data_implications": "768b4fd18296a91ec338f6e155394a17bdfafc0e5b4587568c924a08ada1c955",
+    "compatibility": "24a8b223e99897d6f6174352c198d780d9b29560a9c31d9e3f63a7faf59795d6",
+    "dependencies": "70ed8464ceed855428a22282eb51989391148907a4cfe888b8c1849bb225ac95",
+    "blocking_unknowns": "28824a9e8a4b4616162235ba0b7898ec53933f8ea87340a764cc481002ea052c",
+}
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_the_definitions_cover_exactly_the_quality_checks_in_order():
+    assert list(sdle.QUALITY_CHECK_DEFINITIONS) == (
+        sdle.GOVERNANCE_POLICY_BUILTIN["quality_checks"])
+    for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items():
+        assert isinstance(text, str) and text.strip(), check
+
+
+def test_each_definition_is_the_measured_wording():
+    import hashlib
+    actual = {check: hashlib.sha256(
+        _one_line(text).encode("utf-8")).hexdigest()
+        for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items()}
+    assert actual == DEFINITION_DIGESTS, (
+        "a check definition changed: re-measure the corpus against the new "
+        "wording, then update DEFINITION_DIGESTS on purpose")
+
+
+def test_the_definitions_are_not_part_of_the_policy_or_what_is_pinned(project):
+    assert "check_definitions" not in sdle.GOVERNANCE_POLICY_BUILTIN
+    project.record_governance()
+    record_text = (project.runtime / "governance.json").read_text(
+        encoding="utf-8")
+    assert "someone unfamiliar with the project" not in record_text, (
+        "definition text reached a WorkItem's governance record")
+
+
+def test_governance_policy_reports_the_definitions_beside_the_policy(
+        bare_project):
+    result = bare_project.ok("governance", "policy")
+    assert result.data["check_definitions"] == sdle.QUALITY_CHECK_DEFINITIONS
+    assert "check_definitions" not in result.data["policy"]
+
+
+def test_no_check_definition_is_restated_outside_sdle_py():
+    """One source of truth: the wording lives in the engine's table and is
+    read from it, never copied into a prompt, a guide or a document."""
+    needles = {check: _one_line(text)
+               for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items()}
+    offenders: dict[str, list[str]] = {}
+    for path in searchable_files():
+        try:
+            body = _one_line(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        hits = sorted(c for c, needle in needles.items() if needle in body)
+        if hits:
+            offenders[path.relative_to(REPO_ROOT).as_posix()] = hits
+    assert offenders == {}, f"check definitions restated outside sdle.py: {offenders}"
 
 
 def test_the_builtin_policy_is_not_written_to_disk_by_any_command(bare_project):

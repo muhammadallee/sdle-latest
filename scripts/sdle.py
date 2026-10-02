@@ -4099,6 +4099,75 @@ GOVERNANCE_POLICY_BUILTIN = {
     },
 }
 
+# What each of the twelve quality checks asks of a requirements document, in the
+# words an assessor is given. A separate constant and not a key of the policy
+# above: the policy is deep-copied into every WorkItem's pinned policy and is
+# what an override is validated against, and neither wants prose in it. Its
+# keys are the same twelve `quality_checks` ids, in the same order (a test
+# asserts it), and it is not overridable: a repository that could reword a
+# check could change what a PASS means. The wording is the *measured* wording.
+# Editing any of it invalidates the corpus baseline it was measured against,
+# so a test pins each definition's digest and a change must update it on
+# purpose, after re-measuring.
+QUALITY_CHECK_DEFINITIONS = {
+    "problem_statement": (
+        "does the document state what problem is being solved and for whom, clearly enough that someone "
+        "unfamiliar with the project would understand why it exists?"
+    ),
+    "scope": (
+        "does the document state what is being built, concretely enough to bound the work?"
+    ),
+    "out_of_scope": (
+        "does the document state what is explicitly excluded?"
+    ),
+    "acceptance_criteria": (
+        "are there criteria by which \"done\" can be checked, each either identifiable (a stable id) or "
+        "stating an observable outcome (a result, state, response, value, or refusal)? No specific format "
+        "is required — Given/When/Then, EARS, or plain precise sentences are all acceptable."
+    ),
+    "ambiguity": (
+        "is the document free of vague, unmeasurable language in normative statements (e.g. \"fast\", "
+        "\"user-friendly\", \"robust\", \"as appropriate\", \"etc.\", \"some\", \"several\") where something concrete "
+        "was needed?"
+    ),
+    "contradictions": (
+        "are there no statements that directly conflict with each other?"
+    ),
+    "constraints": (
+        "does the document state the technical, business, regulatory or platform constraints that bound "
+        "the solution (where any genuinely apply)?"
+    ),
+    "nfrs": (
+        "where the document makes quantitative quality claims (performance, latency, throughput, "
+        "capacity, availability, scalability), are they stated with a measure (a number and a unit)? "
+        "Answer `NOT_APPLICABLE` only if the document makes no such quantitative claims at all."
+    ),
+    "security_data_implications": (
+        "does the document address the security and data-handling implications of what it describes, "
+        "where any genuinely apply (e.g., sensitive data, authentication, authorization)?"
+    ),
+    "compatibility": (
+        "does the document address compatibility with existing systems, versions, or integrations it "
+        "depends on or must coexist with, where relevant?"
+    ),
+    "dependencies": (
+        "does the document identify, specifically enough to tell which one is meant, each external "
+        "system, service or third party that the solution must integrate with, call, or run on (for "
+        "example an identity provider, a payment gateway, an existing internal service, or a shared "
+        "platform)? Technology that the solution itself chooses — a database product, framework, library "
+        "or ORM — is not an external dependency for this check: a requirements document may leave those "
+        "choices to the engineering constitution, and describing storage as, say, a relational store is "
+        "not a failure. A document that states it has no external dependencies, or that names none "
+        "because none exist, satisfies the check. Fail only when an external system the solution relies "
+        "on is referred to by category or vague phrase alone, so that a reader could not tell which "
+        "system is meant."
+    ),
+    "blocking_unknowns": (
+        "is the document free of unresolved placeholders, markers, or open questions (`TBD`, `TODO`, "
+        "`???`, empty sections) that block understanding what is being asked for?"
+    ),
+}
+
 # Top-level keys an override may carry. `quality_checks` is deliberately
 # absent: the twelve ids are §12's, and a repository that could rename or drop
 # one would be editing the contract rather than tightening it.
@@ -4449,6 +4518,10 @@ def cmd_governance_policy(args, paths: Paths) -> int:
         "path": effective["path"],
         "sha256": effective["sha256"],
         "policy": effective["policy"],
+        # Not part of the policy and not overridable: reported beside it so a
+        # caller reads the words each check asks, from the engine, instead of
+        # restating them.
+        "check_definitions": QUALITY_CHECK_DEFINITIONS,
     })
     return EXIT_OK
 
