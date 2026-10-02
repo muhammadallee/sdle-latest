@@ -5283,6 +5283,242 @@ def refinement_lint_evidence_problems(doc) -> list[str]:
     return problems
 
 
+# --------------------------------------------------------------------------
+# The advisory requirements lint
+#
+# Cheap, deterministic rules over a bound set of requirements documents,
+# each mapped to an existing quality check. It RECORDS evidence and decides
+# nothing: no finding refuses an assessment or overrides an assessor's answer,
+# and `floorEnforced` is false on every finding. `floorEligible` says only that
+# the rule has not produced a false positive on the measured corpus, so a later
+# decision to enforce it would be a decision, not a default.
+#
+# Every rule declares what it applies to, because a rule that cannot tell a
+# requirement from a description of the past, a quotation or a code sample
+# turns a writing-style preference into a defect:
+#   - normative text is a prose or list line that carries a modal (must, shall,
+#     should, will, required to, needs to); descriptive text is never normative;
+#   - fenced code, indented code, inline code spans, block quotations and HTML
+#     comments are excluded from every line rule;
+#   - "section" rules ask a question of the whole bound set, not of one
+#     document, and report on the first document in path order;
+#   - the duplicate-id rule looks only at DEFINITIONS (an id that opens a list
+#     item, heading or table row), never at references to an id.
+# --------------------------------------------------------------------------
+
+REQUIREMENTS_LINT_RULES = {
+    "unresolved_marker": {
+        "mappedCheck": "blocking_unknowns", "floorEligible": True,
+        "applies_to": "TBD, TODO (upper case only), ??? and empty sections, in "
+                      "prose, list and heading lines outside code and quotations"},
+    "vague_term": {
+        "mappedCheck": "ambiguity", "floorEligible": False,
+        "applies_to": "normative lines only (a line carrying a modal verb)"},
+    "missing_acceptance_section": {
+        "mappedCheck": "acceptance_criteria", "floorEligible": True,
+        "applies_to": "the bound set: no heading names acceptance"},
+    "missing_out_of_scope_section": {
+        "mappedCheck": "out_of_scope", "floorEligible": True,
+        "applies_to": "the bound set: no heading or label names out of scope or non-goals"},
+    "acceptance_not_checkable": {
+        "mappedCheck": "acceptance_criteria", "floorEligible": True,
+        "applies_to": "the acceptance sections of the bound set, as one body: "
+                      "neither a stable id nor an observable outcome; no format "
+                      "is mandated"},
+    "quantity_without_measure": {
+        "mappedCheck": "nfrs", "floorEligible": False,
+        "applies_to": "normative lines about performance, latency, throughput, "
+                      "capacity, availability or scalability; binary and "
+                      "categorical requirements are exempt"},
+    "duplicate_id": {
+        "mappedCheck": "contradictions", "floorEligible": True,
+        "applies_to": "definitions of a requirement or criterion id across the "
+                      "bound set; reported on the later definition"},
+}
+
+_LINT_MODAL = re.compile(
+    r"\b(must|shall|should|will|required to|needs? to)\b", re.IGNORECASE)
+_LINT_VAGUE = (
+    "fast", "quick", "quickly", "user-friendly", "robust", "as appropriate",
+    "appropriate", "etc.", "and/or", "some", "several", "convenient", "simple",
+    "easy to use", "reasonable", "intuitive", "efficient", "efficiently")
+_LINT_VAGUE_RE = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(w) for w in _LINT_VAGUE) + r")(?![\w-])",
+    re.IGNORECASE)
+_LINT_QUANT = re.compile(
+    r"\b(performance|latency|throughput|capacity|availability|scalab\w+)\b",
+    re.IGNORECASE)
+_LINT_MEASURE = re.compile(
+    r"\d+(\.\d+)?\s?(ms|milliseconds?|s|sec|seconds?|minutes?|hours?|"
+    r"req(uests)?/s|rps|%|percent|kb|mb|gb|users?|items?|nines|requests?)\b",
+    re.IGNORECASE)
+_LINT_CATEGORICAL = re.compile(
+    r"\b(comply|compliance|encrypt\w*|tls|authenticat\w*|authoriz\w*|"
+    r"supports?|supported|compatib\w+|policy|retention|gdpr|audit)\b", re.IGNORECASE)
+_LINT_HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_LINT_ACCEPTANCE_HEADING = re.compile(r"\bacceptance\b", re.IGNORECASE)
+_LINT_SCOPE_HEADING = re.compile(
+    r"\b(out[ -]of[ -]scope|non-goals?|not in scope|exclusions?)\b", re.IGNORECASE)
+_LINT_SCOPE_LABEL = re.compile(
+    r"^\s*(?:[-*+]\s*)?\**(out[ -]of[ -]scope|non-goals?|not in scope)\**\s*:", re.IGNORECASE)
+_LINT_OUTCOME = re.compile(
+    r"\b(returns?|responds?|response|succeeds?|fails?|rejected|accepted|refuses?|"
+    r"then|status \d+|error|exit \d+|must (be|equal|return|reject|accept))\b",
+    re.IGNORECASE)
+_LINT_STABLE_ID = re.compile(
+    r"^\s*(?:[-*+]\s*)?(?:[A-Z]{2,}-\d+|\d+\.)\s", re.MULTILINE)
+_LINT_ID_DEFINITION = re.compile(
+    r"^\s*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|\|\s*)?\**([A-Z]{2,}-\d+)\**\s*"
+    r"(?::|\||\.\s|[-\u2013\u2014]\s)")
+_LINT_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _lint_lines(text: str) -> list[tuple[int, str, str]]:
+    """(line number, kind, text) for every line. Kind is one of blank, heading,
+    fence, code, quote, comment, prose. A prose line has its inline code spans
+    blanked, so no rule can match inside one."""
+    out: list[tuple[int, str, str]] = []
+    fence: tuple[str, int] | None = None
+    in_comment = False
+    for number, raw in enumerate(
+            text.replace("\r\n", "\n").replace("\r", "\n").split("\n"), start=1):
+        if fence is not None:
+            closing = re.match(
+                r"^ {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})\s*$", raw)
+            out.append((number, "code", raw))
+            if closing:
+                fence = None
+            continue
+        if in_comment:
+            out.append((number, "comment", raw))
+            if "-->" in raw:
+                in_comment = False
+            continue
+        opening = _FENCE_OPEN.match(raw)
+        if opening:
+            fence = (opening.group(1)[0], len(opening.group(1)))
+            out.append((number, "code", raw))
+            continue
+        stripped = raw.strip()
+        if not stripped:
+            out.append((number, "blank", raw))
+        elif stripped.startswith("<!--"):
+            out.append((number, "comment", raw))
+            in_comment = "-->" not in stripped
+        elif stripped.startswith(">"):
+            out.append((number, "quote", raw))
+        elif raw.startswith("    ") or raw.startswith("\t"):
+            out.append((number, "code", raw))
+        elif _LINT_HEADING.match(raw):
+            out.append((number, "heading", raw))
+        else:
+            out.append((number, "prose", _LINT_SPAN.sub(
+                lambda m: " " * len(m.group(0)), raw)))
+    return out
+
+
+def _lint_sections(lines):
+    """(heading text, heading line, level, body lines) for every heading, the
+    body running to the next heading of the same or a higher level."""
+    headings = [(i, _LINT_HEADING.match(raw)) for i, (_, kind, raw)
+                in enumerate(lines) if kind == "heading"]
+    sections = []
+    for position, (index, match) in enumerate(headings):
+        level = len(match.group(1))
+        end = len(lines)
+        for later, later_match in headings[position + 1:]:
+            if len(later_match.group(1)) <= level:
+                end = later
+                break
+        sections.append((match.group(2), lines[index][0], level,
+                         lines[index + 1:end]))
+    return sections
+
+
+def _lint_finding(rule: str, line: int, text: str) -> dict:
+    return {"ruleId": rule, "mappedCheck": REQUIREMENTS_LINT_RULES[rule]["mappedCheck"],
+            "floorEligible": REQUIREMENTS_LINT_RULES[rule]["floorEligible"],
+            "floorEnforced": False, "line": line, "text": text.strip()[:160]}
+
+
+def requirements_lint(documents: dict[str, str], path: str,
+                      execution_id: str) -> dict:
+    """The lint evidence for ``path``, judged in the context of the whole bound
+    set ``documents`` (path -> text). Pure and deterministic: it reads nothing
+    and writes nothing, and the result is advisory (see the block above)."""
+    findings: list[dict] = []
+    parsed = {name: _lint_lines(body) for name, body in documents.items()}
+    lines = parsed[path]
+    first = sorted(parsed)[0]
+
+    for number, kind, text in lines:
+        if kind not in ("prose", "heading"):
+            continue
+        if (re.search(r"\bTBD\b", text, re.IGNORECASE) or "???" in text
+                or re.search(r"\bTODO\b", text)):
+            findings.append(_lint_finding("unresolved_marker", number, text))
+    for _heading, line, level, body in _lint_sections(lines):
+        content = [b for b in body if b[1] not in ("blank",)]
+        if not content:
+            findings.append(_lint_finding(
+                "unresolved_marker", line, "an empty section: " + _heading))
+
+    for number, kind, text in lines:
+        if kind != "prose" or not _LINT_MODAL.search(text):
+            continue
+        vague = _LINT_VAGUE_RE.search(text)
+        if vague:
+            findings.append(_lint_finding(
+                "vague_term", number, f"{vague.group(1)!r} in: {text}"))
+        if (_LINT_QUANT.search(text) and not _LINT_MEASURE.search(text)
+                and not _LINT_CATEGORICAL.search(text)):
+            findings.append(_lint_finding("quantity_without_measure", number, text))
+
+    all_sections = {name: _lint_sections(parsed[name]) for name in sorted(parsed)}
+    acceptance = [(name, s) for name, secs in all_sections.items()
+                  for s in secs if _LINT_ACCEPTANCE_HEADING.search(s[0])]
+    has_scope = any(_LINT_SCOPE_HEADING.search(s[0])
+                    for secs in all_sections.values() for s in secs) or any(
+        kind == "prose" and _LINT_SCOPE_LABEL.match(text)
+        for body in parsed.values() for _n, kind, text in body)
+    if path == first:
+        if not acceptance:
+            findings.append(_lint_finding(
+                "missing_acceptance_section", 1,
+                "no heading in the bound set names acceptance"))
+        if not has_scope:
+            findings.append(_lint_finding(
+                "missing_out_of_scope_section", 1,
+                "no heading in the bound set names out of scope"))
+    if acceptance and acceptance[0][0] == path:
+        body = "\n".join(raw for _, (_h, _l, _lv, body_lines) in acceptance
+                         for _n, k, raw in body_lines if k == "prose")
+        if not _LINT_STABLE_ID.search(body) and not _LINT_OUTCOME.search(body):
+            findings.append(_lint_finding(
+                "acceptance_not_checkable", acceptance[0][1][1],
+                "the acceptance sections carry no stable id and no observable outcome"))
+
+    seen: set[str] = set()
+    for name in sorted(parsed):
+        for number, kind, text in parsed[name]:
+            if kind != "prose":
+                continue
+            definition = _LINT_ID_DEFINITION.match(text)
+            if not definition:
+                continue
+            identifier = definition.group(1)
+            if identifier in seen and name == path:
+                findings.append(_lint_finding(
+                    "duplicate_id", number, f"{identifier} is already defined: {text}"))
+            seen.add(identifier)
+
+    findings.sort(key=lambda f: (f["line"], f["ruleId"]))
+    normal = requirements_normal_form(documents[path])
+    return {"kind": "refinement-lint", "executionId": execution_id,
+            "documentSha256": hashlib.sha256(normal.encode("utf-8")).hexdigest(),
+            "findings": findings}
+
+
 def read_governance_input(target: Path, relative: str) -> dict:
     """Parse and envelope-validate Claude's structured proposal. Fail-closed:
     nothing here returns a default."""
