@@ -173,6 +173,21 @@ Those documents are **not** rewritten. An ADR records a decision as it was made,
 
 ---
 
+## Amendment — the placement is bound to the requirements it was read from
+
+Found in the independent review of the requirements-refinement plan (Stage 2, S2-L1-008), and decided by the
+owner on 2026-10-02. The placement reads the WorkItem's bound requirement documents, but the record pinned
+only the catalog revision and the proposal, so nothing compared the documents it was read from with the ones
+bound at approval. Governance going stale did not cover it: re-assessing clears that, and the old placement
+could then be approved against the new documents. A hand edit made this possible from the start; a shared
+document refined by another WorkItem, an engine-authorised edit, makes it ordinary.
+
+The record now carries `requirementsDigest` and `requirementsSources`, and approval refuses
+`architecture_requirements_stale` when they no longer match the bound documents (contracts §10, "The
+requirements basis"). A decision already in the catalog is a replay and is exempt. The alternative of having a
+shared-document edit invalidate other WorkItems' placements was rejected: it writes into another WorkItem's
+record, against requirements isolation (ADR-012).
+
 ## Consequences
 
 **We accept** two extra phases and one extra gate in every flow — GREENFIELD moves from 18 phases and 8 gates to 20 and 9 — and a state schema version that refuses every existing WorkItem's state. Both are deliberate; the second is ADR-010 working as designed.

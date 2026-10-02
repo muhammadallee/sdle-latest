@@ -589,6 +589,22 @@ evidence dimensions considered · candidates affected · migration implications 
 re-evaluation conditions · confidence · open architecture questions ·
 constitution status.
 
+### The requirements basis
+
+A placement reads the WorkItem's bound requirement documents, so its record carries the basis it was reasoned
+from: `requirementsDigest` (the same digest `governance assess` records, one formula) and `requirementsSources`
+(each bound document's path and SHA-256). `architecture assess` reads them with `strict` before anything is
+claimed or written, so an unbound WorkItem, or one whose bound documents are gone, refuses with nothing
+recorded.
+
+The basis is checked wherever the binding is, and on leaving the placement phase:
+`architecture_requirements_precondition` refuses `architecture_requirements_stale` (exit 1) when the bound
+documents no longer match, naming the ones that changed, and **fails closed** for a record with no basis.
+Governance going stale is not a substitute: re-assessing clears it, and the old placement would then be
+approved against the new documents. A decision **already in the catalog is a replay and is never refused by
+this check** — it entered under the documents it was approved against, and refusing it would leave an approved
+gate unable to finish after a crash.
+
 ---
 
 ## 11. Abandonment (D14)
@@ -687,6 +703,7 @@ architecture knowledge — which ADR-002 did not contemplate.
 | `architecture_catalog_invalid` | 3 | catalog unreadable, unparseable, not an object, dangling reference, duplicate id |
 | `architecture_catalog_version_unsupported` | 3 | `catalogVersion` not `1` |
 | `architecture_catalog_stale` | 1 | `apply`/`realize` base revision ≠ current, and not an idempotent replay |
+| `architecture_requirements_stale` | 1 | the bound requirement documents differ from the ones the placement was reasoned from, or the record carries no requirements basis; a decision already in the catalog is a replay and is exempt |
 | `architecture_catalog_locked` | 1 | The catalog lock is held by another process past the timeout; nothing was written |
 | `architecture_placement_missing` | 1 | `apply`/`realize`/`gate approve` with no WorkItem record |
 | `architecture_placement_invalid` | 1 | proposal fails envelope, enum, required-field or constitution-agreement validation |

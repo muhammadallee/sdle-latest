@@ -7983,6 +7983,56 @@ def architecture_binding_precondition(paths: Paths, record: dict,
     return relative
 
 
+def architecture_requirements_precondition(paths: Paths, record: dict) -> None:
+    """A placement is approved only against the requirements it was read from.
+
+    A pure reader, called wherever the binding check is, and on leaving the
+    placement phase. The placement reads the WorkItem's bound requirement
+    documents; if they have changed since, the decision a human is about to
+    approve was reasoned from text that no longer says what it said. Governance
+    going stale does not cover this: re-assessing clears it, and the old
+    placement would then be approved against the new documents. A shared-
+    document edit by another WorkItem is the case that makes it real.
+
+    A decision already in the catalog is a replay, not an approval, and is
+    never refused here: it entered under the documents it was approved
+    against, and refusing it would leave an approved gate unable to finish
+    after a crash. A record that carries no requirements basis cannot be shown
+    to match anything, so it fails closed.
+    """
+    catalog = read_architecture_catalog(paths)
+    for entry in (catalog or {}).get("decisions") or []:
+        if (entry.get("id") == record.get("decisionId")
+                and entry.get("proposalDigest") == record.get("proposalDigest")):
+            return None
+
+    sources, digest, _ = requirements_sources(paths)
+    recorded_digest = record.get("requirementsDigest")
+    if recorded_digest and recorded_digest == digest:
+        return None
+
+    recorded = {entry["path"]: entry["sha256"]
+                for entry in record.get("requirementsSources") or []}
+    now = {entry["path"]: entry["sha256"] for entry in sources}
+    changed = sorted(name for name in set(recorded) | set(now)
+                     if recorded.get(name) != now.get(name))
+    if not recorded_digest:
+        detail = ("it records no requirements basis, so it cannot be shown "
+                  "to match the documents now bound")
+    else:
+        detail = ("these bound documents differ from the ones it was reasoned "
+                  f"from: {', '.join(changed)}")
+    raise Refused(
+        "architecture_requirements_stale",
+        f"The architecture placement for WorkItem '{paths.workitem}' is "
+        f"stale: {detail}. A placement is approved only against the "
+        "requirements it was read from. Re-run "
+        f"`architecture assess --input <path>` against the current documents, "
+        "review the new rendering, and approve that.",
+        {"workitem": paths.workitem, "changed": changed,
+         "recorded_digest": recorded_digest, "current_digest": digest})
+
+
 def architecture_outcome_precondition(record: dict) -> None:
     """`ARCHITECTURE_REVIEW_REQUIRED` is not an approvable placement.
 
@@ -8021,6 +8071,8 @@ def architecture_precondition(paths: Paths, state: dict) -> None:
     record = read_architecture_record(paths)
     if record is not None and not architecture_record_is_disposed(
             paths, record):
+        # A human should not be shown a placement already known to be stale.
+        architecture_requirements_precondition(paths, record)
         return None
     raise Refused(
         "architecture_placement_missing",
@@ -8190,6 +8242,14 @@ def cmd_architecture_assess(args, paths: Paths) -> int:
     # does it: `reserve_evidence` can refuse `execution_id_collision`, and a
     # refusal after the rendering had been replaced would leave the record's
     # `renderedSha256` describing a file that no longer exists in that form.
+    # The bytes this placement is reasoned from, read before anything is
+    # claimed or written, so a WorkItem with no binding, or whose bound
+    # documents are gone, refuses here with nothing recorded. They go into the
+    # record because the placement reads the bound requirements, and without
+    # them nothing can tell a placement derived from the documents as they are
+    # from one derived from documents that have since changed.
+    requirement_sources, requirements_digest, _ = requirements_sources(
+        paths, strict=True)
     execution_id, evidence = reserve_evidence(
         paths, paths.evidence_dir, stamp,
         lambda eid: f"architecture-{eid}.json")
@@ -8218,6 +8278,8 @@ def cmd_architecture_assess(args, paths: Paths) -> int:
         "bootstrapDelta": evaluation["bootstrapDelta"],
         "renderedArtifact": rendered_relative,
         "renderedSha256": None,
+        "requirementsDigest": requirements_digest,
+        "requirementsSources": requirement_sources,
     }
 
     paths.architecture_placement_rendering.parent.mkdir(
@@ -8438,6 +8500,7 @@ def cmd_architecture_apply(args, paths: Paths) -> int:
     resolved, _ = resolve_artifact_path(
         state, consts, ARCHITECTURE_GATE_KEY, paths)
     architecture_binding_precondition(paths, record, resolved)
+    architecture_requirements_precondition(paths, record)
 
     if approval_decision(state, ARCHITECTURE_GATE_KEY) != "approved":
         raise Refused(
@@ -11515,6 +11578,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
         record = require_architecture_record(paths)
         architecture_outcome_precondition(record)
         architecture_binding_precondition(paths, record, resolved)
+        architecture_requirements_precondition(paths, record)
         return None
 
     if gate_key in SPECKIT_GATE_KEYS:
