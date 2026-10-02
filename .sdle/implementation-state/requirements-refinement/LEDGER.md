@@ -199,6 +199,18 @@ progression command is disproportionate for a rare same-checkout simultaneity; r
 **Awaiting the owner:** Design R changes the owner's constraint **C1** (and the brief's §3.5 and scenarios 12, 18
 and 29), so only the owner can adopt it. `PLAN.md` is not yet changed by any of this.
 
+**Owner request, 2026-10-02: guidance for requirements that change while WorkItems are in progress.** Prompted by the
+question "do WorkItems have to complete, or stop and be replaced?". Two things done: (1) the first user-facing
+guidance is in `docs/GETTING-STARTED.md` §11c (what SDLE does — `governance_stale` at the next progression — and does
+not do — nothing already produced is invalidated, apart from an architecture placement; there is no "replace"
+command; a four-situation table of what to do and what it costs), pointed at from the `governance_stale` entry in
+`docs/troubleshooting/README.md`; (2) **PLAN §7.1, Phase F, added as the last phase**: a scenario catalogue with
+options, impact and a recommended option in plain words, brainstormed with Codex under the same two-level protocol,
+every impact claim reproduced in a disposable project, and a **feasibility verdict on whether the engine can give this
+guidance to the human at the moment it occurs** (including the cost of recording the requirements digest per artifact,
+a state-schema change under the no-migration rule). Building engine support is out of scope unless the owner approves
+it after seeing the verdict.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).

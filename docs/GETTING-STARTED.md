@@ -478,6 +478,35 @@ claude          # this directory drives its own WorkItem, with no --workitem fla
 Outside that window, two WorkItems in one checkout are fine: everything else
 SDLE writes is per WorkItem and is excluded from the other's evidence.
 
+## 11c. When the requirements change while work is in progress
+
+A requirements document can be bound by more than one WorkItem, and people edit them. Once a WorkItem has
+started, a change to a document it is bound to is something SDLE notices but does not decide for you.
+
+**What SDLE does.** The next time that WorkItem tries to move forward — advance, approve a gate, omit a gate,
+or skip — it is refused with `governance_stale`, and it stays refused until the requirements are assessed again.
+That is the only automatic reaction.
+
+**What SDLE does not do.** It does not invalidate anything already produced from the old text. The
+specification, plan, tasks and design that were approved stay approved, even if the change affects them. (One
+exception: an architecture placement that was reasoned from the old text is refused at its gate as
+`architecture_requirements_stale` until you re-run the placement.) Which of the finished work is affected is your
+judgement, not the tool's.
+
+**There is no "replace" command.** Your choices are to carry on after re-assessing, to roll the WorkItem back to an
+earlier phase, to finish it and raise the change as a new WorkItem, or to discard it.
+
+| The situation | What to do | What it costs |
+|---|---|---|
+| The change does not touch what this WorkItem is about (wording, an unrelated section) | Ask SDLE to assess the requirements again, then carry on | Nothing is lost |
+| The change alters what the WorkItem has already produced, and the WorkItem is still early (before its specification is approved) | `restart phase <N>` at the earliest phase the change affects, and redo the work from there. SDLE asks you to confirm | The approvals after that phase are cleared and must be given again, and the work from that phase on is regenerated |
+| The change adds a new requirement, and the WorkItem is well advanced | Finish this WorkItem against the old requirements. Once the repository has a baseline, raise the addition as a new WorkItem; it runs as an iterative one | Nothing is thrown away; the addition waits for its own WorkItem |
+| The change contradicts what has been built, or the WorkItem's goal itself changed | Restart from the earliest phase the change affects. If the work is obsolete, `reset workflow` and create a new WorkItem | A reset discards that WorkItem's state and its audit trail, so use it only when nothing is worth keeping |
+
+The earlier a WorkItem is, the cheaper it is to restart; the later it is, the better it usually is to finish it
+and treat additions as new work. Before editing a document that other WorkItems are bound to, tell whoever owns
+those WorkItems: their next move will be refused the moment your edit lands.
+
 ## 12. What exists after the first start
 
 After section 6 (verified on a fresh target):

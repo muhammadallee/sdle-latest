@@ -339,6 +339,12 @@ One asymmetry worth knowing: re-binding **the same set** with a different
 `--primary` does *not* stale the record, because the binding digest covers the
 sorted source list alone. Read `governance show` rather than assuming.
 
+**After a shared document was edited by someone else.** Assessing again clears the refusal, but it does not
+invalidate work already produced from the old text. Whether to carry on, restart from an earlier phase, finish and
+raise a new WorkItem, or discard the WorkItem depends on how much the change affects, and on how far along the
+WorkItem is. The situations, and what each one costs, are in
+[Getting Started §11c](../GETTING-STARTED.md#11c-when-the-requirements-change-while-work-is-in-progress).
+
 **Which problems `preflight` reports.** `reason` names the first problem that
 stops it — Spec Kit, then its skills, then `requirements_unbound`, then
 `requirements_source_missing` — but `data.problems` lists *all* of them. Read

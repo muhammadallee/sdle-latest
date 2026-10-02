@@ -849,6 +849,57 @@ SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing n
 | C — edit/loop control | `sdle.py` (+~600: `cmd_refinement_*`, edit ops, D2's lock), `tests/test_units_refinement.py` (new) | Large |
 | D — orchestration | `modules/requirements-refinement.md`, `CAPABILITY_MAP` row, `SKILL.md` governance section, `/sdle-start` if needed, `CLAUDE.md` | Small |
 | E — tests/docs/ADR | `docs/GETTING-STARTED.md` §11/§13, `docs/architecture/ADR-013-*.md`, scenario tests | Medium |
+| **F — requirements changing mid-flight (last)** | scenario catalogue and options in `docs/`; a feasibility verdict on engine-surfaced guidance; engine or module changes **only if the owner approves them** | Research-led; small to medium (§7.1) |
+
+### 7.1 Phase F — requirements changing while WorkItems are in progress (added 2026-10-02 at the owner's request)
+
+**Why it exists.** Refinement works *before* `init` (C4). After `init`, a changed bound document behaves as it does
+today: the WorkItem goes `governance_stale` at its next progression and must re-assess, and nothing already produced
+from the old text is invalidated. What a person should *do* then — carry on, restart from an earlier phase, finish
+and raise a new WorkItem, or discard — is not written down anywhere the engine can show it. A first version of that
+guidance is in `docs/GETTING-STARTED.md` §11c. This phase makes it rigorous, and answers whether the engine can put it
+in front of the human at the moment the situation occurs.
+
+**Why last.** It needs the implemented loop and real Stage 5 evidence, and it must not delay the loop.
+
+**Deliverables.**
+
+1. **A scenario catalogue**, in simple words. At least: a shared document edited by another WorkItem (same checkout,
+   and after a pull) at each stage of a WorkItem — before the specification is approved, between approved gates,
+   during implementation, after completion; a hand edit; an edit by this change's own refinement loop; an additive
+   change against one that contradicts; two WorkItems affected differently; a WorkItem with an architecture placement
+   already approved; a WorkItem that has not run `init`.
+2. **For each scenario, the options** (carry on after re-assessing; `restart phase N` and which `N`; finish and raise a
+   new WorkItem; `reset` and replace), **the impact of each** in plain terms (what is kept, what is regenerated, which
+   approvals are cleared, what the audit trail still shows, what an architecture decision does), and **a recommended
+   option with the condition under which another is better**. Every claim about impact is reproduced in a disposable
+   project, as the audit-merge hazard was, not argued.
+3. **A brainstorm with Codex** under the same two-level protocol as the rest of Stage 2: Codex proposes scenarios and
+   options independently, Claude responds with evidence from the code, Codex dispositions the responses; any
+   disagreement that survives goes to the owner with both positions.
+4. **A feasibility verdict: can the engine give this guidance to the human when the situation occurs?** To be answered,
+   not assumed. The questions:
+   - *What can be computed deterministically?* Which bound documents changed, from which digest to which; which phases
+     were generated since the last assessment; which gates were approved after it. Today the engine records an
+     assessment digest but **not the requirements digest at the time each artifact was generated** (the architecture
+     placement record is now the one exception), so "which artifacts were derived from the old text" cannot be
+     answered without recording it — a state-schema change under the
+     no-migration rule (a version bump and a changed field list), a real cost to weigh.
+   - *Where could it appear?* (a) the `governance_stale` refusal itself naming the changed documents and pointing at
+     the guidance; (b) a new **read-only** command that reports the facts and the options for a WorkItem; (c) the
+     orchestrator prompt presenting the option table whenever that refusal occurs.
+   - *What must not change?* The engine refuses and does not warn; it **must not decide**. The recommendation is
+     judgement, so it lives in a prompt module, not in `sdle.py`; the engine supplies facts only. Gates stay in the
+     parent session (invariant 8), and a human, not the orchestrator, chooses.
+   - *Cost against value,* given how rarely a shared document changes under a WorkItem that is already running.
+5. **Outputs:** the user-facing guidance in `docs/` (extending §11c with what the scenarios show), the Codex record
+   under `stage2/`-style evidence, and the **verdict with a recommendation**. Building engine support is **out of
+   scope unless the owner approves it** after seeing the verdict; if approved it is its own change, with its own ADR
+   note.
+
+**Acceptance.** The catalogue exists and every impact claim has a reproduction; both Codex levels ran and every finding
+has a disposition; the feasibility question is answered with evidence; the owner has decided whether to build any of
+it.
 
 ## 8. Traceability, risks, rollback
 
