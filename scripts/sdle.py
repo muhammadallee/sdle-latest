@@ -5087,6 +5087,19 @@ REFINEMENT_ANSWER_MAX = 1000
 REFINEMENT_ACTIVE_STATUSES = ("IN_PROGRESS", "AWAITING_REASSESSMENT")
 REFINEMENT_TERMINAL_STATUSES = ("PASSED", "ESCALATED", "CANCELLED", "FAILED")
 REFINEMENT_EDIT_OPS = ("replace", "insert_after", "append_section")
+REFINEMENT_CITATION_KINDS = ("baseline-reference", "discovery-finding")
+# The checks whose findings must cite the repository baseline once one exists:
+# what a brownfield change must stay compatible with, and what it depends on,
+# are facts the baseline already records.
+REFINEMENT_CITED_CHECKS = ("compatibility", "dependencies")
+
+
+def _refinement_citations_well_formed(cites) -> bool:
+    return isinstance(cites, list) and bool(cites) and all(
+        isinstance(c, dict) and set(c) == {"kind", "id"}
+        and c["kind"] in REFINEMENT_CITATION_KINDS
+        and isinstance(c["id"], str) and bool(c["id"].strip())
+        for c in cites)
 REFINEMENT_EDIT_DECISIONS = ("accepted", "rejected")
 REFINEMENT_OUTCOMES = ("progress", "regression", "stall")
 REFINEMENT_CAP_SOURCES = ("builtin", "policy")
@@ -5192,10 +5205,15 @@ def validate_refinement_record(doc, relative: str,
         if not isinstance(entry["findings"], list):
             raise _refinement_invalid(relative, f"{where} findings is not a list")
         for finding in entry["findings"]:
-            finding = _refinement_object(
-                finding, ("checkId", "text"), f"{where} finding", relative)
+            keys = (("checkId", "text", "citations") if isinstance(finding, dict)
+                    and "citations" in finding else ("checkId", "text"))
+            finding = _refinement_object(finding, keys, f"{where} finding", relative)
             _refinement_check_id(finding["checkId"], f"{where} finding", relative)
             _refinement_text(finding["text"], f"{where} finding text", relative)
+            if "citations" in finding and not _refinement_citations_well_formed(
+                    finding["citations"]):
+                raise _refinement_invalid(
+                    relative, f"{where} finding citations are malformed")
         questions = entry["questions"]
         if not isinstance(questions, list) or len(questions) > REFINEMENT_QUESTIONS_MAX:
             raise _refinement_invalid(
@@ -5899,25 +5917,97 @@ def _refinement_proposal_digest(findings, questions, edits) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _refinement_findings(payload, failing: list[str]) -> list[dict]:
+def _refinement_citable(paths: Paths) -> set[tuple[str, str]] | None:
+    """The (kind, id) pairs a finding may cite, or ``None`` when the repository
+    has no usable baseline. An entry counts only while the file it points at is
+    byte-identical to what the baseline pinned, so a citation cannot rest on a
+    record that has since moved. Whether a cited entry *supports* a finding is
+    the assessor's judgement and is not claimed here."""
+    status, _findings = baseline_state(paths)
+    if status not in (BASELINE_VALID, BASELINE_STALE):
+        return None
+    try:
+        baseline = read_baseline(paths) or {}
+    except IntegrityError:
+        return None
+    citable: set[tuple[str, str]] = set()
+    references = baseline.get("references") or {}
+    pointers = ([references.get("constitution")]
+                + list(references.get("architecture") or [])
+                + list(references.get("adrs") or []))
+    for pointer in pointers:
+        if isinstance(pointer, dict) and isinstance(pointer.get("path"), str):
+            target = paths.project_root / pointer["path"]
+            if target.is_file() and sha256_file(target) == pointer.get("sha256"):
+                citable.add(("baseline-reference", pointer["path"]))
+    discovery = baseline.get("discovery") or {}
+    record_path = discovery.get("record")
+    if isinstance(record_path, str):
+        target = paths.project_root / record_path
+        if target.is_file() and sha256_file(target) == discovery.get("recordSha256"):
+            try:
+                found = json.loads(target.read_text(encoding="utf-8")).get("findings") or []
+            except (OSError, ValueError, AttributeError):
+                found = []
+            for item in found:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    citable.add(("discovery-finding", item["id"]))
+    return citable
+
+
+def _refinement_findings(paths: Paths, payload, failing: list[str],
+                         citable: set[tuple[str, str]] | None) -> list[dict]:
     items = payload["findings"]
     if not isinstance(items, list):
         raise _refine_input("findings is not a list")
     out = []
     for item in items:
-        if not isinstance(item, dict) or set(item) != {"checkId", "text"}:
-            raise _refine_input("a finding carries exactly {checkId, text}")
+        if not isinstance(item, dict) or set(item) not in (
+                {"checkId", "text"}, {"checkId", "text", "citations"}):
+            raise _refine_input(
+                "a finding carries exactly {checkId, text}, plus citations "
+                "for a compatibility or dependencies finding")
         if item["checkId"] not in failing:
             raise _refine_input(
                 f"a finding names {item['checkId']!r}, which is not failing in "
                 "the current assessment")
         if not isinstance(item["text"], str) or not item["text"].strip():
             raise _refine_input("a finding has no text")
-        out.append({"checkId": item["checkId"], "text": item["text"]})
+        entry = {"checkId": item["checkId"], "text": item["text"]}
+        cites = item.get("citations")
+        if cites is not None:
+            if item["checkId"] not in REFINEMENT_CITED_CHECKS:
+                raise _refine_input(
+                    f"a finding about {item['checkId']} carries no citations")
+            if not _refinement_citations_well_formed(cites):
+                raise _refine_input(
+                    "citations are a non-empty list of {kind, id}, with kind "
+                    f"one of {list(REFINEMENT_CITATION_KINDS)}")
+            unresolved = [c for c in cites
+                          if citable is None or (c["kind"], c["id"]) not in citable]
+            if unresolved:
+                raise _refine_refused(
+                    "refinement_citation_unresolved",
+                    "A citation names something the repository baseline does "
+                    "not hold, or a record that has changed since the baseline "
+                    f"pinned it: {unresolved}. Nothing was written.",
+                    {"workitem": paths.workitem, "unresolved": unresolved})
+            entry["citations"] = [{"kind": c["kind"], "id": c["id"]} for c in cites]
+        elif citable is not None and item["checkId"] in REFINEMENT_CITED_CHECKS:
+            raise _refine_refused(
+                "refinement_citation_unresolved",
+                f"A finding about {item['checkId']} must cite what the "
+                "repository baseline already records, and this one cites "
+                "nothing. Nothing was written.",
+                {"workitem": paths.workitem, "check": item["checkId"]})
+        out.append(entry)
     return out
 
 
-def _refinement_questions(payload) -> list[dict]:
+def _refinement_questions(payload, record: dict | None = None) -> list[dict]:
+    answered = {" ".join(q["text"].lower().split())
+                for entry in (record["iterations"] if record else [])
+                for q in entry["questions"] if q["answer"] is not None}
     items = payload["questions"]
     if not isinstance(items, list) or len(items) > REFINEMENT_QUESTIONS_MAX:
         raise _refine_input(
@@ -5932,6 +6022,10 @@ def _refinement_questions(payload) -> list[dict]:
         seen.add(item["id"])
         if not isinstance(item["text"], str) or not item["text"].strip():
             raise _refine_input(f"question {item['id']} has no text")
+        if " ".join(item["text"].lower().split()) in answered:
+            raise _refine_input(
+                f"question {item['id']} was already answered in an earlier "
+                "round; it is not asked again")
         if (not isinstance(item["options"], list)
                 or not all(isinstance(o, str) and o.strip() for o in item["options"])):
             raise _refine_input(f"question {item['id']} options is not a list of strings")
@@ -5997,8 +6091,9 @@ def cmd_refinement_propose(args, paths: Paths) -> int:
                 "a loop that is awaiting a re-assessment, or no loop yet")
         assessment, failing, content_digest, raw_by_path = _refinement_assessment(
             paths, payload["assessmentRef"])
-        findings = _refinement_findings(payload, failing)
-        questions = _refinement_questions(payload)
+        findings = _refinement_findings(
+            paths, payload, failing, _refinement_citable(paths))
+        questions = _refinement_questions(payload, record)
         earlier_ids = ({e["id"] for i in record["iterations"] for e in i["edits"]}
                        if record else set())
         edits = _refinement_validated_edits(
