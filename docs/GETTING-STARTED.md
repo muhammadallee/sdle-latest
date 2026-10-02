@@ -507,6 +507,34 @@ The earlier a WorkItem is, the cheaper it is to restart; the later it is, the be
 and treat additions as new work. Before editing a document that other WorkItems are bound to, tell whoever owns
 those WorkItems: their next move will be refused the moment your edit lands.
 
+## 11d. When the assessment blocks: fixing the requirements
+
+If `governance assess` reports your requirements quality **blocked**, you can fix the documents yourself and
+assess again, or ask SDLE to help. Help is a short loop that runs **before** the workflow starts, and it never
+starts unasked:
+
+1. SDLE shows you what failed and offers to help. You say yes or no.
+2. If yes, SDLE proposes changes **in the conversation**: the findings, at most a few questions that only you
+   can answer, and each edit with the text it would change. A change that only alters layout (spacing, line
+   endings) the engine applies by itself, because it compares the text before and after; anything that changes
+   what the requirements *say* waits for you to accept it.
+3. The engine applies only what you accepted, and refuses an edit written against text that has since changed.
+4. SDLE assesses again. If nothing blocking is left, the loop ends **passed** and the workflow starts. If the
+   loop stops making progress, or uses all its rounds, it ends **escalated**: SDLE tells you what was tried and
+   what is still wrong, and the next step is yours (edit by hand, ask the owners, or stop). The number of rounds
+   is the engine's; a repository policy may lower it, never raise it.
+
+Three rules keep the loop honest. A check that **failed** cannot later pass on **unchanged** requirements — the
+engine keeps the first answer (`quality_verdict_flip`); if the first answer really was wrong, the way back is an
+explicit dispute that needs independent evidence, a written reason and **your** decision. A document that
+**another unfinished WorkItem** also holds is refused outright (`refinement_shared_source`): editing it would
+silently invalidate their assessment, so finish or re-bind them first, or edit by hand and re-assess each. And
+once the workflow has started the loop is closed (`refinement_post_init`): from then on a change to the
+requirements is an ordinary edit followed by `governance assess`, as in section 11c.
+
+A lint runs over each document and its findings are recorded as **hints**. They never refuse anything and never
+override an assessment. See `docs/architecture/ADR-015-requirements-refinement.md`.
+
 ## 12. What exists after the first start
 
 After section 6 (verified on a fresh target):

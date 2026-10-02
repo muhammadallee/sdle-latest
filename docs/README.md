@@ -89,6 +89,7 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-012](architecture/ADR-012-requirements-source-binding.md) | A WorkItem declares the requirement documents it is about, instead of inheriting a directory |
 | [ADR-013](architecture/ADR-013-project-architecture-memory.md) | Repository-level architecture memory, and the placement phase and gate that read and write it |
 | [ADR-014](architecture/ADR-014-constitution-guidelines-and-precedence.md) | The constitution as the engineering profile, advisory guidelines, and the decision precedence chain |
+| [ADR-015](architecture/ADR-015-requirements-refinement.md) | Fixing blocked requirements before the workflow starts: the loop, one verdict per content, the advisory lint, and the shared-document default |
 
 The frozen contracts ADR-013 was built against — catalog and proposal schemas, command surface, refusal reasons, revision and replay semantics — are in [`architecture/architecture-memory-contracts.md`](architecture/architecture-memory-contracts.md).
 

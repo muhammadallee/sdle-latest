@@ -16,6 +16,7 @@ run R1, so `R1` in the last column means those tests passed in it.
 | R4 | `d384ceb` | GitHub Actions `windows-latest`, Python 3.11 and 3.13 | the CI workflow | **PASS**: both jobs `success` ([run](https://github.com/muhammadallee/sdle-latest/actions/runs/35541739417)) |
 | R5 | `feature/project-architecture-memory` (ADR-013/014) | Windows 11, Python 3.13.0 | `python -m pytest -q tests/test_units_architecture.py` | **PASS**: 46 passed, 0 failed (2m59s) |
 | R6 | `feature/project-architecture-memory` (ADR-013/014) | Windows 11, Python 3.13.0 | `python -m pytest -q tests/test_dry_run_contracts.py` | **PASS**: 146 passed, 0 failed (1m29s) |
+| R7 | `feat/requirements-refinement` (Phases A–D) | Windows 10, Python 3.13 | `python -m pytest -q tests/test_units_refinement_commands.py tests/test_units_assessment_integrity.py tests/test_units_refinement_citations.py` | **PASS** locally; the full suite is recorded from CI, not here |
 
 `d384ceb` is `f2db495` plus this run's own records; the two are byte-identical in
 every product path, so R3 and R4 test the same engine, prompts and documentation
@@ -54,6 +55,8 @@ checks that every cited test exists. It applies to all sixteen transcripts.
 | DR-18 | `ITERATIVE` | — | `tests/test_units_architecture.py::test_keep_embedded_records_a_candidate`, `tests/test_units_architecture.py::test_realize_supersedes_the_previous_owner_of_moved_data`, `tests/test_units_architecture.py::test_a_second_workitem_sees_the_first_ones_architecture`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
 | DR-19 | `ITERATIVE` | — | `tests/test_units_architecture.py::test_a_stale_base_revision_is_refused_and_writes_nothing`, `tests/test_units_architecture.py::test_applying_the_same_decision_again_is_an_idempotent_replay`, `tests/test_units_architecture.py::test_the_same_id_with_a_different_digest_is_a_conflict`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
 | DR-20 | `HOTFIX` | — | `tests/test_units_architecture.py::test_a_legacy_repository_bootstraps_from_evidence`, `tests/test_units_architecture.py::test_bootstrap_evidence_must_cite_a_path_that_exists`, `tests/test_units_architecture.py::test_a_legacy_extension_is_permitted_without_a_constitution`, contract | `python -m pytest tests/test_units_architecture.py` | R5, R6 |
+| DR-21 | `GREENFIELD` | — | `tests/test_units_refinement_commands.py::test_propose_enters_the_loop_and_derives_the_failures_from_the_assessment`, `tests/test_units_refinement_commands.py::test_an_accepted_edit_is_applied_and_the_loop_awaits_reassessment`, `tests/test_units_refinement_commands.py::test_a_passing_reassessment_ends_the_loop_passed`, contract | `python -m pytest tests/test_units_refinement_commands.py` | R7 |
+| DR-22 | `GREENFIELD` | — | `tests/test_units_assessment_integrity.py::test_a_fail_then_a_pass_at_the_same_content_is_refused`, `tests/test_units_refinement_commands.py::test_a_complete_dispute_overturns_the_pair_and_unlocks_exactly_that_pass`, `tests/test_units_refinement_commands.py::test_a_document_another_workitem_holds_is_refused_by_propose`, `tests/test_units_refinement_commands.py::test_the_cap_ends_the_loop_escalated_and_refuses`, contract | `python -m pytest tests/test_units_assessment_integrity.py tests/test_units_refinement_commands.py` | R7 |
 
 ## Defects across flows
 
@@ -70,4 +73,4 @@ gate.
 | D03 — change selection | every flow (`implement` is mandatory) | Flow-independent: `implementation_changes` reads only git and the pinned base | — |
 | D04 — execution identity | flow-independent | Governance runs before a flow is bound; reviews and manifests use the same allocator | — |
 | D05 — instructions | flow-independent | `tests/test_units_documented_commands.py` scans every prompt file and document | — |
-| D06 — transcripts | all five flows | `tests/test_dry_run_contracts.py` over all twenty transcripts | — |
+| D06 — transcripts | all five flows | `tests/test_dry_run_contracts.py` over all twenty-two transcripts | — |

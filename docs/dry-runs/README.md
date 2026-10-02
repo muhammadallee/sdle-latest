@@ -69,6 +69,14 @@ are about the part that is shared.
 | [19-architecture-catalog-stale-revision.md](19-architecture-catalog-stale-revision.md) | DR-19 · Two WorkItems on one catalog: `architecture_catalog_stale` writing nothing, and the idempotent replay that is not a conflict | `ITERATIVE` |
 | [20-architecture-bootstrap-and-no-constitution.md](20-architecture-bootstrap-and-no-constitution.md) | DR-20 · An uninitialized catalog bootstrapped from evidence, and what a missing constitution permits and refuses | `HOTFIX` |
 
+Added with the requirements-refinement loop. Refinement happens before the
+workflow starts, so these two have no status header and no progress fraction.
+
+| File | Scenario | Flow |
+|---|---|---|
+| [21-requirements-refinement-loop.md](21-requirements-refinement-loop.md) | DR-21 · Blocked requirements fixed in one loop: a human decides each change, the engine decides what is only layout | `GREENFIELD` |
+| [22-requirements-refinement-stops.md](22-requirements-refinement-stops.md) | DR-22 · When refinement stops: a refused verdict flip and the dispute path, a shared document, a stall, an exhausted cap, and a loop attempted after `init` | `GREENFIELD` |
+
 Flow sizes are stated as the engine reports them: executable phases,
 excluding the terminal `complete`, which is the number in the progress header.
 `lint-skill`'s `doc_flow_counts_match_engine` checks every one of them.

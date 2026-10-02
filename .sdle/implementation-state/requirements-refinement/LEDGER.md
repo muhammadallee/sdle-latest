@@ -1259,3 +1259,26 @@ default before the feature is declared complete. A person whose document is shar
   record is malformed. The earlier ledger note that "an object with no `kind` refuses" is superseded by this.
   Lesson recorded: the targeted batches I chose missed this module; Phase C batches add `test_units_execution_identity`
   and every module that writes under `evidence/`.
+
+## Phases C, D, E (2026-10-03)
+
+- **C** (`1a0e1e1` and following): `refinement propose|decide|apply|dispute|cancel|show`; one exclusive-lock
+  helper shared with the architecture catalog lock; the refinement mutex taken by every mutating command, by
+  `requirements bind` and by `init`; shared-source rule per the Codex-agreed definition; iteration-cap policy key;
+  baseline citations for `compatibility`/`dependencies` findings (A10); answered questions not re-asked.
+  Deviation from the plan text: **`propose` after a stall or the cap writes `ESCALATED` and the cap case then
+  refuses** (`refinement_cap_exhausted`); a stall returns ok with `status: ESCALATED`. The record schema gained
+  edit `id`/`text`/`appliedSha256` and iteration `assessmentRef` because the plan's §5.a had nowhere to keep the
+  edit payload or to say which assessment an iteration answered. Dispute evidence is the refused re-assessment
+  (`governance-flip-attempt-*`), the only independent PASS at the same content the engine can produce.
+- **Mutation proof:** shared-source guard on apply, post-init guard, human-decision requirement, `init` guard,
+  dispute replay (initially survived — two tests added), neutrality classification, citation stale-pin check: each
+  removal fails a test.
+- **D**: `modules/requirements-refinement.md`; routing in `SKILL.md` Step 6a and `/sdle-start` step 4;
+  `CAPABILITY_MAP` row on `requirements_check` (the module is routed explicitly because no phase exists to carry it).
+- **E**: GETTING-STARTED §11d, ADR-015, dry runs 21–22 (pre-init marker: the contract test now allows a transcript
+  with no status header only when it says so), troubleshooting rows for every new reason, matrix rows, README/Reference Guide.
+- **Scenario status:** 1–17, 19–28 have tests (21 is convention only: the assessor prompt is built by the parent,
+  and nothing machine-checks that no prior verdict is in it). **18 and 29 are DEFERRED** with Design R, per Codex;
+  they are not reported as passing. 30 was closed in Stage 0.
+- **Open for the owner:** the Design R / shared-document decision before the feature is called complete.
