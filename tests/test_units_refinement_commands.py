@@ -130,9 +130,11 @@ def other(project, name="Other", complete=False):
     view.ok("requirements", "bind", "--source", DOC)
     if complete:
         view.runtime.mkdir(parents=True, exist_ok=True)
-        view.state_file.write_text(json.dumps({
-            "workflow_version": sdle.CURRENT_VERSION, "current_phase": "complete",
-            "status": "completed"}), encoding="utf-8")
+        state = sdle.load_template(sdle.Paths(
+            project_root=view.root, skill_root=view.skill_root, workitem=view.workitem))
+        state.update({"workflow_version": sdle.CURRENT_VERSION,
+                      "current_phase": "complete", "status": "completed"})
+        view.state_file.write_text(json.dumps(state), encoding="utf-8")
     return view
 
 

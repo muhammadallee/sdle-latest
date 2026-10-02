@@ -32,8 +32,10 @@ def other(project, name="Other", bind=DOC):
 
 def set_state(view, **fields):
     view.runtime.mkdir(parents=True, exist_ok=True)
-    state = {"workflow_version": sdle.CURRENT_VERSION, "current_phase": "constitution_draft",
-             "status": "in_progress"}
+    state = sdle.load_template(sdle.Paths(
+        project_root=view.root, skill_root=view.skill_root, workitem=view.workitem))
+    state.update({"workflow_version": sdle.CURRENT_VERSION,
+                  "current_phase": "constitution_draft", "status": "in_progress"})
     state.update(fields)
     view.state_file.write_text(json.dumps(state), encoding="utf-8")
 

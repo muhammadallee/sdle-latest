@@ -5019,7 +5019,16 @@ def requirements_normal_form(text: str) -> str:
     out: list[str] = []
     fence: tuple[str, int] | None = None  # (character, run length)
     previous_blank = False
+    in_pre = False
     for line in lines:
+        # Raw HTML is not Markdown layout: a space run inside `<pre>`, or in a
+        # line that is markup, can change what renders. Left as written.
+        lowered = line.lower()
+        if in_pre or line.lstrip().startswith("<") and fence is None:
+            out.append(line.rstrip() if in_pre else line)
+            in_pre = ("<pre" in lowered or in_pre) and "</pre>" not in lowered
+            previous_blank = False
+            continue
         if fence is not None:
             closing = re.match(r"^ {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})\s*$", line)
             out.append(line.rstrip())
@@ -5060,10 +5069,13 @@ def requirements_content_digest(raw_by_path: dict[str, bytes]) -> str:
     contributes the SHA-256 of its normal form, so two sets that differ only in
     presentation have one digest. Pure: it reads nothing."""
     lines = []
-    for path in sorted(raw_by_path):
+    # Case-folded: a binding refuses two spellings of one path (`requirements
+    # bind` folds case), so folding here cannot merge two real documents, and it
+    # keeps a re-spelled path from reading as different content.
+    for path in sorted(raw_by_path, key=str.lower):
         normal = requirements_normal_form(
             raw_by_path[path].decode("utf-8", errors="replace"))
-        lines.append(f"{path} {hashlib.sha256(normal.encode('utf-8')).hexdigest()}")
+        lines.append(f"{path.lower()} {hashlib.sha256(normal.encode('utf-8')).hexdigest()}")
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
@@ -5236,7 +5248,7 @@ def validate_refinement_record(doc, relative: str,
         for edit in entry["edits"]:
             edit = _refinement_object(
                 edit, ("id", "op", "path", "anchor", "text", "baseSha256",
-                       "appliedSha256", "autoApplied", "decision"),
+                       "appliedSha256", "appliedOrder", "autoApplied", "decision"),
                 f"{where} edit", relative)
             _refinement_text(edit["id"], f"{where} edit id", relative)
             if (not isinstance(edit["text"], str) or not edit["text"].strip()
@@ -5254,6 +5266,12 @@ def validate_refinement_record(doc, relative: str,
             if edit["appliedSha256"] is not None:
                 _refinement_hex(edit["appliedSha256"],
                                 f"{where} edit appliedSha256", relative)
+            order = edit["appliedOrder"]
+            if (edit["appliedSha256"] is None) != (order is None) or (
+                    order is not None and (isinstance(order, bool)
+                                           or not isinstance(order, int) or order < 1)):
+                raise _refinement_invalid(
+                    relative, f"{where} edit appliedOrder does not match appliedSha256")
             if not isinstance(edit["autoApplied"], bool):
                 raise _refinement_invalid(
                     relative, f"{where} edit autoApplied is not a boolean")
@@ -5284,6 +5302,19 @@ def validate_refinement_record(doc, relative: str,
             _refinement_text(dispute["decisionRef"], f"{where} decisionRef", relative)
             _refinement_hex(dispute["contentDigest"],
                             f"{where} dispute contentDigest", relative)
+    last = iterations[-1] if iterations else None
+    if active and last is None:
+        raise _refinement_invalid(relative, "an active loop has no iteration")
+    if active and last["outcome"] is not None:
+        raise _refinement_invalid(
+            relative, "an active loop's last iteration already has an outcome")
+    if doc["status"] == "AWAITING_REASSESSMENT" and not any(
+            e["appliedSha256"] for e in last["edits"]):
+        raise _refinement_invalid(
+            relative, "a loop awaiting re-assessment has applied no edit")
+    if doc["status"] == "PASSED" and (last is None or last["outcome"] != "progress"):
+        raise _refinement_invalid(
+            relative, "a loop that passed has a last iteration that did not make progress")
     return doc
 
 
@@ -5520,9 +5551,10 @@ def requirements_lint(documents: dict[str, str], path: str,
     lines = parsed[path]
     first = sorted(parsed)[0]
 
-    for number, kind, text in lines:
+    for number, kind, raw_text in lines:
         if kind not in ("prose", "heading"):
             continue
+        text = re.sub(r'"[^"\n]*"', " ", raw_text)  # a quoted literal is not a marker
         if (re.search(r"\bTBD\b", text, re.IGNORECASE) or "???" in text
                 or re.search(r"\bTODO\b", text)):
             findings.append(_lint_finding("unresolved_marker", number, text))
@@ -5624,10 +5656,14 @@ def _completed_workitem(other: Paths) -> bool:
         state = json.loads(other.state_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise _registry_invalid(other.workitem, "a state.json that cannot be read") from None
+    # Every field the state template defines must be present: a four-field
+    # stand-in must not be able to read as "complete" and exclude a sharer.
     if (not isinstance(state, dict)
             or state.get("workflow_version") != CURRENT_VERSION
             or not isinstance(state.get("current_phase"), str)
-            or not isinstance(state.get("status"), str)):
+            or not isinstance(state.get("status"), str)
+            or not set(load_template(other)) <= set(state)
+            or not isinstance(state.get("approvals"), dict)):
         raise _registry_invalid(
             other.workitem, "a state.json this engine does not read")
     return state["current_phase"] == "complete" and state["status"] == "completed"
@@ -5655,7 +5691,13 @@ def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str
                 child.name, "a requirements binding that cannot be read") from None
         if binding is None:
             continue
-        held = {str(source).lower() for source in binding["sources"]}
+        listed = binding["sources"]
+        if (not all(isinstance(item, str) for item in listed)
+                or binding.get("primary") not in listed
+                or binding.get("digest") != binding_digest(listed)):
+            raise _registry_invalid(
+                child.name, "a requirements binding that is not one the engine wrote")
+        held = {item.lower() for item in listed}
         mine = [wanted[key] for key in sorted(wanted) if key in held]
         if not mine:
             continue
@@ -5860,7 +5902,7 @@ def _refinement_validated_edits(paths: Paths, raw_by_path: dict[str, bytes],
         out.append({"id": ident, "op": op, "path": relative,
                     "anchor": item["anchor"], "text": body,
                     "baseSha256": current, "appliedSha256": None,
-                    "autoApplied": False, "decision": None})
+                    "appliedOrder": None, "autoApplied": False, "decision": None})
     return out
 
 
@@ -6252,10 +6294,13 @@ def cmd_refinement_apply(args, paths: Paths) -> int:
             raise _refine_input(f"{relative} is not in the repository")
         raw = target.read_bytes()
         now_sha = hashlib.sha256(raw).hexdigest()
-        applied_here = {e["appliedSha256"] for e in current["edits"]
-                        if e["path"] == relative and e["appliedSha256"]}
-        if payload["baseSha256"] != now_sha or (
-                edit["baseSha256"] != now_sha and now_sha not in applied_here):
+        # The document must be exactly as the proposal saw it, or exactly as the
+        # most recently applied edit to it left it - never as an earlier one did.
+        applied_here = [e for e in current["edits"]
+                        if e["path"] == relative and e["appliedSha256"]]
+        head = (max(applied_here, key=lambda e: e["appliedOrder"])["appliedSha256"]
+                if applied_here else edit["baseSha256"])
+        if payload["baseSha256"] != now_sha or now_sha != head:
             raise _refine_refused(
                 "refinement_edit_stale_base",
                 f"{relative} is not the text this edit was written against. "
@@ -6294,6 +6339,9 @@ def cmd_refinement_apply(args, paths: Paths) -> int:
         write_atomic(target, written, newline="" if crlf else None) \
             if False else write_atomic(target, written)
         edit["appliedSha256"], edit["autoApplied"] = new_sha, neutral
+        edit["appliedOrder"] = 1 + sum(
+            1 for entry in record["iterations"] for e in entry["edits"]
+            if e["appliedSha256"])
         record["status"] = "AWAITING_REASSESSMENT"
         record_relative = write_refinement_record(paths, record)
         offenders: list[dict] = []
@@ -6401,9 +6449,10 @@ def cmd_refinement_dispute(args, paths: Paths) -> int:
                 f"There is no earlier FAIL of {check} at that content for this "
                 "evidence to dispute. Nothing was written.",
                 {"workitem": paths.workitem})
+        canonical_ref = target.relative_to(paths.project_root).as_posix()
         for entry in record["iterations"]:
             for outcome in entry["disputeOutcomes"]:
-                if (outcome["evidenceRef"] == payload["evidenceRef"]
+                if (outcome["evidenceRef"].lower() == canonical_ref.lower()
                         or outcome["decisionRef"] == payload["decisionRef"]
                         or (outcome["checkId"], outcome["contentDigest"]) == (check, digest)):
                     raise _refine_refused(
@@ -6418,12 +6467,12 @@ def cmd_refinement_dispute(args, paths: Paths) -> int:
         write_atomic(evidence, json.dumps({
             "kind": "refinement-dispute", "executionId": execution_id,
             "recordedAt": stamp, "workitem": paths.workitem, "checkId": check,
-            "contentDigest": digest, "evidenceRef": payload["evidenceRef"],
+            "contentDigest": digest, "evidenceRef": canonical_ref,
             "decisionRef": payload["decisionRef"], "rationale": payload["rationale"],
         }, indent=2) + "\n")
         record["iterations"][-1]["disputeOutcomes"].append({
             "checkId": check, "outcome": "overturned_by_dispute",
-            "originalResult": "FAIL", "evidenceRef": payload["evidenceRef"],
+            "originalResult": "FAIL", "evidenceRef": canonical_ref,
             "decisionRef": payload["decisionRef"], "contentDigest": digest})
         relative = write_refinement_record(paths, record)
     emit("refinement dispute", {
@@ -7230,9 +7279,25 @@ def overturned_assessment_results(paths: Paths) -> set[tuple[str, str]]:
     record = read_refinement_record(paths)
     if record is None:
         return set()
-    return {(dispute["checkId"], dispute["contentDigest"])
-            for entry in record["iterations"]
-            for dispute in entry["disputeOutcomes"]}
+    proven: set[tuple[str, str]] = set()
+    for entry in record["iterations"]:
+        for dispute in entry["disputeOutcomes"]:
+            # The record is only a claim; the exemption is what the evidence
+            # it cites actually shows, so a forged outcome exempts nothing.
+            target = paths.project_root / dispute["evidenceRef"]
+            if not (target.parent == paths.evidence_dir and target.is_file()
+                    and target.name.startswith("governance-flip-attempt-")):
+                continue
+            try:
+                attempt = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if (isinstance(attempt, dict)
+                    and attempt.get("kind") == "governance-flip-attempt"
+                    and attempt.get("contentDigest") == dispute["contentDigest"]
+                    and dispute["checkId"] in (attempt.get("flippedChecks") or [])):
+                proven.add((dispute["checkId"], dispute["contentDigest"]))
+    return proven
 
 
 def verdict_flips(paths: Paths, quality: dict, raw_digest: str,
@@ -7256,6 +7321,15 @@ def verdict_flips(paths: Paths, quality: dict, raw_digest: str,
 
 
 def cmd_governance_assess(args, paths: Paths) -> int:
+    # The verdict-flip rule reads the assessment history and then writes the
+    # record; two assessments racing between those two steps could leave a PASS
+    # as the last record over a FAIL it never saw. One mutex, shared with the
+    # parties that decide requirements ownership, makes it one step.
+    with refinement_mutex(paths):
+        return _cmd_governance_assess_locked(args, paths)
+
+
+def _cmd_governance_assess_locked(args, paths: Paths) -> int:
     """Evaluate Claude's structured proposal against the policy and persist
     the verdict.
 
@@ -8479,13 +8553,18 @@ def exclusive_file_lock(lock: Path, timeout: float, stale_after: float,
             time.sleep(poll)
             continue
         break
+    token = f"{os.getpid()} {now_iso()} {secrets.token_hex(8)}\n"
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as owner:
-            owner.write(f"{os.getpid()} {now_iso()}\n")
+            owner.write(token)
         yield
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock.unlink()
+        # Only the holder's own file is released. A holder that was paused past
+        # the stale limit has had its lock broken and retaken; unlinking by name
+        # would delete the NEW holder's lock and admit a third party.
+        with contextlib.suppress(OSError):
+            if lock.read_text(encoding="utf-8") == token:
+                lock.unlink()
 
 
 @contextlib.contextmanager
@@ -10161,7 +10240,11 @@ def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
     decisions are made against the file that is about to be replaced, not
     against whatever it held when the caller started.
     """
-    with architecture_catalog_lock(paths):
+    # The refinement mutex first, then the catalog lock, always in that order:
+    # the requirements-basis recheck inside is only as good as the interval
+    # between it and the catalog write, and `requirements bind` changes who owns
+    # a document under the same mutex.
+    with refinement_mutex(paths), architecture_catalog_lock(paths):
         return _architecture_apply_locked(paths, record, stamp)
 
 

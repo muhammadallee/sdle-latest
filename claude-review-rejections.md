@@ -159,3 +159,33 @@ change to the test's method. This change did not make it worse: the one
 docstring that named a pinned primitive was reworded instead of bumping the
 count.
 **Disposition:** REJECTED for this change.  **Residual risk:** Low.
+
+## Stage 4 (Codex adversarial review of the refinement implementation), 2026-10-03
+
+Accepted and fixed (tests in `tests/test_units_stage4_fixes.py`, each mutation-proved): the assessment race
+(assess now takes the refinement mutex), content digest case-folded, dispute exemptions reconstructed from the
+evidence they cite, record state-machine invariants, sharer validation on full state/binding, `architecture apply`
+holding the refinement mutex, lock released only by its holder, raw HTML kept as written, apply chain head, one
+spelling of an evidence reference, quoted marker literals and a call-graph advisory-isolation test.
+
+### RR-010 — kind-less / zero-byte evidence skipped (Codex #3, HIGH) — rejected as a new defect
+Reproduced as described, and it is real: a shell actor who truncates an old FAIL evidence file and restores the
+earlier content gets a PASS. It is the same class as deleting the file, which the plan already states is outside the
+engine's guarantee (invariant 6 and the write fence are the control; ADR-007 §3's convention-only residue). The
+skip itself is required: `reserve_evidence` documents a zero-byte file as the crash placeholder, and CI showed a
+test planting a kind-less object. Recorded as a stated limit, not fixed.
+
+### RR-011 — legacy FAIL becomes unknown after a line-ending-only edit (Codex #4, HIGH) — accepted limit
+A legacy record carries no content digest and no content, so the engine cannot compute one for it; "unknown" is the
+only honest answer. Quarantining every legacy FAIL would permanently block WorkItems assessed before this change.
+Applies only to assessments that predate the digest; every new assessment records one.
+
+### RR-012 — cap exhaustion writes then refuses (Codex #11, MEDIUM) — rejected
+`governance assess` already persists its record before refusing `requirements_quality_blocked` so the outcome is
+inspectable. Recording that the loop ended ESCALATED and then refusing follows that shape; the alternative loses
+the record of how the loop ended. ADR-015 now says so explicitly.
+
+### RR-013 — regression "auto-continues" (Codex #12, MEDIUM) — rejected
+A new iteration is opened so the human can see the regression and decide; nothing is applied without a recorded
+human decision, so there is no continuation without a human. "Auto-continue" in the brief means the loop proceeding
+unattended, which the decision requirement already prevents.

@@ -230,7 +230,7 @@ def test_both_digests_are_written_to_the_record_and_the_evidence(project):
 # -- a recorded dispute exempts exactly its pair ---------------------------------------------------------
 
 
-def write_dispute(project, check, digest):
+def write_dispute(project, check, digest, evidence):
     paths = sdle.Paths(project_root=project.root, skill_root=project.skill_root,
                        workitem=project.workitem)
     h = "b" * 64
@@ -243,7 +243,7 @@ def write_dispute(project, check, digest):
             "outcome": "progress",
             "disputeOutcomes": [{
                 "checkId": check, "outcome": "overturned_by_dispute", "originalResult": "FAIL",
-                "evidenceRef": "evidence/x.json", "decisionRef": "audit:1", "contentDigest": digest}]}],
+                "evidenceRef": evidence, "decisionRef": "audit:1", "contentDigest": digest}]}],
         "startedAt": "2026-01-01T00:00:00Z", "endedAt": "2026-01-01T00:01:00Z"})
 
 
@@ -255,7 +255,9 @@ def current_content_digest(project):
 def test_an_overturned_pair_is_exempt_and_only_that_pair(project):
     run_assess(project, **{CHECK: "FAIL", OTHER: "FAIL"})
     digest = current_content_digest(project)
-    write_dispute(project, CHECK, digest)
+    first = run_assess(project)  # refused: the independent evidence a dispute cites
+    assert first.reason == "quality_verdict_flip"
+    write_dispute(project, CHECK, digest, first.data["evidence"])
     flip = run_assess(project)
     assert flip.reason == "quality_verdict_flip"
     assert flip.data["flipped"] == [OTHER]
@@ -265,7 +267,8 @@ def test_an_overturned_pair_is_exempt_and_only_that_pair(project):
 
 def test_a_dispute_at_another_content_exempts_nothing(project):
     run_assess(project, **{CHECK: "FAIL"})
-    write_dispute(project, CHECK, "c" * 64)
+    refused = run_assess(project)
+    write_dispute(project, CHECK, "c" * 64, refused.data["evidence"])
     assert run_assess(project).reason == "quality_verdict_flip"
 
 

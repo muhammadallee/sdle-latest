@@ -1604,7 +1604,9 @@ def test_only_evaluate_risk_produces_a_final_level():
     # `finalLevel` — so it cannot appear in `producers`, and the producer
     # assertion above is what carries the guarantee. Asserted, not argued:
     # the producer set is re-checked immediately below against the new reader.
-    assert readers - producers == {"cmd_governance_assess",
+    # `cmd_governance_assess` became a thin wrapper that takes the assessment
+    # mutex; its body, which is the reader, is `_cmd_governance_assess_locked`.
+    assert readers - producers == {"_cmd_governance_assess_locked",
                                    "cmd_governance_gates",
                                    "gate_requirements_for_state",
                                    "record_governance_audit",
