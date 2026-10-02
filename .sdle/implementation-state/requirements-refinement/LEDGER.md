@@ -219,6 +219,29 @@ starts**. Default if none is made: shared documents are refused with no acknowle
 a reconciliation: the Stage 2 checkpoint is **not complete** under brief §5 while an owner decision is outstanding,
 and proceeding on the independent parts is a recorded deviation under brief §6 that the owner has chosen.
 
+**Phase A0 — the three inherited Stage 0 defects — DONE, 2026-10-02**, started on the owner's go-ahead ("yes") with
+the independent parts of the plan treated as proceeding while the shared-document design is on hold (recorded in
+PLAN §0.6's status note). The plan's independent parts were taken as frozen at `036393d`. Each fix has tests that
+failed first, and each shared function's surfaces are all tested (CLAUDE.md's defect rule).
+- **RR-002** (`b98162e`): `_lexically_safe_path` no longer treats `.` or `..` as a trailing-dot alias. `.` is
+  accepted and canonicalised, so `./x` and `requirements/./x` key the same file as `x`; any `..` component is still
+  refused, as traversal and with a message that says so. Trailing dot and colon stream remain aliases. Tests on both
+  surfaces that reach the function (`scan --path`, `requirements bind`); 3 of 4 fail without the fix, the fourth is
+  the guard that the alias rule did not loosen.
+- **RR-008** (`b98162e`): post-init `accept-content --path` reads (validates) `state.json` before it writes the
+  acknowledgement store. Two parametrised tests (malformed; unsupported version) failed first.
+- **RR-007** (this commit): `governance_precondition` now asks again whether flagged bound content is still
+  acknowledged, against the exact bytes `governance_freshness` read (freshness hands them back, so there is no second
+  read for a concurrent edit to slip between), and refuses `governance_content_unacknowledged`; `governance assess`
+  and the precondition share one refusal builder so the wording cannot drift. The check also fires on the stateless
+  early call that `gate approve`, `gate omit` and `skip` make before their first irreversible write. Tests: advance
+  refuses with state and ledger byte-identical, the early call refuses, and an acknowledged document still advances;
+  the first two failed first.
+Verification, locally and in foreground batches: governance + startup + invariants + repo_config (349), whole-flow
+integration (117), transitions (36), gate policy + hooks (573), capabilities + hardening + architecture (257),
+shipped-surface, doc-link and documented-command scans, `lint-skill`. CI on the pushed commit is the full-suite check.
+Not done and not in A0: RR-003 and RR-006, which the owner sent to the §9 register.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).

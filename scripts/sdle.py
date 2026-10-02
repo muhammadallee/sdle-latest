@@ -5372,11 +5372,17 @@ def read_governance_record(paths: Paths) -> dict | None:
     return record
 
 
-def governance_freshness(paths: Paths, record: dict) -> dict:
+def governance_freshness(paths: Paths, record: dict,
+                         raw_out: dict[str, bytes] | None = None) -> dict:
     """Is the recorded assessment still about the current requirements?
 
     Derived from the digest every time, never stored as a flag — a stored
     "fresh" boolean would be a second source of truth for the same fact.
+
+    Each source is read once. When `raw_out` is given it receives those exact
+    bytes, so a caller that must also *scan* them does not read the file a
+    second time: two reads at two moments is the gap a concurrent edit can
+    exploit, the same reason `requirements_sources` hands its bytes on.
     """
     recorded_block = record.get("requirements") or {}
     recorded_sources = recorded_block.get("sources") or []
@@ -5392,7 +5398,11 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
         relative = entry.get("path")
         target = paths.project_root / relative if relative else None
         if target is not None and target.is_file():
-            current.append({"path": relative, "sha256": sha256_file(target)})
+            raw = target.read_bytes()
+            if raw_out is not None:
+                raw_out[relative] = raw
+            current.append({"path": relative,
+                            "sha256": hashlib.sha256(raw).hexdigest()})
         else:
             missing.append(relative)
             current.append({"path": relative, "sha256": None})
@@ -5417,6 +5427,7 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
         "recorded_digest": recorded,
         "current_digest": digest,
         "current_sources": [entry["path"] for entry in current],
+        "current_entries": current,
         "missing_sources": missing,
         "rebound": rebound,
         "assessed_without_a_binding": unbound_record,
@@ -5573,18 +5584,7 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # bytes just hashed above, so this never re-reads a bound source (V-01).
     offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
     if offenders:
-        detail = "; ".join(
-            f"{o['path']} (line {o['matches'][0]['line']}: "
-            f"{o['matches'][0]['pattern']})" for o in offenders)
-        raise Refused(
-            "governance_content_unacknowledged",
-            "Bound document(s) contain unacknowledged content that looks "
-            f"like instructions directed at the workflow engine: {detail}. "
-            "Edit the flagged line(s) and re-assess, or acknowledge each "
-            "with `accept-content --path <file>` first.",
-            {"workitem": paths.workitem,
-             "offenders": [{"path": o["path"], "matches": o["matches"]}
-                           for o in offenders]})
+        raise content_unacknowledged_refusal(paths, offenders)
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -9853,7 +9853,8 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
              "findings": findings},
         )
 
-    freshness = governance_freshness(paths, record)
+    raw_current: dict[str, bytes] = {}
+    freshness = governance_freshness(paths, record, raw_out=raw_current)
     if not freshness["fresh"]:
         if freshness.get("assessed_without_a_binding"):
             raise Refused(
@@ -9877,6 +9878,17 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
              "current_digest": freshness["current_digest"],
              "requirements": freshness["current_sources"]},
         )
+
+    # Fresh means the bytes on disk are the bytes assessed - it says nothing
+    # about whether the content they hold is still *acknowledged*. Assessment
+    # required an acknowledgement for any flagged document, but that record is
+    # a durable store a person or a bug can lose, and the requirements being
+    # unchanged leaves freshness silent about it. So the acknowledgement is
+    # asked for again here, against the exact bytes freshness just read.
+    offenders = unacknowledged_flagged_sources(
+        paths, freshness["current_entries"], raw_current)
+    if offenders:
+        raise content_unacknowledged_refusal(paths, offenders)
 
     # Accepted. The facts enter the ledger here, after every refusal has had
     # its chance to fire, so a refused advance never writes anything.
@@ -12443,6 +12455,24 @@ def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
     })
     write_atomic(paths.scan_acknowledgements_file,
                 json.dumps(doc, indent=2) + "\n")
+
+
+def content_unacknowledged_refusal(paths: Paths, offenders: list[dict]) -> Refused:
+    """The one wording and payload for `governance_content_unacknowledged`,
+    shared by `governance assess` and `governance_precondition` so the two
+    cannot drift into describing the same refusal differently."""
+    detail = "; ".join(
+        f"{o['path']} (line {o['matches'][0]['line']}: "
+        f"{o['matches'][0]['pattern']})" for o in offenders)
+    return Refused(
+        "governance_content_unacknowledged",
+        "Bound document(s) contain unacknowledged content that looks "
+        f"like instructions directed at the workflow engine: {detail}. "
+        "Edit the flagged line(s) and re-assess, or acknowledge each "
+        "with `accept-content --path <file>` first.",
+        {"workitem": paths.workitem,
+         "offenders": [{"path": o["path"], "matches": o["matches"]}
+                       for o in offenders]})
 
 
 def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],

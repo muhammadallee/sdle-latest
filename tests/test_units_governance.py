@@ -2856,6 +2856,63 @@ def test_a0_accept_content_validates_state_before_it_writes_the_store(
         "a refused accept-content wrote the acknowledgement store anyway")
 
 
+def _assessed_with_acknowledged_flagged_content(project, session):
+    """Flagged content, acknowledged, assessed and initialised - then the
+    acknowledgement is lost while the requirements stay exactly as assessed."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    project.ok("init", session=session)
+    store = project.runtime / "scan-acknowledgements.json"
+    assert store.is_file(), "the acknowledgement was not recorded"
+    store.unlink()
+
+
+def test_a0_a_lost_acknowledgement_is_rechecked_at_advance(project):
+    """RR-007. `governance_precondition` validated the acknowledgement store's
+    structure but never asked whether flagged content still had a matching
+    acknowledgement, so once an assessment was recorded the durable
+    acknowledgement stopped being a progression precondition: delete it and
+    `advance` carried on. The requirements are unchanged, so governance
+    freshness cannot catch it."""
+    _assessed_with_acknowledged_flagged_content(project, "a0-lost-ack")
+    before = frozen(project)
+
+    result = project.run("advance", "--to", "gate_constitution")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+    assert frozen(project) == before, "a refused advance must change nothing"
+
+
+def test_a0_the_stateless_early_call_refuses_the_same_way(project):
+    """`gate approve`, `gate omit` and `skip` each call the precondition once,
+    early and without state, so the refusal lands before their own first
+    irreversible append. It has to fire there too, not only at the second,
+    state-carrying call."""
+    _assessed_with_acknowledged_flagged_content(project, "a0-early")
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(project.root), None), project.workitem)
+
+    with pytest.raises(sdle.Refused) as raised:
+        sdle.governance_precondition(paths)
+
+    assert raised.value.reason == "governance_content_unacknowledged"
+
+
+def test_a0_an_acknowledged_document_still_advances(project):
+    """The recheck is not a new refusal for ordinary flagged-and-accepted
+    content: the acknowledgement is there, so nothing changes."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    project.ok("init", session="a0-ok")
+
+    project.ok("advance", "--to", "gate_constitution")
+
+    assert project.state()["current_phase"] == "gate_constitution"
+
+
 def test_v2_02_the_bare_route_revalidates_containment_at_accept_time(project):
     """V2-02. The bare route used to reconstruct `paths.project_root / flagged`
     directly, never re-checking containment — a symlink retargeted between
