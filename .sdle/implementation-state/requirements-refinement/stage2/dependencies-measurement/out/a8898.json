@@ -1,0 +1,14 @@
+{
+  "problem_statement": {"result": "PASS", "finding": null},
+  "scope": {"result": "PASS", "finding": null},
+  "out_of_scope": {"result": "PASS", "finding": null},
+  "acceptance_criteria": {"result": "PASS", "finding": null},
+  "ambiguity": {"result": "FAIL", "finding": "The Non-Functional Requirements section says the service must handle 20 concurrent users 'without degraded response times', which gives no measurable threshold for what counts as degraded."},
+  "contradictions": {"result": "PASS", "finding": null},
+  "constraints": {"result": "PASS", "finding": null},
+  "nfrs": {"result": "PASS", "finding": null},
+  "security_data_implications": {"result": "PASS", "finding": null},
+  "compatibility": {"result": "PASS", "finding": null},
+  "dependencies": {"result": "PASS", "finding": null},
+  "blocking_unknowns": {"result": "PASS", "finding": null}
+}

@@ -1,0 +1,9 @@
+11. `dependencies` — does the document identify, specifically enough to tell which one is meant, each
+    external system, service or third party that the solution must integrate with, call, or run on
+    (for example an identity provider, a payment gateway, an existing internal service, or a shared
+    platform)? Technology that the solution itself chooses — a database product, framework, library or
+    ORM — is not an external dependency for this check: a requirements document may leave those choices
+    to the engineering constitution, and describing storage as, say, a relational store is not a
+    failure. A document that states it has no external dependencies, or that names none because none
+    exist, satisfies the check. Fail only when an external system the solution relies on is referred to
+    by category or vague phrase alone, so that a reader could not tell which system is meant.

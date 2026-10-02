@@ -155,7 +155,7 @@ needs the owner (A11), and the changed material needs a targeted verification (b
 | A8 | S2-L1-008 | UPHELD at L2 — **CLOSED by the owner, 2026-10-02: option (A)** | See §0.6.3. Implemented as its own change, before Phase A: the placement record pins the bound requirements' digest and approval refuses on mismatch. |
 | A9 | S2-L1-009 | RESOLVED at L2 | **An engine-owned structured check-definition table** (`QUALITY_CHECK_DEFINITIONS`): the policy's ids are derived from, or asserted equal to, it; `governance policy` and the assessor dispatch payload read it; the no-restatement test is extended to it; the agent file never lists ids or definitions. This is a Phase A engine change, not Phase D. D10's claim that definitions come from `GOVERNANCE_POLICY_BUILTIN` is superseded. The text of the `dependencies` definition waits on A11. |
 | A10 | S2-L1-010 | RESOLVED at L2 | Citations for `compatibility`/`dependencies` findings are structured `{kind: "baseline-reference" \| "discovery-finding", id}` and resolved against a sound baseline and its hash-pinned discovery record; an unknown or stale id refuses `refinement_citation_unresolved` (new, exit 1). Whether a cited entry *supports* the finding remains assessor judgement and is not represented as mechanically proven; scenario 14 is reworded to promise only the deterministic part. |
-| A11 | S2-L1-011 | **UPHELD at L2 — OPEN, OWNER DECISION** | See §0.6.3. |
+| A11 | S2-L1-011 | UPHELD at L2 — **DECIDED by the owner 2026-10-02; one further edit awaits confirmation** | Owner chose option 1 (refine the `dependencies` definition) **plus an explicit dependencies statement in the sample, no brand**. `stage2/dependencies-measurement/MEASUREMENT.md` found that is *not enough*: the sample also contains a real contradiction (`updated_at`, Data Model line 42 against requirement 5), and it passes all twelve checks 3 of 3 only with both corrections. The `updated_at` fix is proposed in §0.6.3 and awaits the owner. The explicit statement alone removes the `dependencies` failure under either definition, so the definition change is an improvement with thin evidence, not the load-bearing fix. |
 | A12 | S2-L1-012 | RESOLVED at L2 | Each lint rule's applicability (normative vs descriptive text, code and quotation exclusion, document roles, bound-set vs per-document) is specified, with neighbouring-kind and multi-document fixtures, **before** the prototype is ported. The prototype is a measurement tool, not the shipped rules. |
 | A13 | S2-L1-013 | RESOLVED at L2 | Every corpus-derived number in this plan is **exploratory, not confirmatory**. Add the two-document duplicate-id positive/negative pair, independently authored positives and cleans per requirement kind, and uncertainty reporting; no claim may rest on a three-observation cell. |
 | A14 | S2-L1-014 | RESOLVED at L2 | Three explicit tasks with regression tests, as **Phase A0** (before any new feature): normalise a benign `./` before the alias check and correct the message (RR-002); re-scan the exact freshness bytes at the advance and gate preconditions (RR-007); validate state before the post-init acknowledgement write (RR-008). RR-003 and RR-006 stay in the §9 register. |
@@ -167,12 +167,20 @@ needs the owner (A11), and the changed material needs a targeted verification (b
 
 ### 0.6.3 Open items — owner decisions (brief §5, "Escalation")
 
-**A11 — S2-L1-011 (high): `todo-api.md` against acceptance scenario 1.** The checked-in assessor runs report
+**A11 — S2-L1-011 (high): `todo-api.md` against acceptance scenario 1.** *Decided 2026-10-02: option 1 plus an explicit dependencies statement (no brand). A further finding awaits confirmation — see the end of this paragraph and `stage2/dependencies-measurement/MEASUREMENT.md`.* The checked-in assessor runs report
 `dependencies` FAIL for the unchanged `todo-api.md` in **3 of 3** runs (false positives under the committed
 clean label; `dependencies` recall 0.00, precision 0.00), while scenario 1 requires it to pass unchanged with no
 loop. Both reviewers agree the three options cover the space: (1) refine the `dependencies` definition so the
 document passes; (2) amend the document, with explicit authorisation, and update scenario 1; (3) amend scenario
 1. Phase A cannot freeze its definition table until this is answered.
+
+**Finding from the measurement, awaiting the owner:** `todo-api.md` contains a genuine contradiction — the Data Model
+says `updated_at` is "updated on every write" (line 42), requirement 5 says it "changes only when a write actually
+modifies a field" (line 63). With the dependencies statement *and* the Data Model line changed to "updated whenever
+a write modifies a field" (aligning it with the more specific requirement), the sample passes all twelve checks in
+3 of 3 runs; without that second change it does not. Both copies of the sample (`requirements/todo-api.md` and
+`tests/fixtures/requirements-quality/todo-api.md`) and the Getting Started embedding would change together, and
+scenario 1 would be reworded to "passes, as amended on 2026-10-02".
 
 **A8 — S2-L1-008 (high): placement staleness under a C1 shared edit.** *Claude's position:* the gap predates
 refinement — a hand edit after placement has the same effect today — and its fix changes the already-merged

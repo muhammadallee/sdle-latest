@@ -1,0 +1,14 @@
+{
+  "problem_statement": {"result": "PASS", "finding": null},
+  "scope": {"result": "PASS", "finding": null},
+  "out_of_scope": {"result": "PASS", "finding": null},
+  "acceptance_criteria": {"result": "PASS", "finding": null},
+  "ambiguity": {"result": "FAIL", "finding": "The first Constraints bullet says the service must use \"some shared infrastructure\" without stating which infrastructure, which is vague language in a normative statement."},
+  "contradictions": {"result": "PASS", "finding": null},
+  "constraints": {"result": "PASS", "finding": null},
+  "nfrs": {"result": "PASS", "finding": null},
+  "security_data_implications": {"result": "PASS", "finding": null},
+  "compatibility": {"result": "PASS", "finding": null},
+  "dependencies": {"result": "FAIL", "finding": "The Constraints section refers to \"the existing internal SSO\", \"the existing internal Kubernetes cluster\" and \"some shared infrastructure\" only by category, so a reader cannot tell which identity provider, cluster or shared services are meant."},
+  "blocking_unknowns": {"result": "PASS", "finding": null}
+}

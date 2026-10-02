@@ -110,6 +110,19 @@ record pins the bound requirements' digest and approval refuses on mismatch, as 
 refinement Phase A, on its own branch off `main` (`fix/architecture-requirements-digest`). The text below
 records the question as it was put.
 
+**A11 / S2-L1-011 — decided 2026-10-02: option 1 plus an explicit dependencies statement in the sample, no brand.**
+The agreed measurement (`stage2/dependencies-measurement/`, 33 fresh-context runs, exploratory) found: the new
+definition fixes the `todo-api.md` false positive (`dependencies` FAIL 3/3 and 2/3 → 0/3), keeps catching a
+genuinely vague control (2/3 → 3/3), and flags no ordinary or clean document; **but** `todo-api.md` contains a real
+contradiction (`updated_at`, lines 42 and 63) that the Stage 1 label (`[]`, clean) was wrong to miss, and the sample
+passes all twelve checks 3/3 only with the dependencies statement **and** that contradiction resolved. The explicit
+statement alone removes the `dependencies` failure under either definition, so the definition change is a modest
+improvement and not the load-bearing fix. **Two corrections to my own earlier explanations**, made before the
+owner chose: the seeded `defect-dependencies.md` defect is a missing Dependencies *section*, not only vague wording,
+so "the check misses real defects" was overstated (its recall stays undetermined, as the Stage 1 ledger said); and
+the cost of editing the sample was overstated (three files carry the phrase, not thirty-three). **Awaiting the
+owner:** whether to resolve the contradiction by aligning the Data Model line with requirement 5.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).
