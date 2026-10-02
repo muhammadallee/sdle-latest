@@ -156,7 +156,7 @@ def test_an_unreadable_assessment_evidence_file_is_an_integrity_failure(project)
     assert result.reason == "governance_history_invalid"
 
 
-@pytest.mark.parametrize("payload", ["[]", "{}", '{"kind": "governance", "record": 3}',
+@pytest.mark.parametrize("payload", ["[]", '{"kind": "governance", "record": 3}',
                                      '{"kind": "governance", "record": {"quality": {"checks": [1]}}}'])
 def test_a_malformed_assessment_evidence_file_is_never_skipped(project, payload):
     run_assess(project, **{CHECK: "FAIL"})
@@ -170,10 +170,13 @@ def test_an_empty_placeholder_is_not_evidence_and_not_corruption(project):
     assert run_assess(project).reason == "quality_verdict_flip"
 
 
-def test_other_kinds_of_evidence_are_not_history(project):
+@pytest.mark.parametrize("body", [{"kind": "something-else"}, {}, {"sentinel": True}])
+def test_files_that_are_not_assessment_evidence_are_not_history(project, body):
+    """Inclusion is by `kind`, so an object of another kind - or one that declares
+    none, like a planted collision sentinel - is not history and not corruption."""
     (project.runtime / "evidence").mkdir(parents=True, exist_ok=True)
     (project.runtime / "evidence" / "governance-other.json").write_text(
-        json.dumps({"kind": "something-else"}), encoding="utf-8")
+        json.dumps(body), encoding="utf-8")
     assert run_assess(project).exit_code == 0
 
 

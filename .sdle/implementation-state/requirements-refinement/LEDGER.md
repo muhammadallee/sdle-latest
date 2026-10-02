@@ -1250,3 +1250,12 @@ refuse a shared source before any write, with no acknowledgement path and no bin
 adopted: this is not approval to ship the reduced behaviour — the owner must still choose Design R or approve the
 default before the feature is declared complete. A person whose document is shared sees
 `refinement_shared_source` naming the other WorkItems and must edit by hand and re-assess each.
+
+- **Correction found by CI (2026-10-03):** the history reader first refused any `governance-*.json` object that
+  declared no `kind`. `test_units_execution_identity` plants a `{"sentinel": true}` file at an evidence name to force
+  an id collision, and every assessment after it failed `governance_history_invalid` - on both OSes, three tests.
+  The plan's own rule is inclusion by `kind`, so an object with no kind is "not history", not corruption. The
+  reader now skips it; it still refuses unreadable JSON, a non-object, and a `kind == "governance"` object whose
+  record is malformed. The earlier ledger note that "an object with no `kind` refuses" is superseded by this.
+  Lesson recorded: the targeted batches I chose missed this module; Phase C batches add `test_units_execution_identity`
+  and every module that writes under `evidence/`.

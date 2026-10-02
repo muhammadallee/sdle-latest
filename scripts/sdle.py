@@ -7117,11 +7117,8 @@ def governance_assessment_history(paths: Paths, raw_digest: str,
                 raise _history_invalid(source, f"it cannot be read: {exc}") from None
             if not isinstance(payload, dict):
                 raise _history_invalid(source, "it is not an object")
-            kind = payload.get("kind")
-            if not isinstance(kind, str):
-                raise _history_invalid(source, "it declares no kind of evidence")
-            if kind != "governance":
-                continue
+            if payload.get("kind") != "governance":
+                continue  # another kind of evidence, or not ours: not history
             entries.append(_history_entry(
                 payload.get("record"), source, raw_digest, content_digest))
     current = read_governance_record(paths)
