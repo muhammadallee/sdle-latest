@@ -141,7 +141,18 @@ it; A5 and A16 now say so. S2-L3-001 was right that several supersession markers
 §5.c was unmarked; markers fixed and §0.6.5 lists the retained clauses to discard. **S2-L1-006 and S2-L2-001
 (upheld) are a genuine disagreement about what the owner's brief means** — Claude and Codex read §3.5's "the session
 lock is held from apply through re-assessment" differently, and the text supports both. It is escalated to the
-owner with the verbatim wording, both readings, and three options (PLAN §0.6.3, A5). **Open.**
+owner with the verbatim wording, both readings, and three options (PLAN §0.6.3, A5).
+
+**S2-L1-006 / S2-L2-001 — decided by the owner, 2026-10-02: option (D), the owner's own idea.** Asked to choose
+between the two readings, the owner pointed out that C1 already checks at the start who else shares the file and
+makes the refiner acknowledge them by name, so the only gap is a loop that *starts later*, because nothing records
+that one is in progress. Decision: record an **in-flight claim** in the repository transaction index when `apply`
+commits; show it at every start-check; refuse `refinement_document_in_flight` unless the person acknowledges the
+origin by name, audited in both WorkItems; release it on the correlated re-assessment or `cancel`; **no lock and no
+timer** — an abandoned loop is cleared by the next person's acknowledgement. This answers Codex's two upheld
+findings without choosing either reading of "the session lock": a second invocation refuses across WorkItems, and
+the abandonment authority is a human decision on the record. **New design, so the changed part (§0.6.3 (D), A5, A6)
+still needs a short targeted verification before the plan freezes.**
 
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
