@@ -349,6 +349,7 @@ scripts/
 │   │   ├── gate-protocol.md      ← Gate + rejection (loaded at gates)
 │   │   ├── design-review.md      ← Design review capability
 │   │   ├── code-review.md        ← Code review capability
+│   │   ├── requirements-refinement.md ← Fixing blocked requirements (before init)
 │   │   └── security-review.md    ← Review template (loaded at Phase 17)
 │   └── templates/state.json  ← Initial state template (the only copy)
 ├── commands/                 ← The nine /sdle-* slash commands

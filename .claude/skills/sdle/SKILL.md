@@ -253,7 +253,7 @@ It is a **floor, not a ceiling.** A capability file may send you to another one 
 
 | phase | capabilities |
 |---|---|
-| `requirements_check` | modules/phase-execution.md |
+| `requirements_check` | modules/phase-execution.md modules/requirements-refinement.md |
 | `discovery` | modules/phase-execution.md |
 | `impact_analysis` | modules/phase-execution.md |
 | `constitution_draft` | modules/phase-execution.md guidelines/constitution.md |
@@ -417,6 +417,10 @@ Verb-shaped actions are slash commands in `.claude/commands/`. Natural language 
 At a gate phase, and on `approve` / `reject` / a `continue` that resumes after a rejection, the gate capability is what `capabilities` names — load it the same way you load any other.
 
 A gate requires artifact content in the conversation for a human decision. That never gets delegated and never gets skipped.
+
+## Step 6a: Requirements Refinement (before `init`)
+
+When `governance assess` reports the requirements quality blocked, offer to help fix the requirements, and if the user accepts, load `modules/requirements-refinement.md` and follow it. It is not a phase and `resume` does not report it, because it happens before a workflow exists; the engine refuses `refinement_post_init` afterwards. It never runs unasked.
 
 ## Step 6b: Product Subagents
 

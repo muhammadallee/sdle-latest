@@ -122,6 +122,9 @@ SDLE Orchestrator (Claude Code Skill)
 │     • How the code review is conducted, finding shape, how the parent
 │       records the outcome
 │
+├── modules/requirements-refinement.md  Loaded when the user accepts help fixing
+│     blocked requirements; before `init`, so `resume` does not report it
+│
 ├── modules/security-review.md       Loaded only at `security_review`
 │     • Evidence-gathering procedure and review template
 │

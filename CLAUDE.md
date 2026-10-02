@@ -50,6 +50,7 @@ It is not prompt files alone. The mechanical layer lives in `scripts/sdle.py`; t
 - **`modules/phase-execution.md`** — per-phase generation logic. Loaded when executing a phase.
 - **`modules/gate-protocol.md`** — gate display and rejection/remediation. Loaded at gate phases.
 - **`modules/architecture-placement.md`** — where this WorkItem's capability lives, and the five outcomes. Loaded at `architecture_placement` and at its gate.
+- **`modules/requirements-refinement.md`** — fixing blocked requirements before `init`: who does what, the loop, escalation, dispute. Routed by `SKILL.md` and `/sdle-start`, because no phase exists to carry it.
 - **`modules/security-review.md`** — the security review template. Loaded at `security_review`.
 - **`modules/design-review.md`** / **`modules/code-review.md`** — how those two reviews are conducted, what a finding looks like, and how the parent records the outcome.
 - **`guidelines/*.md`** — six lazily loaded, **advisory** heuristic files (constitution, architecture placement, service planning, task generation, service design, implementation). A second capability home beside `modules/`, enumerated by `lint-skill` the same way: an unmapped guideline is an orphan and fails. See `docs/architecture/ADR-014-constitution-guidelines-and-precedence.md`.
