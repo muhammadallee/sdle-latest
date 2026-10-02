@@ -132,7 +132,7 @@ needs the owner (A11), and the changed material needs a targeted verification (b
 
 ### 0.6.1 Two corrections of my own, stated plainly
 
-- **S2-L1-006 was upheld at Level 2 and the reviewer was right.** My response reframed the long
+- **S2-L1-006 was upheld at Level 2 and the reviewer was right *about my response*;** the targeted verification then upheld it again against the *corrected* design, on a different reading of the brief's text (§0.6.3, A5). Level 2's point stands as stated here. My response reframed the long
   apply→re-assessment interval as protected by the C1 `PENDING` intent. That over-read the brief. Brief §3.5
   has two separate things: the **C1 transaction** (steps 1–4, ending at `COMMITTED`, a short operation) and, in
   its last bullet, "the session lock is held from apply through re-assessment; a second invocation refuses" —
@@ -149,10 +149,10 @@ needs the owner (A11), and the changed material needs a targeted verification (b
 | A2 | S2-L1-002 | REVISED at L2 | **History contract for `quality_verdict_flip`.** Source: this WorkItem's `evidence/governance-*.json` files with `kind == "governance"`, **plus the current `governance.json` as the final entry** (assess writes `governance.json` before its evidence, so a crash can leave a record with no evidence). `contentDigest` is written to both. Inclusion is by `kind`, never by filename, so `governance-flip-attempt-*` is excluded explicitly. **Corruption fails closed:** an unreadable, non-object or malformed `governance-*.json` refuses `governance_history_invalid` (exit 3) naming the file; it is never skipped. **Legacy:** a record with no `contentDigest` is "unknown" — except the *current* `governance.json`, whose raw `requirements.digest` equal to today's proves the bytes identical and therefore the normal form identical, so it counts as known. Refuse a PASS if **any** earlier non-overturned assessment at that `(checkId, contentDigest)` recorded FAIL. **Cost:** linear in this WorkItem's own assessment count, no cap set in this change; a journal is a recorded future optimisation, not a silent omission. **Limit stated:** deleting evidence by a shell actor is outside the engine's guarantee (invariant 6 and the write-fence are the control; ADR-007 §3's convention-only residue applies). |
 | A3 | S2-L1-003 | REVISED at L2 | **One dispute contract: `disputeOutcomes[]` (§5.a).** `refinement dispute` validates that (i) `evidenceRef` names an engine-written assessor-evidence file in which that check is `PASS` at the **same** `contentDigest` as the FAIL, with a non-empty rationale, **recorded after** that FAIL; (ii) `decisionRef` names a recorded human decision that binds exactly `{checkId, contentDigest, evidenceRef, action: "overturn"}`; (iii) neither ref is already cited by another dispute outcome — else `refinement_dispute_replayed` (new, exit 1). The effective-verdict rule: the overturned `(check, digest)` pair, and only that pair, is exempt from A2; the original FAIL and the refused-flip history are preserved. D9's `disputeOutcome` prose is superseded by the array. Tests: missing file, wrong digest, a FAIL as evidence, an earlier PASS, a replayed decision, and the positive case. |
 | A4 | S2-L1-004 | RESOLVED at L2 | **Transaction ordering and recovery.** Order: target evidence → repository index entry `PENDING` (A6) → origin intent (`transactions[]`, added to §5.a) → document write (base-SHA precondition) → per-WorkItem audit and state → `COMMITTED` in origin and index. Recovery runs before any other `refinement` command for the origin or an affected WorkItem and branches on the crash point: index entry without an origin intent → mark the index entry `ABORTED`; intent and document at `baseSha256` → re-apply from the stored target content, or `ABORTED` on cancel; document at `targetSha256` → append only the missing audit entries (idempotent by `transactionId`), then commit; **audit appended but `state.json` not saved** → recovery recomputes and saves that participant's state **before** ordinary drift validation would refuse it; any other document SHA → `refinement_record_invalid` (exit 3). That last window is the existing `append_audit` → `save_state` window (every caller pairs them and `read_state` does not verify `audit_sha`), made consequential by a multi-WorkItem transaction, per Level 2. |
-| A5 | S2-L1-005, -006 · S2-L2-001 | 005 REVISED, 006 UPHELD, L2-001 new | **Locking, corrected.** One **repository-scoped short mutex**, `workitems/.refinement-transaction.lock`, created with `os.open(..., O_CREAT\|O_EXCL)` — *not* `open(..., "x")`, so the exclusive-open invariant test stays true — with the architecture lock's shape (10 s wait, 60 s stale break, a timeout that is a refusal `refinement_transaction_locked`, readers never wait). A 60 s stale break is safe here because the lock is held for **one engine command**, milliseconds to seconds, never across a model call. It is taken by refinement `apply` (to recompute the complete binding set before the document write, closing the concurrent-`bind` race), by `requirements bind`, by `cmd_init` (A16), and where the C1 acknowledgement is recorded. Location is under the already write-fenced `workitems/` registry area and gitignored beside `workitems/.active-context.json`, so no `.sdle/` boundary member is added. **The long interval is not a lock at all:** after `apply`, the origin's own record enters `AWAITING_REASSESSMENT`, which refuses a second `apply`/`propose` for **that WorkItem** until a correlated assessment is recorded or `refinement cancel` — the brief's own "held from apply through re-assessment; a second invocation refuses". Across WorkItems the interval is protected optimistically: every edit carries a base SHA, and every other sharer goes `governance_stale` (brief §3.5's last C1 bullet). So there is **no cross-WorkItem hold**, hence no abandonment authority to design and nothing a vanished origin can block. D2 is superseded. |
+| A5 | S2-L1-005, -006 · S2-L2-001 | 005 RESOLVED at verification; **006 and L2-001 UPHELD at verification — OPEN, OWNER DECISION on the reading of brief §3.5 (§0.6.3)**; the "no cross-WorkItem hold" text below is Claude's reading and is not final | **Locking, corrected.** One **repository-scoped short mutex**, `workitems/.refinement-transaction.lock`, created with `os.open(..., O_CREAT\|O_EXCL)` — *not* `open(..., "x")`, so the exclusive-open invariant test stays true — with the architecture lock's shape (10 s wait, 60 s stale break, a timeout that is a refusal `refinement_transaction_locked`, readers never wait). A 60 s stale break is safe here because the lock is held for **one engine command**, milliseconds to seconds, never across a model call. It is taken by **every mutating refinement command across its state-absence check and its write** (`propose`, `decide`, `apply`, `dispute`, `cancel`; `apply` also recomputes the complete binding set under it, closing the concurrent-`bind` race), by `requirements bind`, by `cmd_init` (A16), where the C1 acknowledgement is recorded, and by `architecture apply` around its requirements recheck and catalog write (S2-L1-008). A mutex serialises only the parties that take it: the targeted verification found that naming `apply` alone left `init` racing a first `propose`. Location is under the already write-fenced `workitems/` registry area and gitignored beside `workitems/.active-context.json`, so no `.sdle/` boundary member is added. **The long interval is not a lock at all:** after `apply`, the origin's own record enters `AWAITING_REASSESSMENT`, which refuses a second `apply`/`propose` for **that WorkItem** until a correlated assessment is recorded or `refinement cancel` — the brief's own "held from apply through re-assessment; a second invocation refuses". Across WorkItems the interval is protected optimistically: every edit carries a base SHA, and every other sharer goes `governance_stale` (brief §3.5's last C1 bullet). So there is **no cross-WorkItem hold**, hence no abandonment authority to design and nothing a vanished origin can block. D2 is superseded. |
 | A6 | S2-L2-002 | new, accepted | **Participant discovery by one repository transaction index, not per-WorkItem pointers.** My Level 1 response proposed a `pendingTransactions[]` pointer inside each affected WorkItem's record; that violates scenario 12 (A's refinement cannot write B's record) and leaves a crash window across several writes. Instead: one engine-written file, `workitems/.refinement-transactions.json`, written with `write_atomic` under the mutex **before** the origin intent: `{transactionId, originatingWorkitem, affectedWorkitems, status}`. Affected-WorkItem commands read that one bounded file; the intent stays authoritative in the origin's record. One atomic write means no half-registered participants. C1's cross-WorkItem write exception stays limited to **audit entries**. A malformed index refuses `refinement_index_invalid` (exit 3). |
 | A7 | S2-L1-007 | RESOLVED at L2 | **Normal form.** A change to trailing whitespace on a **non-blank prose line** is non-neutral (needs a human decision), because two trailing spaces are Markdown's hard break. Trailing whitespace on blank lines and inside fenced blocks and code spans stays neutral as before. Scenario 27 gains hard-break, indented-code, inline-HTML and escaped-space fixtures. |
-| A8 | S2-L1-008 | UPHELD at L2 — **CLOSED by the owner, 2026-10-02: option (A)** | See §0.6.3. Implemented as its own change, before Phase A: the placement record pins the bound requirements' digest and approval refuses on mismatch. |
+| A8 | S2-L1-008 | UPHELD at L2 — **CLOSED by the owner, 2026-10-02: option (A)**; revised at verification | See §0.6.3. Implemented as its own change, before Phase A (merged, PR #5): the placement record pins the bound requirements' digest and approval refuses on mismatch. The targeted verification found one residual window — the check ran at the start of the command and the catalog write came later — closed by rechecking inside the catalog lock immediately before the write (PR #6, test written first and failing). What remains is serialisation with the *writers* of the bound documents, which needs a lock they share and is therefore carried by A5's participant list (`architecture apply` takes the refinement mutex). |
 | A9 | S2-L1-009 | RESOLVED at L2 | **An engine-owned structured check-definition table** (`QUALITY_CHECK_DEFINITIONS`): the policy's ids are derived from, or asserted equal to, it; `governance policy` and the assessor dispatch payload read it; the no-restatement test is extended to it; the agent file never lists ids or definitions. This is a Phase A engine change, not Phase D. D10's claim that definitions come from `GOVERNANCE_POLICY_BUILTIN` is superseded. The text of the `dependencies` definition waits on A11. |
 | A10 | S2-L1-010 | RESOLVED at L2 | Citations for `compatibility`/`dependencies` findings are structured `{kind: "baseline-reference" \| "discovery-finding", id}` and resolved against a sound baseline and its hash-pinned discovery record; an unknown or stale id refuses `refinement_citation_unresolved` (new, exit 1). Whether a cited entry *supports* the finding remains assessor judgement and is not represented as mechanically proven; scenario 14 is reworded to promise only the deterministic part. |
 | A11 | S2-L1-011 | UPHELD at L2 — **CLOSED by the owner 2026-10-02; the sample is amended** | Owner chose option 1 (refine the `dependencies` definition) **plus an explicit dependencies statement in the sample, no brand**. `stage2/dependencies-measurement/MEASUREMENT.md` found that is *not enough*: the sample also contains a real contradiction (`updated_at`, Data Model line 42 against requirement 5), and it passes all twelve checks 3 of 3 only with both corrections. The `updated_at` fix is made: the owner confirmed the intended meaning (the timestamp of the last time any field of the row was actually changed), which is what requirement 5 already said, so the Data Model line was aligned to it. The explicit statement alone removes the `dependencies` failure under either definition, so the definition change is an improvement with thin evidence, not the load-bearing fix. |
@@ -160,7 +160,7 @@ needs the owner (A11), and the changed material needs a targeted verification (b
 | A13 | S2-L1-013 | RESOLVED at L2 | Every corpus-derived number in this plan is **exploratory, not confirmatory**. Add the two-document duplicate-id positive/negative pair, independently authored positives and cleans per requirement kind, and uncertainty reporting; no claim may rest on a three-observation cell. |
 | A14 | S2-L1-014 | RESOLVED at L2 | Three explicit tasks with regression tests, as **Phase A0** (before any new feature): normalise a benign `./` before the alias check and correct the message (RR-002); re-scan the exact freshness bytes at the advance and gate preconditions (RR-007); validate state before the post-init acknowledgement write (RR-008). RR-003 and RR-006 stay in the §9 register. |
 | A15 | S2-L1-015 · S2-L2-003 | 015 REVISED, L2-003 new | **Pin inventory, after A5/A6 fixed the layout.** Moved by this change: the parser tokens (`refinement`, `propose`, `decide`, `dispute`, `cancel`; `apply` and `show` already exist) in `COMMANDS`; `WRITE_PRIMITIVE_COUNTS`, **recounted from the engine after implementation, not predicted**; `PRODUCT_AGENTS` (`sdle-requirements-review`); the runtime-member names gain **`refinement.json` only** (WorkItem-owned) plus the RR-004 fix `scan_acknowledgements_file`. **The lock and the index are repository-level files under `workitems/`, not WorkItem runtime members and not `.sdle/` boundary members**, so neither the runtime-member pin nor the closed configuration-reference set takes them; they need `Paths` properties, a `.gitignore` line (lock only), and write-fence coverage (already provided by the `workitems` prefix). The exclusive-open invariant stays true because the lock uses `os.open`. The earlier "runtime-member set including the lock" is superseded. |
-| A16 | S2-L1-016 | UPHELD at L2, accepted | **Pre-init orchestration is explicit.** `SKILL.md` and `sdle-start.md` route to the module before assessment (the `CAPABILITY_MAP` row alone cannot, because `resume` reports capabilities per current phase and pre-`init` there is none). Every mutating refinement command refuses `refinement_post_init` **before any write** when `state.json` exists; `refinement show` stays available. **`cmd_init` takes the A5 mutex and refuses `refinement_in_progress` (exit 1) while this WorkItem has any non-terminal loop** — `IN_PROGRESS` or `AWAITING_REASSESSMENT` — **or is named by any `PENDING` transaction**, not only a pending one, which closes the race between a refinement command's state-absence check and `init`. |
+| A16 | S2-L1-016 | UPHELD at L2, accepted | **Pre-init orchestration is explicit.** `SKILL.md` and `sdle-start.md` route to the module before assessment (the `CAPABILITY_MAP` row alone cannot, because `resume` reports capabilities per current phase and pre-`init` there is none). Every mutating refinement command refuses `refinement_post_init` **before any write** when `state.json` exists; `refinement show` stays available. **Every mutating refinement command holds the A5 mutex across its state-absence check and its write, and `cmd_init` takes the same mutex and refuses `refinement_in_progress` (exit 1) while this WorkItem has any non-terminal loop** — `IN_PROGRESS` or `AWAITING_REASSESSMENT` — **or is named by any `PENDING` transaction**, not only a pending one, which closes the race between a refinement command's state-absence check and `init`. |
 | A17 | S2-L1-017 | RESOLVED at L2 | One engine-owned maximum (the cap constant) and one policy field, `refinement_iteration_cap`, accepting only integers in `1..max`, added to `GOVERNANCE_POLICY_OVERRIDABLE`; pinned at loop start with its source recorded in `refinement.json`. Tests: malformed, higher, changed mid-loop, lower. |
 | A18 | S2-L1-018 | RESOLVED at L2 | `governance assess` stays the **only** assessment door. `propose` records findings, questions and edits from an assessment that already exists and does not assess again; "sole writer" becomes **one validated writer helper** used by every command. Input envelopes, each strict and refused on any unknown key: `propose {workitem, assessmentRef, findings[], questions[], edits[]}`; `decide {workitem, questionId, answer}`; `apply {workitem, editId, baseSha256, acknowledgement?}`; `dispute {workitem, checkId, evidenceRef, decisionRef}`; `cancel {workitem, reason}`. `propose` and `decide` do not collapse: the human decision follows the proposal being shown. |
 | A19 | S2-L1-019 | RESOLVED at L2 | §5.b's `"floors": true` is replaced by `floorEligible` and `floorEnforced`, with `floorEnforced` **always `false`** for every shipped rule, so no engine-written record asserts an enforcement property the owner's Option 3 deviation makes false. |
@@ -196,6 +196,34 @@ WorkItems' placements — rejected, it writes into other WorkItems' records (sce
 weakened guarantee explicitly. *Claude's recommendation:* **(A), as its own small change before refinement
 Phase A**, because it removes the disagreement at its source instead of documenting it.
 
+**A5 — S2-L1-006 and S2-L2-001 (high, upheld twice by Codex): what does brief §3.5's "the session lock is held
+from apply through re-assessment" bind?** *OPEN — owner decision; A5's "no cross-WorkItem hold" text is Claude's
+reading and is not final.* The brief says, verbatim, in step 1 of the shared-document transaction: "Acquire the
+session lock of every affected WorkItem in sorted id order; refuse if any is held", and then, as a separate
+top-level bullet after the transaction: "The session lock is held from apply through re-assessment; a second
+invocation refuses."
+
+- *Claude's reading (A5 as written):* the second bullet is a separate bullet and says "the session lock" in the
+  singular, so it is the originating WorkItem's lock; the long interval is per-WorkItem state
+  (`AWAITING_REASSESSMENT`) and other sharers are protected optimistically, by the base SHA and
+  `governance_stale`. No abandonment authority is needed, because a vanished origin holds only itself.
+- *Codex's reading:* "the session lock" is the lock(s) acquired in step 1, so every affected WorkItem's lock
+  stays held until the origin's re-assessment completes, and "a second invocation refuses" applies to any
+  affected WorkItem. That requires durable ownership, a release rule, recovery, and an abandonment rule for a
+  vanished origin.
+- *Facts both sides accept:* the text is ambiguous. The existing session lock is advisory today (`lock acquire`
+  only warns) and counts as held only while touched within `LOCK_FRESH_SECONDS` = 600. Neither reading changes
+  integrity, because the base SHA already prevents a lost edit.
+- *Options:* **(A)** Claude's reading. **(B)** Codex's literal reading: hold every affected WorkItem's session
+  lock through re-assessment — it blocks unrelated work in those WorkItems for the interval, needs a *refusing*
+  hold where today's lock only warns, and leans on the 600 s freshness window or a new rule for abandonment.
+  **(C)** A narrower middle: a per-document "in flight" claim in the transaction index, with an expiry and an
+  explicit release by `refinement cancel`, so a second `refinement apply` on that document by any WorkItem
+  refuses while the origin is mid-loop, without blocking anything else in the affected WorkItems.
+- *Claude's recommendation:* **(A)**. It satisfies "a second invocation refuses" for the loop that is actually
+  mid-flight, creates no abandonment problem, and the integrity guarantee is the base SHA regardless. Take **(C)**
+  if the intent was that no other WorkItem may start editing the shared document while one loop is open.
+
 ### 0.6.4 New tests this section requires
 
 Refused flip leaves `governance.json` byte-identical · revert-to-C₁ flip is refused · corrupt governance
@@ -205,6 +233,25 @@ recovery branch of A4, including audit-appended-state-unsaved · concurrent `req
 `init` refused during `IN_PROGRESS`, `AWAITING_REASSESSMENT` and `PENDING` · `refinement_post_init` before any
 write · hard-break normal-form fixtures · unresolved baseline citation · cap malformed / higher / mid-loop /
 lower · exclusive-open invariant still true · closed configuration-reference set unchanged.
+
+### 0.6.5 Retained text to discard
+
+The "Superseded" markers say *that* a section is overridden; this says *which retained clauses* an implementer
+must not follow. Anything not listed here and not contradicted by §0.6 stands.
+
+| Section | Discard |
+|---|---|
+| D1 | The question "is this precedent load-bearing for a multi-WorkItem transaction?" (answered: no, A4/A6). Any reading that puts a pointer in each affected WorkItem's own record. |
+| D2 | `open(paths.refinement_lock_file, "x")`, the per-affected-WorkItem lock files and their sorted acquisition, and "released on completion or abort" as the protection for the long interval (A5). |
+| D5 | "`propose` is the sole writer of `refinement.json`" and "`propose` re-assesses internally" (A18). |
+| D8 | "the engine performs no accuracy validation" of a cited id (A10: existence is validated, relevance is not). |
+| D9 | The per-check `disputeOutcome` field; the contract is the `disputeOutcomes[]` array (A3). |
+| D10 | Check definitions "from `GOVERNANCE_POLICY_BUILTIN`" (A9). |
+| D11 | Reading only the immediately superseded record, and writing `governance.json` before a refusal (A1, A2). |
+| §5.a | Absence of `transactions[]`, of the `AWAITING_REASSESSMENT` state, of the pinned cap and its source, and of the bound dispute fields (A3, A4, A5, A17). |
+| §5.b | `"floors": true` (A19). |
+| §6 | The refused-flip row's "`governance.json` only"; any row that writes `refinement.json` from a command other than through the single validated writer; any row implying `init` need not take the mutex (A1, A4, A16, A18). |
+| §0.4 (3), (6), (7) | Already marked corrected or retracted in place. |
 
 ## 1. §1 re-verification, corrected
 
@@ -421,7 +468,7 @@ regardless.
 
 ### D1 — pre-init audit for the shared-document transaction (C1)
 
-> **Superseded in part by §0.6 A4, A6 — the transaction record has a durable home, and participants are discovered through one repository index, not per-WorkItem pointers. Stage 2 answered D1's own question: the F15 precedent is *not* sufficient for a multi-WorkItem transaction.**
+> **Superseded in part by §0.6 A4, A5, A6 — the transaction record has a durable home, and participants are discovered through one repository index, not per-WorkItem pointers. Stage 2 answered D1's own question: the F15 precedent is *not* sufficient for a multi-WorkItem transaction.**
 
 Precedent now exists and is followed exactly, not re-derived: `record_scan_acknowledgement_audit`
 (F15) validates unconditionally (even `state=None`) and replays only once state exists, de-duplicated
@@ -604,7 +651,7 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ### 5.a `refinement.json` (WorkItem-owned, `workitems/<id>/.sdle/refinement.json`)
 
-> **Superseded in part by §0.6 A3, A4, A17, A18 — adds `transactions[]`, the bound dispute fields, the pinned cap and its source, and the `AWAITING_REASSESSMENT` state.**
+> **Superseded in part by §0.6 A3, A4, A5, A17, A18 — adds `transactions[]`, the bound dispute fields, the pinned cap and its source, and the `AWAITING_REASSESSMENT` state.**
 
 ```json
 {
@@ -642,6 +689,8 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ### 5.c Refusal reason codes (new)
 
+> **Incomplete; extended by §0.6.** New reasons: `governance_history_invalid` (A2, exit 3), `refinement_dispute_replayed` (A3), `refinement_transaction_locked` (A5), `refinement_index_invalid` (A6, exit 3), `refinement_citation_unresolved` (A10), `refinement_post_init` and `refinement_in_progress` (A16). `quality_verdict_below_floor` stays defined and never fires (A19). Each needs a deterministic trigger, a test and a troubleshooting entry.
+
 | Reason | Raised by | Exit |
 |---|---|---|
 | `quality_verdict_flip` | `governance assess` | 1 |
@@ -654,7 +703,7 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ## 6. State-transition table
 
-> **Superseded in part by §0.6 A1 (the refused-flip row must not write `governance.json`), A3 (the dispute row), A5 (the `AWAITING_REASSESSMENT` state), A16 (`init`).**
+> **Superseded in part by §0.6 A1 (the refused-flip row must not write `governance.json`), A3 (the dispute row), A4 (the crash rows), A5 (the `AWAITING_REASSESSMENT` state), A16 (`init`), A18 (the rows that call `propose` the sole writer or say it re-assesses internally). See §0.6.5.**
 
 | From | Event | To | Writes | Notes |
 |---|---|---|---|---|

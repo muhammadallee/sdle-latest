@@ -126,6 +126,23 @@ requirement 5 said, so the Data Model line was aligned to it and the sample amen
 (`requirements/todo-api.md`, the corpus fixture, and the Getting Started embedding). The corpus label note records
 that the Stage 1 runs were made against the pre-amendment bytes.
 
+**Targeted verification of the reconciliation (`20261002T094535-stage2-verify-codex-reconciliation`): PASS**, first
+attempt, `codex-cli 0.151.0`, read-only, ephemeral, detached worktree at `f4c10a9`, run with the owner's go-ahead.
+Scope: only the changed material (PLAN §0.6, the merged architecture fix, the sample amendment, the measurement).
+**11 dispositions: 7 RESOLVED, 2 REVISED (S2-L1-008, S2-L1-016), 2 UPHELD (S2-L1-006, S2-L2-001); 1 new finding
+(S2-L3-001, medium); `plan_ready_to_freeze: false`.** It also recomputed all 33 measurement outputs: every cell of
+`MEASUREMENT.md` matched, and both self-corrections (seeded-defect shape, the three-copies cost) were confirmed.
+Output unedited in `runs/20261002T094535-stage2-verify-codex-reconciliation.a1.review.json`.
+
+What was done with it: S2-L1-008 (revised) was a real narrow defect in code I had merged — the requirements check
+ran at the start of the command and the catalog write came later; fixed by rechecking inside the catalog lock, test
+first (PR #6). S2-L1-016 (revised) was right that the mutex only helps if every mutating refinement command holds
+it; A5 and A16 now say so. S2-L3-001 was right that several supersession markers named the wrong amendment and
+§5.c was unmarked; markers fixed and §0.6.5 lists the retained clauses to discard. **S2-L1-006 and S2-L2-001
+(upheld) are a genuine disagreement about what the owner's brief means** — Claude and Codex read §3.5's "the session
+lock is held from apply through re-assessment" differently, and the text supports both. It is escalated to the
+owner with the verbatim wording, both readings, and three options (PLAN §0.6.3, A5). **Open.**
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).
