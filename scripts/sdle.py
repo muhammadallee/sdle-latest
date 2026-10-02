@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import difflib
 import hashlib
 import json
 import os
@@ -1722,6 +1723,22 @@ def infer_project_name(paths: Paths) -> str | None:
 
 
 def cmd_init(args, paths: Paths) -> int:
+    # The mutex makes "no loop is active" and "the state is written" one step:
+    # a first `refinement propose` cannot slip in between them.
+    with refinement_mutex(paths):
+        record = read_refinement_record(paths)
+        if _refinement_active(record):
+            raise Refused(
+                "refinement_in_progress",
+                f"A requirements refinement is {record['status']} for this "
+                "WorkItem. Finish it (`refinement propose` after a "
+                "re-assessment) or end it (`refinement cancel`), then start "
+                "the workflow. Nothing was written.",
+                {"workitem": paths.workitem, "status": record["status"]})
+        return _cmd_init_locked(args, paths)
+
+
+def _cmd_init_locked(args, paths: Paths) -> int:
     consts = load_constants(paths)
 
     if paths.state_file.is_file():
@@ -5631,6 +5648,709 @@ def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str
     return found
 
 
+# --------------------------------------------------------------------------
+# The `refinement` commands
+#
+# Refinement works on the requirements BEFORE `init`: a loop in which a human
+# and an assessor find what is missing, a refiner proposes edits, a human
+# decides, and the engine applies. `governance assess` stays the only door
+# through which an assessment is made; nothing here assesses. Every command
+# takes the short repository mutex across its state-absence check and its
+# write, refuses before it writes, and writes the record only through
+# `write_refinement_record`.
+#
+# A document another WorkItem still holds is refused outright. There is no
+# acknowledgement path.
+# --------------------------------------------------------------------------
+
+REFINEMENT_INPUT_KEYS = {
+    "propose": {"workitem", "assessmentRef", "findings", "questions", "edits"},
+    "apply": {"workitem", "editId", "baseSha256"},
+    "dispute": {"workitem", "checkId", "evidenceRef", "decisionRef", "rationale"},
+    "cancel": {"workitem", "reason"},
+}
+REFINEMENT_DECIDE_KEYS = ({"workitem", "questionId", "answer"},
+                          {"workitem", "editId", "decision"})
+REFINEMENT_EDIT_INPUT_KEYS = {"id", "op", "path", "anchor", "text", "baseSha256"}
+REFINEMENT_REASON_MAX = 500
+
+
+def _refine_refused(reason: str, message: str, data: dict | None = None) -> Refused:
+    return Refused(reason, message, data or {})
+
+
+def _refine_input(reason_detail: str, **data) -> Refused:
+    return Refused(
+        "refinement_input_invalid",
+        f"The refinement input is not acceptable: {reason_detail}. Nothing was "
+        "written.", data)
+
+
+def _refine_wrong_status(paths: Paths, record: dict | None, action: str,
+                         allowed: str) -> Refused:
+    status = record["status"] if record else None
+    where = ("There is no refinement loop for this WorkItem" if record is None
+             else f"The refinement loop is {status}")
+    return Refused(
+        "refinement_wrong_status",
+        f"{where}, and `{action}` needs {allowed}. Nothing was written.",
+        {"workitem": paths.workitem, "status": status, "action": action})
+
+
+def _read_refinement_payload(args, paths: Paths, action: str):
+    target = Path(args.input)
+    if not target.is_absolute():
+        target = paths.project_root / args.input
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _refine_input(f"{args.input} cannot be read as JSON ({exc})") from None
+    if not isinstance(payload, dict):
+        raise _refine_input(f"{args.input} is not a JSON object")
+    if action == "decide":
+        if set(payload) not in REFINEMENT_DECIDE_KEYS:
+            raise _refine_input(
+                "a decision carries exactly {workitem, questionId, answer} or "
+                f"{{workitem, editId, decision}}, not {sorted(payload)}")
+    else:
+        keys = REFINEMENT_INPUT_KEYS[action]
+        if "quality" in payload or "results" in payload or "verdicts" in payload:
+            raise _refine_input(
+                "a refinement input carries no quality results; assessing is "
+                "`governance assess`'s job alone")
+        if set(payload) != keys:
+            missing = sorted(keys - set(payload))
+            extra = sorted(set(payload) - keys)
+            raise _refine_input(
+                f"the keys must be exactly {sorted(keys)} (missing {missing}, "
+                f"unexpected {extra})")
+    if payload["workitem"] != paths.workitem:
+        raise _refine_input(
+            f"it is addressed to WorkItem {payload['workitem']!r}, not to "
+            f"{paths.workitem!r}")
+    return payload
+
+
+def _refinement_post_init_guard(paths: Paths, action: str) -> None:
+    if paths.state_file.is_file():
+        raise Refused(
+            "refinement_post_init",
+            f"`refinement {action}` works on requirements before the workflow "
+            f"starts, and {paths.runtime_relative}/state.json already exists. "
+            "Nothing was written. A change to the requirements after `init` is "
+            "an ordinary edit followed by `governance assess`.",
+            {"workitem": paths.workitem})
+
+
+def _refinement_shared_guard(paths: Paths, documents: list[str]) -> None:
+    shared = refinement_sharers(paths, sorted(set(documents)))
+    if shared:
+        listing = "; ".join(f"{doc}: {', '.join(ids)}" for doc, ids in shared.items())
+        raise Refused(
+            "refinement_shared_source",
+            "Another WorkItem still holds a document this refinement would "
+            f"change ({listing}). Editing it would stale their assessment, so "
+            "it is refused and nothing was written. Complete or re-bind those "
+            "WorkItems first, or change the document by hand and re-assess "
+            "each WorkItem.",
+            {"workitem": paths.workitem, "shared": shared})
+
+
+def _refinement_active(record: dict | None) -> bool:
+    return record is not None and record["status"] in REFINEMENT_ACTIVE_STATUSES
+
+
+def _refinement_document_text(raw: bytes, relative: str) -> tuple[str, bool]:
+    """The document as text with LF endings, and whether it was CRLF."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _refine_input(f"{relative} is not UTF-8 text") from None
+    crlf = "\r\n" in text
+    return text.replace("\r\n", "\n").replace("\r", "\n"), crlf
+
+
+def refinement_apply_operation(text: str, edit: dict) -> str:
+    """The text after one edit, or a ``ValueError`` saying why it cannot be
+    made. Pure. ``text`` uses LF endings."""
+    op, anchor, body = edit["op"], edit["anchor"], edit["text"]
+    if op == "append_section":
+        if anchor is not None:
+            raise ValueError("append_section takes no anchor")
+        if not body.lstrip().startswith("#"):
+            raise ValueError("an appended section starts with a heading")
+        base = text if text.endswith("\n") or not text else text + "\n"
+        return base + ("\n" if base and not base.endswith("\n\n") else "") + body
+    if not isinstance(anchor, str) or not anchor:
+        raise ValueError(f"{op} needs an anchor naming exact existing text")
+    count = text.count(anchor)
+    if count != 1:
+        raise ValueError(
+            "the anchor is not in the document" if count == 0
+            else f"the anchor appears {count} times; it must identify one place")
+    at = text.index(anchor)
+    if op == "replace":
+        return text[:at] + body + text[at + len(anchor):]
+    return text[:at + len(anchor)] + body + text[at + len(anchor):]
+
+
+def _refinement_validated_edits(paths: Paths, raw_by_path: dict[str, bytes],
+                                items, taken_ids: set[str]) -> list[dict]:
+    if not isinstance(items, list):
+        raise _refine_input("edits is not a list")
+    bound = set(bound_sources(paths))
+    out: list[dict] = []
+    seen = set(taken_ids)
+    for item in items:
+        if not isinstance(item, dict) or set(item) != REFINEMENT_EDIT_INPUT_KEYS:
+            raise _refine_input(
+                f"an edit carries exactly {sorted(REFINEMENT_EDIT_INPUT_KEYS)}")
+        ident, op, relative = item["id"], item["op"], item["path"]
+        if not isinstance(ident, str) or not ident.strip() or ident in seen:
+            raise _refine_input(f"edit id {ident!r} is empty or repeated")
+        seen.add(ident)
+        if op not in REFINEMENT_EDIT_OPS:
+            raise _refine_input(f"edit {ident} has an unknown operation {op!r}")
+        if not isinstance(relative, str) or relative not in bound:
+            raise _refine_input(
+                f"edit {ident} names {relative!r}, which is not one of this "
+                "WorkItem's bound requirements documents")
+        body = item["text"]
+        if (not isinstance(body, str) or not body.strip()
+                or len(body) > REFINEMENT_EDIT_TEXT_MAX):
+            raise _refine_input(
+                f"edit {ident} text is not a non-empty string of at most "
+                f"{REFINEMENT_EDIT_TEXT_MAX} characters")
+        if not isinstance(item["baseSha256"], str) or not _HEX64.match(item["baseSha256"]):
+            raise _refine_input(f"edit {ident} baseSha256 is not a SHA-256 digest")
+        if relative not in raw_by_path:
+            raise _refine_input(f"{relative} is not in the repository")
+        current = hashlib.sha256(raw_by_path[relative]).hexdigest()
+        if item["baseSha256"] != current:
+            raise _refine_refused(
+                "refinement_edit_stale_base",
+                f"Edit {ident} was written against {relative} as it was "
+                "before it changed. Nothing was written; propose again from "
+                "the current text.",
+                {"edit": ident, "path": relative, "expected": item["baseSha256"],
+                 "current": current})
+        text, _crlf = _refinement_document_text(raw_by_path[relative], relative)
+        try:
+            refinement_apply_operation(text, item)
+        except ValueError as exc:
+            raise _refine_input(f"edit {ident}: {exc}") from None
+        out.append({"id": ident, "op": op, "path": relative,
+                    "anchor": item["anchor"], "text": body,
+                    "baseSha256": current, "appliedSha256": None,
+                    "autoApplied": False, "decision": None})
+    return out
+
+
+def _refinement_assessment(paths: Paths, reference) -> tuple[dict, list[str], str, dict]:
+    """(record, failing blocking checks, content digest, raw bytes) of the
+    CURRENT assessment, or a refusal. The failing set is read from the engine's
+    own record, never from what the caller says."""
+    if not isinstance(reference, str) or not reference.strip():
+        raise _refine_input("assessmentRef is empty")
+    current = read_governance_record(paths)
+    if current is None:
+        raise Refused(
+            "refinement_wrong_status",
+            "There is no assessment to refine against. Run `governance assess` "
+            "first. Nothing was written.", {"workitem": paths.workitem})
+    target = paths.project_root / reference
+    named = (target.parent == paths.evidence_dir
+             and target.name.startswith("governance-")
+             and not target.name.startswith("governance-flip-attempt-")
+             and target.is_file())
+    if not named:
+        raise _refine_input(
+            "assessmentRef is not one of this WorkItem's assessment evidence files")
+    try:
+        evidence = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise _refine_input("assessmentRef cannot be read") from None
+    if (not isinstance(evidence, dict) or evidence.get("kind") != "governance"
+            or (evidence.get("record") or {}).get("executionId")
+            != current.get("executionId")):
+        raise _refine_input(
+            "assessmentRef is not the evidence of the current assessment; "
+            "refine against the latest `governance assess`")
+    sources, digest, raw_by_path = requirements_sources(paths, strict=True)
+    if current["requirements"].get("digest") != digest:
+        raise _refine_input(
+            "the requirements changed after that assessment, so its findings "
+            "may no longer apply; run `governance assess` again")
+    failing = [c["id"] for c in current["quality"]["checks"]
+               if c["result"] == "FAIL" and c["blocking"]]
+    return current, failing, requirements_content_digest(raw_by_path), raw_by_path
+
+
+def _refinement_proposal_digest(findings, questions, edits) -> str:
+    """What was proposed, independent of ids and of the text it was written
+    against, so the same proposal made again after the document moved is
+    recognised as the same."""
+    canonical = json.dumps(
+        {"findings": findings,
+         "questions": [{k: q[k] for k in ("text", "options")} for q in questions],
+         "edits": [{k: e[k] for k in ("op", "path", "anchor", "text")}
+                   for e in edits]},
+        sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _refinement_findings(payload, failing: list[str]) -> list[dict]:
+    items = payload["findings"]
+    if not isinstance(items, list):
+        raise _refine_input("findings is not a list")
+    out = []
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"checkId", "text"}:
+            raise _refine_input("a finding carries exactly {checkId, text}")
+        if item["checkId"] not in failing:
+            raise _refine_input(
+                f"a finding names {item['checkId']!r}, which is not failing in "
+                "the current assessment")
+        if not isinstance(item["text"], str) or not item["text"].strip():
+            raise _refine_input("a finding has no text")
+        out.append({"checkId": item["checkId"], "text": item["text"]})
+    return out
+
+
+def _refinement_questions(payload) -> list[dict]:
+    items = payload["questions"]
+    if not isinstance(items, list) or len(items) > REFINEMENT_QUESTIONS_MAX:
+        raise _refine_input(
+            f"questions is not a list of at most {REFINEMENT_QUESTIONS_MAX}")
+    out, seen = [], set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"id", "text", "options"}:
+            raise _refine_input("a question carries exactly {id, text, options}")
+        if (not isinstance(item["id"], str) or not item["id"].strip()
+                or item["id"] in seen):
+            raise _refine_input(f"question id {item['id']!r} is empty or repeated")
+        seen.add(item["id"])
+        if not isinstance(item["text"], str) or not item["text"].strip():
+            raise _refine_input(f"question {item['id']} has no text")
+        if (not isinstance(item["options"], list)
+                or not all(isinstance(o, str) and o.strip() for o in item["options"])):
+            raise _refine_input(f"question {item['id']} options is not a list of strings")
+        out.append({"id": item["id"], "text": item["text"],
+                    "options": list(item["options"]), "answer": None})
+    return out
+
+
+def _refinement_lint_evidence(paths: Paths, raw_by_path: dict[str, bytes],
+                              stamp: str) -> list[str]:
+    documents = {name: raw.decode("utf-8", errors="replace")
+                 for name, raw in raw_by_path.items()}
+    written = []
+    for name in sorted(documents):
+        execution_id, target = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-lint-{eid}.json")
+        write_atomic(target, json.dumps(
+            requirements_lint(documents, name, execution_id), indent=2) + "\n")
+        written.append(target.relative_to(paths.project_root).as_posix())
+    return written
+
+
+def _refinement_baseline_evidence(paths: Paths, raw_by_path: dict[str, bytes],
+                                  stamp: str) -> str:
+    execution_id, target = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"refinement-baseline-{eid}.json")
+    write_atomic(target, json.dumps({
+        "kind": "refinement-baseline", "executionId": execution_id,
+        "recordedAt": stamp, "workitem": paths.workitem,
+        "documents": {name: {"sha256": hashlib.sha256(raw).hexdigest(),
+                             "text": raw.decode("utf-8", errors="replace")}
+                      for name, raw in sorted(raw_by_path.items())},
+    }, indent=2) + "\n")
+    return target.relative_to(paths.project_root).as_posix()
+
+
+def _refinement_outcome(previous: dict, failing: list[str], content_digest: str,
+                        proposal_digest: str, history: list[dict]) -> str:
+    if content_digest == previous["contentDigest"]:
+        return "stall"
+    if any(entry["proposalDigest"] == proposal_digest for entry in history):
+        return "stall"
+    if set(failing) - set(previous["failingChecks"]):
+        return "regression"
+    answered = any(q["answer"] is not None for q in previous["questions"])
+    if set(failing) < set(previous["failingChecks"]) or answered:
+        return "progress"
+    return "stall"
+
+
+def cmd_refinement_propose(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "propose")
+    consts = load_constants(paths)
+    stamp = now_iso()
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "propose")
+        record = read_refinement_record(paths)
+        if record is not None and record["status"] != "AWAITING_REASSESSMENT":
+            raise _refine_wrong_status(
+                paths, record, "propose",
+                "a loop that is awaiting a re-assessment, or no loop yet")
+        assessment, failing, content_digest, raw_by_path = _refinement_assessment(
+            paths, payload["assessmentRef"])
+        findings = _refinement_findings(payload, failing)
+        questions = _refinement_questions(payload)
+        earlier_ids = ({e["id"] for i in record["iterations"] for e in i["edits"]}
+                       if record else set())
+        edits = _refinement_validated_edits(
+            paths, raw_by_path, payload["edits"], earlier_ids)
+        _refinement_shared_guard(paths, [e["path"] for e in edits])
+        proposal_digest = _refinement_proposal_digest(findings, questions, edits)
+        reference = payload["assessmentRef"]
+
+        if not failing:
+            if record is None:
+                raise _refine_wrong_status(
+                    paths, record, "propose",
+                    "a failing blocking check to refine; the current assessment has none")
+            if findings or questions or edits:
+                raise _refine_input(
+                    "nothing is failing, so a proposal carries no findings, "
+                    "questions or edits")
+            record["iterations"][-1]["outcome"] = "progress"
+            record["status"], record["endedAt"] = "PASSED", stamp
+            relative = write_refinement_record(paths, record)
+            emit("refinement propose", {
+                "workitem": paths.workitem, "status": "PASSED", "record": relative,
+                "iteration": len(record["iterations"]), "failing": []})
+            return EXIT_OK
+
+        effective = read_governance_policy(paths, consts)
+        escalation = None
+        regression: list[str] = []
+        lint_evidence: list[str] = []
+        if record is None:
+            baseline = _refinement_baseline_evidence(paths, raw_by_path, stamp)
+            record = {
+                "refinementVersion": REFINEMENT_RECORD_VERSION,
+                "workitem": paths.workitem, "status": "IN_PROGRESS",
+                "iterationCap": effective["policy"]["refinement_iteration_cap"],
+                "iterationCapSource": ("builtin" if effective["source"] == "builtin"
+                                       else "policy"),
+                "iterations": [], "startedAt": stamp, "endedAt": None}
+        else:
+            previous = record["iterations"][-1]
+            outcome = _refinement_outcome(
+                previous, failing, content_digest, proposal_digest,
+                record["iterations"])
+            previous["outcome"] = outcome
+            if outcome == "regression":
+                regression = sorted(set(failing) - set(previous["failingChecks"]))
+            earlier = (record["iterations"][-2]["outcome"]
+                       if len(record["iterations"]) >= 2 else None)
+            if outcome == "stall" and (
+                    content_digest == previous["contentDigest"]
+                    or any(e["proposalDigest"] == proposal_digest
+                           for e in record["iterations"])
+                    or earlier in ("stall", "regression")):
+                escalation = "stall"
+            elif len(record["iterations"]) >= record["iterationCap"]:
+                escalation = "cap"
+        if escalation:
+            record["status"], record["endedAt"] = "ESCALATED", stamp
+            relative = write_refinement_record(paths, record)
+            if escalation == "cap":
+                raise _refine_refused(
+                    "refinement_cap_exhausted",
+                    f"The refinement used its {record['iterationCap']} iterations "
+                    "and the requirements still fail. The loop is recorded as "
+                    "ESCALATED: edit the requirements by hand, or take the "
+                    "findings back to the people who own them.",
+                    {"workitem": paths.workitem, "record": relative,
+                     "failing": failing})
+            emit("refinement propose", {
+                "workitem": paths.workitem, "status": "ESCALATED", "record": relative,
+                "reason": "stall", "failing": failing,
+                "iteration": len(record["iterations"])})
+            return EXIT_OK
+        lint_evidence = _refinement_lint_evidence(paths, raw_by_path, stamp)
+        record["iterations"].append({
+            "iteration": len(record["iterations"]) + 1,
+            "assessmentRef": reference, "contentDigest": content_digest,
+            "proposalDigest": proposal_digest, "failingChecks": failing,
+            "findings": findings, "questions": questions, "edits": edits,
+            "outcome": None, "disputeOutcomes": []})
+        record["status"] = "IN_PROGRESS"
+        relative = write_refinement_record(paths, record)
+    emit("refinement propose", {
+        "workitem": paths.workitem, "status": "IN_PROGRESS", "record": relative,
+        "iteration": len(record["iterations"]), "failing": failing,
+        "regression": regression, "lint_evidence": lint_evidence,
+        "questions": [{"id": q["id"], "text": q["text"], "options": q["options"]}
+                      for q in questions]})
+    return EXIT_OK
+
+
+def cmd_refinement_decide(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "decide")
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "decide")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "decide", "an active loop")
+        current = record["iterations"][-1]
+        if "questionId" in payload:
+            question = next((q for q in current["questions"]
+                             if q["id"] == payload["questionId"]), None)
+            if question is None:
+                raise _refine_input(f"there is no question {payload['questionId']!r}")
+            answer = payload["answer"]
+            if (not isinstance(answer, str) or not answer.strip()
+                    or len(answer) > REFINEMENT_ANSWER_MAX):
+                raise _refine_input("the answer is empty or too long")
+            if question["answer"] is not None:
+                raise _refine_input(f"question {question['id']} is already answered")
+            if question["options"] and answer not in question["options"]:
+                raise _refine_input(
+                    f"the answer is not one of the options {question['options']}")
+            question["answer"] = answer
+            what = {"question": question["id"], "answer": answer}
+        else:
+            edit = next((e for e in current["edits"] if e["id"] == payload["editId"]), None)
+            if edit is None:
+                raise _refine_input(f"there is no edit {payload['editId']!r}")
+            if payload["decision"] not in REFINEMENT_EDIT_DECISIONS:
+                raise _refine_input(
+                    f"a decision is one of {list(REFINEMENT_EDIT_DECISIONS)}")
+            if edit["decision"] is not None or edit["appliedSha256"] is not None:
+                raise _refine_input(f"edit {edit['id']} is already decided")
+            edit["decision"] = payload["decision"]
+            what = {"edit": edit["id"], "decision": payload["decision"]}
+        relative = write_refinement_record(paths, record)
+    emit("refinement decide", {"workitem": paths.workitem, "record": relative, **what})
+    return EXIT_OK
+
+
+def cmd_refinement_apply(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "apply")
+    stamp = now_iso()
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "apply")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "apply", "an active loop")
+        current = record["iterations"][-1]
+        edit = next((e for e in current["edits"] if e["id"] == payload["editId"]), None)
+        if edit is None:
+            raise _refine_input(f"there is no edit {payload['editId']!r}")
+        if edit["appliedSha256"] is not None:
+            raise _refine_wrong_status(
+                paths, record, "apply", f"an edit not yet applied ({edit['id']} is)")
+        if not isinstance(payload["baseSha256"], str) or not _HEX64.match(
+                payload["baseSha256"]):
+            raise _refine_input("baseSha256 is not a SHA-256 digest")
+        relative = edit["path"]
+        if relative not in bound_sources(paths):
+            raise _refine_input(f"{relative} is no longer one of the bound documents")
+        _refinement_shared_guard(paths, [relative])
+        target = paths.project_root / relative
+        if not target.is_file():
+            raise _refine_input(f"{relative} is not in the repository")
+        raw = target.read_bytes()
+        now_sha = hashlib.sha256(raw).hexdigest()
+        applied_here = {e["appliedSha256"] for e in current["edits"]
+                        if e["path"] == relative and e["appliedSha256"]}
+        if payload["baseSha256"] != now_sha or (
+                edit["baseSha256"] != now_sha and now_sha not in applied_here):
+            raise _refine_refused(
+                "refinement_edit_stale_base",
+                f"{relative} is not the text this edit was written against. "
+                "Nothing was written; propose again from the current text.",
+                {"edit": edit["id"], "path": relative, "current": now_sha,
+                 "expected": edit["baseSha256"]})
+        before, crlf = _refinement_document_text(raw, relative)
+        try:
+            after = refinement_apply_operation(before, edit)
+        except ValueError as exc:
+            raise _refine_input(f"edit {edit['id']}: {exc}") from None
+        neutral = requirements_normal_form(before) == requirements_normal_form(after)
+        if not neutral and edit["decision"] != "accepted":
+            raise _refine_wrong_status(
+                paths, record, "apply",
+                "a human decision to accept this edit; it changes what the "
+                "requirements say" + (", and it was rejected"
+                                      if edit["decision"] == "rejected" else ""))
+        if neutral and edit["decision"] == "rejected":
+            raise _refine_wrong_status(paths, record, "apply", "an edit not rejected")
+        written = after.replace("\n", "\r\n") if crlf else after
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-apply-{eid}.json")
+        new_sha = hashlib.sha256(written.encode("utf-8")).hexdigest()
+        import difflib
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-apply", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "edit": edit["id"],
+            "path": relative, "beforeSha256": now_sha, "afterSha256": new_sha,
+            "presentationNeutral": neutral,
+            "diff": "".join(difflib.unified_diff(
+                before.splitlines(True), after.splitlines(True),
+                f"a/{relative}", f"b/{relative}")),
+        }, indent=2) + "\n")
+        write_atomic(target, written, newline="" if crlf else None) \
+            if False else write_atomic(target, written)
+        edit["appliedSha256"], edit["autoApplied"] = new_sha, neutral
+        record["status"] = "AWAITING_REASSESSMENT"
+        record_relative = write_refinement_record(paths, record)
+        offenders: list[dict] = []
+        try:
+            sources, _digest, raw_by_path = requirements_sources(paths)
+            offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
+        except SdleError:
+            offenders = []
+    emit("refinement apply", {
+        "workitem": paths.workitem, "record": record_relative, "edit": edit["id"],
+        "path": relative, "sha256": new_sha, "presentation_neutral": neutral,
+        "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "needs_acknowledgement": [o.get("path") for o in offenders
+                                  if isinstance(o, dict)],
+        "next": "run `governance assess`, then `refinement propose`"})
+    return EXIT_OK
+
+
+def cmd_refinement_cancel(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "cancel")
+    stamp = now_iso()
+    reason = payload["reason"]
+    if (not isinstance(reason, str) or not reason.strip()
+            or len(reason) > REFINEMENT_REASON_MAX):
+        raise _refine_input(
+            f"a cancellation needs a reason of at most {REFINEMENT_REASON_MAX} characters")
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "cancel")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "cancel", "an active loop")
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-cancel-{eid}.json")
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-cancel", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "reason": reason,
+        }, indent=2) + "\n")
+        record["status"], record["endedAt"] = "CANCELLED", stamp
+        relative = write_refinement_record(paths, record)
+    emit("refinement cancel", {"workitem": paths.workitem, "record": relative,
+                               "status": "CANCELLED"})
+    return EXIT_OK
+
+
+def cmd_refinement_dispute(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "dispute")
+    stamp = now_iso()
+    check = payload["checkId"]
+    if check not in QUALITY_CHECK_DEFINITIONS:
+        raise _refine_input(f"{check!r} is not a quality check")
+    for key in ("evidenceRef", "decisionRef", "rationale"):
+        if not isinstance(payload[key], str) or not payload[key].strip():
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                "A dispute needs both parts: independent evidence (a refused "
+                "re-assessment that passes the check at the same content) with "
+                "a written rationale, and a recorded human decision that "
+                f"authorises overturning the result. {key} is missing. "
+                "Nothing was written.", {"workitem": paths.workitem, "missing": key})
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "dispute")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "dispute", "an active loop")
+        target = paths.project_root / payload["evidenceRef"]
+        if not (target.parent == paths.evidence_dir
+                and target.name.startswith("governance-flip-attempt-")
+                and target.is_file()):
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                "The evidence of a dispute is a refused re-assessment of this "
+                "WorkItem (`evidence/governance-flip-attempt-*.json`): an "
+                "ordinary assessment is the result being disputed, not "
+                "independent evidence against it. Nothing was written.",
+                {"workitem": paths.workitem})
+        try:
+            attempt = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            attempt = None
+        results = ((attempt or {}).get("proposedQuality") or {}).get("checks")
+        digest = (attempt or {}).get("contentDigest")
+        passed = isinstance(results, list) and any(
+            isinstance(c, dict) and c.get("id") == check and c.get("result") == "PASS"
+            for c in results)
+        if (not isinstance(attempt, dict)
+                or attempt.get("kind") != "governance-flip-attempt"
+                or attempt.get("workitem") != paths.workitem
+                or check not in (attempt.get("flippedChecks") or [])
+                or not passed
+                or not isinstance(digest, str) or not _HEX64.match(digest)):
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                f"That evidence does not show a fresh assessment passing "
+                f"{check}. Nothing was written.", {"workitem": paths.workitem})
+        _sources, raw_digest, raw_by_path = requirements_sources(paths)
+        history = governance_assessment_history(
+            paths, raw_digest, requirements_content_digest(raw_by_path))
+        failed_before = [e for e in history if e["contentDigest"] == digest
+                         and e["results"].get(check) == "FAIL"
+                         and (e["recordedAt"] or "") <= (attempt.get("recordedAt") or "")]
+        if not failed_before:
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                f"There is no earlier FAIL of {check} at that content for this "
+                "evidence to dispute. Nothing was written.",
+                {"workitem": paths.workitem})
+        for entry in record["iterations"]:
+            for outcome in entry["disputeOutcomes"]:
+                if (outcome["evidenceRef"] == payload["evidenceRef"]
+                        or outcome["decisionRef"] == payload["decisionRef"]
+                        or (outcome["checkId"], outcome["contentDigest"]) == (check, digest)):
+                    raise _refine_refused(
+                        "refinement_dispute_replayed",
+                        "That evidence, that decision or that result was "
+                        "already used by a recorded dispute. Each dispute "
+                        "needs its own. Nothing was written.",
+                        {"workitem": paths.workitem})
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-dispute-{eid}.json")
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-dispute", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "checkId": check,
+            "contentDigest": digest, "evidenceRef": payload["evidenceRef"],
+            "decisionRef": payload["decisionRef"], "rationale": payload["rationale"],
+        }, indent=2) + "\n")
+        record["iterations"][-1]["disputeOutcomes"].append({
+            "checkId": check, "outcome": "overturned_by_dispute",
+            "originalResult": "FAIL", "evidenceRef": payload["evidenceRef"],
+            "decisionRef": payload["decisionRef"], "contentDigest": digest})
+        relative = write_refinement_record(paths, record)
+    emit("refinement dispute", {
+        "workitem": paths.workitem, "record": relative, "check": check,
+        "outcome": "overturned_by_dispute", "content_digest": digest,
+        "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "next": "run `governance assess` again; only this check at this "
+                "content is exempt from the verdict-flip rule"})
+    return EXIT_OK
+
+
+def cmd_refinement_show(args, paths: Paths) -> int:
+    record = read_refinement_record(paths)
+    evidence = ([p.name for p in sorted(paths.evidence_dir.glob("refinement-*.json"))]
+                if paths.evidence_dir.is_dir() else [])
+    emit("refinement show", {
+        "workitem": paths.workitem, "record": record,
+        "status": record["status"] if record else None,
+        "evidence": evidence})
+    return EXIT_OK
+
+
 def read_governance_input(target: Path, relative: str) -> dict:
     """Parse and envelope-validate Claude's structured proposal. Fail-closed:
     nothing here returns a default."""
@@ -6378,7 +7098,8 @@ def _history_entry(record, source: Path, raw_digest: str,
             isinstance(recorded, str) and re.fullmatch(r"[0-9a-f]{64}", recorded)):
         raise _history_invalid(source, "its content digest is malformed")
     return {"source": source.name, "contentDigest": recorded,
-            "executionId": record.get("executionId"), "results": results}
+            "executionId": record.get("executionId"),
+            "recordedAt": record.get("recordedAt"), "results": results}
 
 
 def governance_assessment_history(paths: Paths, raw_digest: str,
@@ -12276,6 +12997,13 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
 
 
 def cmd_requirements_bind(args, paths: Paths) -> int:
+    # Ownership of a document is decided here and checked by `refinement`
+    # commands, so both take the same mutex.
+    with refinement_mutex(paths):
+        return _cmd_requirements_bind_locked(args, paths)
+
+
+def _cmd_requirements_bind_locked(args, paths: Paths) -> int:
     """Declare which requirement documents this WorkItem is about.
 
     The engine writes the binding; it is never hand-edited (invariant 6),
@@ -15895,6 +16623,26 @@ def build_parser() -> argparse.ArgumentParser:
         "gates", help="The would-be required gate set. Advisory only."
     )
     gov_gates.set_defaults(handler=cmd_governance_gates)
+
+    refinement_p = subparsers.add_parser(
+        "refinement", help="Requirements refinement before the workflow starts.")
+    refinement_sub = refinement_p.add_subparsers(dest="subcommand", required=True)
+    for name, handler, helptext in (
+            ("propose", cmd_refinement_propose,
+             "Record findings, questions and proposed edits for the current assessment."),
+            ("decide", cmd_refinement_decide,
+             "Record a human answer to a question or a decision on an edit."),
+            ("apply", cmd_refinement_apply, "Apply one accepted edit to a bound document."),
+            ("dispute", cmd_refinement_dispute,
+             "Overturn one earlier FAIL on independent evidence and a human decision."),
+            ("cancel", cmd_refinement_cancel, "End the refinement loop.")):
+        step = refinement_sub.add_parser(name, help=helptext)
+        step.add_argument("--input", required=True,
+                          help="Path to the structured input JSON.")
+        step.set_defaults(handler=handler)
+    ref_show = refinement_sub.add_parser(
+        "show", help="The refinement record. Writes nothing.")
+    ref_show.set_defaults(handler=cmd_refinement_show)
 
     baseline_p = subparsers.add_parser(
         "baseline", help="The repository baseline (contract §14). Read-only."
