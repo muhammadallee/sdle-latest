@@ -245,6 +245,16 @@ class Paths:
         return self.runtime / "requirements.json"
 
     @property
+    def refinement_lock_file(self) -> Path:
+        """The short repository mutex for requirements ownership.
+
+        Repository-level, under the already write-fenced `workitems/` area and
+        gitignored beside the active context. Not a WorkItem runtime member
+        and not a `.sdle/` boundary member, so neither closed set takes it.
+        """
+        return self.project_root / "workitems" / ".refinement-transaction.lock"
+
+    @property
     def refinement_file(self) -> Path:
         """The requirements-refinement record for this WorkItem.
 
@@ -7524,6 +7534,46 @@ ARCHITECTURE_LOCK_POLL = 0.05
 
 
 @contextlib.contextmanager
+def exclusive_file_lock(lock: Path, timeout: float, stale_after: float,
+                        poll: float, refusal: "Callable[[], Refused]"):
+    """Hold ``lock`` for the duration of the ``with`` block.
+
+    One implementation of the engine's short exclusive locks, so the
+    exclusive-create, the stale-break and the refuse-don't-hang behaviour
+    exist once. The file is created with ``os.open(O_CREAT | O_EXCL)``; a lock
+    older than ``stale_after`` is broken; one still fresh after ``timeout``
+    raises what ``refusal`` builds, and a caller that was refused never
+    releases a lock it did not take.
+    """
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age > stale_after:
+                with contextlib.suppress(FileNotFoundError):
+                    lock.unlink()
+                continue
+            if time.monotonic() >= deadline:
+                raise refusal()
+            time.sleep(poll)
+            continue
+        break
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as owner:
+            owner.write(f"{os.getpid()} {now_iso()}\n")
+        yield
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            lock.unlink()
+
+
+@contextlib.contextmanager
 def architecture_catalog_lock(paths: Paths):
     """Serialise one read-check-write of the shared catalog.
 
@@ -7541,40 +7591,53 @@ def architecture_catalog_lock(paths: Paths):
     `ARCHITECTURE_LOCK_STALE_AFTER`; one that is still fresh after
     `ARCHITECTURE_LOCK_TIMEOUT` is a refusal, not a hang.
     """
-    lock = paths.architecture_lock_file
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + ARCHITECTURE_LOCK_TIMEOUT
-    while True:
-        try:
-            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                age = time.time() - lock.stat().st_mtime
-            except FileNotFoundError:
-                continue
-            if age > ARCHITECTURE_LOCK_STALE_AFTER:
-                with contextlib.suppress(FileNotFoundError):
-                    lock.unlink()
-                continue
-            if time.monotonic() >= deadline:
-                raise Refused(
-                    "architecture_catalog_locked",
-                    "Another process is updating the architecture catalog "
-                    f"and has held {architecture_catalog_relative(paths)}'s "
-                    "lock for longer than expected. Nothing was written; "
-                    "retry in a moment.",
-                    {"lock": architecture_lock_relative(paths),
-                     "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
-            time.sleep(ARCHITECTURE_LOCK_POLL)
-            continue
-        break
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as owner:
-            owner.write(f"{os.getpid()} {now_iso()}\n")
+    def refusal() -> Refused:
+        return Refused(
+            "architecture_catalog_locked",
+            "Another process is updating the architecture catalog "
+            f"and has held {architecture_catalog_relative(paths)}'s "
+            "lock for longer than expected. Nothing was written; "
+            "retry in a moment.",
+            {"lock": architecture_lock_relative(paths),
+             "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
+
+    with exclusive_file_lock(
+            paths.architecture_lock_file, ARCHITECTURE_LOCK_TIMEOUT,
+            ARCHITECTURE_LOCK_STALE_AFTER, ARCHITECTURE_LOCK_POLL, refusal):
         yield
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock.unlink()
+
+
+REFINEMENT_LOCK_TIMEOUT = 10.0
+REFINEMENT_LOCK_STALE_AFTER = 60.0
+REFINEMENT_LOCK_POLL = 0.05
+
+
+@contextlib.contextmanager
+def refinement_mutex(paths: Paths):
+    """Serialise one command's check-and-write against the other parties that
+    read requirements ownership: every mutating `refinement` command,
+    `requirements bind` and `init`.
+
+    A mutex serialises only the parties that take it, so each of them does.
+    It is held for one engine command - never across a model call or a human
+    decision - which is what makes breaking a stale one safe. Readers never
+    wait for it.
+    """
+    def refusal() -> Refused:
+        return Refused(
+            "refinement_transaction_locked",
+            "Another command is changing requirements ownership or "
+            "refinement state and has held "
+            f"{paths.refinement_lock_file.relative_to(paths.project_root).as_posix()}"
+            " for longer than expected. Nothing was written; retry in a moment.",
+            {"lock": paths.refinement_lock_file
+             .relative_to(paths.project_root).as_posix(),
+             "waited_seconds": REFINEMENT_LOCK_TIMEOUT})
+
+    with exclusive_file_lock(
+            paths.refinement_lock_file, REFINEMENT_LOCK_TIMEOUT,
+            REFINEMENT_LOCK_STALE_AFTER, REFINEMENT_LOCK_POLL, refusal):
+        yield
 
 
 def architecture_digest(payload) -> str:

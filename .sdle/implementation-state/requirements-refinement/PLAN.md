@@ -804,7 +804,7 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 | Reason | Raised by | Exit |
 |---|---|---|
 | `quality_verdict_flip` | `governance assess` | 1 |
-| `quality_verdict_below_floor` | *(defined, never raised in this change — Option 3, §3.b)* | 1 |
+| ~~`quality_verdict_below_floor`~~ | *Not defined (amended 2026-10-03, Codex: ACCEPT).* The engine has no reason registry and an unreachable constant or troubleshooting row would be dead code that advertises an impossible refusal. Advisory-only is pinned instead by the negative AST test (no assessment-path function references the lint) and the evidence validator (`floorEnforced` must be false). | — |
 | `refinement_shared_source` | `refinement propose`/`apply` | 1 |
 | `refinement_dispute_incomplete` | `refinement dispute` | 1 |
 | `refinement_cap_exhausted` | `refinement propose` | 1 |
@@ -951,7 +951,7 @@ not a function — exact names don't exist until phase C/E write the code.
 | 17 | Shared document refused without acknowledgement | D1/D2 (C1 transaction); §5.c `refinement_shared_source` | `test_units_refinement.py` — shared-source refusal |
 | 18 | Acknowledged shared edit dual-audited, staleness reported | D1 (affected-WorkItem audit append/deferred-replay); C1 record (§6) | `test_units_refinement.py` — shared-edit dual-audit + staleness |
 | 19 | FAIL→PASS at same digest refused | §3.a (the one identified test to edit, D4); §5.c `quality_verdict_flip` | `test_units_governance.py::test_re_assessing_a_fixed_requirement_unblocks_the_same_advance` (edited per D4) + new flip-refusal test |
-| 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. Test instead proves the reason code exists and stays inert | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
+| 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. *Amended 2026-10-03:* the test proves the **negative** instead — no assessment-path function references the lint, and `floorEnforced` is validated false — not a defined-but-inert reason | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
 | 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement. Per **D10**, the committed prompt file carries no check-id vocabulary at all — the parent builds the actual dispatch payload at runtime, so "no prior state" must be verified against that payload, not the static file. **Convention only (F8), same class of gap as D8/D9:** nothing in this plan records the assessor's actual dispatch payload for later inspection. Flagged for Stage 2 rather than resolved here | New test on the parent's dispatch-payload construction (not `sdle-requirements-review.md`'s static template, which per D10 has nothing check-id-shaped to inspect) — no prior-state fields present in what's actually sent |
 | 22 | Whitespace-only auto-applies; one-word change does not | §6 presentation-neutral normal form algorithm (§3.2/§3.5); D7 | `test_units_refinement.py` — normal-form digest auto-apply boundary |
 | 23 | Corpus before/after metrics, zero findings on clean fixture | §3.c (Stage 1's "before"); Stage 5 reruns as "after" | Stage 5 `REPORT.md` corpus-metrics section, reusing `runs/recompute_metrics.py` |
@@ -978,3 +978,15 @@ Confirmed already, repeatedly, within this session rather than re-demonstrated: 
 add`/`git worktree remove` cycles (Stage 0's review rounds) and multiple Agent-tool dispatches (the three
 Stage 1 Explore agents) both worked cleanly throughout. No fresh drill needed; citing existing evidence
 per the brief's own "don't redo what's already done" principle.
+
+
+## Amendments of 2026-10-03 (Phase C start)
+
+- **"Shared" (C1), decided with Codex:** another WorkItem's binding of the document counts unless that WorkItem's
+  current, supported, structurally consistent `state.json` proves completion (`current_phase == "complete"` and
+  `status == "completed"`). Pre-init (binding, no state), reset (state deleted, binding kept), `failed`,
+  `rejected` and every active status all count. A present but corrupt/unreadable/unsupported/inconsistent binding
+  or state of another registered WorkItem fails closed (integrity error naming it); a missing binding is harmless.
+  Consequence: normal ITERATIVE reuse after completion is allowed; an active or unknown sharer must be completed
+  or re-bound first.
+- **`quality_verdict_below_floor`** is not defined; see the amended §5.c row and acceptance row 20.
