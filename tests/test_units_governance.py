@@ -2768,6 +2768,94 @@ def test_v2_01_a_windows_alias_path_is_rejected_not_silently_miskeyed(project):
     assert result.reason == "path_invalid", result
 
 
+# --------------------------------------------------------------------------
+# Phase A0 — inherited Stage 0 defects fixed ahead of the refinement work
+# --------------------------------------------------------------------------
+
+
+def test_a0_a_dot_component_names_the_same_file_under_the_same_key(project):
+    """RR-002. The alias loop treated the component "." as one ending in a dot,
+    so `./requirements/x.md` and `requirements/./x.md` were refused as a
+    Windows alias although each is plainly the same file as `requirements/x.md`.
+    They are canonicalised to the same key, which is what `cmd_scan`'s own
+    comment already promised."""
+    plain = project.run("scan", "--path", "requirements/todo-api.md")
+    assert plain.exit_code == EXIT_OK, plain
+
+    for spelling in ("./requirements/todo-api.md",
+                     "requirements/./todo-api.md"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_OK, (spelling, result)
+        assert result.data["path"] == plain.data["path"] == (
+            "requirements/todo-api.md"), (spelling, result)
+
+
+def test_a0_a_parent_component_is_reported_as_one_not_as_a_windows_alias(
+        project):
+    """RR-002. `..` also hit the alias rule first, so a path that climbs out of
+    the repository was reported as a cross-platform spelling problem and the
+    traversal branch was unreachable for it. Any `..` component is still
+    refused - lexically collapsing it through a symlinked directory could name
+    a different file than the filesystem does - but the message now says what
+    is wrong."""
+    for spelling in ("../outside.md", "./../outside.md",
+                     "a/../requirements/todo-api.md"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_REFUSED, (spelling, result)
+        assert result.reason == "path_invalid", (spelling, result)
+        message = result.envelope.get("message", "")
+        assert "'..'" in message, (spelling, message)
+        assert "different platforms" not in message, (spelling, message)
+
+
+def test_a0_requirements_bind_canonicalises_a_dot_component_too(project):
+    """The second surface that reaches `_lexically_safe_path`. A binding that
+    stored `./x` beside `x` would make one document look like two, and the
+    set's digest would differ for the same files."""
+    result = project.run("requirements", "bind",
+                         "--source", "./requirements/todo-api.md")
+    assert result.exit_code == EXIT_OK, result
+
+    shown = project.ok("requirements", "show").data
+    assert shown["sources"] == ["requirements/todo-api.md"], shown
+
+
+def test_a0_a_trailing_dot_is_still_a_windows_alias(project):
+    """The fix must not loosen the rule it sits beside: a trailing dot or a
+    colon stream still resolves to the ordinary file on Windows under a
+    different stored key, and stays refused as an alias."""
+    for spelling in ("requirements/todo-api.md.", "requirements/todo-api.md:s"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_REFUSED, (spelling, result)
+        assert "different platforms" in result.envelope.get("message", ""), (
+            spelling, result)
+
+
+@pytest.mark.parametrize("damage", [
+    "{not json",
+    json.dumps({"workflow_version": "0.1"}),
+], ids=["malformed", "unsupported-version"])
+def test_a0_accept_content_validates_state_before_it_writes_the_store(
+        project, damage):
+    """RR-008. The post-init `--path` route wrote the durable acknowledgement
+    and only then read `state.json`, so a state that could not be read
+    refused *after* the security decision store had already changed. A
+    refusal must leave every store as it found it."""
+    _flag_bound_document(project)
+    project.ok("init", session="a0-state")
+    store = project.runtime / "scan-acknowledgements.json"
+    assert not store.exists()
+    (project.runtime / "state.json").write_text(
+        damage, encoding="utf-8", newline="\n")
+
+    result = project.run("accept-content", "--path",
+                         "requirements/todo-api.md")
+
+    assert result.exit_code != EXIT_OK, result
+    assert not store.exists(), (
+        "a refused accept-content wrote the acknowledgement store anyway")
+
+
 def test_v2_02_the_bare_route_revalidates_containment_at_accept_time(project):
     """V2-02. The bare route used to reconstruct `paths.project_root / flagged`
     directly, never re-checking containment — a symlink retargeted between

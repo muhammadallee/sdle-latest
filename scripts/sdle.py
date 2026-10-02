@@ -4536,6 +4536,15 @@ def _lexically_safe_path(paths: Paths, raw: str) -> str:
     # every platform, and a colon or a trailing dot in a component means it
     # does not.
     for part in text.split("/"):
+        # "." and ".." end in a dot but are not aliases: "." is the current
+        # directory and is dropped by `normpath` below, so `./x` and `x` are
+        # one file under one key; any ".." is refused as traversal rather than
+        # collapsed, because collapsing it lexically through a symlinked
+        # directory can name a different file than the filesystem does.
+        if part == "..":
+            raise _PathProblem("traversal")
+        if part == ".":
+            continue
         if ":" in part or part != part.rstrip(". "):
             raise _PathProblem("alias")
     if any(ord(ch) < 32 for ch in text):
@@ -4545,6 +4554,8 @@ def _lexically_safe_path(paths: Paths, raw: str) -> str:
     if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
         raise _PathProblem("absolute")
     normal = posixpath.normpath(text)
+    if normal == ".":
+        raise _PathProblem("empty")
     if normal == ".." or normal.startswith("../"):
         raise _PathProblem("traversal")
     target = paths.project_root / normal
@@ -4595,7 +4606,9 @@ def safe_repo_path(paths: Paths, raw: str) -> tuple[Path, str]:
             "empty": f"'{raw}' is not a usable path.",
             "absolute": f"'{raw}' is an absolute path. Name it relative to "
                         "the repository root.",
-            "traversal": f"'{raw}' leaves the repository.",
+            "traversal": f"'{raw}' leaves the repository or contains a '..' "
+                         "component. Name it relative to the repository "
+                         "root, without one.",
             "escape": f"'{raw}' resolves outside the repository (a symlink "
                       "or junction pointing away from it).",
         }[problem.kind]
@@ -4625,8 +4638,9 @@ def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
                         "sources by their path relative to the repository "
                         "root, so the record means the same thing in every "
                         "checkout.",
-            "traversal": f"'{raw}' leaves the repository. A requirements "
-                         "source must be a file inside it.",
+            "traversal": f"'{raw}' leaves the repository or contains a "
+                         "'..' component. A requirements source must be a "
+                         "file inside it, named without one.",
             "escape": f"'{raw}' resolves outside the repository (a symlink "
                       "or junction pointing away from it). SDLE will not "
                       "read requirements from outside the tree it governs.",
@@ -12566,9 +12580,13 @@ def cmd_accept_content(args, paths: Paths) -> int:
                           "No flagged content is pending acknowledgement.",
                           {"path": path_arg})
         sha = hashlib.sha256(raw).hexdigest()
+        # State is read, and so validated, BEFORE the acknowledgement store is
+        # touched: a state that cannot be read refuses, and a refusal leaves
+        # every store as it found it. Writing the store first changed the
+        # security decision record on a command that then reported failure.
+        state = read_state(paths) if paths.state_file.is_file() else None
         write_content_acknowledgement(paths, canonical, sha, args.session)
-        if paths.state_file.is_file():
-            state = read_state(paths)
+        if state is not None:
             pending = state.get("pending_confirm_action") or ""
             if pending == f"accept_content:{canonical}":
                 state["pending_confirm_action"] = None
