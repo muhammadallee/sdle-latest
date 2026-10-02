@@ -120,8 +120,11 @@ statement alone removes the `dependencies` failure under either definition, so t
 improvement and not the load-bearing fix. **Two corrections to my own earlier explanations**, made before the
 owner chose: the seeded `defect-dependencies.md` defect is a missing Dependencies *section*, not only vague wording,
 so "the check misses real defects" was overstated (its recall stays undetermined, as the Stage 1 ledger said); and
-the cost of editing the sample was overstated (three files carry the phrase, not thirty-three). **Awaiting the
-owner:** whether to resolve the contradiction by aligning the Data Model line with requirement 5.
+the cost of editing the sample was overstated (three files carry the phrase, not thirty-three). **Resolved by the
+owner the same day:** `updated_at` means the time the row's fields were last actually changed, which is what
+requirement 5 said, so the Data Model line was aligned to it and the sample amended in its three copies
+(`requirements/todo-api.md`, the corpus fixture, and the Getting Started embedding). The corpus label note records
+that the Stage 1 runs were made against the pre-amendment bytes.
 
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
