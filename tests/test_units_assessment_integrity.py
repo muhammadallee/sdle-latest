@@ -77,12 +77,17 @@ def test_a_fail_then_a_pass_at_the_same_content_is_refused(project):
 
 
 def test_the_refused_flip_cannot_unlock_progression(project):
-    run_assess(project, **{CHECK: "FAIL"})
-    run_assess(project)
-    shown = project.ok("governance", "show")
-    checks = {c["id"]: c["result"] for c in shown.data["record"]["quality"]["checks"]}
-    assert checks[CHECK] == "FAIL"
-    assert project.run("advance").exit_code != 0
+    assert run_assess(project, **{CHECK: "FAIL"}).exit_code == EXIT_REFUSED
+    project.ok("init", session="flip")
+    assert project.run("advance", "--to", "gate_constitution").reason == "governance_blocked"
+
+    assert run_assess(project).reason == "quality_verdict_flip"
+
+    # The recorded verdict is still the FAIL, so progression is still refused for
+    # the original reason - not for a missing record or a stale one.
+    again = project.run("advance", "--to", "gate_constitution")
+    assert again.reason == "governance_blocked"
+    assert project.state()["current_phase"] != "gate_constitution"
 
 
 def test_the_attempt_is_recorded_as_evidence_that_is_not_history(project):

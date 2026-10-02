@@ -1238,3 +1238,15 @@ absence there as "not recorded," not as evidence either way.
   install-contract), hook registration counts (8 -> 9, 4 -> 5), `new_prompt_files` 6 -> 7, `write_atomic` 33 -> 34.
   "Four product subagents" updated to five in CLAUDE.md, SKILL.md, README, the Reference Guide and
   GETTING-STARTED; the tutorial and ADR-007 describe the four review subagents historically and are unchanged.
+
+## Phase C go-ahead (2026-10-03) — Codex consulted on whether the owner is needed
+
+Question: may Phase C proceed under the recorded default (shared document refused, no acknowledgement path, no
+transaction index) without the owner? **Codex: VERDICT: PROCEED** — the default weakens no invariant, is
+reversible without touching `state.json` (the refinement record is independently versioned and a later
+`transactions[]` can be absent-means-empty in version 1), and satisfies scenario 17. Conditions recorded:
+**scenarios 18 and 29 stay explicitly deferred, not reported as passing**; tests must show `propose` and `apply`
+refuse a shared source before any write, with no acknowledgement path and no bind/check race. Codex's reminder,
+adopted: this is not approval to ship the reduced behaviour — the owner must still choose Design R or approve the
+default before the feature is declared complete. A person whose document is shared sees
+`refinement_shared_source` naming the other WorkItems and must edit by hand and re-assess each.
