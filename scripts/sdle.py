@@ -245,6 +245,17 @@ class Paths:
         return self.runtime / "requirements.json"
 
     @property
+    def refinement_file(self) -> Path:
+        """The requirements-refinement record for this WorkItem.
+
+        WorkItem-owned, for the argument `scan_acknowledgements_file` makes:
+        the loop runs before ``init``, so it cannot live in ``state.json``,
+        and the same bound document may be bound by several WorkItems, so a
+        loop's history is the WorkItem's own fact. Engine-written only.
+        """
+        return self.runtime / "refinement.json"
+
+    @property
     def scan_acknowledgements_file(self) -> Path:
         """Explicitly acknowledged flagged content, keyed by path and SHA-256.
 
@@ -3520,7 +3531,8 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
         bound.lock_file, bound.evidence_dir, bound.manifest_file,
         bound.completion_file, bound.governance_file, bound.reviews_file,
         bound.discovery_file, bound.requirements_binding_file,
-        bound.architecture_placement_file,
+        bound.architecture_placement_file, bound.scan_acknowledgements_file,
+        bound.refinement_file,
     ))
 
 
@@ -5012,6 +5024,263 @@ def requirements_content_digest(raw_by_path: dict[str, bytes]) -> str:
             raw_by_path[path].decode("utf-8", errors="replace"))
         lines.append(f"{path} {hashlib.sha256(normal.encode('utf-8')).hexdigest()}")
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# The requirements-refinement record (WorkItem-owned)
+#
+# What a refinement loop did to one WorkItem's bound requirements: which
+# iteration found what, which questions were asked and answered, which edits
+# were proposed and what became of them, and how the loop ended. Engine-written
+# only, through `write_refinement_record`, and refused when it is not a file the
+# engine wrote - the rule `requirements.json` follows, for the same reason: it
+# decides what a later step may do, so a hand-edited one cannot be trusted.
+# Strict on purpose: an unknown key is refused, and a new field arrives as a
+# version bump, never as a silently tolerated extra.
+# --------------------------------------------------------------------------
+
+REFINEMENT_RECORD_VERSION = "1"
+# The most iterations a loop may take. One engine constant: a record may carry
+# a lower cap, never a higher one.
+REFINEMENT_ITERATION_CAP_MAX = 3
+REFINEMENT_QUESTIONS_MAX = 5
+REFINEMENT_ACTIVE_STATUSES = ("IN_PROGRESS", "AWAITING_REASSESSMENT")
+REFINEMENT_TERMINAL_STATUSES = ("PASSED", "ESCALATED", "CANCELLED", "FAILED")
+REFINEMENT_EDIT_OPS = ("replace", "insert_after", "append_section")
+REFINEMENT_EDIT_DECISIONS = ("accepted", "rejected")
+REFINEMENT_OUTCOMES = ("progress", "regression", "stall")
+REFINEMENT_CAP_SOURCES = ("builtin", "policy")
+
+_REFINEMENT_KEYS = frozenset((
+    "refinementVersion", "workitem", "status", "iterationCap",
+    "iterationCapSource", "iterations", "startedAt", "endedAt"))
+_REFINEMENT_ITERATION_KEYS = frozenset((
+    "iteration", "contentDigest", "proposalDigest", "failingChecks",
+    "findings", "questions", "edits", "outcome", "disputeOutcomes"))
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _refinement_invalid(relative: str, detail: str) -> IntegrityError:
+    return IntegrityError(
+        "refinement_record_invalid",
+        f"{relative} is not a refinement record the engine wrote: {detail}. "
+        "It is never edited by hand: restore it from version control.",
+        {"path": relative, "detail": detail})
+
+
+def _refinement_object(value, keys, where: str, relative: str) -> dict:
+    if not isinstance(value, dict):
+        raise _refinement_invalid(relative, f"{where} is not an object")
+    if set(value) != set(keys):
+        missing = sorted(set(keys) - set(value))
+        extra = sorted(set(value) - set(keys))
+        raise _refinement_invalid(
+            relative, f"{where} has the wrong keys (missing {missing}, "
+                      f"unexpected {extra})")
+    return value
+
+
+def _refinement_text(value, where: str, relative: str,
+                     allow_none: bool = False) -> None:
+    if value is None and allow_none:
+        return
+    if not isinstance(value, str) or not value.strip():
+        raise _refinement_invalid(relative, f"{where} is not a non-empty string")
+
+
+def _refinement_hex(value, where: str, relative: str) -> None:
+    if not isinstance(value, str) or not _HEX64.match(value):
+        raise _refinement_invalid(relative, f"{where} is not a SHA-256 digest")
+
+
+def _refinement_check_id(value, where: str, relative: str) -> None:
+    if value not in QUALITY_CHECK_DEFINITIONS:
+        raise _refinement_invalid(
+            relative, f"{where} names {value!r}, which is not a quality check")
+
+
+def validate_refinement_record(doc, relative: str,
+                               workitem: str | None = None) -> dict:
+    """The document, or an integrity failure naming the first thing wrong."""
+    doc = _refinement_object(doc, _REFINEMENT_KEYS, "the record", relative)
+    if doc["refinementVersion"] != REFINEMENT_RECORD_VERSION:
+        raise _refinement_invalid(
+            relative, f"version {doc['refinementVersion']!r} is not "
+                      f"{REFINEMENT_RECORD_VERSION!r}")
+    _refinement_text(doc["workitem"], "workitem", relative)
+    if workitem is not None and doc["workitem"] != workitem:
+        raise _refinement_invalid(
+            relative, f"it belongs to WorkItem {doc['workitem']!r}, not to "
+                      f"{workitem!r}")
+    active = doc["status"] in REFINEMENT_ACTIVE_STATUSES
+    if not active and doc["status"] not in REFINEMENT_TERMINAL_STATUSES:
+        raise _refinement_invalid(relative, f"status {doc['status']!r} is unknown")
+    cap = doc["iterationCap"]
+    if (isinstance(cap, bool) or not isinstance(cap, int)
+            or not 1 <= cap <= REFINEMENT_ITERATION_CAP_MAX):
+        raise _refinement_invalid(
+            relative, f"iterationCap {cap!r} is not an integer from 1 to "
+                      f"{REFINEMENT_ITERATION_CAP_MAX}")
+    if doc["iterationCapSource"] not in REFINEMENT_CAP_SOURCES:
+        raise _refinement_invalid(
+            relative, f"iterationCapSource {doc['iterationCapSource']!r} is unknown")
+    _refinement_text(doc["startedAt"], "startedAt", relative)
+    _refinement_text(doc["endedAt"], "endedAt", relative, allow_none=True)
+    if active != (doc["endedAt"] is None):
+        raise _refinement_invalid(
+            relative, "a loop that is still active has no endedAt, and a "
+                      "finished one has")
+    iterations = doc["iterations"]
+    if not isinstance(iterations, list) or len(iterations) > cap:
+        raise _refinement_invalid(
+            relative, f"iterations is not a list of at most {cap}")
+    for position, entry in enumerate(iterations, start=1):
+        where = f"iteration {position}"
+        entry = _refinement_object(entry, _REFINEMENT_ITERATION_KEYS, where, relative)
+        if entry["iteration"] != position or isinstance(entry["iteration"], bool):
+            raise _refinement_invalid(
+                relative, f"{where} is numbered {entry['iteration']!r}")
+        _refinement_hex(entry["contentDigest"], f"{where} contentDigest", relative)
+        _refinement_hex(entry["proposalDigest"], f"{where} proposalDigest", relative)
+        failing = entry["failingChecks"]
+        if not isinstance(failing, list) or len(set(failing)) != len(failing):
+            raise _refinement_invalid(
+                relative, f"{where} failingChecks is not a list of distinct ids")
+        for check in failing:
+            _refinement_check_id(check, f"{where} failingChecks", relative)
+        if not isinstance(entry["findings"], list):
+            raise _refinement_invalid(relative, f"{where} findings is not a list")
+        for finding in entry["findings"]:
+            finding = _refinement_object(
+                finding, ("checkId", "text"), f"{where} finding", relative)
+            _refinement_check_id(finding["checkId"], f"{where} finding", relative)
+            _refinement_text(finding["text"], f"{where} finding text", relative)
+        questions = entry["questions"]
+        if not isinstance(questions, list) or len(questions) > REFINEMENT_QUESTIONS_MAX:
+            raise _refinement_invalid(
+                relative, f"{where} questions is not a list of at most "
+                          f"{REFINEMENT_QUESTIONS_MAX}")
+        for question in questions:
+            question = _refinement_object(
+                question, ("id", "text", "options", "answer"),
+                f"{where} question", relative)
+            _refinement_text(question["id"], f"{where} question id", relative)
+            _refinement_text(question["text"], f"{where} question text", relative)
+            if (not isinstance(question["options"], list)
+                    or not all(isinstance(o, str) for o in question["options"])):
+                raise _refinement_invalid(
+                    relative, f"{where} question options is not a list of strings")
+            _refinement_text(question["answer"], f"{where} question answer",
+                             relative, allow_none=True)
+        if not isinstance(entry["edits"], list):
+            raise _refinement_invalid(relative, f"{where} edits is not a list")
+        for edit in entry["edits"]:
+            edit = _refinement_object(
+                edit, ("op", "path", "anchor", "baseSha256", "autoApplied",
+                       "decision"), f"{where} edit", relative)
+            if edit["op"] not in REFINEMENT_EDIT_OPS:
+                raise _refinement_invalid(
+                    relative, f"{where} edit op {edit['op']!r} is unknown")
+            _refinement_text(edit["path"], f"{where} edit path", relative)
+            _refinement_text(edit["anchor"], f"{where} edit anchor", relative,
+                             allow_none=True)
+            _refinement_hex(edit["baseSha256"], f"{where} edit baseSha256", relative)
+            if not isinstance(edit["autoApplied"], bool):
+                raise _refinement_invalid(
+                    relative, f"{where} edit autoApplied is not a boolean")
+            if (edit["decision"] is not None
+                    and edit["decision"] not in REFINEMENT_EDIT_DECISIONS):
+                raise _refinement_invalid(
+                    relative, f"{where} edit decision {edit['decision']!r} is unknown")
+        if entry["outcome"] is not None and entry["outcome"] not in REFINEMENT_OUTCOMES:
+            raise _refinement_invalid(
+                relative, f"{where} outcome {entry['outcome']!r} is unknown")
+        if not isinstance(entry["disputeOutcomes"], list):
+            raise _refinement_invalid(
+                relative, f"{where} disputeOutcomes is not a list")
+        for dispute in entry["disputeOutcomes"]:
+            dispute = _refinement_object(
+                dispute, ("checkId", "outcome", "originalResult", "evidenceRef",
+                          "decisionRef", "contentDigest"),
+                f"{where} dispute outcome", relative)
+            _refinement_check_id(dispute["checkId"], f"{where} dispute outcome", relative)
+            if dispute["outcome"] != "overturned_by_dispute":
+                raise _refinement_invalid(
+                    relative, f"{where} dispute outcome {dispute['outcome']!r} is unknown")
+            if dispute["originalResult"] != "FAIL":
+                raise _refinement_invalid(
+                    relative, f"{where} dispute outcome overturns {dispute['originalResult']!r}, "
+                              "and only a FAIL can be overturned")
+            _refinement_text(dispute["evidenceRef"], f"{where} evidenceRef", relative)
+            _refinement_text(dispute["decisionRef"], f"{where} decisionRef", relative)
+            _refinement_hex(dispute["contentDigest"],
+                            f"{where} dispute contentDigest", relative)
+    return doc
+
+
+def read_refinement_record(paths: Paths) -> dict | None:
+    """This WorkItem's validated refinement record, or ``None`` when there is
+    none. A malformed one is an integrity failure and never an absence: reading
+    it as "no loop yet" would let a corrupt file be silently overwritten."""
+    target = paths.refinement_file
+    relative = target.relative_to(paths.project_root).as_posix()
+    if not target.is_file():
+        return None
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _refinement_invalid(relative, f"it cannot be read ({exc})") from None
+    return validate_refinement_record(doc, relative, paths.workitem)
+
+
+def write_refinement_record(paths: Paths, record: dict) -> str:
+    """Validate the outgoing record, then write it atomically; returns the
+    repository-relative path. The ONLY writer of this file: a record that would
+    not read back never reaches disk, so `read_refinement_record` can never be
+    the command that discovers corruption this one created."""
+    relative = paths.refinement_file.relative_to(paths.project_root).as_posix()
+    validate_refinement_record(record, relative, paths.workitem)
+    write_atomic(paths.refinement_file, json.dumps(record, indent=2) + "\n")
+    return relative
+
+
+def refinement_lint_evidence_problems(doc) -> list[str]:
+    """What is wrong with a lint-evidence document, or an empty list. A pure
+    check on the shape, so no engine-written record can assert that a lint
+    finding was enforced: the lint is advisory, and `floorEnforced` is false
+    for every finding."""
+    problems: list[str] = []
+    if not isinstance(doc, dict):
+        return ["the evidence is not an object"]
+    if set(doc) != {"kind", "executionId", "documentSha256", "findings"}:
+        return [f"the evidence has the wrong keys: {sorted(doc)}"]
+    if doc["kind"] != "refinement-lint":
+        problems.append(f"kind {doc['kind']!r} is not 'refinement-lint'")
+    if not isinstance(doc["executionId"], str) or not doc["executionId"]:
+        problems.append("executionId is not a non-empty string")
+    if not isinstance(doc["documentSha256"], str) or not _HEX64.match(doc["documentSha256"]):
+        problems.append("documentSha256 is not a SHA-256 digest")
+    if not isinstance(doc["findings"], list):
+        return problems + ["findings is not a list"]
+    for index, finding in enumerate(doc["findings"]):
+        where = f"finding {index}"
+        if (not isinstance(finding, dict) or set(finding) != {
+                "ruleId", "mappedCheck", "floorEligible", "floorEnforced",
+                "line", "text"}):
+            problems.append(f"{where} has the wrong keys")
+            continue
+        if finding["mappedCheck"] not in QUALITY_CHECK_DEFINITIONS:
+            problems.append(f"{where} maps to {finding['mappedCheck']!r}, not a quality check")
+        if not isinstance(finding["floorEligible"], bool):
+            problems.append(f"{where} floorEligible is not a boolean")
+        if finding["floorEnforced"] is not False:
+            problems.append(f"{where} floorEnforced is not false: the lint is advisory")
+        if (isinstance(finding["line"], bool) or not isinstance(finding["line"], int)
+                or finding["line"] < 1):
+            problems.append(f"{where} line is not a positive integer")
+        if not isinstance(finding["text"], str):
+            problems.append(f"{where} text is not a string")
+    return problems
 
 
 def read_governance_input(target: Path, relative: str) -> dict:
