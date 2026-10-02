@@ -111,7 +111,7 @@ def test_every_registration_is_anchored_on_the_project_directory():
     subdirectory, `python .claude/hooks/hooks.py` could not start and Claude
     Code blocked the call."""
     commands = all_registered_commands()
-    assert len(commands) == 8, commands  # four in settings.json, one per agent
+    assert len(commands) == 9, commands  # four in settings.json, one per agent (five)
     for command in commands:
         assert command.startswith(LAUNCH_PREFIX), command
 
@@ -647,7 +647,7 @@ def run_hook(command: str, payload: dict, cwd) -> dict:
 
 def test_every_product_agent_registers_the_same_fence():
     agents = product_agents()
-    assert len(agents) == 4, [p.name for p in agents]
+    assert len(agents) == 5, [p.name for p in agents]
     commands = {frontmatter_command(p) for p in agents}
     assert commands == {LAUNCH_PREFIX + "product-agent-fence"}, \
         commands
@@ -707,7 +707,7 @@ def test_the_fence_never_fails_open(project, payload):
 def test_the_fence_battery_is_the_size_it_claims_to_be():
     """Non-vacuity guard: parametrising over an empty list passes silently."""
     assert len(FENCE_BATTERY) == 9
-    assert len(product_agents()) == 4
+    assert len(product_agents()) == 5
 
 
 # ==========================================================================

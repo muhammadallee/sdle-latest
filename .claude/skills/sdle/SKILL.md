@@ -420,7 +420,7 @@ A gate requires artifact content in the conversation for a human decision. That 
 
 ## Step 6b: Product Subagents
 
-Four read-only product subagents exist for high-context independent analysis: discovery, design review, code review and security review. The capability file for a phase says when to hand work to one and what to give it.
+Five read-only product subagents exist for high-context independent analysis: discovery, design review, code review, security review and requirements review. The capability file for a phase says when to hand work to one and what to give it.
 
 They may inspect, reason and return structured findings, and they can do nothing else — their tool grant is read-only and a `PreToolUse` hook denies every write and every command they might attempt — both of those hold when the runtime honours a declared `tools:` list and a registered hook, which is the Claude Code runtime's guarantee and not SDLE's (ADR-007 §3). SDLE's own is the door below. **They return findings; they do not record them.** A finding enters the governed record only when *you* run `sdle.sh artifact review --actor-type agent --actor-name <agent>` in this session, and `--actor-name` is a string you supply: the engine records it faithfully and cannot verify it.
 

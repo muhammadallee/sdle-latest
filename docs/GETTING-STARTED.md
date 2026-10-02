@@ -319,7 +319,7 @@ Optional inputs, when you want them:
 
 ## 7. The layout before you launch Claude Code
 
-Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, four `sdle-*` agent files, and in the skill `SKILL.md`, six files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
+Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, six files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
 
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|

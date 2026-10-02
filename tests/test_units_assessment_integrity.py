@@ -259,3 +259,23 @@ def test_a_dispute_at_another_content_exempts_nothing(project):
     run_assess(project, **{CHECK: "FAIL"})
     write_dispute(project, CHECK, "c" * 64)
     assert run_assess(project).reason == "quality_verdict_flip"
+
+
+# -- the assessor agent ---------------------------------------------------------------------------------
+
+
+def test_the_requirements_assessor_is_picked_up_by_the_agent_checks():
+    """lint-skill's agent glob must find the fifth agent; it is proven here, not
+    assumed from the glob's shape."""
+    paths = sdle.resolve_paths(str(sdle.Path(__file__).resolve().parent.parent), None)
+    names = [p.name for p in sdle.product_agent_files(paths)]
+    assert "sdle-requirements-review.md" in names
+
+
+def test_the_assessor_restates_no_check_id_and_no_definition():
+    body = (sdle.Path(__file__).resolve().parent.parent / ".claude" / "agents"
+            / "sdle-requirements-review.md").read_text(encoding="utf-8")
+    flat = " ".join(body.split())
+    for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items():
+        assert f"`{check}`" not in body, check
+        assert " ".join(text.split()) not in flat, check

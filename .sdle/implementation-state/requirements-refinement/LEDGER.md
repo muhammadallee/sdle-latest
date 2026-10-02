@@ -1211,3 +1211,30 @@ absence there as "not recorded," not as evidence either way.
   (prompt identical modulo whitespace to the measured v2 prompt, verified in code), same method as before
   (fresh agent, single Read, single Write, 3 runs): **3 of 3 pass all twelve checks**. Outputs in
   `stage2/final-measurement/`. Exploratory (3 runs, one model), as the earlier measurement was.
+
+## Phase B — assessment integrity (2026-10-03)
+
+- **Flip refusal (A1/A2).** `quality_verdict_flip` (exit 1) fires before any write to `governance.json`, which
+  stays byte-identical; the attempt is kept as `evidence/governance-flip-attempt-*.json` (kind
+  `governance-flip-attempt`, status `REFUSED`, the flipped checks, the content digest, the proposed quality).
+  Both records carry `requirements.contentDigest`. History is read by `kind` from `evidence/governance-*.json`
+  plus the current record as the last entry; legacy entries are "unknown" unless their raw digest equals
+  today's. Corruption refuses `governance_history_invalid` (exit 3).
+  Two deliberate refinements of the plan text, for Codex to judge: (1) a **zero-byte** `governance-*.json` is
+  skipped, because `reserve_evidence` documents an empty file as the crash placeholder and refusing it would
+  brick a WorkItem after any crashed assessment; any other malformed file, including an object with no
+  `kind`, refuses. (2) `NOT_APPLICABLE` after a `FAIL` at the same content counts as a flip, not only `PASS`.
+- **Dispute exemption (A3), reading side only.** An earlier FAIL is exempt only for a (check, content digest)
+  pair listed in a validated `refinement.json` dispute outcome. The `dispute` command that writes one is Phase C.
+- **Existing test changed, on purpose:** `test_re_assessing_a_fixed_requirement_unblocks_the_same_advance`
+  re-assessed an unchanged document; it now makes the fix its name says. It was the only one of 245
+  governance tests, and of the other suites run, that relied on the old behaviour.
+- **The lint floor reason is not defined.** The plan asked for `quality_verdict_below_floor` to be "defined,
+  never raised". An unreachable constant is dead code with a pin, so it is omitted; the advisory-only property
+  is pinned by the AST test over the four assessment functions instead. Open to Codex's disposition.
+- **Assessor agent `sdle-requirements-review`** (read-only grant and fence like the other four; it lists no
+  check id or definition, which the parent copies from `governance policy`'s `check_definitions`). Tests prove
+  the agent glob picks it up and that it restates nothing. Pins moved: agent sets (capabilities, gate-policy,
+  install-contract), hook registration counts (8 -> 9, 4 -> 5), `new_prompt_files` 6 -> 7, `write_atomic` 33 -> 34.
+  "Four product subagents" updated to five in CLAUDE.md, SKILL.md, README, the Reference Guide and
+  GETTING-STARTED; the tutorial and ADR-007 describe the four review subagents historically and are unchanged.

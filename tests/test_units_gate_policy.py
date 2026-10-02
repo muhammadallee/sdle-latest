@@ -1369,14 +1369,15 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
     # below deferred to. Old value: the four product subagents plus
     # `sdle-transition-implementer.md`, `sdle-transition-orchestrator.md`,
     # `sdle-transition-planner.md` and `sdle-transition-verifier.md`, eight
-    # names. New value: the four product subagents, four names. Exact equality
+    # names. New value: the five product subagents, five names. Exact equality
     # either way, and now over the whole directory rather than one population
     # within it.
     assert agents == [
-        # The four product subagents contract §16 names.
+        # The four product subagents contract §16 names, and the requirements assessor.
         "sdle-code-review.md",
         "sdle-design-review.md",
         "sdle-discovery.md",
+        "sdle-requirements-review.md",
         "sdle-security-review.md",
     ], agents
 

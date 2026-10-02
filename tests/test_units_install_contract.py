@@ -241,7 +241,7 @@ EXPECTED_COMMANDS = {
     "sdle-verbose.md"}
 EXPECTED_AGENTS = {
     "sdle-code-review.md", "sdle-design-review.md", "sdle-discovery.md",
-    "sdle-security-review.md"}
+    "sdle-requirements-review.md", "sdle-security-review.md"}
 EXPECTED_SKILL_FILES = {
     "SKILL.md", "modules/architecture-placement.md", "modules/code-review.md",
     "modules/design-review.md", "modules/gate-protocol.md",
