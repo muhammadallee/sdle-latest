@@ -1002,6 +1002,26 @@ def test_re_running_the_placement_clears_the_staleness(at_placement):
     assert fresh["decisionId"] == catalog_of(at_placement)["decisions"][0]["id"]
 
 
+def test_the_requirements_are_rechecked_inside_the_catalog_write(at_placement):
+    """The gate hook checks the requirements at the start of the command and the
+    catalog is written later. A bound document changing in between would let a
+    stale placement in, so the basis is checked again under the catalog lock,
+    immediately before the write - with no gate hook in front of this call."""
+    assess(at_placement, proposal())
+    record = _placement_record(at_placement)
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(at_placement.root), None), at_placement.workitem)
+    _edit_bound_requirements(at_placement)
+
+    with pytest.raises(sdle.Refused) as raised:
+        sdle.architecture_apply(paths, record, sdle.now_iso())
+
+    assert raised.value.reason == "architecture_requirements_stale"
+    assert not paths.architecture_catalog_file.exists(), (
+        "a refused apply must not write the catalog")
+    assert not paths.architecture_lock_file.exists(), "the lock was left held"
+
+
 def test_an_applied_decision_replays_even_after_the_requirements_change(
         at_placement):
     """The check guards a decision *entering* the catalog. One already in it
