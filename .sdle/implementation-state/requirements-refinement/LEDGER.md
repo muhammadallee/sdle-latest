@@ -211,6 +211,14 @@ guidance to the human at the moment it occurs** (including the cost of recording
 a state-schema change under the no-migration rule). Building engine support is out of scope unless the owner approves
 it after seeing the verdict.
 
+**Owner decision, 2026-10-02: Design R is deferred.** Asked whether to adopt Design R (amend C1), the owner chose to
+take it later, at the end. Recorded in PLAN §0.6 as a status note: the shared-document design is ON HOLD; nothing that
+exists only for shared documents is to be built; the independent parts (A1–A3, A7, A9, A10, A12–A19 as marked, Phase
+A0, the check-definition table, the single-WorkItem loop) proceed; and the decision is **required before Phase C
+starts**. Default if none is made: shared documents are refused with no acknowledgement path. This is a deferral, not
+a reconciliation: the Stage 2 checkpoint is **not complete** under brief §5 while an owner decision is outstanding,
+and proceeding on the independent parts is a recorded deviation under brief §6 that the owner has chosen.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).

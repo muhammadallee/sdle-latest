@@ -130,6 +130,27 @@ conflicts with §§0.4–8, it wins**; each overridden section carries a "Supers
 earlier was deleted, so the history stays readable. The plan is **not frozen**: one item below is open and
 needs the owner (A11), and the changed material needs a targeted verification (brief §5) before it is.
 
+> **Status, 2026-10-02 — the shared-document design is ON HOLD, by the owner's choice.** The owner has deferred the
+> decision on **Design R** (amending C1 so no WorkItem's audit is written by another; `stage2/consult1-responses.md`,
+> judged sound with changes by Codex in two consultation rounds) until **before Phase C**. Until it is made:
+>
+> - **Not adopted, and not to be built:** everything that exists only for a document bound by more than one
+>   WorkItem — the C1 multi-participant transaction and its recovery (A4's affected-WorkItem branches), A5's mutex
+>   participants beyond `init`, `requirements bind` and `architecture apply`, **A6 (the transaction index)**, A16's
+>   `PENDING`-participant rule, **decision (D) and all of §0.6.6**, and the §0.6.5 rows and tests for them. Where the
+>   text below describes them as decided, read it as *under review*.
+> - **Unaffected, may proceed:** A1–A3, A7, A9, A10, A12–A14, A17–A19; the pin inventory for everything that is not
+>   shared-document (A15); **Phase A0** (the three inherited-defect fixes); the check-definition table; and the
+>   single-WorkItem part of the loop (`propose`, `decide`, `cancel` and `apply` on a document that no other WorkItem
+>   binds).
+> - **Default if no decision is made before Phase C:** a shared document is refused (`refinement_shared_source`,
+>   listing the other WorkItems) with **no acknowledgement path**, so the loop refines only documents that one
+>   WorkItem binds and the person edits a shared one by hand and re-assesses. That is the safe floor, and it is a
+>   departure from C1 as written, so shipping it as final needs the owner's approval too.
+>
+> The decision is needed **before Phase C starts**, because Phase C is where the shared-document code would be
+> written.
+
 ### 0.6.1 Two corrections of my own, stated plainly
 
 - **S2-L1-006 was upheld at Level 2 and the reviewer was right *about my response*;** the targeted verification then upheld it again against the *corrected* design, on a different reading of the brief's text (§0.6.3, A5). Level 2's point stands as stated here. My response reframed the long
