@@ -138,6 +138,9 @@ needs the owner (A11), and the changed material needs a targeted verification (b
   its last bullet, "the session lock is held from apply through re-assessment; a second invocation refuses" —
   which is the **originating WorkItem's own** session lock and does not make any other WorkItem wait. A5 below
   is the design that follows from reading it correctly; Level 1 and I had both merged the two.
+  **Superseded by the owner's decision (D) (§0.6.3, completed in §0.6.6): no reading of the brief's sentence is
+  adopted, and no lock is held across WorkItems.** The first bullet is kept as the record of what was wrong with my
+  response, not as the design.
 - **§0.4(7) was too strong** (S2-L1-008, upheld at Level 2). It holds for a WorkItem refining its own documents
   pre-`init`; it does not hold for a C1 edit to a *shared* document made by another WorkItem. See A8.
 
@@ -269,8 +272,75 @@ must not follow. Anything not listed here and not contradicted by §0.6 stands.
 | D11 | Reading only the immediately superseded record, and writing `governance.json` before a refusal (A1, A2). |
 | §5.a | Absence of `transactions[]`, of the `AWAITING_REASSESSMENT` state, of the pinned cap and its source, and of the bound dispute fields (A3, A4, A5, A17). |
 | §5.b | `"floors": true` (A19). |
-| §6 | The refused-flip row's "`governance.json` only"; any row that writes `refinement.json` from a command other than through the single validated writer; any row implying `init` need not take the mutex (A1, A4, A16, A18). |
+| §6 | The refused-flip row's "`governance.json` only"; any row that writes `refinement.json` from a command other than through the single validated writer; any row implying `init` need not take the mutex (A1, A4, A16, A18). **The `refinement apply` row** ("IN_PROGRESS → IN_PROGRESS"): `apply` ends in `AWAITING_REASSESSMENT` and creates the in-flight claim (§0.6.6). **The `refinement cancel` row**: `cancel` also sets the claim `CANCELLED`. **The "Recovery" paragraph under the C1 record** (runs "before any other `refinement` command for the originating or an affected WorkItem"): recovery is index-based and claim-aware, and a `PENDING` entry is an active claim for everyone, not only for the named WorkItems (§0.6.6). |
 | §0.4 (3), (6), (7) | Already marked corrected or retracted in place. |
+
+### 0.6.6 Decision (D), completed as a state machine
+
+The second targeted verification found that (D) was the right idea but not yet a recoverable state machine:
+seven findings (`S2-L4-001`..`007`, with S2-L1-006 and S2-L2-001 revised). This section completes it. It adds
+no lock and no timer, and it overrides anything in §0.6.2–0.6.3 that conflicts with it.
+
+**1. Claim and transaction are two separate things (S2-L4-002).** The A6 index entry carries a transaction
+`status` (`PENDING` → `COMMITTED` or `ABORTED`, A4) and, separately, the claim's `loop` (`AWAITING_REASSESSMENT`
+→ exactly one of `RELEASED`, `OVERRIDDEN`, `CANCELLED`, each terminal and never changed again, so `OVERRIDDEN`
+stays as history). **The claim is active from the moment the index entry is written** — before the origin intent
+and before the document write (A4's order) — and stays active until it is released, overridden or cancelled. So
+there is no crash point at which a document has been rewritten and no claim exists. A `PENDING` entry is an
+**active claim for every WorkItem**, not only for the named ones: a start-check never ignores it, and a WorkItem
+that is named runs A4 recovery first. If the transaction is `ABORTED`, the claim becomes `CANCELLED` in the same
+index write.
+
+**2. Which commands check, and which never refuse (S2-L4-004).**
+
+| Command | Claim behaviour |
+|---|---|
+| `propose` | Checks **every path in its proposed edits** against active claims held by *other* WorkItems — this is where a second loop would start — and refuses `refinement_document_in_flight` unless acknowledged. |
+| `apply` | Rechecks the selected path **under the mutex** (a claim may have appeared since `propose`), then writes its own claim in the same atomic index write as the `PENDING` entry. |
+| `decide`, `dispute` | Not blocked: they edit no document. |
+| `cancel` | **Never blocked.** It sets this WorkItem's claim `CANCELLED` in the same step that closes its record. |
+| `show` | Displays claims; never refuses. |
+| `init` | Per A16: refused while this WorkItem's own loop is non-terminal. Other WorkItems' claims are irrelevant to it. |
+
+**3. One acknowledgement field with a defined shape (S2-L4-005).** `propose` and `apply` take
+`acknowledgement: {workitems: [<id>, ...]}`. The required set is the **union** of the C1 sharers of the document
+and the origins of any active claim on it. Missing, extra, duplicate and wrongly cased ids are refused
+`refinement_acknowledgement_invalid` (new, exit 1), naming which. The audit records the exact consumed set and, for
+each id, its purpose (`shared-source` or `in-flight`). This replaces A18's untyped `acknowledgement?`.
+
+**4. Exactly one command releases a claim (S2-L4-006).** Only **`refinement propose`** does, when it records an
+`assessmentRef`: under the mutex it validates that the assessment is correlated (its governance evidence postdates
+the claim's `apply` and its `contentDigest` equals the document's *current* digest), writes the origin's record,
+then the index entry (`RELEASED`). `governance assess` never touches claims. A crash between those two writes
+leaves the record advanced and the claim still `AWAITING_REASSESSMENT`; recovery completes the release, idempotent
+by `transactionId`. Tests: release against override, release against `apply`.
+
+**5. The override, completely (S2-L4-001, S2-L4-003).** Acknowledging an in-flight origin, under the mutex:
+
+1. mark the claim `OVERRIDDEN` (terminal; records the overriding WorkItem and the time);
+2. append an audit entry in the **overriding** WorkItem (always writable by definition) and in the **origin if it
+   can be validated**. If the origin is deleted, unbound, reset or has an unreadable or corrupt audit chain, **no
+   append is attempted**, the override is recorded instead in a repository-owned `abandonment` section of the index
+   entry, and the overrider's audit names the reason (`origin_missing | origin_reset | origin_unreadable`). The
+   engine never recreates or edits another WorkItem's record. This is what lets a human clear *every* orphan,
+   including one whose WorkItem no longer exists;
+3. **the origin's own loop afterwards.** The origin reads its claim as `OVERRIDDEN` the next time it runs any
+   command, and moves its **own** loop — written by its own command, never by the overrider — to `STALE_BASE`
+   (non-terminal). Its earlier edits are invalid because their base SHA no longer matches, it must `propose` again
+   against the current document, and it may `cancel`. `init` stays refused for it (A16 counts `STALE_BASE` as
+   non-terminal).
+
+**6. The architecture recheck (S2-L1-008, S2-L4-007).** The recheck inside `architecture_apply` narrows the window
+but cannot close it alone; closing it needs `architecture apply` to take the A5 mutex around its requirements
+recheck and catalog write, which is a Phase A item because the mutex does not exist yet. That is stated, not hidden.
+The regression test is strengthened separately so it pins that the recheck runs **under the catalog lock**, not
+merely somewhere in `architecture_apply` (PR #6).
+
+**New tests this section requires:** a second WorkItem's `propose` and `apply` refused on a claimed path;
+`decide`/`dispute`/`cancel`/`show` not refused; override needs the exact union of names and is refused on a
+missing, extra, duplicate or miscased one; override with a deleted, reset and unreadable origin; the origin
+reaching `STALE_BASE` and recovering through a fresh `propose`; the claim active at every crash point of A4; release
+by `propose` only, and a crash between its two writes; release against override and against `apply`.
 
 ## 1. §1 re-verification, corrected
 

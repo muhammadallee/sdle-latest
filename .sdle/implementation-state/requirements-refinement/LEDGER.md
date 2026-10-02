@@ -154,6 +154,23 @@ findings without choosing either reading of "the session lock": a second invocat
 the abandonment authority is a human decision on the record. **New design, so the changed part (§0.6.3 (D), A5, A6)
 still needs a short targeted verification before the plan freezes.**
 
+**Second targeted verification (`20261002T120402-stage2-verify-codex-decision-d`): PASS**, first attempt, same
+harness and sandbox, detached worktree at `9784258`, with the owner's go-ahead. Scope: decision (D), the items
+fixed since the last round, and the 27-line code change on PR #6. **5 dispositions: 1 RESOLVED (S2-L1-016), 4
+REVISED (S2-L1-006, S2-L2-001, S2-L1-008, S2-L3-001); 7 new findings (S2-L4-001..007: 3 high in the state machine,
+1 high on release, 2 medium, 1 low); `plan_ready_to_freeze: false`.** Output unedited in
+`runs/20261002T120402-stage2-verify-codex-decision-d.a1.review.json`.
+
+My assessment, stated honestly: every finding is accurate. (D) was the right idea but I had specified the owner's
+intent, not a recoverable state machine — claim activation against A4's crash order, who may release, what an
+override does to the origin, how to clear a claim whose origin no longer exists, which commands check, and the
+shape of the acknowledgement were all open. None is a disagreement; all are gaps. `PLAN.md` §0.6.6 now completes
+the design on all of them, and also corrects §0.6.1 and §0.6.5, which still described the superseded reading. The
+`architecture apply` recheck is correctly placed but cannot be fully closed until the refinement mutex exists
+(Phase A); the plan says so. **Observation for the owner:** this is the third review round, and every round has
+found more detail in the *shared-document* machinery (C1: the transaction, the index, the claim, the override).
+That machinery is needed only when a document is bound by more than one WorkItem.
+
 **Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).
