@@ -10497,6 +10497,13 @@ def _architecture_apply_locked(paths: Paths, record: dict, stamp: str) -> dict:
              "catalog_revision": current,
              "catalog": architecture_catalog_relative(paths)})
 
+    # The gate hook checked the requirements at the start of the command; the
+    # catalog is written here, later. A bound document changing in between
+    # would let a placement reasoned from other text in, so the basis is
+    # checked again under the catalog lock, immediately before the write.
+    # (Serialising this with the writers of those documents is a separate
+    # matter, tracked with the refinement transaction mutex.)
+    architecture_requirements_precondition(paths, record)
     updated = apply_architecture_delta(
         catalog or empty_architecture_catalog(), record, stamp)
     relative = write_architecture_catalog(paths, updated)
