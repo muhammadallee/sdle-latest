@@ -235,7 +235,7 @@ def write_dispute(project, check, digest):
         "refinementVersion": sdle.REFINEMENT_RECORD_VERSION, "workitem": project.workitem,
         "status": "PASSED", "iterationCap": 1, "iterationCapSource": "builtin",
         "iterations": [{
-            "iteration": 1, "contentDigest": digest, "proposalDigest": h,
+            "iteration": 1, "assessmentRef": "evidence/a.json", "contentDigest": digest, "proposalDigest": h,
             "failingChecks": [], "findings": [], "questions": [], "edits": [],
             "outcome": "progress",
             "disputeOutcomes": [{

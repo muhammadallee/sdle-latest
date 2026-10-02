@@ -4014,6 +4014,10 @@ ENGINEERING_FLOWS = (
 # anything.
 CLASSIFICATION_KEYS = ("type", "flow", "rediscovery")
 
+# The most iterations a requirements-refinement loop may take. One engine
+# constant: a repository policy may lower it, never raise it.
+REFINEMENT_ITERATION_CAP_MAX = 3
+
 GOVERNANCE_POLICY_BUILTIN = {
     "policyVersion": "1",
     # §12's twelve structured checks, verbatim and in its order.
@@ -4050,6 +4054,7 @@ GOVERNANCE_POLICY_BUILTIN = {
     # §12 says "NFRs when relevant", so `nfrs` — and only `nfrs` — may be
     # reported NOT_APPLICABLE. Every other check must be answered.
     "optional_checks": ["nfrs"],
+    "refinement_iteration_cap": REFINEMENT_ITERATION_CAP_MAX,
     "risk_signals": {
         "external_api_surface": 2,
         "persistent_data_store": 2,
@@ -4197,6 +4202,7 @@ GOVERNANCE_POLICY_OVERRIDABLE = (
     "policyVersion",
     "blocking_checks",
     "optional_checks",
+    "refinement_iteration_cap",
     "risk_signals",
     "risk_thresholds",
     "hard_floors",
@@ -4285,6 +4291,14 @@ def _validate_policy_shapes(document: dict, relative: str,
                 "among the twelve requirements-quality checks",
                 unknown_checks=strange,
             )
+
+    if "refinement_iteration_cap" in document:
+        cap = document["refinement_iteration_cap"]
+        if not _is_int(cap) or not 1 <= cap <= REFINEMENT_ITERATION_CAP_MAX:
+            raise _policy_malformed(
+                relative,
+                f"refinement_iteration_cap must be an integer from 1 to "
+                f"{REFINEMENT_ITERATION_CAP_MAX}, not {cap!r}")
 
     if "risk_signals" in document:
         value = document["risk_signals"]
@@ -5050,10 +5064,9 @@ def requirements_content_digest(raw_by_path: dict[str, bytes]) -> str:
 # --------------------------------------------------------------------------
 
 REFINEMENT_RECORD_VERSION = "1"
-# The most iterations a loop may take. One engine constant: a record may carry
-# a lower cap, never a higher one.
-REFINEMENT_ITERATION_CAP_MAX = 3
 REFINEMENT_QUESTIONS_MAX = 5
+REFINEMENT_EDIT_TEXT_MAX = 4000
+REFINEMENT_ANSWER_MAX = 1000
 REFINEMENT_ACTIVE_STATUSES = ("IN_PROGRESS", "AWAITING_REASSESSMENT")
 REFINEMENT_TERMINAL_STATUSES = ("PASSED", "ESCALATED", "CANCELLED", "FAILED")
 REFINEMENT_EDIT_OPS = ("replace", "insert_after", "append_section")
@@ -5065,7 +5078,7 @@ _REFINEMENT_KEYS = frozenset((
     "refinementVersion", "workitem", "status", "iterationCap",
     "iterationCapSource", "iterations", "startedAt", "endedAt"))
 _REFINEMENT_ITERATION_KEYS = frozenset((
-    "iteration", "contentDigest", "proposalDigest", "failingChecks",
+    "iteration", "assessmentRef", "contentDigest", "proposalDigest", "failingChecks",
     "findings", "questions", "edits", "outcome", "disputeOutcomes"))
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -5150,6 +5163,7 @@ def validate_refinement_record(doc, relative: str,
         if entry["iteration"] != position or isinstance(entry["iteration"], bool):
             raise _refinement_invalid(
                 relative, f"{where} is numbered {entry['iteration']!r}")
+        _refinement_text(entry["assessmentRef"], f"{where} assessmentRef", relative)
         _refinement_hex(entry["contentDigest"], f"{where} contentDigest", relative)
         _refinement_hex(entry["proposalDigest"], f"{where} proposalDigest", relative)
         failing = entry["failingChecks"]
@@ -5186,8 +5200,15 @@ def validate_refinement_record(doc, relative: str,
             raise _refinement_invalid(relative, f"{where} edits is not a list")
         for edit in entry["edits"]:
             edit = _refinement_object(
-                edit, ("op", "path", "anchor", "baseSha256", "autoApplied",
-                       "decision"), f"{where} edit", relative)
+                edit, ("id", "op", "path", "anchor", "text", "baseSha256",
+                       "appliedSha256", "autoApplied", "decision"),
+                f"{where} edit", relative)
+            _refinement_text(edit["id"], f"{where} edit id", relative)
+            if (not isinstance(edit["text"], str) or not edit["text"].strip()
+                    or len(edit["text"]) > REFINEMENT_EDIT_TEXT_MAX):
+                raise _refinement_invalid(
+                    relative, f"{where} edit text is not a non-empty string of at "
+                              f"most {REFINEMENT_EDIT_TEXT_MAX} characters")
             if edit["op"] not in REFINEMENT_EDIT_OPS:
                 raise _refinement_invalid(
                     relative, f"{where} edit op {edit['op']!r} is unknown")
@@ -5195,6 +5216,9 @@ def validate_refinement_record(doc, relative: str,
             _refinement_text(edit["anchor"], f"{where} edit anchor", relative,
                              allow_none=True)
             _refinement_hex(edit["baseSha256"], f"{where} edit baseSha256", relative)
+            if edit["appliedSha256"] is not None:
+                _refinement_hex(edit["appliedSha256"],
+                                f"{where} edit appliedSha256", relative)
             if not isinstance(edit["autoApplied"], bool):
                 raise _refinement_invalid(
                     relative, f"{where} edit autoApplied is not a boolean")
@@ -5527,6 +5551,84 @@ def requirements_lint(documents: dict[str, str], path: str,
     return {"kind": "refinement-lint", "executionId": execution_id,
             "documentSha256": hashlib.sha256(normal.encode("utf-8")).hexdigest(),
             "findings": findings}
+
+
+# --------------------------------------------------------------------------
+# Who else shares a requirements document
+#
+# A refinement edit changes a document, and every WorkItem bound to it has its
+# assessment staled by that. This change does not edit a document another
+# WorkItem may still be working from, so it asks which other WorkItems hold it.
+#
+# The registry records identity only, not lifecycle, so the answer is read from
+# each other WorkItem's own files. A binding counts unless that WorkItem's
+# current, supported, consistent state proves it complete: a WorkItem with a
+# binding and no state is pre-init or was reset (reset deletes the state and
+# keeps the binding), and `failed`, `rejected` and every active status are work
+# that may resume. Completed WorkItems are excluded, which is what lets a later
+# WorkItem converge onto the same documents. Anything present but unreadable
+# fails closed and names the WorkItem; it is never ignored.
+# --------------------------------------------------------------------------
+
+
+def _registry_invalid(workitem: str, why: str) -> IntegrityError:
+    return IntegrityError(
+        "refinement_registry_invalid",
+        f"WorkItem '{workitem}' has {why}, so whether it shares a requirements "
+        "document cannot be told and nothing was changed. Repair or remove "
+        "that WorkItem's file from version control; it is never edited here.",
+        {"workitem": workitem, "detail": why})
+
+
+def _completed_workitem(other: Paths) -> bool:
+    """True when ``other``'s own state proves it complete; False when it has no
+    state; an integrity failure when the state cannot be read."""
+    if not other.state_file.is_file():
+        return False
+    try:
+        state = json.loads(other.state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise _registry_invalid(other.workitem, "a state.json that cannot be read") from None
+    if (not isinstance(state, dict)
+            or state.get("workflow_version") != CURRENT_VERSION
+            or not isinstance(state.get("current_phase"), str)
+            or not isinstance(state.get("status"), str)):
+        raise _registry_invalid(
+            other.workitem, "a state.json this engine does not read")
+    return state["current_phase"] == "complete" and state["status"] == "completed"
+
+
+def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str]]:
+    """For each of ``documents`` that another WorkItem also holds, the ids of
+    the WorkItems that do. Empty when nothing is shared. See the block above for
+    which WorkItems count. Paths compare case-folded, as `requirements bind`
+    does, and the result is keyed by the path as given."""
+    wanted = {document.lower(): document for document in documents}
+    found: dict[str, list[str]] = {}
+    root = workitems_root(paths)
+    if not root.is_dir():
+        return found
+    for child in sorted(root.iterdir(), key=lambda item: item.name):
+        if (not child.is_dir() or child.name == paths.workitem
+                or not workitem_id_wellformed(child.name)):
+            continue
+        other = dataclass_replace(paths, workitem=child.name)
+        try:
+            binding = read_requirements_binding(other)
+        except IntegrityError:
+            raise _registry_invalid(
+                child.name, "a requirements binding that cannot be read") from None
+        if binding is None:
+            continue
+        held = {str(source).lower() for source in binding["sources"]}
+        mine = [wanted[key] for key in sorted(wanted) if key in held]
+        if not mine:
+            continue
+        if _completed_workitem(other):
+            continue
+        for document in mine:
+            found.setdefault(document, []).append(child.name)
+    return found
 
 
 def read_governance_input(target: Path, relative: str) -> dict:
