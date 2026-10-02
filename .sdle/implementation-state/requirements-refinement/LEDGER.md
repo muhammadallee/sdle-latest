@@ -105,7 +105,12 @@ medium). `plan_ready_to_freeze: false`**, with 11 blocking ids. Output unedited 
   index (A6).
 - **S2-L1-001 and §0.4(7)** corrections as recorded in §0.6.1.
 
-**Open — two owner decisions, neither resolvable by the agents (brief §5):**
+**Owner decision, 2026-10-02: A8 / S2-L1-008 is CLOSED — option (A)** ("go with recommended"): the placement
+record pins the bound requirements' digest and approval refuses on mismatch, as its own small change before
+refinement Phase A, on its own branch off `main` (`fix/architecture-requirements-digest`). The text below
+records the question as it was put.
+
+**Was open — two owner decisions, neither resolvable by the agents (brief §5):**
 1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
    above).
 2. **A8 / S2-L1-008** — placement staleness under a C1 shared edit. **A genuine surviving disagreement**: Claude
