@@ -1022,6 +1022,33 @@ def test_the_requirements_are_rechecked_inside_the_catalog_write(at_placement):
     assert not paths.architecture_lock_file.exists(), "the lock was left held"
 
 
+def test_the_recheck_runs_while_the_catalog_lock_is_held(
+        at_placement, monkeypatch):
+    """The test above shows a stale placement is refused. This one pins *where*:
+    the recheck must run while the catalog lock is held, immediately before the
+    write. A recheck moved to just before the lock is taken would still refuse
+    in the sequential case and leave the window open, so the lock's presence is
+    observed at the moment the precondition runs."""
+    assess(at_placement, proposal())
+    record = _placement_record(at_placement)
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(at_placement.root), None), at_placement.workitem)
+    seen = []
+    real = sdle.architecture_requirements_precondition
+
+    def observed(p, r):
+        seen.append(p.architecture_lock_file.exists())
+        return real(p, r)
+
+    monkeypatch.setattr(sdle, "architecture_requirements_precondition", observed)
+
+    sdle.architecture_apply(paths, record, sdle.now_iso())
+
+    assert seen == [True], (
+        "the requirements recheck ran outside the catalog lock, or did not "
+        f"run exactly once: {seen}")
+
+
 def test_an_applied_decision_replays_even_after_the_requirements_change(
         at_placement):
     """The check guards a decision *entering* the catalog. One already in it
