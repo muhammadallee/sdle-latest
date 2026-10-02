@@ -869,7 +869,7 @@ def test_the_baseline_precondition_has_exactly_one_call_site():
                if isinstance(node, ast.Call)
                and isinstance(node.func, ast.Name)
                and node.func.id == "baseline_precondition"}
-    assert callers == {"cmd_init"}, callers
+    assert callers == {"_cmd_init_locked"}, callers
 
 
 def test_the_refusal_precedes_every_write_in_cmd_init():
@@ -880,7 +880,7 @@ def test_the_refusal_precedes_every_write_in_cmd_init():
     tree = ast.parse((REPO_ROOT / "scripts" / "sdle.py")
                      .read_text(encoding="utf-8"))
     init = next(fn for fn in ast.walk(tree)
-                if isinstance(fn, ast.FunctionDef) and fn.name == "cmd_init")
+                if isinstance(fn, ast.FunctionDef) and fn.name == "_cmd_init_locked")
 
     def first_line(predicate) -> int:
         return min((node.lineno for node in ast.walk(init)

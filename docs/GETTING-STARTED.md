@@ -499,13 +499,15 @@ earlier phase, to finish it and raise the change as a new WorkItem, or to discar
 | The situation | What to do | What it costs |
 |---|---|---|
 | The change does not touch what this WorkItem is about (wording, an unrelated section) | Ask SDLE to assess the requirements again, then carry on | Nothing is lost |
-| The change alters what the WorkItem has already produced, and the WorkItem is still early (before its specification is approved) | `restart phase <N>` at the earliest phase the change affects, and redo the work from there. SDLE asks you to confirm | The approvals after that phase are cleared and must be given again, and the work from that phase on is regenerated |
+| The change alters what the WorkItem has already produced, and the WorkItem is still early (before its specification is approved) | `restart phase <N>` at the earliest phase the change affects, and redo the work from there. SDLE asks you to confirm | The approvals after that phase are cleared and must be given again, and the work from that phase on is redone: the files are kept, so SDLE and you redo the phases from there |
 | The change adds a new requirement, and the WorkItem is well advanced | Finish this WorkItem against the old requirements. Once the repository has a baseline, raise the addition as a new WorkItem; it runs as an iterative one | Nothing is thrown away; the addition waits for its own WorkItem |
-| The change contradicts what has been built, or the WorkItem's goal itself changed | Restart from the earliest phase the change affects. If the work is obsolete, `reset workflow` and create a new WorkItem | A reset discards that WorkItem's state and its audit trail, so use it only when nothing is worth keeping |
+| The change contradicts what has been built, or the WorkItem's goal itself changed | Restart from the earliest phase the change affects. If the work is obsolete, `reset workflow` and create a new WorkItem | A reset discards that WorkItem's workflow state and its audit trail (its assessment, binding and generated files are kept), so use it only when nothing is worth keeping |
 
 The earlier a WorkItem is, the cheaper it is to restart; the later it is, the better it usually is to finish it
 and treat additions as new work. Before editing a document that other WorkItems are bound to, tell whoever owns
 those WorkItems: their next move will be refused the moment your edit lands.
+
+The scenario-by-scenario version of this section, with what each option keeps and clears, is `docs/lifecycle/requirements-change-midflight.md`.
 
 ## 11d. When the assessment blocks: fixing the requirements
 

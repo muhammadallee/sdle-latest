@@ -1282,3 +1282,23 @@ default before the feature is declared complete. A person whose document is shar
   and nothing machine-checks that no prior verdict is in it). **18 and 29 are DEFERRED** with Design R, per Codex;
   they are not reported as passing. 30 was closed in Stage 0.
 - **Open for the owner:** the Design R / shared-document decision before the feature is called complete.
+
+## Phase F — requirements changing mid-flight (2026-10-03)
+
+Two-level protocol with Codex. **Level 1:** Codex produced, independently, a nine-scenario catalogue with options,
+impacts and a recommendation each, a feasibility verdict on engine-surfaced guidance, and four UNVERIFIED claims.
+**Level 2 (my evidence):** `tests/test_units_midflight_changes.py` (8 tests) reproduces the claims against the real
+engine; `docs/lifecycle/requirements-change-midflight.md` is the deliverable. Findings from reproduction: a gate
+refuses `review_missing` / `gate_not_approved` **before** `governance_stale`, so the first refusal a person sees may
+not be the stale one (added to the doc); `init` on a stale assessment starts and the first move refuses (claim 3
+confirmed); reset keeps governance, binding, evidence and refinement and deletes state, audit and lock (claim 4,
+with Codex's correction about the lock); a planted-completed WorkItem can be rolled back (claim 2, disclosed as
+planted); claim 1 (artifacts are redone after a restart) is an orchestrator behaviour, untestable at engine level.
+**Codex disposition: FIX** reset wording and effects (it keeps the WorkItem; also deletes the lock; abandons
+approved-but-unrealized architecture decisions in the shared catalog), the "exactly one thing" overstatement, the
+"every statement is reproduced" overstatement, and GETTING-STARTED's "regenerated" claim — all fixed.
+**Feasibility verdict (Codex, adopted):** partly feasible without deciding — the engine can enrich the
+`governance_stale` refusal and `governance show` with changed paths, phase and approval facts and sharers from one
+shared helper; it cannot know authorship, additive-versus-contradictory, or artifact-to-passage dependency. **Not
+built; the owner decides.** Escalated to the owner: whether regeneration after a restart should be an explicit
+orchestrator contract, and whether planted-completion coverage is enough.
