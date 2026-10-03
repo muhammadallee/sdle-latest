@@ -1468,7 +1468,7 @@ def test_workitem_rebinding_happens_only_at_the_declared_sites():
         "_validate_runtime_state",
         # Reads ANOTHER WorkItem's binding and state, read-only, to say who
         # shares a requirements document. It binds nothing and writes nothing.
-        "refinement_sharers",
+        "refinement_sharer_report",
     }
 
 
