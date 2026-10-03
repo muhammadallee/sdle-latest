@@ -7119,6 +7119,165 @@ def governance_freshness(paths: Paths, record: dict,
     }
 
 
+# --------------------------------------------------------------------------
+# What changed under a WorkItem: facts, never advice
+#
+# When the bound requirements change after an assessment, the engine refuses
+# the next move (`governance_stale`) and has always said only that. A person
+# deciding what to do needs the facts: what changed, where the WorkItem is, what
+# is approved, which phases could be rolled back to, who else holds the
+# document. This is the one place those facts are derived, and both surfaces -
+# the refusal and `governance show` - read it, so they cannot disagree.
+#
+# It describes and does not recommend. Which option fits (carry on, roll back
+# and to where, finish and raise new work, reset) is a human decision made in
+# the conversation, guided by `modules/requirements-change.md`; the engine
+# cannot tell a wording fix from a contradiction, or an addition from a reversal.
+#
+# "What changed" needs the text as it was assessed, and hashes cannot give that.
+# Each assessment therefore keeps a copy of every bound document in its own
+# evidence file (never in the record, which stays small), up to a size limit; a
+# document over it, or an assessment that predates the copy, still reports THAT
+# it changed, and says why there is no diff.
+# --------------------------------------------------------------------------
+
+REQUIREMENTS_SNAPSHOT_MAX = 200_000  # bytes per document
+REQUIREMENTS_DIFF_MAX_LINES = 80
+RESTART_APPROACHES = ("rebuild", "update")
+
+
+def requirements_snapshot(raw_by_path: dict[str, bytes]) -> dict:
+    """``{path: {sha256, text, omitted}}`` for the evidence of one assessment."""
+    out: dict[str, dict] = {}
+    for path in sorted(raw_by_path):
+        raw = raw_by_path[path]
+        too_large = len(raw) > REQUIREMENTS_SNAPSHOT_MAX
+        out[path] = {"sha256": hashlib.sha256(raw).hexdigest(),
+                     "text": None if too_large else raw.decode("utf-8", errors="replace"),
+                     "omitted": "too_large" if too_large else None}
+    return out
+
+
+def requirements_change_summary(snapshot: dict, recorded_sources: list[dict],
+                                current_raw: dict[str, bytes], bound_now: list[str],
+                                max_lines: int) -> dict:
+    """What differs between the assessed documents and the ones on disk now.
+    Pure: it reads nothing."""
+    changed: list[dict] = []
+    recorded_paths = {entry["path"] for entry in recorded_sources}
+    for entry in recorded_sources:
+        path = entry["path"]
+        if path not in current_raw:
+            changed.append({"path": path, "change": "missing",
+                            "diff": None, "diffTruncated": False})
+            continue
+        if path not in bound_now:
+            changed.append({"path": path, "change": "unbound",
+                            "diff": None, "diffTruncated": False})
+            continue
+        now = hashlib.sha256(current_raw[path]).hexdigest()
+        if now == entry.get("sha256"):
+            continue
+        old = (snapshot.get(path) or {})
+        item = {"path": path, "change": "modified", "diff": None, "diffTruncated": False}
+        if old.get("text") is None:
+            item["diffUnavailable"] = ("document_too_large" if old.get("omitted")
+                                       else "no_copy_of_the_assessed_text")
+        else:
+            lines = list(difflib.unified_diff(
+                old["text"].splitlines(), current_raw[path].decode(
+                    "utf-8", errors="replace").splitlines(),
+                f"assessed/{path}", f"now/{path}", n=1, lineterm=""))
+            item["diffTruncated"] = len(lines) > max_lines
+            item["diff"] = "\n".join(lines[:max_lines])
+        changed.append(item)
+    for path in sorted(set(bound_now) - recorded_paths):
+        changed.append({"path": path, "change": "added", "diff": None,
+                        "diffTruncated": False})
+    binding_changed = (set(bound_now) != recorded_paths)
+    return {"changed": changed, "bindingChanged": binding_changed}
+
+
+def _assessment_snapshot(paths: Paths, record: dict) -> dict:
+    """The kept copy for the CURRENT assessment, or ``{}``."""
+    execution_id = record.get("executionId")
+    target = paths.evidence_dir / f"governance-{execution_id}.json" if execution_id else None
+    if target is None or not target.is_file() or target.stat().st_size == 0:
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    snapshot = payload.get("requirementsSnapshot") if isinstance(payload, dict) else None
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def requirements_change_facts(paths: Paths, record: dict, freshness: dict) -> dict | None:
+    """The facts a person needs when the requirements are not what was assessed,
+    or ``None`` when they are. See the block above."""
+    if freshness["fresh"]:
+        return None
+    recorded_block = record.get("requirements") or {}
+    current_raw: dict[str, bytes] = {}
+    for path in {e.get("path") for e in recorded_block.get("sources") or []} | set(
+            validated_binding(paths)["sources"]):
+        target = paths.project_root / path
+        if path and target.is_file():
+            current_raw[path] = target.read_bytes()
+    summary = requirements_change_summary(
+        _assessment_snapshot(paths, record), recorded_block.get("sources") or [],
+        current_raw, sorted(validated_binding(paths)["sources"]),
+        REQUIREMENTS_DIFF_MAX_LINES)
+
+    where = None
+    placement = "none"
+    if paths.state_file.is_file():
+        try:
+            state = read_state(paths)
+            consts = load_constants(paths)
+            flow = flow_for_state(state, consts)
+            current = state.get("current_phase")
+            position = flow.position(current)
+            where = {
+                "flow": flow.name, "currentPhase": current, "status": state.get("status"),
+                "approvedGates": sorted(
+                    key for key, value in (state.get("approvals") or {}).items()
+                    if isinstance(value, dict) and value.get("decision")),
+                "restartCandidates": [
+                    {"number": flow.index(phase), "phase": phase,
+                     "label": consts.label_or(phase, flow)}
+                    for phase in flow.phases
+                    if phase != "complete" and phase not in consts.phase_to_gate_key
+                    and position is not None and flow.index(phase) <= position],
+            }
+        except SdleError:
+            where = None
+        try:
+            placed = read_architecture_record(paths)
+        except SdleError:
+            placed = None
+        if placed is not None:
+            try:
+                architecture_requirements_precondition(paths, placed)
+                placement = "current"
+            except Refused:
+                placement = "reasoned_from_older_requirements"
+            except SdleError:
+                placement = "unreadable"
+
+    held: dict = {}
+    try:
+        report = refinement_sharer_report(paths, [c["path"] for c in summary["changed"]])
+        for document in sorted(set(report["blocking"]) | set(report["affected"])):
+            held[document] = {"started": report["blocking"].get(document, []),
+                              "notStarted": report["affected"].get(document, [])}
+    except SdleError as exc:
+        held = {"unknown": exc.reason}
+
+    return {"changed": summary["changed"], "bindingChanged": summary["bindingChanged"],
+            "workitem": where, "architecturePlacement": placement, "alsoHeldBy": held}
+
+
 def gate_requirements_for_state(paths: Paths, consts: Constants,
                                 state: dict) -> dict | None:
     """The requirement model for the WorkItem this ``state`` belongs to.
@@ -7519,6 +7678,7 @@ def _cmd_governance_assess_locked(args, paths: Paths) -> int:
         "recordedAt": stamp,
         "workitem": paths.workitem,
         "input": {"path": relative, "document": document},
+        "requirementsSnapshot": requirements_snapshot(raw_by_path),
         "record": record,
     }, indent=2) + "\n")
 
@@ -7585,6 +7745,7 @@ def cmd_governance_show(args, paths: Paths) -> int:
         "missing_sources": freshness["missing_sources"],
         "rebound": freshness["rebound"],
         "assessed_without_a_binding": freshness["assessed_without_a_binding"],
+        "change_facts": requirements_change_facts(paths, record, freshness),
     })
     return EXIT_OK
 
@@ -11801,7 +11962,9 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
             {"workitem": paths.workitem,
              "recorded_digest": freshness["recorded_digest"],
              "current_digest": freshness["current_digest"],
-             "requirements": freshness["current_sources"]},
+             "requirements": freshness["current_sources"],
+             # Facts for the person deciding what to do; never advice.
+             "change_facts": requirements_change_facts(paths, record, freshness)},
         )
 
     # Fresh means the bytes on disk are the bytes assessed - it says nothing
@@ -14048,6 +14211,8 @@ def cmd_restart(args, paths: Paths) -> int:
         message=f"Restart: rolled back to Phase {args.to} ({target}). "
                 f"Cleared downstream approvals: {', '.join(cleared) or 'none'}. "
                 f"phase_history trimmed by {trimmed}."
+                + (f" Approach: {args.approach}." if getattr(args, "approach", None)
+                   else "")
                 + (f" Architecture decision(s) abandoned: "
                    f"{', '.join(abandoned['decisions'])}."
                    if abandoned else ""),
@@ -17165,6 +17330,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("restart", help="Roll back to an earlier phase.")
     sub.add_argument("--to", type=int, required=True)
     sub.add_argument("--confirm", action="store_true")
+    sub.add_argument(
+        "--approach", choices=RESTART_APPROACHES,
+        help="How the rolled-back phases are redone, recorded in the audit "
+             "entry: rebuild from scratch, or update the existing work.")
     sub.set_defaults(handler=cmd_restart)
 
     sub = subparsers.add_parser("reset", help="Delete all workflow state.")

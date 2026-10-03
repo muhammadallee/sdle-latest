@@ -350,6 +350,7 @@ scripts/
 │   │   ├── design-review.md      ← Design review capability
 │   │   ├── code-review.md        ← Code review capability
 │   │   ├── requirements-refinement.md ← Fixing blocked requirements (before init)
+│   │   ├── requirements-change.md ← When requirements change under a WorkItem
 │   │   └── security-review.md    ← Review template (loaded at Phase 17)
 │   └── templates/state.json  ← Initial state template (the only copy)
 ├── commands/                 ← The nine /sdle-* slash commands

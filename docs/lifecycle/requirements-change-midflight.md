@@ -87,17 +87,37 @@ placement only if the change does not alter where the capability lives; otherwis
 refinement loop (`docs/architecture/ADR-015-requirements-refinement.md`). If `init` runs with a stale
 assessment it starts, and the first move is refused.
 
-## Could SDLE tell you this when it happens?
+## What SDLE tells you when it happens
 
-**Partly, and without deciding.** It can know, deterministically: which documents changed and their old and new
-digests; the bound flow, the current phase, and which gates are approved or omitted; the placement's recorded
-requirements basis; and which other registered WorkItems hold each document. It cannot know who edited, whether the
-change is an addition or a contradiction, or which artifacts depend on which passage of which document — artifacts
-other than the placement carry no record of what they were generated from.
+When a move is refused `governance_stale`, the refusal and `governance show` now carry **facts**, from one place in
+the engine so the two cannot disagree:
 
-A minimal design would add those facts to the `governance_stale` refusal and to `governance show` from one shared
-helper, and let the orchestrator present the table above, with the line that a human decides. It would add no new
-state. Its risks are advice that goes stale, false confidence from implied dependencies, and a second copy of the
-freshness and sharing rules; the last is why it must be one helper and not prose in two places.
+- **what changed** - each document, whether it was modified, is missing, was added to the binding or dropped from it,
+  and for a modified one a diff against the text as it was assessed (cut after a few dozen lines, and saying so);
+- **where the WorkItem is** - its flow, its phase, which gates are approved, and the phases it could roll back to,
+  with the numbers it would type;
+- **whether the architecture decision** was reasoned from older requirements;
+- **who else holds a changed document**, split into WorkItems that have started and ones that have not.
 
-**It is not built.** Whether to build it is the owner's decision (`.sdle/implementation-state/requirements-refinement/PLAN.md` §7.1).
+The diff needs the old text, and a hash cannot give that, so every assessment keeps a copy of each bound document in
+its own evidence file (up to a size limit per document). An assessment made before this existed, or a document over
+the limit, still reports *that* it changed and says why there is no diff.
+
+**It describes and does not recommend.** SDLE cannot know who edited, whether a change adds to what exists or
+contradicts it, or which approved artifact depends on which passage. What to do is **your choice**, put to you in the
+conversation (`modules/requirements-change.md`):
+
+1. **Carry on** - assess again and continue.
+2. **Redo from an earlier phase** - you are shown the phases that can be rolled back to; pick one.
+3. **Finish, then raise the change as a new WorkItem.**
+4. **Reset this WorkItem.**
+
+If you choose to redo, you are asked a second question, because it changes what happens to the existing files:
+**build on the existing work** (each artifact is read together with the change and edited only where the change
+reaches, and what changed is shown at each gate) or **rebuild from scratch**. Building on the existing work is the
+usual recommendation; rebuilding is the safer reading when the change contradicts what exists. Your choice is
+recorded in the audit entry for the rollback (`restart --approach`). Every approval that was cleared is a human
+approval again.
+
+Its limits are the ones above: it sees only this checkout, it does not know why a document changed, and an indirect
+effect of a change on an artifact is for you to judge, which is why every cleared gate is shown in full again.

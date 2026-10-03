@@ -1316,3 +1316,18 @@ for the common case; **still deferred**: started sharers, open loops, other bran
 remain unreported as passing). Tests: dormant/reset/ended-loop allowed; open loop, started, failed, rejected,
 active block; sharer starting between the check and the write blocks the apply; neighbour untouched; stale by
 itself; the two bucket rules mutation-proved.
+
+## Guidance when requirements change mid-flight — built (2026-10-03, owner: "yes")
+
+Owner asked that the user be given the options and that SDLE then act on the choice; Codex recommended facts from the
+engine, a change summary from a kept copy of the assessed text, and incremental update as the default approach.
+**Engine:** `requirements_change_facts` (one helper) is carried by the `governance_stale` refusal and by
+`governance show`: changed documents (modified/missing/added/unbound) with a capped diff, binding change, the
+WorkItem's flow/phase/approved gates, the phases it could roll back to (numbers from the flow), the architecture
+placement status, and who else holds the document (started / not started). Each assessment's evidence now keeps a copy
+of every bound document (200 KB cap per document; over it, or an older assessment, still reports that it changed and why
+there is no diff). `restart --approach rebuild|update` records the choice in the audit entry. **Prompt:**
+`modules/requirements-change.md`, routed from `SKILL.md` — show the facts, put the four options, ask rebuild vs
+update if redoing, then do exactly that; CAPABILITY_MAP row on `requirements_check`. **It describes and never
+recommends in the engine;** the recommendation is in the module and the choice is the user's. Mutation-proved:
+facts only when stale; gates excluded from restart candidates; approach recorded.

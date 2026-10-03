@@ -122,6 +122,9 @@ SDLE Orchestrator (Claude Code Skill)
 │     • How the code review is conducted, finding shape, how the parent
 │       records the outcome
 │
+├── modules/requirements-change.md   Loaded when the requirements changed under a WorkItem
+│     (`governance_stale`); the user chooses what to do
+│
 ├── modules/requirements-refinement.md  Loaded when the user accepts help fixing
 │     blocked requirements; before `init`, so `resume` does not report it
 │

@@ -245,8 +245,8 @@ EXPECTED_AGENTS = {
 EXPECTED_SKILL_FILES = {
     "SKILL.md", "modules/architecture-placement.md", "modules/code-review.md",
     "modules/design-review.md", "modules/gate-protocol.md",
-    "modules/phase-execution.md", "modules/requirements-refinement.md",
-    "modules/security-review.md",
+    "modules/phase-execution.md", "modules/requirements-change.md",
+    "modules/requirements-refinement.md", "modules/security-review.md",
     "guidelines/architecture-placement.md", "guidelines/constitution.md",
     "guidelines/implementation.md", "guidelines/service-design.md",
     "guidelines/service-planning.md", "guidelines/task-generation.md",
@@ -276,7 +276,7 @@ def test_the_guide_states_the_counts_of_the_install_directories():
     layout = re.search(r"(?s)## 7\..*?(?=\n## 8\.)", guide).group(0)
     modules = sum(1 for name in EXPECTED_SKILL_FILES if name.startswith("modules/"))
     guidelines = sum(1 for name in EXPECTED_SKILL_FILES if name.startswith("guidelines/"))
-    words = {4: "four", 5: "five", 6: "six", 7: "seven", 9: "nine"}
+    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
     for phrase in (f"{words[len(EXPECTED_COMMANDS)]} command files",
                    f"{words[len(EXPECTED_AGENTS)]} `sdle-*` agent files",
                    f"{words[modules]} files under `modules/`",

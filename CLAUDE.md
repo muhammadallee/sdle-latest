@@ -50,6 +50,7 @@ It is not prompt files alone. The mechanical layer lives in `scripts/sdle.py`; t
 - **`modules/phase-execution.md`** — per-phase generation logic. Loaded when executing a phase.
 - **`modules/gate-protocol.md`** — gate display and rejection/remediation. Loaded at gate phases.
 - **`modules/architecture-placement.md`** — where this WorkItem's capability lives, and the five outcomes. Loaded at `architecture_placement` and at its gate.
+- **`modules/requirements-change.md`** — when bound requirements changed under a WorkItem (`governance_stale`): the engine's facts, the user's choice, doing it. Routed by `SKILL.md`, because no phase carries it.
 - **`modules/requirements-refinement.md`** — fixing blocked requirements before `init`: who does what, the loop, escalation, dispute. Routed by `SKILL.md` and `/sdle-start`, because no phase exists to carry it.
 - **`modules/security-review.md`** — the security review template. Loaded at `security_review`.
 - **`modules/design-review.md`** / **`modules/code-review.md`** — how those two reviews are conducted, what a finding looks like, and how the parent records the outcome.

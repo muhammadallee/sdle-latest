@@ -343,12 +343,15 @@ set** changed (`rebound`), or the record predates any binding
 `governance assess`; the third by binding first, then assessing. A file in
 `requirements/` that this WorkItem never bound cannot cause any of them.
 
-**Run `governance show` to tell them apart — the refusal will not.** An ordinary
-`advance` refusal carries only `workitem`, `recorded_digest`, `current_digest`
-and `requirements`. The `rebound`, `missing_sources` and
-`assessed_without_a_binding` flags are reported by `governance show`, not by the
-refusal you just received. Reaching for them in the refusal's `data` finds
-nothing.
+**Run `governance show` to tell the three apart.** A refusal for changed
+*content* carries `workitem`, `recorded_digest`, `current_digest`, `requirements`
+and `change_facts` - what changed (with a diff against the text as it was
+assessed), whether the bound set changed, where the WorkItem is, the phases it
+could roll back to, and who else holds the document. The `rebound`,
+`missing_sources` and `assessed_without_a_binding` flags are still reported by
+`governance show`, not by that refusal; `change_facts` is on both. SDLE then
+asks you what you want to do (carry on, redo from an earlier phase, finish and
+raise a new WorkItem, or reset) - it never chooses.
 
 One asymmetry worth knowing: re-binding **the same set** with a different
 `--primary` does *not* stale the record, because the binding digest covers the

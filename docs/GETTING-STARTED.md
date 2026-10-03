@@ -319,7 +319,7 @@ Optional inputs, when you want them:
 
 ## 7. The layout before you launch Claude Code
 
-Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, seven files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
+Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, eight files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
 
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|
@@ -507,7 +507,7 @@ The earlier a WorkItem is, the cheaper it is to restart; the later it is, the be
 and treat additions as new work. Before editing a document that other WorkItems are bound to, tell whoever owns
 those WorkItems: their next move will be refused the moment your edit lands.
 
-The scenario-by-scenario version of this section, with what each option keeps and clears, is `docs/lifecycle/requirements-change-midflight.md`.
+When a move is refused `governance_stale`, SDLE shows you what changed (with a diff against the text as it was assessed), where the WorkItem is and who else holds the document, then asks you which of these you want - carry on, redo from an earlier phase, finish and raise a new WorkItem, or reset - and, if you redo, whether to build on the existing work or rebuild from scratch. The scenario-by-scenario version of this section, with what each option keeps and clears, is `docs/lifecycle/requirements-change-midflight.md`.
 
 ## 11d. When the assessment blocks: fixing the requirements
 

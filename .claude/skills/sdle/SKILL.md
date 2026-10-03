@@ -253,7 +253,7 @@ It is a **floor, not a ceiling.** A capability file may send you to another one 
 
 | phase | capabilities |
 |---|---|
-| `requirements_check` | modules/phase-execution.md modules/requirements-refinement.md |
+| `requirements_check` | modules/phase-execution.md modules/requirements-refinement.md modules/requirements-change.md |
 | `discovery` | modules/phase-execution.md |
 | `impact_analysis` | modules/phase-execution.md |
 | `constitution_draft` | modules/phase-execution.md guidelines/constitution.md |
@@ -422,6 +422,10 @@ A gate requires artifact content in the conversation for a human decision. That 
 
 When `governance assess` reports the requirements quality blocked, offer to help fix the requirements, and if the user accepts, load `modules/requirements-refinement.md` and follow it. It is not a phase and `resume` does not report it, because it happens before a workflow exists; the engine refuses `refinement_post_init` afterwards. It never runs unasked.
 
+## Step 6a-2: Requirements Changed Under a WorkItem
+
+When a command is refused `governance_stale`, or `governance show` says the assessment is not fresh, the requirements changed after they were assessed. Load `modules/requirements-change.md` and follow it: show the engine's facts, put the choice to the user (carry on, redo from an earlier phase, finish and raise a new WorkItem, reset), and do what they chose. It is not a phase and `resume` does not report it; the choice is the user's, never yours.
+
 ## Step 6b: Product Subagents
 
 Five read-only product subagents exist for high-context independent analysis: discovery, design review, code review, security review and requirements review. The capability file for a phase says when to hand work to one and what to give it.
@@ -440,6 +444,7 @@ Approval is never delegated. Human approval gates stay in this conversation, and
 | Retry or remediation limit reached | The refusal message names the options. Raise a limit with `sdle.sh limit set`, or reset a counter with `sdle.sh limit reset` — both audited. Never hand-edit state. |
 | `state.json` unreadable | Exit 3. Offer `reset workflow` (artifacts are preserved) or inspection. |
 | A bound requirement document deleted mid-workflow | Refused: `governance_stale`, naming the document. The assessment rests on it, so it is restored or the WorkItem re-binds and re-assesses. |
+| Requirements changed after assessment | Refused: `governance_stale`, with `change_facts`. Load `modules/requirements-change.md`; the user chooses what to do. |
 | Git not initialized | Drift diffs, staleness and the dirty-tree guard degrade gracefully. Note it in the security review. |
 | `phase_history` ≥ 10 entries | Suggest `/clear` between phases once — SDLE reloads from state on the next turn. |
 
