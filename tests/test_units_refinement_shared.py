@@ -48,9 +48,11 @@ def test_a_document_bound_only_here_has_no_sharers(project):
     assert sharers(project) == {}
 
 
-def test_a_pre_init_sharer_counts(project):
+def test_a_pre_init_sharer_does_not_block_but_is_reported_as_affected(project):
     other(project)
-    assert sharers(project) == {DOC: ["other"]}
+    assert sharers(project) == {}
+    report = sdle.refinement_sharer_report(paths_of(project), [DOC])
+    assert report == {"blocking": {}, "affected": {DOC: ["other"]}}
 
 
 @pytest.mark.parametrize("fields", [
@@ -69,11 +71,58 @@ def test_a_completed_sharer_does_not_count(project):
     assert sharers(project) == {}
 
 
-def test_a_reset_sharer_counts_because_its_binding_survives_the_reset(project):
+def test_a_reset_sharer_is_dormant_like_one_that_never_started(project):
     view = other(project)
     set_state(view, current_phase="complete", status="completed")
     view.state_file.unlink()
+    assert sharers(project) == {}
+    assert sdle.refinement_sharer_report(paths_of(project), [DOC])["affected"] == {DOC: ["other"]}
+
+
+def write_loop(view, status):
+    paths = sdle.Paths(project_root=view.root, skill_root=view.skill_root, workitem=view.workitem)
+    h = "a" * 64
+    iteration = {"iteration": 1, "assessmentRef": "x", "contentDigest": h, "proposalDigest": h,
+                 "failingChecks": ["scope"], "findings": [], "questions": [], "edits": [],
+                 "outcome": None if status in ("IN_PROGRESS", "AWAITING_REASSESSMENT") else "stall",
+                 "disputeOutcomes": []}
+    if status == "AWAITING_REASSESSMENT":
+        iteration["edits"] = [{"id": "e1", "op": "append_section", "path": DOC, "anchor": None,
+                               "text": "## A", "baseSha256": h, "appliedSha256": h,
+                               "appliedOrder": 1, "autoApplied": False, "decision": "accepted"}]
+    active = status in ("IN_PROGRESS", "AWAITING_REASSESSMENT")
+    sdle.write_refinement_record(paths, {
+        "refinementVersion": sdle.REFINEMENT_RECORD_VERSION, "workitem": view.workitem,
+        "status": status, "iterationCap": 3, "iterationCapSource": "builtin",
+        "iterations": [iteration], "startedAt": "2026-01-01T00:00:00Z",
+        "endedAt": None if active else "2026-01-02T00:00:00Z"})
+
+
+@pytest.mark.parametrize("status", ["IN_PROGRESS", "AWAITING_REASSESSMENT"])
+def test_a_dormant_sharer_with_an_open_loop_still_blocks(project, status):
+    write_loop(other(project), status)
     assert sharers(project) == {DOC: ["other"]}
+
+
+@pytest.mark.parametrize("status", ["CANCELLED", "ESCALATED"])
+def test_a_dormant_sharer_whose_loop_ended_does_not_block(project, status):
+    write_loop(other(project), status)
+    assert sharers(project) == {}
+
+
+def test_an_unreadable_loop_record_of_a_dormant_sharer_fails_closed(project):
+    view = other(project)
+    (view.runtime / "refinement.json").write_text("not json", encoding="utf-8")
+    with pytest.raises(sdle.IntegrityError) as raised:
+        sharers(project)
+    assert raised.value.reason == "refinement_registry_invalid"
+    assert "other" in str(raised.value)
+
+
+def test_a_completed_sharer_is_neither_blocking_nor_affected(project):
+    set_state(other(project), current_phase="complete", status="completed")
+    assert sdle.refinement_sharer_report(paths_of(project), [DOC]) == {
+        "blocking": {}, "affected": {}}
 
 
 def test_a_sharer_without_a_binding_is_harmless(project):
@@ -88,7 +137,7 @@ def test_a_different_document_is_not_shared(project):
 
 
 def test_paths_compare_without_regard_to_case(project):
-    other(project)
+    set_state(other(project))
     assert sharers(project, ["Requirements/TODO-API.md"]) == {
         "Requirements/TODO-API.md": ["other"]}
 
@@ -98,8 +147,8 @@ def test_this_workitem_never_counts_as_its_own_sharer(project):
 
 
 def test_every_sharer_is_listed_in_order(project):
-    other(project, "Bravo")
-    other(project, "Alpha")
+    set_state(other(project, "Bravo"))
+    set_state(other(project, "Alpha"))
     assert sharers(project) == {DOC: ["alpha", "bravo"]}
 
 

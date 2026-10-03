@@ -79,7 +79,7 @@ refinement dispute
 
 ### Part 2 — Another WorkItem holds the document
 
-*(A second WorkItem, not yet finished, is bound to the same file.)*
+*(A second WorkItem has **started** and is bound to the same file.)*
 
 **SDLE:**
 
@@ -92,13 +92,20 @@ assessment, so it is refused and nothing was written. Complete or re-bind those
 WorkItems first, or change the document by hand and re-assess each WorkItem.
 ```
 
-> **No override exists.** There is no acknowledgement that lets one WorkItem
-> edit a document another is still working from. A WorkItem that has *finished*
-> does not count, so a later WorkItem can build on documents earlier ones used.
+> **No override exists** for a WorkItem that has started. A WorkItem that has
+> *finished* does not count, so a later WorkItem can build on documents
+> earlier ones used.
 >
-> **Not shipped:** an acknowledged edit recorded in both WorkItems' audit, and
-> its crash recovery, are deferred pending a decision on how one WorkItem may
-> write another's record. The refusal above is the safe default until then.
+> **A WorkItem that has not started does not block.** If `payments-api` had no
+> state yet, the edit would be applied and SDLE would print that `payments-api`
+> holds the changed document, that its assessment is now stale, and that it
+> must assess again before it starts. Nothing of `payments-api` is written. Only
+> WorkItems in this checkout can be seen: a teammate's branch is theirs to be
+> told about.
+>
+> **Not shipped:** an acknowledged edit to a document a *started* WorkItem holds,
+> recorded in both WorkItems' audit, with crash recovery, is deferred pending a
+> decision on how one WorkItem may write another's record.
 
 ### Part 3 — A loop that is not getting anywhere
 
@@ -176,7 +183,7 @@ the engine accepted.
 |---|---|
 | A dispute with no decision reference, no rationale, or ordinary assessment evidence | `Refused: refinement_dispute_incomplete` |
 | A dispute that reuses an earlier dispute's evidence, decision or result | `Refused: refinement_dispute_replayed` |
-| A shared document, with or without an acknowledgement key | `Refused: refinement_shared_source` / `Refused: refinement_input_invalid` |
+| A document a started WorkItem holds, with or without an acknowledgement key | `Refused: refinement_shared_source` / `Refused: refinement_input_invalid` |
 | Another WorkItem's record unreadable | `refinement_registry_invalid` (exit 3), nothing changed |
 | Two commands at once | `Refused: refinement_transaction_locked` |
 
@@ -197,7 +204,8 @@ Delete the disposable repository.
 | A whitespace-only change does not unlock a flip | `tests/test_units_assessment_integrity.py::test_a_presentation_only_change_does_not_unlock_the_flip` |
 | A complete dispute exempts exactly its pair | `tests/test_units_refinement_commands.py::test_a_complete_dispute_overturns_the_pair_and_unlocks_exactly_that_pass` |
 | One decision cannot authorise two disputes | `tests/test_units_refinement_commands.py::test_one_human_decision_cannot_authorise_two_disputes` |
-| A shared document is refused before any write | `tests/test_units_refinement_commands.py::test_a_document_another_workitem_holds_is_refused_by_propose` |
+| A document a started WorkItem holds is refused before any write | `tests/test_units_refinement_commands.py::test_a_sharer_that_started_blocks_even_with_an_assessment` |
+| A document only not-started WorkItems hold can be refined, and they are told | `tests/test_units_refinement_commands.py::test_a_document_only_not_started_workitems_hold_can_be_refined` |
 | A finished WorkItem does not count as a sharer | `tests/test_units_refinement_commands.py::test_a_completed_sharer_does_not_block` |
 | A repeated proposal escalates | `tests/test_units_refinement_commands.py::test_a_repeated_proposal_is_a_stall_and_escalates` |
 | The round limit escalates and refuses | `tests/test_units_refinement_commands.py::test_the_cap_ends_the_loop_escalated_and_refuses` |

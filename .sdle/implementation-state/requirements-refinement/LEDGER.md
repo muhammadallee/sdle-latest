@@ -1302,3 +1302,17 @@ approved-but-unrealized architecture decisions in the shared catalog), the "exac
 shared helper; it cannot know authorship, additive-versus-contradictory, or artifact-to-passage dependency. **Not
 built; the owner decides.** Escalated to the owner: whether regeneration after a restart should be an explicit
 orchestrator contract, and whether planted-completion coverage is enough.
+
+## Shared-document rule relaxed for not-started sharers (2026-10-03, owner's decision, Codex agreed)
+
+Owner: allow a refinement edit when the work on every sharing WorkItem has not started. Codex: yes, with the rule
+below and no acknowledgement step (the engine's own enumeration is stronger than a typed name). **Rule:** a sharer
+blocks if it has a state that does not prove completion, or has its own loop open; a sharer with a binding and no
+state (never started, or reset) does not block and is reported as **affected** — printed, and recorded in the
+apply evidence, with the note that only this checkout is seen. Nothing of an affected WorkItem is written; its
+assessment goes stale by itself. Corrupt binding/state/refinement record of a neighbour still fails closed. The
+check, the write, `init` and `bind` all run under the one mutex. This resolves the deferred shared-document design
+for the common case; **still deferred**: started sharers, open loops, other branches/worktrees (scenarios 18 and 29
+remain unreported as passing). Tests: dormant/reset/ended-loop allowed; open loop, started, failed, rejected,
+active block; sharer starting between the check and the write blocks the apply; neighbour untouched; stale by
+itself; the two bucket rules mutation-proved.

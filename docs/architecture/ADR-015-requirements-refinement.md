@@ -1,6 +1,6 @@
 # ADR-015 — Requirements refinement: a loop before the workflow, one verdict per content
 
-**Status:** Accepted, with one decision deferred (see *Deferred*)
+**Status:** Accepted, with one case deferred (see *Deferred*)
 **Relates to:** ADR-003 (governance inputs and artifact review), ADR-007 (product subagents), ADR-011 (pinned governance policy), ADR-012 (requirements source binding)
 
 ---
@@ -42,13 +42,17 @@ Deterministic rules over the bound set, each mapped to an existing check and eac
 
 Progress, regression and stall are computed, not asserted: progress is a changed content with fewer failing checks (or an applied human answer); a new failing check is a regression, flagged and never auto-continued; unchanged content, a repeated proposal, or two rounds without progress is a stall and ends `ESCALATED`; reaching the round limit ends `ESCALATED` and refuses `refinement_cap_exhausted` — the record is written first and the refusal follows, the shape `governance assess` already uses for a blocked assessment, so how the loop ended stays inspectable. The limit is one engine constant, lowerable by the `refinement_iteration_cap` policy key, never raisable. A question already answered is not asked again. Findings on `compatibility` and `dependencies` must cite what an existing repository baseline records, resolved against the baseline and its hash-pinned discovery record; whether the entry *supports* the finding remains the assessor's judgement.
 
-### 7. A shared document is refused
+### 7. A document another WorkItem is working from is refused; one only not-started WorkItems hold is allowed
 
-If another WorkItem that is not complete also binds a document the loop would change, the engine refuses `refinement_shared_source`, names those WorkItems, and offers no override. Another WorkItem is excluded only when its own current, supported, consistent state proves it complete; pre-init, reset, failed, rejected and every active WorkItem count, because the registry records identity and not lifecycle. An unreadable binding or state of another registered WorkItem fails closed (`refinement_registry_invalid`, exit 3), naming it.
+The engine refuses `refinement_shared_source`, names the WorkItems, and offers no override, when another WorkItem **may be working from** a document the loop would change: it has a state (it has started - active, failed or rejected alike) that does not prove it complete, or it has a refinement loop open of its own. Another WorkItem is excluded when its own current, supported, consistent state proves it complete, so a later WorkItem can build on documents earlier ones used.
+
+A sharer that has **not started** - a binding and no state, which is a WorkItem that never ran `init` or was reset - does not block. It has no audit chain, so nothing of its has to be written, and its assessment goes stale by itself because freshness re-hashes the document. Such sharers are reported as **affected**: `refinement apply` prints which WorkItems must re-assess, records them in its own apply evidence, and says that only WorkItems in this checkout are seen - another branch, worktree or uncommitted copy needs the people involved to be told. The check, the document write and `init` / `requirements bind` all run under the one repository mutex, so a sharer cannot start between the check and the write.
+
+An unreadable binding, state or refinement record of another registered WorkItem fails closed (`refinement_registry_invalid`, exit 3), naming it.
 
 ## Deferred
 
-**Acknowledged shared edits.** Letting one WorkItem edit a document another holds — with an acknowledgement recorded in both audit chains, a repository transaction index and crash recovery — was designed and then put on hold by the owner: it requires one WorkItem to write another's audit, which contradicts the rule that a WorkItem's records are written only by that WorkItem, and an experiment showed that two writers on one audit chain break it. The refusal in §7 is the recorded default until that decision is made. The refinement record's independent version means a later `transactions` field can be added with its absence in version 1 read as empty, so choosing either way later needs no migration of `state.json`.
+**Acknowledged shared edits to a document a started WorkItem holds.** Letting one WorkItem edit a document that another, *started* WorkItem is working from - with an acknowledgement recorded in both audit chains, a repository transaction index and crash recovery - was designed and put on hold: it requires one WorkItem to write another's audit, which contradicts the rule that a WorkItem's records are written only by that WorkItem, and an experiment showed that two writers on one audit chain break it. Refusal (section 7) is the recorded default for that case. The common case - every sharer not started - needs none of it and is allowed. Edits across checkouts, and sharers with a loop open, also remain refused. The refinement record's independent version means a later `transactions` field can be added with its absence in version 1 read as empty, so choosing either way needs no migration of `state.json`.
 
 ## Consequences
 

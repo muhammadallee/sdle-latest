@@ -123,11 +123,20 @@ def snapshot(project):
     return state
 
 
-def other(project, name="Other", complete=False):
+def other(project, name="Other", complete=False, dormant=False):
+    """A second WorkItem bound to the same document. By default it has started
+    (so it blocks a refinement); ``dormant`` leaves it with no state at all."""
     project.ok("workitem", "create", "--name", name)
     project.pin = True  # two WorkItems: the ladder needs `--workitem` now
     view = project.as_workitem(name.lower())
     view.ok("requirements", "bind", "--source", DOC)
+    if not complete and not dormant:
+        view.runtime.mkdir(parents=True, exist_ok=True)
+        started = sdle.load_template(sdle.Paths(
+            project_root=view.root, skill_root=view.skill_root, workitem=view.workitem))
+        started.update({"workflow_version": sdle.CURRENT_VERSION,
+                        "current_phase": "constitution_draft", "status": "in_progress"})
+        view.state_file.write_text(json.dumps(started), encoding="utf-8")
     if complete:
         view.runtime.mkdir(parents=True, exist_ok=True)
         state = sdle.load_template(sdle.Paths(
@@ -845,3 +854,66 @@ def test_a_retried_apply_after_an_interrupted_one_never_duplicates_the_edit(proj
     retry = apply(project, base=sha(project))
     assert retry.reason == "refinement_edit_stale_base"
     assert text_of(project).count("AC-1: Creating a todo returns status 201.") == 1
+
+
+# -- Not-started sharers: allowed, reported, and nothing of theirs is written -----------------------------------
+
+
+def tree_of(view):
+    return {p.relative_to(view.root).as_posix(): p.read_bytes()
+            for p in view.runtime.rglob("*") if p.is_file()}
+
+
+def test_a_document_only_not_started_workitems_hold_can_be_refined(project):
+    view = other(project, dormant=True)
+    before = tree_of(view)
+    entered(project)
+    accept(project)
+    result = apply(project)
+    assert result.exit_code == 0, result
+    assert "AC-1: Creating a todo returns status 201." in text_of(project)
+    assert result.data["affected_workitems"] == {DOC: ["other"]}
+    assert "re-assess" in result.data["notice"]
+    assert tree_of(view) == before, "nothing of the other WorkItem is written"
+
+
+def test_the_affected_workitems_are_recorded_in_the_apply_evidence(project):
+    other(project, dormant=True)
+    entered(project)
+    accept(project)
+    apply(project)
+    evidence = json.loads(next((project.runtime / "evidence").glob(
+        "refinement-apply-*.json")).read_text(encoding="utf-8"))
+    assert evidence["affectedWorkitems"] == {DOC: ["other"]}
+
+
+def test_the_other_workitems_assessment_goes_stale_by_itself(project):
+    view = other(project, dormant=True)
+    assert assess(view).exit_code == 0
+    assert view.ok("governance", "show").data["fresh"] is True
+    entered(project)
+    accept(project)
+    assert apply(project).exit_code == 0
+    assert view.ok("governance", "show").data["fresh"] is False
+
+
+def test_a_sharer_that_started_blocks_even_with_an_assessment(project):
+    other(project)  # started
+    blocked(project)
+    result = call(project, "propose", proposal(project))
+    assert result.reason == "refinement_shared_source"
+
+
+def test_a_sharer_that_starts_after_the_loop_began_blocks_the_apply(project):
+    view = other(project, dormant=True)
+    entered(project)
+    accept(project)
+    started = sdle.load_template(sdle.Paths(
+        project_root=view.root, skill_root=view.skill_root, workitem=view.workitem))
+    started.update({"workflow_version": sdle.CURRENT_VERSION,
+                    "current_phase": "constitution_draft", "status": "in_progress"})
+    view.runtime.mkdir(parents=True, exist_ok=True)
+    view.state_file.write_text(json.dumps(started), encoding="utf-8")
+    before = snapshot(project)
+    assert apply(project).reason == "refinement_shared_source"
+    assert snapshot(project) == before

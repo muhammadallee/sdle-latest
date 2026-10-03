@@ -5624,16 +5624,25 @@ def requirements_lint(documents: dict[str, str], path: str,
 # Who else shares a requirements document
 #
 # A refinement edit changes a document, and every WorkItem bound to it has its
-# assessment staled by that. This change does not edit a document another
-# WorkItem may still be working from, so it asks which other WorkItems hold it.
+# assessment staled by that. The registry records identity only, not lifecycle,
+# so the answer is read from each other WorkItem's own files.
 #
-# The registry records identity only, not lifecycle, so the answer is read from
-# each other WorkItem's own files. A binding counts unless that WorkItem's
-# current, supported, consistent state proves it complete: a WorkItem with a
-# binding and no state is pre-init or was reset (reset deletes the state and
-# keeps the binding), and `failed`, `rejected` and every active status are work
-# that may resume. Completed WorkItems are excluded, which is what lets a later
-# WorkItem converge onto the same documents. Anything present but unreadable
+# A sharer BLOCKS the edit when it may be working from the document: it has a
+# state (so it has started, whatever it later became - active, failed, rejected)
+# and that state does not prove it complete, or it has a refinement loop open of
+# its own. Completed WorkItems are excluded, which is what lets a later WorkItem
+# converge onto the same documents.
+#
+# A sharer that has NOT started - a binding and no state, which is a WorkItem
+# that never ran `init` or was reset - does not block, because there is nothing
+# of its to disturb: it has no audit chain, and its assessment (if it has one)
+# goes stale by itself, since freshness re-hashes the document. Such a sharer is
+# reported as AFFECTED so the person is told it must assess again, and nothing
+# of its is written. What this does not see is another branch, worktree or
+# uncommitted copy of the same WorkItem; that is a coordination matter for the
+# team and the notice says so.
+#
+# Anything present but unreadable - a binding, a state, a refinement record -
 # fails closed and names the WorkItem; it is never ignored.
 # --------------------------------------------------------------------------
 
@@ -5669,16 +5678,16 @@ def _completed_workitem(other: Paths) -> bool:
     return state["current_phase"] == "complete" and state["status"] == "completed"
 
 
-def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str]]:
-    """For each of ``documents`` that another WorkItem also holds, the ids of
-    the WorkItems that do. Empty when nothing is shared. See the block above for
-    which WorkItems count. Paths compare case-folded, as `requirements bind`
-    does, and the result is keyed by the path as given."""
+def refinement_sharer_report(paths: Paths, documents: list[str]) -> dict:
+    """``{"blocking": {document: [ids]}, "affected": {document: [ids]}}`` for
+    the other WorkItems that hold any of ``documents``. See the block above for
+    which sharers block and which are only affected. Paths compare case-folded,
+    as `requirements bind` does, and results are keyed by the path as given."""
     wanted = {document.lower(): document for document in documents}
-    found: dict[str, list[str]] = {}
+    report: dict[str, dict[str, list[str]]] = {"blocking": {}, "affected": {}}
     root = workitems_root(paths)
     if not root.is_dir():
-        return found
+        return report
     for child in sorted(root.iterdir(), key=lambda item: item.name):
         if (not child.is_dir() or child.name == paths.workitem
                 or not workitem_id_wellformed(child.name)):
@@ -5701,11 +5710,23 @@ def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str
         mine = [wanted[key] for key in sorted(wanted) if key in held]
         if not mine:
             continue
-        if _completed_workitem(other):
+        started = other.state_file.is_file()
+        if started and _completed_workitem(other):
             continue
+        try:
+            loop = read_refinement_record(other)
+        except IntegrityError:
+            raise _registry_invalid(
+                child.name, "a refinement record that cannot be read") from None
+        bucket = "blocking" if started or _refinement_active(loop) else "affected"
         for document in mine:
-            found.setdefault(document, []).append(child.name)
-    return found
+            report[bucket].setdefault(document, []).append(child.name)
+    return report
+
+
+def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str]]:
+    """The sharers that BLOCK an edit to ``documents`` (see the block above)."""
+    return refinement_sharer_report(paths, documents)["blocking"]
 
 
 # --------------------------------------------------------------------------
@@ -5802,8 +5823,11 @@ def _refinement_post_init_guard(paths: Paths, action: str) -> None:
             {"workitem": paths.workitem})
 
 
-def _refinement_shared_guard(paths: Paths, documents: list[str]) -> None:
-    shared = refinement_sharers(paths, sorted(set(documents)))
+def _refinement_shared_guard(paths: Paths, documents: list[str]) -> dict:
+    """Refuse when a sharer blocks; otherwise return the affected sharers, which
+    the caller reports and records."""
+    report = refinement_sharer_report(paths, sorted(set(documents)))
+    shared = report["blocking"]
     if shared:
         listing = "; ".join(f"{doc}: {', '.join(ids)}" for doc, ids in shared.items())
         raise Refused(
@@ -5814,6 +5838,14 @@ def _refinement_shared_guard(paths: Paths, documents: list[str]) -> None:
             "WorkItems first, or change the document by hand and re-assess "
             "each WorkItem.",
             {"workitem": paths.workitem, "shared": shared})
+    return report["affected"]
+
+
+REFINEMENT_AFFECTED_NOTICE = (
+    "These WorkItems have not started and hold a document that was changed; "
+    "their existing assessments are now stale and each must re-assess before it "
+    "starts. Only WorkItems in this checkout are seen: another branch, worktree "
+    "or uncommitted copy needs the people involved to be told.")
 
 
 def _refinement_active(record: dict | None) -> bool:
@@ -6140,7 +6172,7 @@ def cmd_refinement_propose(args, paths: Paths) -> int:
                        if record else set())
         edits = _refinement_validated_edits(
             paths, raw_by_path, payload["edits"], earlier_ids)
-        _refinement_shared_guard(paths, [e["path"] for e in edits])
+        affected_by_proposal = _refinement_shared_guard(paths, [e["path"] for e in edits])
         proposal_digest = _refinement_proposal_digest(findings, questions, edits)
         reference = payload["assessmentRef"]
 
@@ -6222,6 +6254,7 @@ def cmd_refinement_propose(args, paths: Paths) -> int:
         "workitem": paths.workitem, "status": "IN_PROGRESS", "record": relative,
         "iteration": len(record["iterations"]), "failing": failing,
         "regression": regression, "lint_evidence": lint_evidence,
+        "affected_workitems": affected_by_proposal,
         "questions": [{"id": q["id"], "text": q["text"], "options": q["options"]}
                       for q in questions]})
     return EXIT_OK
@@ -6288,7 +6321,7 @@ def cmd_refinement_apply(args, paths: Paths) -> int:
         relative = edit["path"]
         if relative not in bound_sources(paths):
             raise _refine_input(f"{relative} is no longer one of the bound documents")
-        _refinement_shared_guard(paths, [relative])
+        affected = _refinement_shared_guard(paths, [relative])
         target = paths.project_root / relative
         if not target.is_file():
             raise _refine_input(f"{relative} is not in the repository")
@@ -6331,7 +6364,7 @@ def cmd_refinement_apply(args, paths: Paths) -> int:
             "kind": "refinement-apply", "executionId": execution_id,
             "recordedAt": stamp, "workitem": paths.workitem, "edit": edit["id"],
             "path": relative, "beforeSha256": now_sha, "afterSha256": new_sha,
-            "presentationNeutral": neutral,
+            "presentationNeutral": neutral, "affectedWorkitems": affected,
             "diff": "".join(difflib.unified_diff(
                 before.splitlines(True), after.splitlines(True),
                 f"a/{relative}", f"b/{relative}")),
@@ -6354,6 +6387,8 @@ def cmd_refinement_apply(args, paths: Paths) -> int:
         "workitem": paths.workitem, "record": record_relative, "edit": edit["id"],
         "path": relative, "sha256": new_sha, "presentation_neutral": neutral,
         "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "affected_workitems": affected,
+        "notice": REFINEMENT_AFFECTED_NOTICE if affected else None,
         "needs_acknowledgement": [o.get("path") for o in offenders
                                   if isinstance(o, dict)],
         "next": "run `governance assess`, then `refinement propose`"})

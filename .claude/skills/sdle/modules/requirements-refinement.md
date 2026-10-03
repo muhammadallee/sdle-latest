@@ -43,7 +43,9 @@ A check that failed once cannot later pass on **unchanged** requirements: the en
 
 ### 6. Shared documents
 
-If another WorkItem still holds a document the loop would change, the engine refuses (`refinement_shared_source`) and names those WorkItems. There is no way to override it here. Explain why in one sentence — editing the document would silently invalidate their assessment — and give the options: finish or re-bind the other WorkItems, or edit by hand and re-assess each one. Do not suggest working on a copy: the requirements stay in one place.
+If another WorkItem that has started, and is not finished, still holds a document the loop would change, the engine refuses (`refinement_shared_source`) and names those WorkItems. There is no way to override it here. Explain why in one sentence — editing the document would silently invalidate their assessment — and give the options: finish or re-bind the other WorkItems, or edit by hand and re-assess each one. Do not suggest working on a copy: the requirements stay in one place.
+
+If the only other WorkItems that hold it have **not started**, the edit is allowed and `refinement apply` reports which ones are affected. Tell the user, in plain words, which WorkItems now have a stale assessment and must assess again before they start, and that the engine only sees WorkItems in this checkout — a teammate's branch or uncommitted copy is for the user to tell them about.
 
 ### 7. Things that do not bend
 

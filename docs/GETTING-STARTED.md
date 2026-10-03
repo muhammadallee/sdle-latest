@@ -529,8 +529,10 @@ starts unasked:
 Three rules keep the loop honest. A check that **failed** cannot later pass on **unchanged** requirements — the
 engine keeps the first answer (`quality_verdict_flip`); if the first answer really was wrong, the way back is an
 explicit dispute that needs independent evidence, a written reason and **your** decision. A document that
-**another unfinished WorkItem** also holds is refused outright (`refinement_shared_source`): editing it would
-silently invalidate their assessment, so finish or re-bind them first, or edit by hand and re-assess each. And
+**another WorkItem that has started and is not finished** also holds is refused outright (`refinement_shared_source`):
+editing it would silently invalidate their assessment, so finish or re-bind them first, or edit by hand and
+re-assess each. If the other WorkItems have **not started**, the edit is allowed and SDLE tells you which of them
+must assess again (it only sees this checkout; tell teammates on other branches yourself). And
 once the workflow has started the loop is closed (`refinement_post_init`): from then on a change to the
 requirements is an ordinary edit followed by `governance assess`, as in section 11c.
 

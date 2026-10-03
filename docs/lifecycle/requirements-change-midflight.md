@@ -68,8 +68,9 @@ none of the WorkItem should survive.
 **Recommended:** raise the change as a new WorkItem. Carrying on only refreshes a completed record; a reset destroys
 its workflow state and audit trail (its records and files stay). A completed WorkItem does not count as holding the document, so a new WorkItem can refine it.
 
-**6. Another WorkItem's refinement wants to change a document you are still using.** The refinement is refused
-(`refinement_shared_source`) and writes nothing. **Recommended:** finish or re-bind the other WorkItem first, or
+**6. Another WorkItem's refinement wants to change a document you are still using.** If your WorkItem has started,
+the refinement is refused (`refinement_shared_source`) and writes nothing. If your WorkItem has not started, it is
+allowed: your assessment goes stale and SDLE tells the other person you must assess again. **Recommended:** finish or re-bind the other WorkItem first, or
 edit by hand and re-assess both; tell whoever owns it before you edit.
 
 **7. Two WorkItems affected differently.** Each is judged separately and nothing coordinates them. An early one
