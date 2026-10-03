@@ -1331,3 +1331,11 @@ there is no diff). `restart --approach rebuild|update` records the choice in the
 update if redoing, then do exactly that; CAPABILITY_MAP row on `requirements_check`. **It describes and never
 recommends in the engine;** the recommendation is in the module and the choice is the user's. Mutation-proved:
 facts only when stale; gates excluded from restart candidates; approach recorded.
+
+## PR #6 folded into this branch (2026-10-03)
+
+The owner asked whether PR #6 (`fix/architecture-apply-recheck`) was in this branch. **It was not**: this branch had
+wrapped `architecture_apply` in the refinement mutex (Stage 4), but the requirements recheck *inside* the catalog write,
+which is what the mutex is meant to protect, existed only on the PR #6 branch, so the wrapper guarded nothing. Both PR #6
+commits were cherry-picked here (`dedfae8`, `fd3a3ff`). The architecture, Stage 4 and invariants suites pass. PR #6 can
+now be closed as superseded once this branch merges; merging it first would also be fine (the change is identical).
