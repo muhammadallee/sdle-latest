@@ -320,6 +320,21 @@ the exit code as well as the reason.
 | `requirements_source_invalid` | 1 | A path is absolute, traverses out of the repository, names a directory, resolves through a symlink pointing away, or uses a spelling that means different files on different platforms | Use a repository-relative path to a file. To bind a whole directory, use `--all-current`, which expands it into an explicit list |
 | `requirements_source_duplicate` | 1 | The same file is named twice, including by a Windows case alias | Name it once |
 | `requirements_binding_invalid` | **3** | The binding on disk is not one the engine wrote | An integrity failure, not a refusal, and it pre-empts everything else: `preflight` exits 3 here even when Spec Kit is also missing. Inspect `workitems/<id>/.sdle/requirements.json` to see what happened, restore it from version control, **or run `requirements bind` again** — the engine replaces a corrupt binding deliberately and reports the new one. Do **not** delete it by hand: `.sdle/` is engine-owned, only `sdle.py` writes there (invariant 6), and the write fence is there to stop exactly that |
+| `refinement_record_invalid` | **3** | The requirements-refinement record on disk is not one the engine wrote | An integrity failure, never read as "no refinement yet". Inspect `workitems/<id>/.sdle/refinement.json` and restore it from version control. Do **not** edit or delete it by hand: `.sdle/` is engine-owned, only `sdle.py` writes there (invariant 6) |
+| `refinement_registry_invalid` | **3** | Another WorkItem's requirements binding or `state.json` cannot be read, so whether it shares a requirements document cannot be told | An integrity failure naming that WorkItem; nothing was changed. Repair or restore that WorkItem's file from version control. Do **not** edit it by hand: `.sdle/` is engine-owned (invariant 6). The refinement is refused rather than guessing, because editing a document another WorkItem still works from would stale its assessment |
+| `refinement_transaction_locked` | 1 | Another command held `workitems/.refinement-transaction.lock` for longer than ten seconds | Nothing was written. Retry in a moment. A lock left by a crashed process is broken by the next command once it is a minute old |
+| `refinement_input_invalid` | 1 | A `refinement` input file is not acceptable: unknown or missing keys, an edit whose anchor is missing or ambiguous, a path that is not one of the bound documents, a stale or foreign assessment, a question or answer that does not fit | Nothing was written. The message names the first problem. A proposal carries no quality results (assessing is `governance assess`'s job) and there is no acknowledgement key: a shared document is refused, not overridden |
+| `refinement_post_init` | 1 | A `refinement` command was run after the workflow started (`state.json` exists) | Refinement works on requirements before `init`. After that, edit the requirements and run `governance assess`; the assessment goes stale and `advance` says so |
+| `refinement_shared_source` | 1 | A document the refinement would change is also held by another WorkItem that may be working from it: one that has started and is not complete (active, failed or rejected), or one with its own refinement loop open | Nothing was written; the other WorkItems are listed. Complete or re-bind them first, or edit the document by hand and re-assess each WorkItem. There is no acknowledgement that overrides this. A completed WorkItem does not count, and neither does one that has not started: for those the edit is allowed and SDLE tells you which WorkItems must re-assess (only WorkItems in this checkout are seen) |
+| `refinement_edit_stale_base` | 1 | The document changed since an edit was written, or the digest the caller gave is not the document's current digest | Nothing was written. Propose again from the current text |
+| `refinement_wrong_status` | 1 | The command does not fit the loop's state: no loop yet, an iteration still open when a new proposal arrives, an edit that needs a human decision (or was rejected), an edit already applied, or a loop already ended | Nothing was written; the message says what the command needs. `refinement show` reports the status |
+| `refinement_cap_exhausted` | 1 | The loop used all its iterations and the requirements still fail | The loop is recorded as ESCALATED. Edit the requirements by hand, or take the findings back to the people who own them. A repository policy may lower the cap (`refinement_iteration_cap`), never raise it |
+| `refinement_citation_unresolved` | 1 | A finding about compatibility or dependencies cites nothing although the repository has a sound baseline, or cites an entry the baseline does not hold, or a record that changed since the baseline pinned it | Nothing was written. Cite what the baseline already records (a discovery finding id, or a baseline reference path). Whether the cited entry supports the finding is the assessor's judgement; the engine checks only that it exists and has not moved. Without a baseline, no citation is asked for and none can resolve |
+| `refinement_dispute_incomplete` | 1 | A dispute lacks independent evidence, a rationale or a decision reference, or the evidence does not show a fresh assessment passing that check at the same content | Nothing was written. The evidence of a dispute is a refused re-assessment (`evidence/governance-flip-attempt-*.json`); an ordinary assessment is the result being disputed |
+| `refinement_dispute_replayed` | 1 | A dispute reuses evidence, a decision or a result an earlier dispute already used | Each dispute needs its own evidence and its own recorded decision |
+| `refinement_in_progress` | 1 | `init` was run while a requirements refinement is IN_PROGRESS or AWAITING_REASSESSMENT | Finish it (re-assess, then `refinement propose`) or end it (`refinement cancel`), then start the workflow. Nothing was written |
+| `quality_verdict_flip` | 1 | `governance assess` answers PASS (or NOT_APPLICABLE) for a check that FAILed in an earlier assessment of requirements with exactly the same content | Unchanged requirements cannot have become adequate, so the earlier result stands and **nothing was recorded as the verdict** (`governance.json` is untouched; the attempt is kept as `evidence/governance-flip-attempt-*.json`). Change the requirements substantively and assess again. A whitespace-only edit does not count as a change. If the earlier FAIL was itself wrong, that is corrected only by a recorded dispute, never by re-running the assessment |
+| `governance_history_invalid` | **3** | An `evidence/governance-*.json` file is unreadable or is not an assessment record the engine wrote | An integrity failure: the assessment history cannot be trusted, so nothing is recorded. Restore the file from version control. Do **not** delete or edit it by hand: `.sdle/` is engine-owned (invariant 6). A zero-byte file is the placeholder of a crashed assessment and is not an error |
 
 **`governance_stale` is the same family**, and three different facts arrive
 under that one reason: a bound document's *content* changed, the **bound source
@@ -328,16 +343,25 @@ set** changed (`rebound`), or the record predates any binding
 `governance assess`; the third by binding first, then assessing. A file in
 `requirements/` that this WorkItem never bound cannot cause any of them.
 
-**Run `governance show` to tell them apart — the refusal will not.** An ordinary
-`advance` refusal carries only `workitem`, `recorded_digest`, `current_digest`
-and `requirements`. The `rebound`, `missing_sources` and
-`assessed_without_a_binding` flags are reported by `governance show`, not by the
-refusal you just received. Reaching for them in the refusal's `data` finds
-nothing.
+**Run `governance show` to tell the three apart.** A refusal for changed
+*content* carries `workitem`, `recorded_digest`, `current_digest`, `requirements`
+and `change_facts` - what changed (with a diff against the text as it was
+assessed), whether the bound set changed, where the WorkItem is, the phases it
+could roll back to, and who else holds the document. The `rebound`,
+`missing_sources` and `assessed_without_a_binding` flags are still reported by
+`governance show`, not by that refusal; `change_facts` is on both. SDLE then
+asks you what you want to do (carry on, redo from an earlier phase, finish and
+raise a new WorkItem, or reset) - it never chooses.
 
 One asymmetry worth knowing: re-binding **the same set** with a different
 `--primary` does *not* stale the record, because the binding digest covers the
 sorted source list alone. Read `governance show` rather than assuming.
+
+**After a shared document was edited by someone else.** Assessing again clears the refusal, but it does not
+invalidate work already produced from the old text. Whether to carry on, restart from an earlier phase, finish and
+raise a new WorkItem, or discard the WorkItem depends on how much the change affects, and on how far along the
+WorkItem is. The situations, and what each one costs, are in
+[Getting Started §11c](../GETTING-STARTED.md#11c-when-the-requirements-change-while-work-is-in-progress).
 
 **Which problems `preflight` reports.** `reason` names the first problem that
 stops it — Spec Kit, then its skills, then `requirements_unbound`, then

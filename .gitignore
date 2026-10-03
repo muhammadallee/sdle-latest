@@ -9,6 +9,7 @@ __pycache__/
 workitems/*/.sdle/lock
 .sdle/architecture/catalog.lock
 workitems/.active-context.json
+workitems/.refinement-transaction.lock
 
 # Developer-local Claude Code settings: per-developer, never shipped or installed
 .claude/settings.local.json

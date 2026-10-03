@@ -1,0 +1,55 @@
+{
+  "run_id": "20261001T162206-stage2-codex-plan-level1-attempt2",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "plan-level1-attempt2",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "C:/Users/Ali/AppData/Local/Temp/stage2-l1-wt",
+  "candidate_sha": "6162064edcdce767b142aec10139a2e1871468ad",
+  "timeout_seconds": 2700,
+  "prompt": "level1.prompt.md",
+  "prompt_sha256": "c5cc6864822483a2835749125fc9fb16e992101257ce749064f56fdd15bf668d",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-01T16:22:06Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "C:/Users/Ali/AppData/Local/Temp/stage2-l1-wt",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\requirements-refinement\\stage2\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\requirements-refinement\\runs\\20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-01T16:22:06Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-01T16:33:02Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261001T162206-stage2-codex-plan-level1-attempt2.a1.events.jsonl",
+        "stderr": "20261001T162206-stage2-codex-plan-level1-attempt2.a1.stderr.log",
+        "review": "20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-01T16:33:02Z",
+  "findings": 19,
+  "coverage_not_reviewed": [
+    "The full pytest and lint-skill suites were not run because they create files/caches and the review sandbox is read-only",
+    "No fresh external assessor dispatches were performed; corpus conclusions were checked from committed run files and recompute_metrics.py output",
+    "Production refinement behavior could not be executed because the reviewed artifact is a plan and no feature implementation exists"
+  ],
+  "review_output": "20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json"
+}

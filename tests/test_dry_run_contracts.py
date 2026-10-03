@@ -6,7 +6,7 @@ pin says a file did not change; it cannot say the file is *right*, and by this
 iteration they were not: Spec Kit paths under `.specify/specs/`, uppercase
 fingerprints the engine never prints, no WorkItem or governance step, and a
 Gate 7 with no test requirement. The byte pins were released deliberately and
-replaced by what this module asserts, for all twenty transcripts alike:
+replaced by what this module asserts, for all twenty-two transcripts alike:
 
 * **structure** — the ten parts the stabilization plan requires (scenario id,
   flow, defect ids, runtime, starting conditions, setup, transcript,
@@ -38,7 +38,7 @@ from conftest import DRY_RUN_SUBSTITUTIONS, REPO_ROOT, sdle
 
 DRY_RUNS = REPO_ROOT / "docs" / "dry-runs"
 TRANSCRIPTS = sorted(p for p in DRY_RUNS.glob("*.md") if p.name[:2].isdigit())
-SCENARIO_COUNT = 20
+SCENARIO_COUNT = 22
 
 CONSTS = sdle.load_constants(sdle.resolve_paths(
     str(REPO_ROOT), str(REPO_ROOT / ".claude" / "skills" / "sdle")))
@@ -55,11 +55,12 @@ STATE_COMMENT = re.compile(
 STATUS_HEADER = re.compile(r"📋 SDLE Status: Phase (\d+)/(\d+) — (.+?) \[")
 GATE_PROMPT = re.compile(r"Gate (\d+)/(\d+): ([A-Z][A-Za-z ]+? Approval)")
 FLOW_SWITCH = re.compile(r"<!-- dry-run-flow: (\w+) -->")
+PRE_INIT_MARKER = "<!-- dry-run-pre-init -->"
 REFUSED = re.compile(r"Refused: `?([a-z_]+)`?")
 NODE = re.compile(r"`(tests/[\w/]+\.py)(?:::([\w\[\]\-. ]+))?`")
 
 
-def test_there_are_twenty_transcripts_and_they_are_numbered_densely():
+def test_there_are_twenty_two_transcripts_and_they_are_numbered_densely():
     assert [p.name[:2] for p in TRANSCRIPTS] == [
         f"{n:02d}" for n in range(1, SCENARIO_COUNT + 1)], [
             p.name for p in TRANSCRIPTS]
@@ -132,6 +133,11 @@ def test_every_progress_fraction_and_gate_number_is_the_engines(path):
             assert expected in gates, (where, expected, flow.name,
                                        sorted(gates))
             checked += 1
+    if PRE_INIT_MARKER in text:
+        # Requirements refinement happens before there is a workflow, so such a
+        # transcript has no position to show. It must say so, and every line
+        # that does show one is still checked above.
+        return
     assert checked, f"{path.name} shows no progress or gate number at all"
 
 
@@ -195,7 +201,8 @@ def test_no_transcript_states_a_pre_placement_flow_size(path):
 def engine_reasons() -> set[str]:
     source = (REPO_ROOT / "scripts" / "sdle.py").read_text(encoding="utf-8")
     reasons = set(re.findall(
-        r'(?:Refused|IntegrityError|UsageError)\(\s*"([a-z_]+)"', source))
+        r'(?:Refused|IntegrityError|UsageError|_refine_refused)\(\s*"([a-z_]+)"',
+        source))
     # Some refusals are reported through `emit(..., reason="…")` rather than
     # raised — `audit verify` among them.
     reasons |= set(re.findall(r'reason="([a-z_]+)"', source))

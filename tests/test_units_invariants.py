@@ -100,8 +100,11 @@ STATE_FIELDS = (
 # state when a post-init acknowledgement is also given, and
 # `record_scan_acknowledgement_audit` replays a pre-init acknowledgement into
 # the ledger at the first advance, mirroring `record_governance_audit`.
+# write_atomic 34 -> 41 (counted from the engine, not predicted): the refinement
+# record writer, the document write and the baseline, lint, apply, cancel and
+# dispute evidence files.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 32,
+    'write_atomic': 41,
     'save_state': 50,
     'append_audit': 56,
     'record_audit': 0,
@@ -178,6 +181,9 @@ COMMANDS = (
     'realize',
     'rebaseline',
     'record',
+    # `refinement propose|decide|apply|dispute|cancel|show`. The first four
+    # subcommands are registered in a loop, so only the group is a literal.
+    'refinement',
     'reject',
     'release',
     'remediate',

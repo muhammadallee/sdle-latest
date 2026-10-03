@@ -150,3 +150,7 @@ way past. A **refused** command leaves `audit.md` byte-identical.
 `sdle.py` is the single writer of `state.json` and `audit.md`. The write fence
 hook is a tripwire in front of that rule; the engine's refusal at the choke
 point is the guarantee.
+
+## 6. When the requirements change mid-flight
+
+What SDLE does, what you can do, and what each choice costs, scenario by scenario: [requirements-change-midflight.md](requirements-change-midflight.md).

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import difflib
 import hashlib
 import json
 import os
@@ -243,6 +244,27 @@ class Paths:
         assessment read.
         """
         return self.runtime / "requirements.json"
+
+    @property
+    def refinement_lock_file(self) -> Path:
+        """The short repository mutex for requirements ownership.
+
+        Repository-level, under the already write-fenced `workitems/` area and
+        gitignored beside the active context. Not a WorkItem runtime member
+        and not a `.sdle/` boundary member, so neither closed set takes it.
+        """
+        return self.project_root / "workitems" / ".refinement-transaction.lock"
+
+    @property
+    def refinement_file(self) -> Path:
+        """The requirements-refinement record for this WorkItem.
+
+        WorkItem-owned, for the argument `scan_acknowledgements_file` makes:
+        the loop runs before ``init``, so it cannot live in ``state.json``,
+        and the same bound document may be bound by several WorkItems, so a
+        loop's history is the WorkItem's own fact. Engine-written only.
+        """
+        return self.runtime / "refinement.json"
 
     @property
     def scan_acknowledgements_file(self) -> Path:
@@ -1701,6 +1723,22 @@ def infer_project_name(paths: Paths) -> str | None:
 
 
 def cmd_init(args, paths: Paths) -> int:
+    # The mutex makes "no loop is active" and "the state is written" one step:
+    # a first `refinement propose` cannot slip in between them.
+    with refinement_mutex(paths):
+        record = read_refinement_record(paths)
+        if _refinement_active(record):
+            raise Refused(
+                "refinement_in_progress",
+                f"A requirements refinement is {record['status']} for this "
+                "WorkItem. Finish it (`refinement propose` after a "
+                "re-assessment) or end it (`refinement cancel`), then start "
+                "the workflow. Nothing was written.",
+                {"workitem": paths.workitem, "status": record["status"]})
+        return _cmd_init_locked(args, paths)
+
+
+def _cmd_init_locked(args, paths: Paths) -> int:
     consts = load_constants(paths)
 
     if paths.state_file.is_file():
@@ -3520,7 +3558,8 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
         bound.lock_file, bound.evidence_dir, bound.manifest_file,
         bound.completion_file, bound.governance_file, bound.reviews_file,
         bound.discovery_file, bound.requirements_binding_file,
-        bound.architecture_placement_file,
+        bound.architecture_placement_file, bound.scan_acknowledgements_file,
+        bound.refinement_file,
     ))
 
 
@@ -3992,6 +4031,10 @@ ENGINEERING_FLOWS = (
 # anything.
 CLASSIFICATION_KEYS = ("type", "flow", "rediscovery")
 
+# The most iterations a requirements-refinement loop may take. One engine
+# constant: a repository policy may lower it, never raise it.
+REFINEMENT_ITERATION_CAP_MAX = 3
+
 GOVERNANCE_POLICY_BUILTIN = {
     "policyVersion": "1",
     # §12's twelve structured checks, verbatim and in its order.
@@ -4028,6 +4071,7 @@ GOVERNANCE_POLICY_BUILTIN = {
     # §12 says "NFRs when relevant", so `nfrs` — and only `nfrs` — may be
     # reported NOT_APPLICABLE. Every other check must be answered.
     "optional_checks": ["nfrs"],
+    "refinement_iteration_cap": REFINEMENT_ITERATION_CAP_MAX,
     "risk_signals": {
         "external_api_surface": 2,
         "persistent_data_store": 2,
@@ -4099,6 +4143,75 @@ GOVERNANCE_POLICY_BUILTIN = {
     },
 }
 
+# What each of the twelve quality checks asks of a requirements document, in the
+# words an assessor is given. A separate constant and not a key of the policy
+# above: the policy is deep-copied into every WorkItem's pinned policy and is
+# what an override is validated against, and neither wants prose in it. Its
+# keys are the same twelve `quality_checks` ids, in the same order (a test
+# asserts it), and it is not overridable: a repository that could reword a
+# check could change what a PASS means. The wording is the *measured* wording.
+# Editing any of it invalidates the corpus baseline it was measured against,
+# so a test pins each definition's digest and a change must update it on
+# purpose, after re-measuring.
+QUALITY_CHECK_DEFINITIONS = {
+    "problem_statement": (
+        "does the document state what problem is being solved and for whom, clearly enough that someone "
+        "unfamiliar with the project would understand why it exists?"
+    ),
+    "scope": (
+        "does the document state what is being built, concretely enough to bound the work?"
+    ),
+    "out_of_scope": (
+        "does the document state what is explicitly excluded?"
+    ),
+    "acceptance_criteria": (
+        "are there criteria by which \"done\" can be checked, each either identifiable (a stable id) or "
+        "stating an observable outcome (a result, state, response, value, or refusal)? No specific format "
+        "is required — Given/When/Then, EARS, or plain precise sentences are all acceptable."
+    ),
+    "ambiguity": (
+        "is the document free of vague, unmeasurable language in normative statements (e.g. \"fast\", "
+        "\"user-friendly\", \"robust\", \"as appropriate\", \"etc.\", \"some\", \"several\") where something concrete "
+        "was needed?"
+    ),
+    "contradictions": (
+        "are there no statements that directly conflict with each other?"
+    ),
+    "constraints": (
+        "does the document state the technical, business, regulatory or platform constraints that bound "
+        "the solution (where any genuinely apply)?"
+    ),
+    "nfrs": (
+        "where the document makes quantitative quality claims (performance, latency, throughput, "
+        "capacity, availability, scalability), are they stated with a measure (a number and a unit)? "
+        "Answer `NOT_APPLICABLE` only if the document makes no such quantitative claims at all."
+    ),
+    "security_data_implications": (
+        "does the document address the security and data-handling implications of what it describes, "
+        "where any genuinely apply (e.g., sensitive data, authentication, authorization)?"
+    ),
+    "compatibility": (
+        "does the document address compatibility with existing systems, versions, or integrations it "
+        "depends on or must coexist with, where relevant?"
+    ),
+    "dependencies": (
+        "does the document identify, specifically enough to tell which one is meant, each external "
+        "system, service or third party that the solution must integrate with, call, or run on (for "
+        "example an identity provider, a payment gateway, an existing internal service, or a shared "
+        "platform)? Technology that the solution itself chooses — a database product, framework, library "
+        "or ORM — is not an external dependency for this check: a requirements document may leave those "
+        "choices to the engineering constitution, and describing storage as, say, a relational store is "
+        "not a failure. A document that states it has no external dependencies, or that names none "
+        "because none exist, satisfies the check. Fail only when an external system the solution relies "
+        "on is referred to by category or vague phrase alone, so that a reader could not tell which "
+        "system is meant."
+    ),
+    "blocking_unknowns": (
+        "is the document free of unresolved placeholders, markers, or open questions (`TBD`, `TODO`, "
+        "`???`, empty sections) that block understanding what is being asked for?"
+    ),
+}
+
 # Top-level keys an override may carry. `quality_checks` is deliberately
 # absent: the twelve ids are §12's, and a repository that could rename or drop
 # one would be editing the contract rather than tightening it.
@@ -4106,6 +4219,7 @@ GOVERNANCE_POLICY_OVERRIDABLE = (
     "policyVersion",
     "blocking_checks",
     "optional_checks",
+    "refinement_iteration_cap",
     "risk_signals",
     "risk_thresholds",
     "hard_floors",
@@ -4194,6 +4308,14 @@ def _validate_policy_shapes(document: dict, relative: str,
                 "among the twelve requirements-quality checks",
                 unknown_checks=strange,
             )
+
+    if "refinement_iteration_cap" in document:
+        cap = document["refinement_iteration_cap"]
+        if not _is_int(cap) or not 1 <= cap <= REFINEMENT_ITERATION_CAP_MAX:
+            raise _policy_malformed(
+                relative,
+                f"refinement_iteration_cap must be an integer from 1 to "
+                f"{REFINEMENT_ITERATION_CAP_MAX}, not {cap!r}")
 
     if "risk_signals" in document:
         value = document["risk_signals"]
@@ -4449,6 +4571,10 @@ def cmd_governance_policy(args, paths: Paths) -> int:
         "path": effective["path"],
         "sha256": effective["sha256"],
         "policy": effective["policy"],
+        # Not part of the policy and not overridable: reported beside it so a
+        # caller reads the words each check asks, from the engine, instead of
+        # restating them.
+        "check_definitions": QUALITY_CHECK_DEFINITIONS,
     })
     return EXIT_OK
 
@@ -4536,6 +4662,15 @@ def _lexically_safe_path(paths: Paths, raw: str) -> str:
     # every platform, and a colon or a trailing dot in a component means it
     # does not.
     for part in text.split("/"):
+        # "." and ".." end in a dot but are not aliases: "." is the current
+        # directory and is dropped by `normpath` below, so `./x` and `x` are
+        # one file under one key; any ".." is refused as traversal rather than
+        # collapsed, because collapsing it lexically through a symlinked
+        # directory can name a different file than the filesystem does.
+        if part == "..":
+            raise _PathProblem("traversal")
+        if part == ".":
+            continue
         if ":" in part or part != part.rstrip(". "):
             raise _PathProblem("alias")
     if any(ord(ch) < 32 for ch in text):
@@ -4545,6 +4680,8 @@ def _lexically_safe_path(paths: Paths, raw: str) -> str:
     if posixpath.isabs(text) or re.match(r"^[A-Za-z]:", text):
         raise _PathProblem("absolute")
     normal = posixpath.normpath(text)
+    if normal == ".":
+        raise _PathProblem("empty")
     if normal == ".." or normal.startswith("../"):
         raise _PathProblem("traversal")
     target = paths.project_root / normal
@@ -4595,7 +4732,9 @@ def safe_repo_path(paths: Paths, raw: str) -> tuple[Path, str]:
             "empty": f"'{raw}' is not a usable path.",
             "absolute": f"'{raw}' is an absolute path. Name it relative to "
                         "the repository root.",
-            "traversal": f"'{raw}' leaves the repository.",
+            "traversal": f"'{raw}' leaves the repository or contains a '..' "
+                         "component. Name it relative to the repository "
+                         "root, without one.",
             "escape": f"'{raw}' resolves outside the repository (a symlink "
                       "or junction pointing away from it).",
         }[problem.kind]
@@ -4625,8 +4764,9 @@ def _binding_source(paths: Paths, raw: str, must_exist: bool = True) -> str:
                         "sources by their path relative to the repository "
                         "root, so the record means the same thing in every "
                         "checkout.",
-            "traversal": f"'{raw}' leaves the repository. A requirements "
-                         "source must be a file inside it.",
+            "traversal": f"'{raw}' leaves the repository or contains a "
+                         "'..' component. A requirements source must be a "
+                         "file inside it, named without one.",
             "escape": f"'{raw}' resolves outside the repository (a symlink "
                       "or junction pointing away from it). SDLE will not "
                       "read requirements from outside the tree it governs.",
@@ -4829,6 +4969,1565 @@ def _sources_digest(sources: list[dict]) -> str:
     """
     payload = "\n".join(f"{e['path']} {e['sha256']}" for e in sources)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# The presentation-neutral normal form of a requirements document
+#
+# Two versions of a document that differ only in how they are laid out must
+# have one normal form, so a re-assessment cannot be told the document changed
+# when only its whitespace did - and, the other way round, so that a change which
+# alters what a reader sees can never hide inside a "formatting" edit. The
+# engine decides neutrality from this form, never the proposer.
+#
+# What is neutral: the line-ending convention; whitespace-only lines and runs of
+# two or more blank lines; the number of blank lines or newlines at the end of
+# the file; runs of spaces inside the text of a prose line (not its leading
+# indentation, not a code span, not an indented or fenced code line, not a table
+# row); and trailing whitespace on blank lines, table rows and inside fenced
+# blocks. What is NOT neutral, on purpose: trailing whitespace on a non-blank
+# prose line. Two trailing spaces are Markdown's hard line break, so removing
+# them changes what renders; they are kept, and a change to them is a change.
+# Nothing else is normalised - headings, list markers, emphasis, links and table
+# cells compare as written.
+#
+# Line endings are unified FIRST. A carriage return left on the end of a line
+# would otherwise read as trailing whitespace, and the hard-break rule would
+# misfire on every file that arrives with Windows line endings.
+# --------------------------------------------------------------------------
+
+_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _collapse_spaces_outside_code_spans(text: str) -> str:
+    out: list[str] = []
+    position = 0
+    for span in _CODE_SPAN.finditer(text):
+        out.append(re.sub(r" {2,}", " ", text[position:span.start()]))
+        out.append(span.group(0))
+        position = span.end()
+    out.append(re.sub(r" {2,}", " ", text[position:]))
+    return "".join(out)
+
+
+def requirements_normal_form(text: str) -> str:
+    """The presentation-neutral normal form of one document's text. Pure and
+    idempotent; see the block comment above for exactly what it does and does
+    not treat as neutral."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    fence: tuple[str, int] | None = None  # (character, run length)
+    previous_blank = False
+    in_pre = False
+    for line in lines:
+        # Raw HTML is not Markdown layout: a space run inside `<pre>`, or in a
+        # line that is markup, can change what renders. Left as written.
+        lowered = line.lower()
+        if in_pre or line.lstrip().startswith("<") and fence is None:
+            out.append(line.rstrip() if in_pre else line)
+            in_pre = ("<pre" in lowered or in_pre) and "</pre>" not in lowered
+            previous_blank = False
+            continue
+        if fence is not None:
+            closing = re.match(r"^ {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})\s*$", line)
+            out.append(line.rstrip())
+            if closing:
+                fence = None
+            previous_blank = False
+            continue
+        opening = _FENCE_OPEN.match(line)
+        if opening:
+            fence = (opening.group(1)[0], len(opening.group(1)))
+            out.append(line.rstrip())
+            previous_blank = False
+            continue
+        if not line.strip():
+            if not previous_blank:
+                out.append("")
+            previous_blank = True
+            continue
+        previous_blank = False
+        if line.lstrip().startswith("|"):
+            out.append(line.rstrip())  # a table row keeps its spacing
+            continue
+        if line.startswith("    ") or line.startswith("\t"):
+            out.append(line)  # indented: code or a continuation; left as written
+            continue
+        body = line.rstrip()
+        trailing = line[len(body):]
+        indent = re.match(r"^ *", body).group(0)
+        out.append(indent + _collapse_spaces_outside_code_spans(body[len(indent):]) + trailing)
+    while out and out[-1] == "":
+        out.pop()
+    return "\n".join(out) + "\n" if out else ""
+
+
+def requirements_content_digest(raw_by_path: dict[str, bytes]) -> str:
+    """One digest for a bound set, over each document's normal form. The same
+    shape as `_sources_digest` - sorted paths, one line each - but a document
+    contributes the SHA-256 of its normal form, so two sets that differ only in
+    presentation have one digest. Pure: it reads nothing."""
+    lines = []
+    # Case-folded: a binding refuses two spellings of one path (`requirements
+    # bind` folds case), so folding here cannot merge two real documents, and it
+    # keeps a re-spelled path from reading as different content.
+    for path in sorted(raw_by_path, key=str.lower):
+        normal = requirements_normal_form(
+            raw_by_path[path].decode("utf-8", errors="replace"))
+        lines.append(f"{path.lower()} {hashlib.sha256(normal.encode('utf-8')).hexdigest()}")
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# The requirements-refinement record (WorkItem-owned)
+#
+# What a refinement loop did to one WorkItem's bound requirements: which
+# iteration found what, which questions were asked and answered, which edits
+# were proposed and what became of them, and how the loop ended. Engine-written
+# only, through `write_refinement_record`, and refused when it is not a file the
+# engine wrote - the rule `requirements.json` follows, for the same reason: it
+# decides what a later step may do, so a hand-edited one cannot be trusted.
+# Strict on purpose: an unknown key is refused, and a new field arrives as a
+# version bump, never as a silently tolerated extra.
+# --------------------------------------------------------------------------
+
+REFINEMENT_RECORD_VERSION = "1"
+REFINEMENT_QUESTIONS_MAX = 5
+REFINEMENT_EDIT_TEXT_MAX = 4000
+REFINEMENT_ANSWER_MAX = 1000
+REFINEMENT_ACTIVE_STATUSES = ("IN_PROGRESS", "AWAITING_REASSESSMENT")
+REFINEMENT_TERMINAL_STATUSES = ("PASSED", "ESCALATED", "CANCELLED", "FAILED")
+REFINEMENT_EDIT_OPS = ("replace", "insert_after", "append_section")
+REFINEMENT_CITATION_KINDS = ("baseline-reference", "discovery-finding")
+# The checks whose findings must cite the repository baseline once one exists:
+# what a brownfield change must stay compatible with, and what it depends on,
+# are facts the baseline already records.
+REFINEMENT_CITED_CHECKS = ("compatibility", "dependencies")
+
+
+def _refinement_citations_well_formed(cites) -> bool:
+    return isinstance(cites, list) and bool(cites) and all(
+        isinstance(c, dict) and set(c) == {"kind", "id"}
+        and c["kind"] in REFINEMENT_CITATION_KINDS
+        and isinstance(c["id"], str) and bool(c["id"].strip())
+        for c in cites)
+REFINEMENT_EDIT_DECISIONS = ("accepted", "rejected")
+REFINEMENT_OUTCOMES = ("progress", "regression", "stall")
+REFINEMENT_CAP_SOURCES = ("builtin", "policy")
+
+_REFINEMENT_KEYS = frozenset((
+    "refinementVersion", "workitem", "status", "iterationCap",
+    "iterationCapSource", "iterations", "startedAt", "endedAt"))
+_REFINEMENT_ITERATION_KEYS = frozenset((
+    "iteration", "assessmentRef", "contentDigest", "proposalDigest", "failingChecks",
+    "findings", "questions", "edits", "outcome", "disputeOutcomes"))
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _refinement_invalid(relative: str, detail: str) -> IntegrityError:
+    return IntegrityError(
+        "refinement_record_invalid",
+        f"{relative} is not a refinement record the engine wrote: {detail}. "
+        "It is never edited by hand: restore it from version control.",
+        {"path": relative, "detail": detail})
+
+
+def _refinement_object(value, keys, where: str, relative: str) -> dict:
+    if not isinstance(value, dict):
+        raise _refinement_invalid(relative, f"{where} is not an object")
+    if set(value) != set(keys):
+        missing = sorted(set(keys) - set(value))
+        extra = sorted(set(value) - set(keys))
+        raise _refinement_invalid(
+            relative, f"{where} has the wrong keys (missing {missing}, "
+                      f"unexpected {extra})")
+    return value
+
+
+def _refinement_text(value, where: str, relative: str,
+                     allow_none: bool = False) -> None:
+    if value is None and allow_none:
+        return
+    if not isinstance(value, str) or not value.strip():
+        raise _refinement_invalid(relative, f"{where} is not a non-empty string")
+
+
+def _refinement_hex(value, where: str, relative: str) -> None:
+    if not isinstance(value, str) or not _HEX64.match(value):
+        raise _refinement_invalid(relative, f"{where} is not a SHA-256 digest")
+
+
+def _refinement_check_id(value, where: str, relative: str) -> None:
+    if value not in QUALITY_CHECK_DEFINITIONS:
+        raise _refinement_invalid(
+            relative, f"{where} names {value!r}, which is not a quality check")
+
+
+def validate_refinement_record(doc, relative: str,
+                               workitem: str | None = None) -> dict:
+    """The document, or an integrity failure naming the first thing wrong."""
+    doc = _refinement_object(doc, _REFINEMENT_KEYS, "the record", relative)
+    if doc["refinementVersion"] != REFINEMENT_RECORD_VERSION:
+        raise _refinement_invalid(
+            relative, f"version {doc['refinementVersion']!r} is not "
+                      f"{REFINEMENT_RECORD_VERSION!r}")
+    _refinement_text(doc["workitem"], "workitem", relative)
+    if workitem is not None and doc["workitem"] != workitem:
+        raise _refinement_invalid(
+            relative, f"it belongs to WorkItem {doc['workitem']!r}, not to "
+                      f"{workitem!r}")
+    active = doc["status"] in REFINEMENT_ACTIVE_STATUSES
+    if not active and doc["status"] not in REFINEMENT_TERMINAL_STATUSES:
+        raise _refinement_invalid(relative, f"status {doc['status']!r} is unknown")
+    cap = doc["iterationCap"]
+    if (isinstance(cap, bool) or not isinstance(cap, int)
+            or not 1 <= cap <= REFINEMENT_ITERATION_CAP_MAX):
+        raise _refinement_invalid(
+            relative, f"iterationCap {cap!r} is not an integer from 1 to "
+                      f"{REFINEMENT_ITERATION_CAP_MAX}")
+    if doc["iterationCapSource"] not in REFINEMENT_CAP_SOURCES:
+        raise _refinement_invalid(
+            relative, f"iterationCapSource {doc['iterationCapSource']!r} is unknown")
+    _refinement_text(doc["startedAt"], "startedAt", relative)
+    _refinement_text(doc["endedAt"], "endedAt", relative, allow_none=True)
+    if active != (doc["endedAt"] is None):
+        raise _refinement_invalid(
+            relative, "a loop that is still active has no endedAt, and a "
+                      "finished one has")
+    iterations = doc["iterations"]
+    if not isinstance(iterations, list) or len(iterations) > cap:
+        raise _refinement_invalid(
+            relative, f"iterations is not a list of at most {cap}")
+    for position, entry in enumerate(iterations, start=1):
+        where = f"iteration {position}"
+        entry = _refinement_object(entry, _REFINEMENT_ITERATION_KEYS, where, relative)
+        if entry["iteration"] != position or isinstance(entry["iteration"], bool):
+            raise _refinement_invalid(
+                relative, f"{where} is numbered {entry['iteration']!r}")
+        _refinement_text(entry["assessmentRef"], f"{where} assessmentRef", relative)
+        _refinement_hex(entry["contentDigest"], f"{where} contentDigest", relative)
+        _refinement_hex(entry["proposalDigest"], f"{where} proposalDigest", relative)
+        failing = entry["failingChecks"]
+        if not isinstance(failing, list) or len(set(failing)) != len(failing):
+            raise _refinement_invalid(
+                relative, f"{where} failingChecks is not a list of distinct ids")
+        for check in failing:
+            _refinement_check_id(check, f"{where} failingChecks", relative)
+        if not isinstance(entry["findings"], list):
+            raise _refinement_invalid(relative, f"{where} findings is not a list")
+        for finding in entry["findings"]:
+            keys = (("checkId", "text", "citations") if isinstance(finding, dict)
+                    and "citations" in finding else ("checkId", "text"))
+            finding = _refinement_object(finding, keys, f"{where} finding", relative)
+            _refinement_check_id(finding["checkId"], f"{where} finding", relative)
+            _refinement_text(finding["text"], f"{where} finding text", relative)
+            if "citations" in finding and not _refinement_citations_well_formed(
+                    finding["citations"]):
+                raise _refinement_invalid(
+                    relative, f"{where} finding citations are malformed")
+        questions = entry["questions"]
+        if not isinstance(questions, list) or len(questions) > REFINEMENT_QUESTIONS_MAX:
+            raise _refinement_invalid(
+                relative, f"{where} questions is not a list of at most "
+                          f"{REFINEMENT_QUESTIONS_MAX}")
+        for question in questions:
+            question = _refinement_object(
+                question, ("id", "text", "options", "answer"),
+                f"{where} question", relative)
+            _refinement_text(question["id"], f"{where} question id", relative)
+            _refinement_text(question["text"], f"{where} question text", relative)
+            if (not isinstance(question["options"], list)
+                    or not all(isinstance(o, str) for o in question["options"])):
+                raise _refinement_invalid(
+                    relative, f"{where} question options is not a list of strings")
+            _refinement_text(question["answer"], f"{where} question answer",
+                             relative, allow_none=True)
+        if not isinstance(entry["edits"], list):
+            raise _refinement_invalid(relative, f"{where} edits is not a list")
+        for edit in entry["edits"]:
+            edit = _refinement_object(
+                edit, ("id", "op", "path", "anchor", "text", "baseSha256",
+                       "appliedSha256", "appliedOrder", "autoApplied", "decision"),
+                f"{where} edit", relative)
+            _refinement_text(edit["id"], f"{where} edit id", relative)
+            if (not isinstance(edit["text"], str) or not edit["text"].strip()
+                    or len(edit["text"]) > REFINEMENT_EDIT_TEXT_MAX):
+                raise _refinement_invalid(
+                    relative, f"{where} edit text is not a non-empty string of at "
+                              f"most {REFINEMENT_EDIT_TEXT_MAX} characters")
+            if edit["op"] not in REFINEMENT_EDIT_OPS:
+                raise _refinement_invalid(
+                    relative, f"{where} edit op {edit['op']!r} is unknown")
+            _refinement_text(edit["path"], f"{where} edit path", relative)
+            _refinement_text(edit["anchor"], f"{where} edit anchor", relative,
+                             allow_none=True)
+            _refinement_hex(edit["baseSha256"], f"{where} edit baseSha256", relative)
+            if edit["appliedSha256"] is not None:
+                _refinement_hex(edit["appliedSha256"],
+                                f"{where} edit appliedSha256", relative)
+            order = edit["appliedOrder"]
+            if (edit["appliedSha256"] is None) != (order is None) or (
+                    order is not None and (isinstance(order, bool)
+                                           or not isinstance(order, int) or order < 1)):
+                raise _refinement_invalid(
+                    relative, f"{where} edit appliedOrder does not match appliedSha256")
+            if not isinstance(edit["autoApplied"], bool):
+                raise _refinement_invalid(
+                    relative, f"{where} edit autoApplied is not a boolean")
+            if (edit["decision"] is not None
+                    and edit["decision"] not in REFINEMENT_EDIT_DECISIONS):
+                raise _refinement_invalid(
+                    relative, f"{where} edit decision {edit['decision']!r} is unknown")
+        if entry["outcome"] is not None and entry["outcome"] not in REFINEMENT_OUTCOMES:
+            raise _refinement_invalid(
+                relative, f"{where} outcome {entry['outcome']!r} is unknown")
+        if not isinstance(entry["disputeOutcomes"], list):
+            raise _refinement_invalid(
+                relative, f"{where} disputeOutcomes is not a list")
+        for dispute in entry["disputeOutcomes"]:
+            dispute = _refinement_object(
+                dispute, ("checkId", "outcome", "originalResult", "evidenceRef",
+                          "decisionRef", "contentDigest"),
+                f"{where} dispute outcome", relative)
+            _refinement_check_id(dispute["checkId"], f"{where} dispute outcome", relative)
+            if dispute["outcome"] != "overturned_by_dispute":
+                raise _refinement_invalid(
+                    relative, f"{where} dispute outcome {dispute['outcome']!r} is unknown")
+            if dispute["originalResult"] != "FAIL":
+                raise _refinement_invalid(
+                    relative, f"{where} dispute outcome overturns {dispute['originalResult']!r}, "
+                              "and only a FAIL can be overturned")
+            _refinement_text(dispute["evidenceRef"], f"{where} evidenceRef", relative)
+            _refinement_text(dispute["decisionRef"], f"{where} decisionRef", relative)
+            _refinement_hex(dispute["contentDigest"],
+                            f"{where} dispute contentDigest", relative)
+    last = iterations[-1] if iterations else None
+    if active and last is None:
+        raise _refinement_invalid(relative, "an active loop has no iteration")
+    if active and last["outcome"] is not None:
+        raise _refinement_invalid(
+            relative, "an active loop's last iteration already has an outcome")
+    if doc["status"] == "AWAITING_REASSESSMENT" and not any(
+            e["appliedSha256"] for e in last["edits"]):
+        raise _refinement_invalid(
+            relative, "a loop awaiting re-assessment has applied no edit")
+    if doc["status"] == "PASSED" and (last is None or last["outcome"] != "progress"):
+        raise _refinement_invalid(
+            relative, "a loop that passed has a last iteration that did not make progress")
+    return doc
+
+
+def read_refinement_record(paths: Paths) -> dict | None:
+    """This WorkItem's validated refinement record, or ``None`` when there is
+    none. A malformed one is an integrity failure and never an absence: reading
+    it as "no loop yet" would let a corrupt file be silently overwritten."""
+    target = paths.refinement_file
+    relative = target.relative_to(paths.project_root).as_posix()
+    if not target.is_file():
+        return None
+    try:
+        doc = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _refinement_invalid(relative, f"it cannot be read ({exc})") from None
+    return validate_refinement_record(doc, relative, paths.workitem)
+
+
+def write_refinement_record(paths: Paths, record: dict) -> str:
+    """Validate the outgoing record, then write it atomically; returns the
+    repository-relative path. The ONLY writer of this file: a record that would
+    not read back never reaches disk, so `read_refinement_record` can never be
+    the command that discovers corruption this one created."""
+    relative = paths.refinement_file.relative_to(paths.project_root).as_posix()
+    validate_refinement_record(record, relative, paths.workitem)
+    write_atomic(paths.refinement_file, json.dumps(record, indent=2) + "\n")
+    return relative
+
+
+def refinement_lint_evidence_problems(doc) -> list[str]:
+    """What is wrong with a lint-evidence document, or an empty list. A pure
+    check on the shape, so no engine-written record can assert that a lint
+    finding was enforced: the lint is advisory, and `floorEnforced` is false
+    for every finding."""
+    problems: list[str] = []
+    if not isinstance(doc, dict):
+        return ["the evidence is not an object"]
+    if set(doc) != {"kind", "executionId", "documentSha256", "findings"}:
+        return [f"the evidence has the wrong keys: {sorted(doc)}"]
+    if doc["kind"] != "refinement-lint":
+        problems.append(f"kind {doc['kind']!r} is not 'refinement-lint'")
+    if not isinstance(doc["executionId"], str) or not doc["executionId"]:
+        problems.append("executionId is not a non-empty string")
+    if not isinstance(doc["documentSha256"], str) or not _HEX64.match(doc["documentSha256"]):
+        problems.append("documentSha256 is not a SHA-256 digest")
+    if not isinstance(doc["findings"], list):
+        return problems + ["findings is not a list"]
+    for index, finding in enumerate(doc["findings"]):
+        where = f"finding {index}"
+        if (not isinstance(finding, dict) or set(finding) != {
+                "ruleId", "mappedCheck", "floorEligible", "floorEnforced",
+                "line", "text"}):
+            problems.append(f"{where} has the wrong keys")
+            continue
+        if finding["mappedCheck"] not in QUALITY_CHECK_DEFINITIONS:
+            problems.append(f"{where} maps to {finding['mappedCheck']!r}, not a quality check")
+        if not isinstance(finding["floorEligible"], bool):
+            problems.append(f"{where} floorEligible is not a boolean")
+        if finding["floorEnforced"] is not False:
+            problems.append(f"{where} floorEnforced is not false: the lint is advisory")
+        if (isinstance(finding["line"], bool) or not isinstance(finding["line"], int)
+                or finding["line"] < 1):
+            problems.append(f"{where} line is not a positive integer")
+        if not isinstance(finding["text"], str):
+            problems.append(f"{where} text is not a string")
+    return problems
+
+
+# --------------------------------------------------------------------------
+# The advisory requirements lint
+#
+# Cheap, deterministic rules over a bound set of requirements documents,
+# each mapped to an existing quality check. It RECORDS evidence and decides
+# nothing: no finding refuses an assessment or overrides an assessor's answer,
+# and `floorEnforced` is false on every finding. `floorEligible` says only that
+# the rule has not produced a false positive on the measured corpus, so a later
+# decision to enforce it would be a decision, not a default.
+#
+# Every rule declares what it applies to, because a rule that cannot tell a
+# requirement from a description of the past, a quotation or a code sample
+# turns a writing-style preference into a defect:
+#   - normative text is a prose or list line that carries a modal (must, shall,
+#     should, will, required to, needs to); descriptive text is never normative;
+#   - fenced code, indented code, inline code spans, block quotations and HTML
+#     comments are excluded from every line rule;
+#   - "section" rules ask a question of the whole bound set, not of one
+#     document, and report on the first document in path order;
+#   - the duplicate-id rule looks only at DEFINITIONS (an id that opens a list
+#     item, heading or table row), never at references to an id.
+# --------------------------------------------------------------------------
+
+REQUIREMENTS_LINT_RULES = {
+    "unresolved_marker": {
+        "mappedCheck": "blocking_unknowns", "floorEligible": True,
+        "applies_to": "TBD, TODO (upper case only), ??? and empty sections, in "
+                      "prose, list and heading lines outside code and quotations"},
+    "vague_term": {
+        "mappedCheck": "ambiguity", "floorEligible": False,
+        "applies_to": "normative lines only (a line carrying a modal verb)"},
+    "missing_acceptance_section": {
+        "mappedCheck": "acceptance_criteria", "floorEligible": True,
+        "applies_to": "the bound set: no heading names acceptance"},
+    "missing_out_of_scope_section": {
+        "mappedCheck": "out_of_scope", "floorEligible": True,
+        "applies_to": "the bound set: no heading or label names out of scope or non-goals"},
+    "acceptance_not_checkable": {
+        "mappedCheck": "acceptance_criteria", "floorEligible": True,
+        "applies_to": "the acceptance sections of the bound set, as one body: "
+                      "neither a stable id nor an observable outcome; no format "
+                      "is mandated"},
+    "quantity_without_measure": {
+        "mappedCheck": "nfrs", "floorEligible": False,
+        "applies_to": "normative lines about performance, latency, throughput, "
+                      "capacity, availability or scalability; binary and "
+                      "categorical requirements are exempt"},
+    "duplicate_id": {
+        "mappedCheck": "contradictions", "floorEligible": True,
+        "applies_to": "definitions of a requirement or criterion id across the "
+                      "bound set; reported on the later definition"},
+}
+
+_LINT_MODAL = re.compile(
+    r"\b(must|shall|should|will|required to|needs? to)\b", re.IGNORECASE)
+_LINT_VAGUE = (
+    "fast", "quick", "quickly", "user-friendly", "robust", "as appropriate",
+    "appropriate", "etc.", "and/or", "some", "several", "convenient", "simple",
+    "easy to use", "reasonable", "intuitive", "efficient", "efficiently")
+_LINT_VAGUE_RE = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(w) for w in _LINT_VAGUE) + r")(?![\w-])",
+    re.IGNORECASE)
+_LINT_QUANT = re.compile(
+    r"\b(performance|latency|throughput|capacity|availability|scalab\w+)\b",
+    re.IGNORECASE)
+_LINT_MEASURE = re.compile(
+    r"\d+(\.\d+)?\s?(ms|milliseconds?|s|sec|seconds?|minutes?|hours?|"
+    r"req(uests)?/s|rps|%|percent|kb|mb|gb|users?|items?|nines|requests?)\b",
+    re.IGNORECASE)
+_LINT_CATEGORICAL = re.compile(
+    r"\b(comply|compliance|encrypt\w*|tls|authenticat\w*|authoriz\w*|"
+    r"supports?|supported|compatib\w+|policy|retention|gdpr|audit)\b", re.IGNORECASE)
+_LINT_HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_LINT_ACCEPTANCE_HEADING = re.compile(r"\bacceptance\b", re.IGNORECASE)
+_LINT_SCOPE_HEADING = re.compile(
+    r"\b(out[ -]of[ -]scope|non-goals?|not in scope|exclusions?)\b", re.IGNORECASE)
+_LINT_SCOPE_LABEL = re.compile(
+    r"^\s*(?:[-*+]\s*)?\**(out[ -]of[ -]scope|non-goals?|not in scope)\**\s*:", re.IGNORECASE)
+_LINT_OUTCOME = re.compile(
+    r"\b(returns?|responds?|response|succeeds?|fails?|rejected|accepted|refuses?|"
+    r"then|status \d+|error|exit \d+|must (be|equal|return|reject|accept))\b",
+    re.IGNORECASE)
+_LINT_STABLE_ID = re.compile(
+    r"^\s*(?:[-*+]\s*)?(?:[A-Z]{2,}-\d+|\d+\.)\s", re.MULTILINE)
+_LINT_ID_DEFINITION = re.compile(
+    r"^\s*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|\|\s*)?\**([A-Z]{2,}-\d+)\**\s*"
+    r"(?::|\||\.\s|[-\u2013\u2014]\s)")
+_LINT_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def _lint_lines(text: str) -> list[tuple[int, str, str]]:
+    """(line number, kind, text) for every line. Kind is one of blank, heading,
+    fence, code, quote, comment, prose. A prose line has its inline code spans
+    blanked, so no rule can match inside one."""
+    out: list[tuple[int, str, str]] = []
+    fence: tuple[str, int] | None = None
+    in_comment = False
+    for number, raw in enumerate(
+            text.replace("\r\n", "\n").replace("\r", "\n").split("\n"), start=1):
+        if fence is not None:
+            closing = re.match(
+                r"^ {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})\s*$", raw)
+            out.append((number, "code", raw))
+            if closing:
+                fence = None
+            continue
+        if in_comment:
+            out.append((number, "comment", raw))
+            if "-->" in raw:
+                in_comment = False
+            continue
+        opening = _FENCE_OPEN.match(raw)
+        if opening:
+            fence = (opening.group(1)[0], len(opening.group(1)))
+            out.append((number, "code", raw))
+            continue
+        stripped = raw.strip()
+        if not stripped:
+            out.append((number, "blank", raw))
+        elif stripped.startswith("<!--"):
+            out.append((number, "comment", raw))
+            in_comment = "-->" not in stripped
+        elif stripped.startswith(">"):
+            out.append((number, "quote", raw))
+        elif raw.startswith("    ") or raw.startswith("\t"):
+            out.append((number, "code", raw))
+        elif _LINT_HEADING.match(raw):
+            out.append((number, "heading", raw))
+        else:
+            out.append((number, "prose", _LINT_SPAN.sub(
+                lambda m: " " * len(m.group(0)), raw)))
+    return out
+
+
+def _lint_sections(lines):
+    """(heading text, heading line, level, body lines) for every heading, the
+    body running to the next heading of the same or a higher level."""
+    headings = [(i, _LINT_HEADING.match(raw)) for i, (_, kind, raw)
+                in enumerate(lines) if kind == "heading"]
+    sections = []
+    for position, (index, match) in enumerate(headings):
+        level = len(match.group(1))
+        end = len(lines)
+        for later, later_match in headings[position + 1:]:
+            if len(later_match.group(1)) <= level:
+                end = later
+                break
+        sections.append((match.group(2), lines[index][0], level,
+                         lines[index + 1:end]))
+    return sections
+
+
+def _lint_finding(rule: str, line: int, text: str) -> dict:
+    return {"ruleId": rule, "mappedCheck": REQUIREMENTS_LINT_RULES[rule]["mappedCheck"],
+            "floorEligible": REQUIREMENTS_LINT_RULES[rule]["floorEligible"],
+            "floorEnforced": False, "line": line, "text": text.strip()[:160]}
+
+
+def requirements_lint(documents: dict[str, str], path: str,
+                      execution_id: str) -> dict:
+    """The lint evidence for ``path``, judged in the context of the whole bound
+    set ``documents`` (path -> text). Pure and deterministic: it reads nothing
+    and writes nothing, and the result is advisory (see the block above)."""
+    findings: list[dict] = []
+    parsed = {name: _lint_lines(body) for name, body in documents.items()}
+    lines = parsed[path]
+    first = sorted(parsed)[0]
+
+    for number, kind, raw_text in lines:
+        if kind not in ("prose", "heading"):
+            continue
+        text = re.sub(r'"[^"\n]*"', " ", raw_text)  # a quoted literal is not a marker
+        if (re.search(r"\bTBD\b", text, re.IGNORECASE) or "???" in text
+                or re.search(r"\bTODO\b", text)):
+            findings.append(_lint_finding("unresolved_marker", number, text))
+    for _heading, line, level, body in _lint_sections(lines):
+        content = [b for b in body if b[1] not in ("blank",)]
+        if not content:
+            findings.append(_lint_finding(
+                "unresolved_marker", line, "an empty section: " + _heading))
+
+    for number, kind, text in lines:
+        if kind != "prose" or not _LINT_MODAL.search(text):
+            continue
+        vague = _LINT_VAGUE_RE.search(text)
+        if vague:
+            findings.append(_lint_finding(
+                "vague_term", number, f"{vague.group(1)!r} in: {text}"))
+        if (_LINT_QUANT.search(text) and not _LINT_MEASURE.search(text)
+                and not _LINT_CATEGORICAL.search(text)):
+            findings.append(_lint_finding("quantity_without_measure", number, text))
+
+    all_sections = {name: _lint_sections(parsed[name]) for name in sorted(parsed)}
+    acceptance = [(name, s) for name, secs in all_sections.items()
+                  for s in secs if _LINT_ACCEPTANCE_HEADING.search(s[0])]
+    has_scope = any(_LINT_SCOPE_HEADING.search(s[0])
+                    for secs in all_sections.values() for s in secs) or any(
+        kind == "prose" and _LINT_SCOPE_LABEL.match(text)
+        for body in parsed.values() for _n, kind, text in body)
+    if path == first:
+        if not acceptance:
+            findings.append(_lint_finding(
+                "missing_acceptance_section", 1,
+                "no heading in the bound set names acceptance"))
+        if not has_scope:
+            findings.append(_lint_finding(
+                "missing_out_of_scope_section", 1,
+                "no heading in the bound set names out of scope"))
+    if acceptance and acceptance[0][0] == path:
+        body = "\n".join(raw for _, (_h, _l, _lv, body_lines) in acceptance
+                         for _n, k, raw in body_lines if k == "prose")
+        if not _LINT_STABLE_ID.search(body) and not _LINT_OUTCOME.search(body):
+            findings.append(_lint_finding(
+                "acceptance_not_checkable", acceptance[0][1][1],
+                "the acceptance sections carry no stable id and no observable outcome"))
+
+    seen: set[str] = set()
+    for name in sorted(parsed):
+        for number, kind, text in parsed[name]:
+            if kind != "prose":
+                continue
+            definition = _LINT_ID_DEFINITION.match(text)
+            if not definition:
+                continue
+            identifier = definition.group(1)
+            if identifier in seen and name == path:
+                findings.append(_lint_finding(
+                    "duplicate_id", number, f"{identifier} is already defined: {text}"))
+            seen.add(identifier)
+
+    findings.sort(key=lambda f: (f["line"], f["ruleId"]))
+    normal = requirements_normal_form(documents[path])
+    return {"kind": "refinement-lint", "executionId": execution_id,
+            "documentSha256": hashlib.sha256(normal.encode("utf-8")).hexdigest(),
+            "findings": findings}
+
+
+# --------------------------------------------------------------------------
+# Who else shares a requirements document
+#
+# A refinement edit changes a document, and every WorkItem bound to it has its
+# assessment staled by that. The registry records identity only, not lifecycle,
+# so the answer is read from each other WorkItem's own files.
+#
+# A sharer BLOCKS the edit when it may be working from the document: it has a
+# state (so it has started, whatever it later became - active, failed, rejected)
+# and that state does not prove it complete, or it has a refinement loop open of
+# its own. Completed WorkItems are excluded, which is what lets a later WorkItem
+# converge onto the same documents.
+#
+# A sharer that has NOT started - a binding and no state, which is a WorkItem
+# that never ran `init` or was reset - does not block, because there is nothing
+# of its to disturb: it has no audit chain, and its assessment (if it has one)
+# goes stale by itself, since freshness re-hashes the document. Such a sharer is
+# reported as AFFECTED so the person is told it must assess again, and nothing
+# of its is written. What this does not see is another branch, worktree or
+# uncommitted copy of the same WorkItem; that is a coordination matter for the
+# team and the notice says so.
+#
+# Anything present but unreadable - a binding, a state, a refinement record -
+# fails closed and names the WorkItem; it is never ignored.
+# --------------------------------------------------------------------------
+
+
+def _registry_invalid(workitem: str, why: str) -> IntegrityError:
+    return IntegrityError(
+        "refinement_registry_invalid",
+        f"WorkItem '{workitem}' has {why}, so whether it shares a requirements "
+        "document cannot be told and nothing was changed. Repair or remove "
+        "that WorkItem's file from version control; it is never edited here.",
+        {"workitem": workitem, "detail": why})
+
+
+def _completed_workitem(other: Paths) -> bool:
+    """True when ``other``'s own state proves it complete; False when it has no
+    state; an integrity failure when the state cannot be read."""
+    if not other.state_file.is_file():
+        return False
+    try:
+        state = json.loads(other.state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise _registry_invalid(other.workitem, "a state.json that cannot be read") from None
+    # Every field the state template defines must be present: a four-field
+    # stand-in must not be able to read as "complete" and exclude a sharer.
+    if (not isinstance(state, dict)
+            or state.get("workflow_version") != CURRENT_VERSION
+            or not isinstance(state.get("current_phase"), str)
+            or not isinstance(state.get("status"), str)
+            or not set(load_template(other)) <= set(state)
+            or not isinstance(state.get("approvals"), dict)):
+        raise _registry_invalid(
+            other.workitem, "a state.json this engine does not read")
+    return state["current_phase"] == "complete" and state["status"] == "completed"
+
+
+def refinement_sharer_report(paths: Paths, documents: list[str]) -> dict:
+    """``{"blocking": {document: [ids]}, "affected": {document: [ids]}}`` for
+    the other WorkItems that hold any of ``documents``. See the block above for
+    which sharers block and which are only affected. Paths compare case-folded,
+    as `requirements bind` does, and results are keyed by the path as given."""
+    wanted = {document.lower(): document for document in documents}
+    report: dict[str, dict[str, list[str]]] = {"blocking": {}, "affected": {}}
+    root = workitems_root(paths)
+    if not root.is_dir():
+        return report
+    for child in sorted(root.iterdir(), key=lambda item: item.name):
+        if (not child.is_dir() or child.name == paths.workitem
+                or not workitem_id_wellformed(child.name)):
+            continue
+        other = dataclass_replace(paths, workitem=child.name)
+        try:
+            binding = read_requirements_binding(other)
+        except IntegrityError:
+            raise _registry_invalid(
+                child.name, "a requirements binding that cannot be read") from None
+        if binding is None:
+            continue
+        listed = binding["sources"]
+        if (not all(isinstance(item, str) for item in listed)
+                or binding.get("primary") not in listed
+                or binding.get("digest") != binding_digest(listed)):
+            raise _registry_invalid(
+                child.name, "a requirements binding that is not one the engine wrote")
+        held = {item.lower() for item in listed}
+        mine = [wanted[key] for key in sorted(wanted) if key in held]
+        if not mine:
+            continue
+        started = other.state_file.is_file()
+        if started and _completed_workitem(other):
+            continue
+        try:
+            loop = read_refinement_record(other)
+        except IntegrityError:
+            raise _registry_invalid(
+                child.name, "a refinement record that cannot be read") from None
+        bucket = "blocking" if started or _refinement_active(loop) else "affected"
+        for document in mine:
+            report[bucket].setdefault(document, []).append(child.name)
+    return report
+
+
+def refinement_sharers(paths: Paths, documents: list[str]) -> dict[str, list[str]]:
+    """The sharers that BLOCK an edit to ``documents`` (see the block above)."""
+    return refinement_sharer_report(paths, documents)["blocking"]
+
+
+# --------------------------------------------------------------------------
+# The `refinement` commands
+#
+# Refinement works on the requirements BEFORE `init`: a loop in which a human
+# and an assessor find what is missing, a refiner proposes edits, a human
+# decides, and the engine applies. `governance assess` stays the only door
+# through which an assessment is made; nothing here assesses. Every command
+# takes the short repository mutex across its state-absence check and its
+# write, refuses before it writes, and writes the record only through
+# `write_refinement_record`.
+#
+# A document another WorkItem still holds is refused outright. There is no
+# acknowledgement path.
+# --------------------------------------------------------------------------
+
+REFINEMENT_INPUT_KEYS = {
+    "propose": {"workitem", "assessmentRef", "findings", "questions", "edits"},
+    "apply": {"workitem", "editId", "baseSha256"},
+    "dispute": {"workitem", "checkId", "evidenceRef", "decisionRef", "rationale"},
+    "cancel": {"workitem", "reason"},
+}
+REFINEMENT_DECIDE_KEYS = ({"workitem", "questionId", "answer"},
+                          {"workitem", "editId", "decision"})
+REFINEMENT_EDIT_INPUT_KEYS = {"id", "op", "path", "anchor", "text", "baseSha256"}
+REFINEMENT_REASON_MAX = 500
+
+
+def _refine_refused(reason: str, message: str, data: dict | None = None) -> Refused:
+    return Refused(reason, message, data or {})
+
+
+def _refine_input(reason_detail: str, **data) -> Refused:
+    return Refused(
+        "refinement_input_invalid",
+        f"The refinement input is not acceptable: {reason_detail}. Nothing was "
+        "written.", data)
+
+
+def _refine_wrong_status(paths: Paths, record: dict | None, action: str,
+                         allowed: str) -> Refused:
+    status = record["status"] if record else None
+    where = ("There is no refinement loop for this WorkItem" if record is None
+             else f"The refinement loop is {status}")
+    return Refused(
+        "refinement_wrong_status",
+        f"{where}, and `{action}` needs {allowed}. Nothing was written.",
+        {"workitem": paths.workitem, "status": status, "action": action})
+
+
+def _read_refinement_payload(args, paths: Paths, action: str):
+    target = Path(args.input)
+    if not target.is_absolute():
+        target = paths.project_root / args.input
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _refine_input(f"{args.input} cannot be read as JSON ({exc})") from None
+    if not isinstance(payload, dict):
+        raise _refine_input(f"{args.input} is not a JSON object")
+    if action == "decide":
+        if set(payload) not in REFINEMENT_DECIDE_KEYS:
+            raise _refine_input(
+                "a decision carries exactly {workitem, questionId, answer} or "
+                f"{{workitem, editId, decision}}, not {sorted(payload)}")
+    else:
+        keys = REFINEMENT_INPUT_KEYS[action]
+        if "quality" in payload or "results" in payload or "verdicts" in payload:
+            raise _refine_input(
+                "a refinement input carries no quality results; assessing is "
+                "`governance assess`'s job alone")
+        if set(payload) != keys:
+            missing = sorted(keys - set(payload))
+            extra = sorted(set(payload) - keys)
+            raise _refine_input(
+                f"the keys must be exactly {sorted(keys)} (missing {missing}, "
+                f"unexpected {extra})")
+    if payload["workitem"] != paths.workitem:
+        raise _refine_input(
+            f"it is addressed to WorkItem {payload['workitem']!r}, not to "
+            f"{paths.workitem!r}")
+    return payload
+
+
+def _refinement_post_init_guard(paths: Paths, action: str) -> None:
+    if paths.state_file.is_file():
+        raise Refused(
+            "refinement_post_init",
+            f"`refinement {action}` works on requirements before the workflow "
+            f"starts, and {paths.runtime_relative}/state.json already exists. "
+            "Nothing was written. A change to the requirements after `init` is "
+            "an ordinary edit followed by `governance assess`.",
+            {"workitem": paths.workitem})
+
+
+def _refinement_shared_guard(paths: Paths, documents: list[str]) -> dict:
+    """Refuse when a sharer blocks; otherwise return the affected sharers, which
+    the caller reports and records."""
+    report = refinement_sharer_report(paths, sorted(set(documents)))
+    shared = report["blocking"]
+    if shared:
+        listing = "; ".join(f"{doc}: {', '.join(ids)}" for doc, ids in shared.items())
+        raise Refused(
+            "refinement_shared_source",
+            "Another WorkItem still holds a document this refinement would "
+            f"change ({listing}). Editing it would stale their assessment, so "
+            "it is refused and nothing was written. Complete or re-bind those "
+            "WorkItems first, or change the document by hand and re-assess "
+            "each WorkItem.",
+            {"workitem": paths.workitem, "shared": shared})
+    return report["affected"]
+
+
+REFINEMENT_AFFECTED_NOTICE = (
+    "These WorkItems have not started and hold a document that was changed; "
+    "their existing assessments are now stale and each must re-assess before it "
+    "starts. Only WorkItems in this checkout are seen: another branch, worktree "
+    "or uncommitted copy needs the people involved to be told.")
+
+
+def _refinement_active(record: dict | None) -> bool:
+    return record is not None and record["status"] in REFINEMENT_ACTIVE_STATUSES
+
+
+def _refinement_document_text(raw: bytes, relative: str) -> tuple[str, bool]:
+    """The document as text with LF endings, and whether it was CRLF."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _refine_input(f"{relative} is not UTF-8 text") from None
+    crlf = "\r\n" in text
+    return text.replace("\r\n", "\n").replace("\r", "\n"), crlf
+
+
+def refinement_apply_operation(text: str, edit: dict) -> str:
+    """The text after one edit, or a ``ValueError`` saying why it cannot be
+    made. Pure. ``text`` uses LF endings."""
+    op, anchor, body = edit["op"], edit["anchor"], edit["text"]
+    if op == "append_section":
+        if anchor is not None:
+            raise ValueError("append_section takes no anchor")
+        if not body.lstrip().startswith("#"):
+            raise ValueError("an appended section starts with a heading")
+        base = text if text.endswith("\n") or not text else text + "\n"
+        return base + ("\n" if base and not base.endswith("\n\n") else "") + body
+    if not isinstance(anchor, str) or not anchor:
+        raise ValueError(f"{op} needs an anchor naming exact existing text")
+    count = text.count(anchor)
+    if count != 1:
+        raise ValueError(
+            "the anchor is not in the document" if count == 0
+            else f"the anchor appears {count} times; it must identify one place")
+    at = text.index(anchor)
+    if op == "replace":
+        return text[:at] + body + text[at + len(anchor):]
+    return text[:at + len(anchor)] + body + text[at + len(anchor):]
+
+
+def _refinement_validated_edits(paths: Paths, raw_by_path: dict[str, bytes],
+                                items, taken_ids: set[str]) -> list[dict]:
+    if not isinstance(items, list):
+        raise _refine_input("edits is not a list")
+    bound = set(bound_sources(paths))
+    out: list[dict] = []
+    seen = set(taken_ids)
+    for item in items:
+        if not isinstance(item, dict) or set(item) != REFINEMENT_EDIT_INPUT_KEYS:
+            raise _refine_input(
+                f"an edit carries exactly {sorted(REFINEMENT_EDIT_INPUT_KEYS)}")
+        ident, op, relative = item["id"], item["op"], item["path"]
+        if not isinstance(ident, str) or not ident.strip() or ident in seen:
+            raise _refine_input(f"edit id {ident!r} is empty or repeated")
+        seen.add(ident)
+        if op not in REFINEMENT_EDIT_OPS:
+            raise _refine_input(f"edit {ident} has an unknown operation {op!r}")
+        if not isinstance(relative, str) or relative not in bound:
+            raise _refine_input(
+                f"edit {ident} names {relative!r}, which is not one of this "
+                "WorkItem's bound requirements documents")
+        body = item["text"]
+        if (not isinstance(body, str) or not body.strip()
+                or len(body) > REFINEMENT_EDIT_TEXT_MAX):
+            raise _refine_input(
+                f"edit {ident} text is not a non-empty string of at most "
+                f"{REFINEMENT_EDIT_TEXT_MAX} characters")
+        if not isinstance(item["baseSha256"], str) or not _HEX64.match(item["baseSha256"]):
+            raise _refine_input(f"edit {ident} baseSha256 is not a SHA-256 digest")
+        if relative not in raw_by_path:
+            raise _refine_input(f"{relative} is not in the repository")
+        current = hashlib.sha256(raw_by_path[relative]).hexdigest()
+        if item["baseSha256"] != current:
+            raise _refine_refused(
+                "refinement_edit_stale_base",
+                f"Edit {ident} was written against {relative} as it was "
+                "before it changed. Nothing was written; propose again from "
+                "the current text.",
+                {"edit": ident, "path": relative, "expected": item["baseSha256"],
+                 "current": current})
+        text, _crlf = _refinement_document_text(raw_by_path[relative], relative)
+        try:
+            refinement_apply_operation(text, item)
+        except ValueError as exc:
+            raise _refine_input(f"edit {ident}: {exc}") from None
+        out.append({"id": ident, "op": op, "path": relative,
+                    "anchor": item["anchor"], "text": body,
+                    "baseSha256": current, "appliedSha256": None,
+                    "appliedOrder": None, "autoApplied": False, "decision": None})
+    return out
+
+
+def _refinement_assessment(paths: Paths, reference) -> tuple[dict, list[str], str, dict]:
+    """(record, failing blocking checks, content digest, raw bytes) of the
+    CURRENT assessment, or a refusal. The failing set is read from the engine's
+    own record, never from what the caller says."""
+    if not isinstance(reference, str) or not reference.strip():
+        raise _refine_input("assessmentRef is empty")
+    current = read_governance_record(paths)
+    if current is None:
+        raise Refused(
+            "refinement_wrong_status",
+            "There is no assessment to refine against. Run `governance assess` "
+            "first. Nothing was written.", {"workitem": paths.workitem})
+    target = paths.project_root / reference
+    named = (target.parent == paths.evidence_dir
+             and target.name.startswith("governance-")
+             and not target.name.startswith("governance-flip-attempt-")
+             and target.is_file())
+    if not named:
+        raise _refine_input(
+            "assessmentRef is not one of this WorkItem's assessment evidence files")
+    try:
+        evidence = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise _refine_input("assessmentRef cannot be read") from None
+    if (not isinstance(evidence, dict) or evidence.get("kind") != "governance"
+            or (evidence.get("record") or {}).get("executionId")
+            != current.get("executionId")):
+        raise _refine_input(
+            "assessmentRef is not the evidence of the current assessment; "
+            "refine against the latest `governance assess`")
+    sources, digest, raw_by_path = requirements_sources(paths, strict=True)
+    if current["requirements"].get("digest") != digest:
+        raise _refine_input(
+            "the requirements changed after that assessment, so its findings "
+            "may no longer apply; run `governance assess` again")
+    failing = [c["id"] for c in current["quality"]["checks"]
+               if c["result"] == "FAIL" and c["blocking"]]
+    return current, failing, requirements_content_digest(raw_by_path), raw_by_path
+
+
+def _refinement_proposal_digest(findings, questions, edits) -> str:
+    """What was proposed, independent of ids and of the text it was written
+    against, so the same proposal made again after the document moved is
+    recognised as the same."""
+    canonical = json.dumps(
+        {"findings": findings,
+         "questions": [{k: q[k] for k in ("text", "options")} for q in questions],
+         "edits": [{k: e[k] for k in ("op", "path", "anchor", "text")}
+                   for e in edits]},
+        sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _refinement_citable(paths: Paths) -> set[tuple[str, str]] | None:
+    """The (kind, id) pairs a finding may cite, or ``None`` when the repository
+    has no usable baseline. An entry counts only while the file it points at is
+    byte-identical to what the baseline pinned, so a citation cannot rest on a
+    record that has since moved. Whether a cited entry *supports* a finding is
+    the assessor's judgement and is not claimed here."""
+    status, _findings = baseline_state(paths)
+    if status not in (BASELINE_VALID, BASELINE_STALE):
+        return None
+    try:
+        baseline = read_baseline(paths) or {}
+    except IntegrityError:
+        return None
+    citable: set[tuple[str, str]] = set()
+    references = baseline.get("references") or {}
+    pointers = ([references.get("constitution")]
+                + list(references.get("architecture") or [])
+                + list(references.get("adrs") or []))
+    for pointer in pointers:
+        if isinstance(pointer, dict) and isinstance(pointer.get("path"), str):
+            target = paths.project_root / pointer["path"]
+            if target.is_file() and sha256_file(target) == pointer.get("sha256"):
+                citable.add(("baseline-reference", pointer["path"]))
+    discovery = baseline.get("discovery") or {}
+    record_path = discovery.get("record")
+    if isinstance(record_path, str):
+        target = paths.project_root / record_path
+        if target.is_file() and sha256_file(target) == discovery.get("recordSha256"):
+            try:
+                found = json.loads(target.read_text(encoding="utf-8")).get("findings") or []
+            except (OSError, ValueError, AttributeError):
+                found = []
+            for item in found:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    citable.add(("discovery-finding", item["id"]))
+    return citable
+
+
+def _refinement_findings(paths: Paths, payload, failing: list[str],
+                         citable: set[tuple[str, str]] | None) -> list[dict]:
+    items = payload["findings"]
+    if not isinstance(items, list):
+        raise _refine_input("findings is not a list")
+    out = []
+    for item in items:
+        if not isinstance(item, dict) or set(item) not in (
+                {"checkId", "text"}, {"checkId", "text", "citations"}):
+            raise _refine_input(
+                "a finding carries exactly {checkId, text}, plus citations "
+                "for a compatibility or dependencies finding")
+        if item["checkId"] not in failing:
+            raise _refine_input(
+                f"a finding names {item['checkId']!r}, which is not failing in "
+                "the current assessment")
+        if not isinstance(item["text"], str) or not item["text"].strip():
+            raise _refine_input("a finding has no text")
+        entry = {"checkId": item["checkId"], "text": item["text"]}
+        cites = item.get("citations")
+        if cites is not None:
+            if item["checkId"] not in REFINEMENT_CITED_CHECKS:
+                raise _refine_input(
+                    f"a finding about {item['checkId']} carries no citations")
+            if not _refinement_citations_well_formed(cites):
+                raise _refine_input(
+                    "citations are a non-empty list of {kind, id}, with kind "
+                    f"one of {list(REFINEMENT_CITATION_KINDS)}")
+            unresolved = [c for c in cites
+                          if citable is None or (c["kind"], c["id"]) not in citable]
+            if unresolved:
+                raise _refine_refused(
+                    "refinement_citation_unresolved",
+                    "A citation names something the repository baseline does "
+                    "not hold, or a record that has changed since the baseline "
+                    f"pinned it: {unresolved}. Nothing was written.",
+                    {"workitem": paths.workitem, "unresolved": unresolved})
+            entry["citations"] = [{"kind": c["kind"], "id": c["id"]} for c in cites]
+        elif citable is not None and item["checkId"] in REFINEMENT_CITED_CHECKS:
+            raise _refine_refused(
+                "refinement_citation_unresolved",
+                f"A finding about {item['checkId']} must cite what the "
+                "repository baseline already records, and this one cites "
+                "nothing. Nothing was written.",
+                {"workitem": paths.workitem, "check": item["checkId"]})
+        out.append(entry)
+    return out
+
+
+def _refinement_questions(payload, record: dict | None = None) -> list[dict]:
+    answered = {" ".join(q["text"].lower().split())
+                for entry in (record["iterations"] if record else [])
+                for q in entry["questions"] if q["answer"] is not None}
+    items = payload["questions"]
+    if not isinstance(items, list) or len(items) > REFINEMENT_QUESTIONS_MAX:
+        raise _refine_input(
+            f"questions is not a list of at most {REFINEMENT_QUESTIONS_MAX}")
+    out, seen = [], set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"id", "text", "options"}:
+            raise _refine_input("a question carries exactly {id, text, options}")
+        if (not isinstance(item["id"], str) or not item["id"].strip()
+                or item["id"] in seen):
+            raise _refine_input(f"question id {item['id']!r} is empty or repeated")
+        seen.add(item["id"])
+        if not isinstance(item["text"], str) or not item["text"].strip():
+            raise _refine_input(f"question {item['id']} has no text")
+        if " ".join(item["text"].lower().split()) in answered:
+            raise _refine_input(
+                f"question {item['id']} was already answered in an earlier "
+                "round; it is not asked again")
+        if (not isinstance(item["options"], list)
+                or not all(isinstance(o, str) and o.strip() for o in item["options"])):
+            raise _refine_input(f"question {item['id']} options is not a list of strings")
+        out.append({"id": item["id"], "text": item["text"],
+                    "options": list(item["options"]), "answer": None})
+    return out
+
+
+def _refinement_lint_evidence(paths: Paths, raw_by_path: dict[str, bytes],
+                              stamp: str) -> list[str]:
+    documents = {name: raw.decode("utf-8", errors="replace")
+                 for name, raw in raw_by_path.items()}
+    written = []
+    for name in sorted(documents):
+        execution_id, target = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-lint-{eid}.json")
+        write_atomic(target, json.dumps(
+            requirements_lint(documents, name, execution_id), indent=2) + "\n")
+        written.append(target.relative_to(paths.project_root).as_posix())
+    return written
+
+
+def _refinement_baseline_evidence(paths: Paths, raw_by_path: dict[str, bytes],
+                                  stamp: str) -> str:
+    execution_id, target = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"refinement-baseline-{eid}.json")
+    write_atomic(target, json.dumps({
+        "kind": "refinement-baseline", "executionId": execution_id,
+        "recordedAt": stamp, "workitem": paths.workitem,
+        "documents": {name: {"sha256": hashlib.sha256(raw).hexdigest(),
+                             "text": raw.decode("utf-8", errors="replace")}
+                      for name, raw in sorted(raw_by_path.items())},
+    }, indent=2) + "\n")
+    return target.relative_to(paths.project_root).as_posix()
+
+
+def _refinement_outcome(previous: dict, failing: list[str], content_digest: str,
+                        proposal_digest: str, history: list[dict]) -> str:
+    if content_digest == previous["contentDigest"]:
+        return "stall"
+    if any(entry["proposalDigest"] == proposal_digest for entry in history):
+        return "stall"
+    if set(failing) - set(previous["failingChecks"]):
+        return "regression"
+    answered = any(q["answer"] is not None for q in previous["questions"])
+    if set(failing) < set(previous["failingChecks"]) or answered:
+        return "progress"
+    return "stall"
+
+
+def cmd_refinement_propose(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "propose")
+    consts = load_constants(paths)
+    stamp = now_iso()
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "propose")
+        record = read_refinement_record(paths)
+        if record is not None and record["status"] != "AWAITING_REASSESSMENT":
+            raise _refine_wrong_status(
+                paths, record, "propose",
+                "a loop that is awaiting a re-assessment, or no loop yet")
+        assessment, failing, content_digest, raw_by_path = _refinement_assessment(
+            paths, payload["assessmentRef"])
+        findings = _refinement_findings(
+            paths, payload, failing, _refinement_citable(paths))
+        questions = _refinement_questions(payload, record)
+        earlier_ids = ({e["id"] for i in record["iterations"] for e in i["edits"]}
+                       if record else set())
+        edits = _refinement_validated_edits(
+            paths, raw_by_path, payload["edits"], earlier_ids)
+        affected_by_proposal = _refinement_shared_guard(paths, [e["path"] for e in edits])
+        proposal_digest = _refinement_proposal_digest(findings, questions, edits)
+        reference = payload["assessmentRef"]
+
+        if not failing:
+            if record is None:
+                raise _refine_wrong_status(
+                    paths, record, "propose",
+                    "a failing blocking check to refine; the current assessment has none")
+            if findings or questions or edits:
+                raise _refine_input(
+                    "nothing is failing, so a proposal carries no findings, "
+                    "questions or edits")
+            record["iterations"][-1]["outcome"] = "progress"
+            record["status"], record["endedAt"] = "PASSED", stamp
+            relative = write_refinement_record(paths, record)
+            emit("refinement propose", {
+                "workitem": paths.workitem, "status": "PASSED", "record": relative,
+                "iteration": len(record["iterations"]), "failing": []})
+            return EXIT_OK
+
+        effective = read_governance_policy(paths, consts)
+        escalation = None
+        regression: list[str] = []
+        lint_evidence: list[str] = []
+        if record is None:
+            baseline = _refinement_baseline_evidence(paths, raw_by_path, stamp)
+            record = {
+                "refinementVersion": REFINEMENT_RECORD_VERSION,
+                "workitem": paths.workitem, "status": "IN_PROGRESS",
+                "iterationCap": effective["policy"]["refinement_iteration_cap"],
+                "iterationCapSource": ("builtin" if effective["source"] == "builtin"
+                                       else "policy"),
+                "iterations": [], "startedAt": stamp, "endedAt": None}
+        else:
+            previous = record["iterations"][-1]
+            outcome = _refinement_outcome(
+                previous, failing, content_digest, proposal_digest,
+                record["iterations"])
+            previous["outcome"] = outcome
+            if outcome == "regression":
+                regression = sorted(set(failing) - set(previous["failingChecks"]))
+            earlier = (record["iterations"][-2]["outcome"]
+                       if len(record["iterations"]) >= 2 else None)
+            if outcome == "stall" and (
+                    content_digest == previous["contentDigest"]
+                    or any(e["proposalDigest"] == proposal_digest
+                           for e in record["iterations"])
+                    or earlier in ("stall", "regression")):
+                escalation = "stall"
+            elif len(record["iterations"]) >= record["iterationCap"]:
+                escalation = "cap"
+        if escalation:
+            record["status"], record["endedAt"] = "ESCALATED", stamp
+            relative = write_refinement_record(paths, record)
+            if escalation == "cap":
+                raise _refine_refused(
+                    "refinement_cap_exhausted",
+                    f"The refinement used its {record['iterationCap']} iterations "
+                    "and the requirements still fail. The loop is recorded as "
+                    "ESCALATED: edit the requirements by hand, or take the "
+                    "findings back to the people who own them.",
+                    {"workitem": paths.workitem, "record": relative,
+                     "failing": failing})
+            emit("refinement propose", {
+                "workitem": paths.workitem, "status": "ESCALATED", "record": relative,
+                "reason": "stall", "failing": failing,
+                "iteration": len(record["iterations"])})
+            return EXIT_OK
+        lint_evidence = _refinement_lint_evidence(paths, raw_by_path, stamp)
+        record["iterations"].append({
+            "iteration": len(record["iterations"]) + 1,
+            "assessmentRef": reference, "contentDigest": content_digest,
+            "proposalDigest": proposal_digest, "failingChecks": failing,
+            "findings": findings, "questions": questions, "edits": edits,
+            "outcome": None, "disputeOutcomes": []})
+        record["status"] = "IN_PROGRESS"
+        relative = write_refinement_record(paths, record)
+    emit("refinement propose", {
+        "workitem": paths.workitem, "status": "IN_PROGRESS", "record": relative,
+        "iteration": len(record["iterations"]), "failing": failing,
+        "regression": regression, "lint_evidence": lint_evidence,
+        "affected_workitems": affected_by_proposal,
+        "questions": [{"id": q["id"], "text": q["text"], "options": q["options"]}
+                      for q in questions]})
+    return EXIT_OK
+
+
+def cmd_refinement_decide(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "decide")
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "decide")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "decide", "an active loop")
+        current = record["iterations"][-1]
+        if "questionId" in payload:
+            question = next((q for q in current["questions"]
+                             if q["id"] == payload["questionId"]), None)
+            if question is None:
+                raise _refine_input(f"there is no question {payload['questionId']!r}")
+            answer = payload["answer"]
+            if (not isinstance(answer, str) or not answer.strip()
+                    or len(answer) > REFINEMENT_ANSWER_MAX):
+                raise _refine_input("the answer is empty or too long")
+            if question["answer"] is not None:
+                raise _refine_input(f"question {question['id']} is already answered")
+            if question["options"] and answer not in question["options"]:
+                raise _refine_input(
+                    f"the answer is not one of the options {question['options']}")
+            question["answer"] = answer
+            what = {"question": question["id"], "answer": answer}
+        else:
+            edit = next((e for e in current["edits"] if e["id"] == payload["editId"]), None)
+            if edit is None:
+                raise _refine_input(f"there is no edit {payload['editId']!r}")
+            if payload["decision"] not in REFINEMENT_EDIT_DECISIONS:
+                raise _refine_input(
+                    f"a decision is one of {list(REFINEMENT_EDIT_DECISIONS)}")
+            if edit["decision"] is not None or edit["appliedSha256"] is not None:
+                raise _refine_input(f"edit {edit['id']} is already decided")
+            edit["decision"] = payload["decision"]
+            what = {"edit": edit["id"], "decision": payload["decision"]}
+        relative = write_refinement_record(paths, record)
+    emit("refinement decide", {"workitem": paths.workitem, "record": relative, **what})
+    return EXIT_OK
+
+
+def cmd_refinement_apply(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "apply")
+    stamp = now_iso()
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "apply")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "apply", "an active loop")
+        current = record["iterations"][-1]
+        edit = next((e for e in current["edits"] if e["id"] == payload["editId"]), None)
+        if edit is None:
+            raise _refine_input(f"there is no edit {payload['editId']!r}")
+        if edit["appliedSha256"] is not None:
+            raise _refine_wrong_status(
+                paths, record, "apply", f"an edit not yet applied ({edit['id']} is)")
+        if not isinstance(payload["baseSha256"], str) or not _HEX64.match(
+                payload["baseSha256"]):
+            raise _refine_input("baseSha256 is not a SHA-256 digest")
+        relative = edit["path"]
+        if relative not in bound_sources(paths):
+            raise _refine_input(f"{relative} is no longer one of the bound documents")
+        affected = _refinement_shared_guard(paths, [relative])
+        target = paths.project_root / relative
+        if not target.is_file():
+            raise _refine_input(f"{relative} is not in the repository")
+        raw = target.read_bytes()
+        now_sha = hashlib.sha256(raw).hexdigest()
+        # The document must be exactly as the proposal saw it, or exactly as the
+        # most recently applied edit to it left it - never as an earlier one did.
+        applied_here = [e for e in current["edits"]
+                        if e["path"] == relative and e["appliedSha256"]]
+        head = (max(applied_here, key=lambda e: e["appliedOrder"])["appliedSha256"]
+                if applied_here else edit["baseSha256"])
+        if payload["baseSha256"] != now_sha or now_sha != head:
+            raise _refine_refused(
+                "refinement_edit_stale_base",
+                f"{relative} is not the text this edit was written against. "
+                "Nothing was written; propose again from the current text.",
+                {"edit": edit["id"], "path": relative, "current": now_sha,
+                 "expected": edit["baseSha256"]})
+        before, crlf = _refinement_document_text(raw, relative)
+        try:
+            after = refinement_apply_operation(before, edit)
+        except ValueError as exc:
+            raise _refine_input(f"edit {edit['id']}: {exc}") from None
+        neutral = requirements_normal_form(before) == requirements_normal_form(after)
+        if not neutral and edit["decision"] != "accepted":
+            raise _refine_wrong_status(
+                paths, record, "apply",
+                "a human decision to accept this edit; it changes what the "
+                "requirements say" + (", and it was rejected"
+                                      if edit["decision"] == "rejected" else ""))
+        if neutral and edit["decision"] == "rejected":
+            raise _refine_wrong_status(paths, record, "apply", "an edit not rejected")
+        written = after.replace("\n", "\r\n") if crlf else after
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-apply-{eid}.json")
+        new_sha = hashlib.sha256(written.encode("utf-8")).hexdigest()
+        import difflib
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-apply", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "edit": edit["id"],
+            "path": relative, "beforeSha256": now_sha, "afterSha256": new_sha,
+            "presentationNeutral": neutral, "affectedWorkitems": affected,
+            "diff": "".join(difflib.unified_diff(
+                before.splitlines(True), after.splitlines(True),
+                f"a/{relative}", f"b/{relative}")),
+        }, indent=2) + "\n")
+        write_atomic(target, written, newline="" if crlf else None) \
+            if False else write_atomic(target, written)
+        edit["appliedSha256"], edit["autoApplied"] = new_sha, neutral
+        edit["appliedOrder"] = 1 + sum(
+            1 for entry in record["iterations"] for e in entry["edits"]
+            if e["appliedSha256"])
+        record["status"] = "AWAITING_REASSESSMENT"
+        record_relative = write_refinement_record(paths, record)
+        offenders: list[dict] = []
+        try:
+            sources, _digest, raw_by_path = requirements_sources(paths)
+            offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
+        except SdleError:
+            offenders = []
+    emit("refinement apply", {
+        "workitem": paths.workitem, "record": record_relative, "edit": edit["id"],
+        "path": relative, "sha256": new_sha, "presentation_neutral": neutral,
+        "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "affected_workitems": affected,
+        "notice": REFINEMENT_AFFECTED_NOTICE if affected else None,
+        "needs_acknowledgement": [o.get("path") for o in offenders
+                                  if isinstance(o, dict)],
+        "next": "run `governance assess`, then `refinement propose`"})
+    return EXIT_OK
+
+
+def cmd_refinement_cancel(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "cancel")
+    stamp = now_iso()
+    reason = payload["reason"]
+    if (not isinstance(reason, str) or not reason.strip()
+            or len(reason) > REFINEMENT_REASON_MAX):
+        raise _refine_input(
+            f"a cancellation needs a reason of at most {REFINEMENT_REASON_MAX} characters")
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "cancel")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "cancel", "an active loop")
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-cancel-{eid}.json")
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-cancel", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "reason": reason,
+        }, indent=2) + "\n")
+        record["status"], record["endedAt"] = "CANCELLED", stamp
+        relative = write_refinement_record(paths, record)
+    emit("refinement cancel", {"workitem": paths.workitem, "record": relative,
+                               "status": "CANCELLED"})
+    return EXIT_OK
+
+
+def cmd_refinement_dispute(args, paths: Paths) -> int:
+    payload = _read_refinement_payload(args, paths, "dispute")
+    stamp = now_iso()
+    check = payload["checkId"]
+    if check not in QUALITY_CHECK_DEFINITIONS:
+        raise _refine_input(f"{check!r} is not a quality check")
+    for key in ("evidenceRef", "decisionRef", "rationale"):
+        if not isinstance(payload[key], str) or not payload[key].strip():
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                "A dispute needs both parts: independent evidence (a refused "
+                "re-assessment that passes the check at the same content) with "
+                "a written rationale, and a recorded human decision that "
+                f"authorises overturning the result. {key} is missing. "
+                "Nothing was written.", {"workitem": paths.workitem, "missing": key})
+    with refinement_mutex(paths):
+        _refinement_post_init_guard(paths, "dispute")
+        record = read_refinement_record(paths)
+        if not _refinement_active(record):
+            raise _refine_wrong_status(paths, record, "dispute", "an active loop")
+        target = paths.project_root / payload["evidenceRef"]
+        if not (target.parent == paths.evidence_dir
+                and target.name.startswith("governance-flip-attempt-")
+                and target.is_file()):
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                "The evidence of a dispute is a refused re-assessment of this "
+                "WorkItem (`evidence/governance-flip-attempt-*.json`): an "
+                "ordinary assessment is the result being disputed, not "
+                "independent evidence against it. Nothing was written.",
+                {"workitem": paths.workitem})
+        try:
+            attempt = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            attempt = None
+        results = ((attempt or {}).get("proposedQuality") or {}).get("checks")
+        digest = (attempt or {}).get("contentDigest")
+        passed = isinstance(results, list) and any(
+            isinstance(c, dict) and c.get("id") == check and c.get("result") == "PASS"
+            for c in results)
+        if (not isinstance(attempt, dict)
+                or attempt.get("kind") != "governance-flip-attempt"
+                or attempt.get("workitem") != paths.workitem
+                or check not in (attempt.get("flippedChecks") or [])
+                or not passed
+                or not isinstance(digest, str) or not _HEX64.match(digest)):
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                f"That evidence does not show a fresh assessment passing "
+                f"{check}. Nothing was written.", {"workitem": paths.workitem})
+        _sources, raw_digest, raw_by_path = requirements_sources(paths)
+        history = governance_assessment_history(
+            paths, raw_digest, requirements_content_digest(raw_by_path))
+        failed_before = [e for e in history if e["contentDigest"] == digest
+                         and e["results"].get(check) == "FAIL"
+                         and (e["recordedAt"] or "") <= (attempt.get("recordedAt") or "")]
+        if not failed_before:
+            raise _refine_refused(
+                "refinement_dispute_incomplete",
+                f"There is no earlier FAIL of {check} at that content for this "
+                "evidence to dispute. Nothing was written.",
+                {"workitem": paths.workitem})
+        canonical_ref = target.relative_to(paths.project_root).as_posix()
+        for entry in record["iterations"]:
+            for outcome in entry["disputeOutcomes"]:
+                if (outcome["evidenceRef"].lower() == canonical_ref.lower()
+                        or outcome["decisionRef"] == payload["decisionRef"]
+                        or (outcome["checkId"], outcome["contentDigest"]) == (check, digest)):
+                    raise _refine_refused(
+                        "refinement_dispute_replayed",
+                        "That evidence, that decision or that result was "
+                        "already used by a recorded dispute. Each dispute "
+                        "needs its own. Nothing was written.",
+                        {"workitem": paths.workitem})
+        execution_id, evidence = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"refinement-dispute-{eid}.json")
+        write_atomic(evidence, json.dumps({
+            "kind": "refinement-dispute", "executionId": execution_id,
+            "recordedAt": stamp, "workitem": paths.workitem, "checkId": check,
+            "contentDigest": digest, "evidenceRef": canonical_ref,
+            "decisionRef": payload["decisionRef"], "rationale": payload["rationale"],
+        }, indent=2) + "\n")
+        record["iterations"][-1]["disputeOutcomes"].append({
+            "checkId": check, "outcome": "overturned_by_dispute",
+            "originalResult": "FAIL", "evidenceRef": canonical_ref,
+            "decisionRef": payload["decisionRef"], "contentDigest": digest})
+        relative = write_refinement_record(paths, record)
+    emit("refinement dispute", {
+        "workitem": paths.workitem, "record": relative, "check": check,
+        "outcome": "overturned_by_dispute", "content_digest": digest,
+        "evidence": evidence.relative_to(paths.project_root).as_posix(),
+        "next": "run `governance assess` again; only this check at this "
+                "content is exempt from the verdict-flip rule"})
+    return EXIT_OK
+
+
+def cmd_refinement_show(args, paths: Paths) -> int:
+    record = read_refinement_record(paths)
+    evidence = ([p.name for p in sorted(paths.evidence_dir.glob("refinement-*.json"))]
+                if paths.evidence_dir.is_dir() else [])
+    emit("refinement show", {
+        "workitem": paths.workitem, "record": record,
+        "status": record["status"] if record else None,
+        "evidence": evidence})
+    return EXIT_OK
 
 
 def read_governance_input(target: Path, relative: str) -> dict:
@@ -5358,11 +7057,17 @@ def read_governance_record(paths: Paths) -> dict | None:
     return record
 
 
-def governance_freshness(paths: Paths, record: dict) -> dict:
+def governance_freshness(paths: Paths, record: dict,
+                         raw_out: dict[str, bytes] | None = None) -> dict:
     """Is the recorded assessment still about the current requirements?
 
     Derived from the digest every time, never stored as a flag — a stored
     "fresh" boolean would be a second source of truth for the same fact.
+
+    Each source is read once. When `raw_out` is given it receives those exact
+    bytes, so a caller that must also *scan* them does not read the file a
+    second time: two reads at two moments is the gap a concurrent edit can
+    exploit, the same reason `requirements_sources` hands its bytes on.
     """
     recorded_block = record.get("requirements") or {}
     recorded_sources = recorded_block.get("sources") or []
@@ -5378,7 +7083,11 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
         relative = entry.get("path")
         target = paths.project_root / relative if relative else None
         if target is not None and target.is_file():
-            current.append({"path": relative, "sha256": sha256_file(target)})
+            raw = target.read_bytes()
+            if raw_out is not None:
+                raw_out[relative] = raw
+            current.append({"path": relative,
+                            "sha256": hashlib.sha256(raw).hexdigest()})
         else:
             missing.append(relative)
             current.append({"path": relative, "sha256": None})
@@ -5403,10 +7112,170 @@ def governance_freshness(paths: Paths, record: dict) -> dict:
         "recorded_digest": recorded,
         "current_digest": digest,
         "current_sources": [entry["path"] for entry in current],
+        "current_entries": current,
         "missing_sources": missing,
         "rebound": rebound,
         "assessed_without_a_binding": unbound_record,
     }
+
+
+# --------------------------------------------------------------------------
+# What changed under a WorkItem: facts, never advice
+#
+# When the bound requirements change after an assessment, the engine refuses
+# the next move (`governance_stale`) and has always said only that. A person
+# deciding what to do needs the facts: what changed, where the WorkItem is, what
+# is approved, which phases could be rolled back to, who else holds the
+# document. This is the one place those facts are derived, and both surfaces -
+# the refusal and `governance show` - read it, so they cannot disagree.
+#
+# It describes and does not recommend. Which option fits (carry on, roll back
+# and to where, finish and raise new work, reset) is a human decision made in
+# the conversation, guided by `modules/requirements-change.md`; the engine
+# cannot tell a wording fix from a contradiction, or an addition from a reversal.
+#
+# "What changed" needs the text as it was assessed, and hashes cannot give that.
+# Each assessment therefore keeps a copy of every bound document in its own
+# evidence file (never in the record, which stays small), up to a size limit; a
+# document over it, or an assessment that predates the copy, still reports THAT
+# it changed, and says why there is no diff.
+# --------------------------------------------------------------------------
+
+REQUIREMENTS_SNAPSHOT_MAX = 200_000  # bytes per document
+REQUIREMENTS_DIFF_MAX_LINES = 80
+RESTART_APPROACHES = ("rebuild", "update")
+
+
+def requirements_snapshot(raw_by_path: dict[str, bytes]) -> dict:
+    """``{path: {sha256, text, omitted}}`` for the evidence of one assessment."""
+    out: dict[str, dict] = {}
+    for path in sorted(raw_by_path):
+        raw = raw_by_path[path]
+        too_large = len(raw) > REQUIREMENTS_SNAPSHOT_MAX
+        out[path] = {"sha256": hashlib.sha256(raw).hexdigest(),
+                     "text": None if too_large else raw.decode("utf-8", errors="replace"),
+                     "omitted": "too_large" if too_large else None}
+    return out
+
+
+def requirements_change_summary(snapshot: dict, recorded_sources: list[dict],
+                                current_raw: dict[str, bytes], bound_now: list[str],
+                                max_lines: int) -> dict:
+    """What differs between the assessed documents and the ones on disk now.
+    Pure: it reads nothing."""
+    changed: list[dict] = []
+    recorded_paths = {entry["path"] for entry in recorded_sources}
+    for entry in recorded_sources:
+        path = entry["path"]
+        if path not in current_raw:
+            changed.append({"path": path, "change": "missing",
+                            "diff": None, "diffTruncated": False})
+            continue
+        if path not in bound_now:
+            changed.append({"path": path, "change": "unbound",
+                            "diff": None, "diffTruncated": False})
+            continue
+        now = hashlib.sha256(current_raw[path]).hexdigest()
+        if now == entry.get("sha256"):
+            continue
+        old = (snapshot.get(path) or {})
+        item = {"path": path, "change": "modified", "diff": None, "diffTruncated": False}
+        if old.get("text") is None:
+            item["diffUnavailable"] = ("document_too_large" if old.get("omitted")
+                                       else "no_copy_of_the_assessed_text")
+        else:
+            lines = list(difflib.unified_diff(
+                old["text"].splitlines(), current_raw[path].decode(
+                    "utf-8", errors="replace").splitlines(),
+                f"assessed/{path}", f"now/{path}", n=1, lineterm=""))
+            item["diffTruncated"] = len(lines) > max_lines
+            item["diff"] = "\n".join(lines[:max_lines])
+        changed.append(item)
+    for path in sorted(set(bound_now) - recorded_paths):
+        changed.append({"path": path, "change": "added", "diff": None,
+                        "diffTruncated": False})
+    binding_changed = (set(bound_now) != recorded_paths)
+    return {"changed": changed, "bindingChanged": binding_changed}
+
+
+def _assessment_snapshot(paths: Paths, record: dict) -> dict:
+    """The kept copy for the CURRENT assessment, or ``{}``."""
+    execution_id = record.get("executionId")
+    target = paths.evidence_dir / f"governance-{execution_id}.json" if execution_id else None
+    if target is None or not target.is_file() or target.stat().st_size == 0:
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    snapshot = payload.get("requirementsSnapshot") if isinstance(payload, dict) else None
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def requirements_change_facts(paths: Paths, record: dict, freshness: dict) -> dict | None:
+    """The facts a person needs when the requirements are not what was assessed,
+    or ``None`` when they are. See the block above."""
+    if freshness["fresh"]:
+        return None
+    recorded_block = record.get("requirements") or {}
+    current_raw: dict[str, bytes] = {}
+    for path in {e.get("path") for e in recorded_block.get("sources") or []} | set(
+            validated_binding(paths)["sources"]):
+        target = paths.project_root / path
+        if path and target.is_file():
+            current_raw[path] = target.read_bytes()
+    summary = requirements_change_summary(
+        _assessment_snapshot(paths, record), recorded_block.get("sources") or [],
+        current_raw, sorted(validated_binding(paths)["sources"]),
+        REQUIREMENTS_DIFF_MAX_LINES)
+
+    where = None
+    placement = "none"
+    if paths.state_file.is_file():
+        try:
+            state = read_state(paths)
+            consts = load_constants(paths)
+            flow = flow_for_state(state, consts)
+            current = state.get("current_phase")
+            position = flow.position(current)
+            where = {
+                "flow": flow.name, "currentPhase": current, "status": state.get("status"),
+                "approvedGates": sorted(
+                    key for key, value in (state.get("approvals") or {}).items()
+                    if isinstance(value, dict) and value.get("decision")),
+                "restartCandidates": [
+                    {"number": flow.index(phase), "phase": phase,
+                     "label": consts.label_or(phase, flow)}
+                    for phase in flow.phases
+                    if phase != "complete" and phase not in consts.phase_to_gate_key
+                    and position is not None and flow.index(phase) <= position],
+            }
+        except SdleError:
+            where = None
+        try:
+            placed = read_architecture_record(paths)
+        except SdleError:
+            placed = None
+        if placed is not None:
+            try:
+                architecture_requirements_precondition(paths, placed)
+                placement = "current"
+            except Refused:
+                placement = "reasoned_from_older_requirements"
+            except SdleError:
+                placement = "unreadable"
+
+    held: dict = {}
+    try:
+        report = refinement_sharer_report(paths, [c["path"] for c in summary["changed"]])
+        for document in sorted(set(report["blocking"]) | set(report["affected"])):
+            held[document] = {"started": report["blocking"].get(document, []),
+                              "notStarted": report["affected"].get(document, [])}
+    except SdleError as exc:
+        held = {"unknown": exc.reason}
+
+    return {"changed": summary["changed"], "bindingChanged": summary["bindingChanged"],
+            "workitem": where, "architecturePlacement": placement, "alsoHeldBy": held}
 
 
 def gate_requirements_for_state(paths: Paths, consts: Constants,
@@ -5513,7 +7382,148 @@ def bind_for_governance(args, paths: Paths) -> Paths:
     return bind_workitem(paths, args.workitem)
 
 
+# --------------------------------------------------------------------------
+# Assessment integrity: one content, one verdict
+#
+# A check that FAILed at a given content must not later read PASS at that same
+# content: a requirements document that did not change cannot have become
+# adequate, so the second answer is the assessor changing its mind, not the
+# requirements improving. "Same content" is the presentation-neutral content
+# digest, never the raw bytes - otherwise a whitespace edit, which is neutral,
+# would unlock the flip.
+#
+# The history is this WorkItem's own: every `evidence/governance-*.json` whose
+# `kind` is "governance" (never by file name - a refused attempt is evidence of
+# another kind and is not history), plus the current record as the last entry,
+# because the record is written before its evidence and a crash can leave one
+# without the other. An assessment recorded before the digest existed carries
+# none and is "unknown" - except that one whose raw requirements digest equals
+# today's was made over byte-identical text, so its content is known.
+# --------------------------------------------------------------------------
+
+
+def _history_invalid(path: Path, why: str) -> IntegrityError:
+    return IntegrityError(
+        "governance_history_invalid",
+        f"{path.name} is not an assessment record the engine wrote ({why}), "
+        "so the assessment history cannot be trusted and no assessment is "
+        "recorded. Restore the file from version control; it is never edited "
+        "or skipped.",
+        {"path": str(path), "detail": why})
+
+
+def _history_entry(record, source: Path, raw_digest: str,
+                   content_digest: str) -> dict:
+    if not isinstance(record, dict):
+        raise _history_invalid(source, "the record is not an object")
+    quality = record.get("quality")
+    checks = quality.get("checks") if isinstance(quality, dict) else None
+    if not isinstance(checks, list):
+        raise _history_invalid(source, "it has no list of quality checks")
+    results: dict[str, str] = {}
+    for check in checks:
+        if (not isinstance(check, dict) or not isinstance(check.get("id"), str)
+                or check.get("result") not in QUALITY_RESULTS):
+            raise _history_invalid(source, "a quality check is malformed")
+        results[check["id"]] = check["result"]
+    block = record.get("requirements")
+    if not isinstance(block, dict):
+        raise _history_invalid(source, "it has no requirements block")
+    recorded = block.get("contentDigest")
+    if recorded is None and block.get("digest") == raw_digest:
+        recorded = content_digest
+    if recorded is not None and not (
+            isinstance(recorded, str) and re.fullmatch(r"[0-9a-f]{64}", recorded)):
+        raise _history_invalid(source, "its content digest is malformed")
+    return {"source": source.name, "contentDigest": recorded,
+            "executionId": record.get("executionId"),
+            "recordedAt": record.get("recordedAt"), "results": results}
+
+
+def governance_assessment_history(paths: Paths, raw_digest: str,
+                                  content_digest: str) -> list[dict]:
+    """This WorkItem's recorded assessments, oldest evidence first and the
+    current record last. See the block above for what counts and why."""
+    entries: list[dict] = []
+    if paths.evidence_dir.is_dir():
+        for source in sorted(paths.evidence_dir.glob("governance-*.json")):
+            if source.stat().st_size == 0:
+                continue  # an id claimed and never filled; not evidence
+            try:
+                payload = json.loads(source.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise _history_invalid(source, f"it cannot be read: {exc}") from None
+            if not isinstance(payload, dict):
+                raise _history_invalid(source, "it is not an object")
+            if payload.get("kind") != "governance":
+                continue  # another kind of evidence, or not ours: not history
+            entries.append(_history_entry(
+                payload.get("record"), source, raw_digest, content_digest))
+    current = read_governance_record(paths)
+    if current is not None:
+        entries.append(_history_entry(
+            current, paths.governance_file, raw_digest, content_digest))
+    return entries
+
+
+def overturned_assessment_results(paths: Paths) -> set[tuple[str, str]]:
+    """The (check, content digest) pairs whose earlier FAIL a recorded dispute
+    overturned. Only these are exempt from the flip rule; the original result
+    stays in the history."""
+    record = read_refinement_record(paths)
+    if record is None:
+        return set()
+    proven: set[tuple[str, str]] = set()
+    for entry in record["iterations"]:
+        for dispute in entry["disputeOutcomes"]:
+            # The record is only a claim; the exemption is what the evidence
+            # it cites actually shows, so a forged outcome exempts nothing.
+            target = paths.project_root / dispute["evidenceRef"]
+            if not (target.parent == paths.evidence_dir and target.is_file()
+                    and target.name.startswith("governance-flip-attempt-")):
+                continue
+            try:
+                attempt = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if (isinstance(attempt, dict)
+                    and attempt.get("kind") == "governance-flip-attempt"
+                    and attempt.get("contentDigest") == dispute["contentDigest"]
+                    and dispute["checkId"] in (attempt.get("flippedChecks") or [])):
+                proven.add((dispute["checkId"], dispute["contentDigest"]))
+    return proven
+
+
+def verdict_flips(paths: Paths, quality: dict, raw_digest: str,
+                  content_digest: str) -> list[str]:
+    """The checks this assessment answers PASS or NOT_APPLICABLE although an
+    earlier assessment of the same content answered FAIL, and which no recorded
+    dispute overturned."""
+    history = governance_assessment_history(paths, raw_digest, content_digest)
+    overturned = overturned_assessment_results(paths)
+    flipped = []
+    for check in quality["checks"]:
+        if check["result"] == "FAIL":
+            continue
+        if (check["id"], content_digest) in overturned:
+            continue
+        if any(entry["contentDigest"] == content_digest
+               and entry["results"].get(check["id"]) == "FAIL"
+               for entry in history):
+            flipped.append(check["id"])
+    return flipped
+
+
 def cmd_governance_assess(args, paths: Paths) -> int:
+    # The verdict-flip rule reads the assessment history and then writes the
+    # record; two assessments racing between those two steps could leave a PASS
+    # as the last record over a FAIL it never saw. One mutex, shared with the
+    # parties that decide requirements ownership, makes it one step.
+    with refinement_mutex(paths):
+        return _cmd_governance_assess_locked(args, paths)
+
+
+def _cmd_governance_assess_locked(args, paths: Paths) -> int:
     """Evaluate Claude's structured proposal against the policy and persist
     the verdict.
 
@@ -5559,18 +7569,41 @@ def cmd_governance_assess(args, paths: Paths) -> int:
     # bytes just hashed above, so this never re-reads a bound source (V-01).
     offenders = unacknowledged_flagged_sources(paths, sources, raw_by_path)
     if offenders:
-        detail = "; ".join(
-            f"{o['path']} (line {o['matches'][0]['line']}: "
-            f"{o['matches'][0]['pattern']})" for o in offenders)
+        raise content_unacknowledged_refusal(paths, offenders)
+    content_digest = requirements_content_digest(raw_by_path)
+    # Before `governance.json` is touched and before this assessment's own
+    # evidence is claimed: a refused flip must leave the recorded verdict
+    # byte-identical, because `governance_precondition` authorises progression
+    # from the latest record alone. The attempt itself is recorded, as
+    # evidence of another kind that is not part of the assessment history.
+    flipped = verdict_flips(paths, quality, digest, content_digest)
+    if flipped:
+        attempt_id, attempt = reserve_evidence(
+            paths, paths.evidence_dir, stamp,
+            lambda eid: f"governance-flip-attempt-{eid}.json")
+        write_atomic(attempt, json.dumps({
+            "kind": "governance-flip-attempt",
+            "status": "REFUSED",
+            "executionId": attempt_id,
+            "recordedAt": stamp,
+            "workitem": paths.workitem,
+            "flippedChecks": flipped,
+            "contentDigest": content_digest,
+            "input": {"path": relative, "document": document},
+            "proposedQuality": quality,
+        }, indent=2) + "\n")
         raise Refused(
-            "governance_content_unacknowledged",
-            "Bound document(s) contain unacknowledged content that looks "
-            f"like instructions directed at the workflow engine: {detail}. "
-            "Edit the flagged line(s) and re-assess, or acknowledge each "
-            "with `accept-content --path <file>` first.",
-            {"workitem": paths.workitem,
-             "offenders": [{"path": o["path"], "matches": o["matches"]}
-                           for o in offenders]})
+            "quality_verdict_flip",
+            "These checks failed in an earlier assessment of requirements with "
+            f"exactly this content, and now read as passing: {', '.join(flipped)}. "
+            "Unchanged requirements cannot have become adequate, so the earlier "
+            "result stands and nothing was recorded as the verdict. Change the "
+            "requirements substantively and assess again; an earlier result is "
+            "overturned only by a recorded dispute.",
+            {"workitem": paths.workitem, "flipped": flipped,
+             "contentDigest": content_digest,
+             "evidence": attempt.relative_to(paths.project_root).as_posix()},
+        )
     # Claimed before `governance.json` is touched, so an id that cannot
     # be allocated refuses with nothing recorded.
     execution_id, evidence = reserve_evidence(
@@ -5609,6 +7642,9 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         "requirements": {
             "sources": sources,
             "digest": digest,
+            # The presentation-neutral digest, which the verdict-flip rule
+            # compares; `digest` above stays the raw one freshness uses.
+            "contentDigest": content_digest,
             "bindingDigest": binding_digest(bound_sources(paths)),
         },
         "quality": quality,
@@ -5642,6 +7678,7 @@ def cmd_governance_assess(args, paths: Paths) -> int:
         "recordedAt": stamp,
         "workitem": paths.workitem,
         "input": {"path": relative, "document": document},
+        "requirementsSnapshot": requirements_snapshot(raw_by_path),
         "record": record,
     }, indent=2) + "\n")
 
@@ -5708,6 +7745,7 @@ def cmd_governance_show(args, paths: Paths) -> int:
         "missing_sources": freshness["missing_sources"],
         "rebound": freshness["rebound"],
         "assessed_without_a_binding": freshness["assessed_without_a_binding"],
+        "change_facts": requirements_change_facts(paths, record, freshness),
     })
     return EXIT_OK
 
@@ -6681,6 +8719,51 @@ ARCHITECTURE_LOCK_POLL = 0.05
 
 
 @contextlib.contextmanager
+def exclusive_file_lock(lock: Path, timeout: float, stale_after: float,
+                        poll: float, refusal: "Callable[[], Refused]"):
+    """Hold ``lock`` for the duration of the ``with`` block.
+
+    One implementation of the engine's short exclusive locks, so the
+    exclusive-create, the stale-break and the refuse-don't-hang behaviour
+    exist once. The file is created with ``os.open(O_CREAT | O_EXCL)``; a lock
+    older than ``stale_after`` is broken; one still fresh after ``timeout``
+    raises what ``refusal`` builds, and a caller that was refused never
+    releases a lock it did not take.
+    """
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age > stale_after:
+                with contextlib.suppress(FileNotFoundError):
+                    lock.unlink()
+                continue
+            if time.monotonic() >= deadline:
+                raise refusal()
+            time.sleep(poll)
+            continue
+        break
+    token = f"{os.getpid()} {now_iso()} {secrets.token_hex(8)}\n"
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as owner:
+            owner.write(token)
+        yield
+    finally:
+        # Only the holder's own file is released. A holder that was paused past
+        # the stale limit has had its lock broken and retaken; unlinking by name
+        # would delete the NEW holder's lock and admit a third party.
+        with contextlib.suppress(OSError):
+            if lock.read_text(encoding="utf-8") == token:
+                lock.unlink()
+
+
+@contextlib.contextmanager
 def architecture_catalog_lock(paths: Paths):
     """Serialise one read-check-write of the shared catalog.
 
@@ -6698,40 +8781,53 @@ def architecture_catalog_lock(paths: Paths):
     `ARCHITECTURE_LOCK_STALE_AFTER`; one that is still fresh after
     `ARCHITECTURE_LOCK_TIMEOUT` is a refusal, not a hang.
     """
-    lock = paths.architecture_lock_file
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + ARCHITECTURE_LOCK_TIMEOUT
-    while True:
-        try:
-            handle = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                age = time.time() - lock.stat().st_mtime
-            except FileNotFoundError:
-                continue
-            if age > ARCHITECTURE_LOCK_STALE_AFTER:
-                with contextlib.suppress(FileNotFoundError):
-                    lock.unlink()
-                continue
-            if time.monotonic() >= deadline:
-                raise Refused(
-                    "architecture_catalog_locked",
-                    "Another process is updating the architecture catalog "
-                    f"and has held {architecture_catalog_relative(paths)}'s "
-                    "lock for longer than expected. Nothing was written; "
-                    "retry in a moment.",
-                    {"lock": architecture_lock_relative(paths),
-                     "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
-            time.sleep(ARCHITECTURE_LOCK_POLL)
-            continue
-        break
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as owner:
-            owner.write(f"{os.getpid()} {now_iso()}\n")
+    def refusal() -> Refused:
+        return Refused(
+            "architecture_catalog_locked",
+            "Another process is updating the architecture catalog "
+            f"and has held {architecture_catalog_relative(paths)}'s "
+            "lock for longer than expected. Nothing was written; "
+            "retry in a moment.",
+            {"lock": architecture_lock_relative(paths),
+             "waited_seconds": ARCHITECTURE_LOCK_TIMEOUT})
+
+    with exclusive_file_lock(
+            paths.architecture_lock_file, ARCHITECTURE_LOCK_TIMEOUT,
+            ARCHITECTURE_LOCK_STALE_AFTER, ARCHITECTURE_LOCK_POLL, refusal):
         yield
-    finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock.unlink()
+
+
+REFINEMENT_LOCK_TIMEOUT = 10.0
+REFINEMENT_LOCK_STALE_AFTER = 60.0
+REFINEMENT_LOCK_POLL = 0.05
+
+
+@contextlib.contextmanager
+def refinement_mutex(paths: Paths):
+    """Serialise one command's check-and-write against the other parties that
+    read requirements ownership: every mutating `refinement` command,
+    `requirements bind` and `init`.
+
+    A mutex serialises only the parties that take it, so each of them does.
+    It is held for one engine command - never across a model call or a human
+    decision - which is what makes breaking a stale one safe. Readers never
+    wait for it.
+    """
+    def refusal() -> Refused:
+        return Refused(
+            "refinement_transaction_locked",
+            "Another command is changing requirements ownership or "
+            "refinement state and has held "
+            f"{paths.refinement_lock_file.relative_to(paths.project_root).as_posix()}"
+            " for longer than expected. Nothing was written; retry in a moment.",
+            {"lock": paths.refinement_lock_file
+             .relative_to(paths.project_root).as_posix(),
+             "waited_seconds": REFINEMENT_LOCK_TIMEOUT})
+
+    with exclusive_file_lock(
+            paths.refinement_lock_file, REFINEMENT_LOCK_TIMEOUT,
+            REFINEMENT_LOCK_STALE_AFTER, REFINEMENT_LOCK_POLL, refusal):
+        yield
 
 
 def architecture_digest(payload) -> str:
@@ -8340,7 +10436,11 @@ def architecture_apply(paths: Paths, record: dict, stamp: str) -> dict:
     decisions are made against the file that is about to be replaced, not
     against whatever it held when the caller started.
     """
-    with architecture_catalog_lock(paths):
+    # The refinement mutex first, then the catalog lock, always in that order:
+    # the requirements-basis recheck inside is only as good as the interval
+    # between it and the catalog write, and `requirements bind` changes who owns
+    # a document under the same mutex.
+    with refinement_mutex(paths), architecture_catalog_lock(paths):
         return _architecture_apply_locked(paths, record, stamp)
 
 
@@ -8397,6 +10497,13 @@ def _architecture_apply_locked(paths: Paths, record: dict, stamp: str) -> dict:
              "catalog_revision": current,
              "catalog": architecture_catalog_relative(paths)})
 
+    # The gate hook checked the requirements at the start of the command; the
+    # catalog is written here, later. A bound document changing in between
+    # would let a placement reasoned from other text in, so the basis is
+    # checked again under the catalog lock, immediately before the write.
+    # (Serialising this with the writers of those documents is a separate
+    # matter, tracked with the refinement transaction mutex.)
+    architecture_requirements_precondition(paths, record)
     updated = apply_architecture_delta(
         catalog or empty_architecture_catalog(), record, stamp)
     relative = write_architecture_catalog(paths, updated)
@@ -9839,7 +11946,8 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
              "findings": findings},
         )
 
-    freshness = governance_freshness(paths, record)
+    raw_current: dict[str, bytes] = {}
+    freshness = governance_freshness(paths, record, raw_out=raw_current)
     if not freshness["fresh"]:
         if freshness.get("assessed_without_a_binding"):
             raise Refused(
@@ -9861,8 +11969,21 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
             {"workitem": paths.workitem,
              "recorded_digest": freshness["recorded_digest"],
              "current_digest": freshness["current_digest"],
-             "requirements": freshness["current_sources"]},
+             "requirements": freshness["current_sources"],
+             # Facts for the person deciding what to do; never advice.
+             "change_facts": requirements_change_facts(paths, record, freshness)},
         )
+
+    # Fresh means the bytes on disk are the bytes assessed - it says nothing
+    # about whether the content they hold is still *acknowledged*. Assessment
+    # required an acknowledgement for any flagged document, but that record is
+    # a durable store a person or a bug can lose, and the requirements being
+    # unchanged leaves freshness silent about it. So the acknowledgement is
+    # asked for again here, against the exact bytes freshness just read.
+    offenders = unacknowledged_flagged_sources(
+        paths, freshness["current_entries"], raw_current)
+    if offenders:
+        raise content_unacknowledged_refusal(paths, offenders)
 
     # Accepted. The facts enter the ledger here, after every refusal has had
     # its chance to fire, so a refused advance never writes anything.
@@ -11256,6 +13377,13 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
 
 
 def cmd_requirements_bind(args, paths: Paths) -> int:
+    # Ownership of a document is decided here and checked by `refinement`
+    # commands, so both take the same mutex.
+    with refinement_mutex(paths):
+        return _cmd_requirements_bind_locked(args, paths)
+
+
+def _cmd_requirements_bind_locked(args, paths: Paths) -> int:
     """Declare which requirement documents this WorkItem is about.
 
     The engine writes the binding; it is never hand-edited (invariant 6),
@@ -12090,6 +14218,8 @@ def cmd_restart(args, paths: Paths) -> int:
         message=f"Restart: rolled back to Phase {args.to} ({target}). "
                 f"Cleared downstream approvals: {', '.join(cleared) or 'none'}. "
                 f"phase_history trimmed by {trimmed}."
+                + (f" Approach: {args.approach}." if getattr(args, "approach", None)
+                   else "")
                 + (f" Architecture decision(s) abandoned: "
                    f"{', '.join(abandoned['decisions'])}."
                    if abandoned else ""),
@@ -12431,6 +14561,24 @@ def write_content_acknowledgement(paths: Paths, path: str, sha256: str,
                 json.dumps(doc, indent=2) + "\n")
 
 
+def content_unacknowledged_refusal(paths: Paths, offenders: list[dict]) -> Refused:
+    """The one wording and payload for `governance_content_unacknowledged`,
+    shared by `governance assess` and `governance_precondition` so the two
+    cannot drift into describing the same refusal differently."""
+    detail = "; ".join(
+        f"{o['path']} (line {o['matches'][0]['line']}: "
+        f"{o['matches'][0]['pattern']})" for o in offenders)
+    return Refused(
+        "governance_content_unacknowledged",
+        "Bound document(s) contain unacknowledged content that looks "
+        f"like instructions directed at the workflow engine: {detail}. "
+        "Edit the flagged line(s) and re-assess, or acknowledge each "
+        "with `accept-content --path <file>` first.",
+        {"workitem": paths.workitem,
+         "offenders": [{"path": o["path"], "matches": o["matches"]}
+                       for o in offenders]})
+
+
 def unacknowledged_flagged_sources(paths: Paths, sources: list[dict],
                                   raw_by_path: dict[str, bytes]) -> list[dict]:
     """Bound sources (as `requirements_sources` returns them — already
@@ -12566,9 +14714,13 @@ def cmd_accept_content(args, paths: Paths) -> int:
                           "No flagged content is pending acknowledgement.",
                           {"path": path_arg})
         sha = hashlib.sha256(raw).hexdigest()
+        # State is read, and so validated, BEFORE the acknowledgement store is
+        # touched: a state that cannot be read refuses, and a refusal leaves
+        # every store as it found it. Writing the store first changed the
+        # security decision record on a command that then reported failure.
+        state = read_state(paths) if paths.state_file.is_file() else None
         write_content_acknowledgement(paths, canonical, sha, args.session)
-        if paths.state_file.is_file():
-            state = read_state(paths)
+        if state is not None:
             pending = state.get("pending_confirm_action") or ""
             if pending == f"accept_content:{canonical}":
                 state["pending_confirm_action"] = None
@@ -14854,6 +17006,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gov_gates.set_defaults(handler=cmd_governance_gates)
 
+    refinement_p = subparsers.add_parser(
+        "refinement", help="Requirements refinement before the workflow starts.")
+    refinement_sub = refinement_p.add_subparsers(dest="subcommand", required=True)
+    for name, handler, helptext in (
+            ("propose", cmd_refinement_propose,
+             "Record findings, questions and proposed edits for the current assessment."),
+            ("decide", cmd_refinement_decide,
+             "Record a human answer to a question or a decision on an edit."),
+            ("apply", cmd_refinement_apply, "Apply one accepted edit to a bound document."),
+            ("dispute", cmd_refinement_dispute,
+             "Overturn one earlier FAIL on independent evidence and a human decision."),
+            ("cancel", cmd_refinement_cancel, "End the refinement loop.")):
+        step = refinement_sub.add_parser(name, help=helptext)
+        step.add_argument("--input", required=True,
+                          help="Path to the structured input JSON.")
+        step.set_defaults(handler=handler)
+    ref_show = refinement_sub.add_parser(
+        "show", help="The refinement record. Writes nothing.")
+    ref_show.set_defaults(handler=cmd_refinement_show)
+
     baseline_p = subparsers.add_parser(
         "baseline", help="The repository baseline (contract §14). Read-only."
     )
@@ -15165,6 +17337,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = subparsers.add_parser("restart", help="Roll back to an earlier phase.")
     sub.add_argument("--to", type=int, required=True)
     sub.add_argument("--confirm", action="store_true")
+    sub.add_argument(
+        "--approach", choices=RESTART_APPROACHES,
+        help="How the rolled-back phases are redone, recorded in the audit "
+             "entry: rebuild from scratch, or update the existing work.")
     sub.set_defaults(handler=cmd_restart)
 
     sub = subparsers.add_parser("reset", help="Delete all workflow state.")

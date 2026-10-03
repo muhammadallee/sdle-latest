@@ -122,6 +122,12 @@ SDLE Orchestrator (Claude Code Skill)
 │     • How the code review is conducted, finding shape, how the parent
 │       records the outcome
 │
+├── modules/requirements-change.md   Loaded when the requirements changed under a WorkItem
+│     (`governance_stale`); the user chooses what to do
+│
+├── modules/requirements-refinement.md  Loaded when the user accepts help fixing
+│     blocked requirements; before `init`, so `resume` does not report it
+│
 ├── modules/security-review.md       Loaded only at `security_review`
 │     • Evidence-gathering procedure and review template
 │
@@ -129,8 +135,9 @@ SDLE Orchestrator (Claude Code Skill)
 │     the engine and reported by `sdle.sh resume`. The row is a floor, not a
 │     ceiling: a capability file may point at another one.
 │
-├── .claude/agents/sdle-*            Four read-only product subagents
-│     • Discovery, design review, code review, security review
+├── .claude/agents/sdle-*            Five read-only product subagents
+│     • Discovery, design review, code review, security review,
+│       requirements review
 │     • Grant is Read/Grep/Glob and a PreToolUse fence denies every write and
 │       every command; they return findings and record nothing. The parent
 │       records, with `artifact review --actor-type agent --actor-name <agent>`

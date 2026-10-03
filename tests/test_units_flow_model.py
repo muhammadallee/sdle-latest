@@ -1479,7 +1479,7 @@ def test_only_init_writes_the_flow_field():
                         and isinstance(target.slice, ast.Constant)
                         and target.slice.value == "flow"):
                     writers.add(fn.name)
-    assert writers == {"cmd_init"}, sorted(writers)
+    assert writers == {"_cmd_init_locked"}, sorted(writers)
 
 
 def test_a_defect_fix_run_never_grows_a_ninth_approval_key(git_project):

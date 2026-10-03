@@ -6,6 +6,259 @@ directory). Branch `feat/requirements-refinement`, created from `0057425` (tip o
 
 ## Current status
 
+**Resumed 2026-10-01 at `276e152`.** The pause (below) ended when the architecture-memory enhancement
+that took priority was finished: it was merged into this branch by fast-forward (`65b75df..276e152`, no
+rewrite, nothing from Stage 0 or Stage 1 lost — the architecture branch had already restored Stage 0
+after a copy-over briefly reverted it, see `docs/enhancements/architecture-memory/PROGRESS.md`), and CI is
+green on all four cells (`36806444263`).
+
+**Re-baseline done:** `PLAN.md` §0 records what changed underneath the plan, re-verifies brief §1 facts
+F1–F14 against `276e152` (F11 changed: sixteen dry-run transcripts → twenty), resolves every stale
+`sdle.py:NNNN` citation to today's line (nothing was removed or renamed), corrects one thing this ledger
+had been about to carry forward (the lint floor's blast radius needs no re-measurement — Option 3 made it
+advisory-only), flags that **C5's "ADR-013" is now taken and the refinement ADR is ADR-015**, and
+proposes a disposition for the six inherited Stage 0 defects the architecture reviews recorded
+(`claude-review-rejections.md` RR-002/003/004/006/007/008). §0 is a *proposal to Stage 2*; §§1–8 are
+unedited.
+
+**Order of work from here (unchanged except for the added first step):** (0) re-baseline — done;
+(1) the `refinement dispute` row in §6 — done; (2) record the Stage 2 review baseline SHA — done, below;
+(3) Stage 2, the two-level Codex review — **Level 1 launched**, below; (4) Stages 3–5. No production code
+before Stage 2 reconciles.
+
+**Stage 2 review baseline: `6162064`** (`feat/requirements-refinement`, pushed). It is the commit with
+`PLAN.md` §0 (the re-baseline), the `refinement dispute` row, and the owner's confirmation of the §0.5
+triage ("go ahead", 2026-10-01: RR-002, RR-004, RR-007 and RR-008 in scope; RR-003 and RR-006 to the §9
+register). Nothing in `PLAN.md` is marked FROZEN: only Stage 2 reconciliation freezes it. CI at the parent
+commit's tree: green on all four cells (`36806444263`).
+
+**Stage 2 harness.** `stage2/` holds relabelled copies of the repository-cleanup P08 harness (brief F14):
+`codexrun_stage2.py` (Level 1) and `codexrun_stage2_level2.py` (Level 2), with `review.schema.json` and
+`dispositions.schema.json`. The invocation (`codex exec --sandbox read-only --ephemeral --json
+--output-schema`), the one-retry policy and the output validation are the originals'. Only the run-id
+label and recorded stage label changed — and the Level 2 `closure_assessment` shape, whose
+`open_01_closed` / `open_02_closed` booleans were specific to the OPEN-01/02 review, became
+`plan_ready_to_freeze` + `blocking_disputes` + `summary`. Review worktrees are detached, outside the
+repository, and removed afterwards.
+
+**Level 1:** `codex-cli 0.151.0`, read-only sandbox, ephemeral, detached worktree at `6162064`, prompt
+`stage2/level1.prompt.md` (it names the brief's attack list, D1/D8–D11, the `todo-api.md` dependencies
+finding, §0.5, and the §0.4 items that are new since the plan was written), timeout 2700 s.
+
+**Level 1, attempt 1 (`20261001T033954-stage2-codex-plan-level1`): INTERRUPTED — not a review.** The
+background runner was stopped by Claude Code's memory-pressure reaper while Codex was still reading
+(`result` is still `IN_PROGRESS`, zero completed attempts, 8 event lines written, no `review.json`). It
+produced no findings and none is claimed. Per the reaper's own notice it was **not restarted by the
+agent**; the next step is the owner's choice. The detached worktree at `6162064` is kept so a rerun reviews
+the identical baseline, and the three partial files are committed as evidence of the attempt, the way
+`open-items-01-02` committed its own reaped round 2. A stray `codex.exe` was still alive afterwards; any
+output it writes later is not validated by the harness and is not to be used as a review.
+
+**Level 1, attempt 2 (`20261001T162206-stage2-codex-plan-level1-attempt2`): PASS.** Same baseline, same
+worktree, one authorised retry; completed on the first harness attempt (exit 0, schema-valid, `reviewed_commit`
+`6162064`). **19 findings, all `defect/*`, none `improvement/*`: 1 critical, 10 high, 8 medium.** Coverage the
+reviewer declared *not* reached: the full pytest/lint suites (read-only sandbox), fresh assessor dispatches,
+and production behaviour (the artifact is a plan). Output preserved unedited in
+`runs/20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json`.
+
+**Claude's responses** are in `stage2/level1-responses.md`. Every load-bearing claim was checked against the
+repository before it was dispositioned (several by execution). Result: **15 ACCEPT, 3 PARTIALLY ACCEPT (008,
+010, 018), 1 OWNER DECISION (011); none challenged outright.** That is stated as a claim for Level 2 to test,
+not as evidence of quality. `PLAN.md` is **not** edited: corrections are proposed in the responses and applied
+only at reconciliation, so Level 2 reviews the baseline and can attack the corrections themselves.
+
+Headline findings: **S2-L1-001 (critical)** — the planned flip refusal, read literally, persists the forbidden
+PASS as the latest `governance.json` (the engine writes that record *before* a blocking refusal, and
+`governance_precondition` reads only the latest record), turning `quality_verdict_flip` into a bypass; the fix
+is to refuse before any write and record the attempt in evidence only. **S2-L1-008** corrects a claim of this
+re-baseline's own (§0.4(7)): a shared-document edit by another WorkItem *can* leave a placement derived from
+older bytes, because the placement record pins no requirements digest — a gap that predates refinement and
+belongs to the already-merged architecture design, so it is routed to the §9 register, not fixed here.
+**S2-L1-006** is partly this re-baseline's own doing (§0.4(3) and D2 specified two different locks).
+
+**ESCALATED TO THE OWNER — S2-L1-011 (high).** `todo-api.md` is measured as blocked 3/3 on `dependencies`
+(false positives under the committed clean label; `recompute_metrics.py`: `dependencies` recall 0.00,
+precision 0.00), but brief scenario 1 requires it to pass unchanged with no loop. Options: (1) refine the
+`dependencies` check definition so the existing document passes; (2) amend the document with explicit
+authorisation and update scenario 1; (3) amend scenario 1. Agents may not resolve this (brief §5). It blocks
+Phase A, because the check-definition table (S2-L1-009) is what option (1) would change. **Open.**
+
+**Level 2 (`20261001T163832-stage2-level2-codex-plan-level2`): PASS**, first attempt, same harness and
+sandbox, detached worktree at `a1a204f` (which holds the findings and the responses; `PLAN.md` was still the
+baseline's). Launched with the owner's go-ahead ("go ahead with level 2"). **19 dispositions: 11 RESOLVED, 4
+REVISED (002, 003, 005, 015), 4 UPHELD (006, 008, 011, 016); 3 new findings (S2-L2-001..003; two high, one
+medium). `plan_ready_to_freeze: false`**, with 11 blocking ids. Output unedited in
+`runs/20261001T163832-stage2-level2-codex-plan-level2.a1.review.json`; the review worktree is removed.
+
+**Reconciliation** is `PLAN.md` §0.6: one amendment per finding (A1–A19), each overridden section marked
+"Superseded in part by §0.6", nothing deleted. Honest account of what Level 2 changed my mind on:
+- **S2-L1-006 — Level 2 was right and my response was wrong.** I had reframed the long apply→re-assessment
+  interval as protected by the C1 `PENDING` intent. Reading brief §3.5 again, it contains two different things:
+  the C1 transaction (steps 1–4, ending at `COMMITTED`, short) and a *separate* last bullet — "the session lock
+  is held from apply through re-assessment; a second invocation refuses" — which is the **originating
+  WorkItem's own** lock. Level 1 and I had both merged them. The corrected design (A5): a short repository
+  mutex for the transaction, a per-WorkItem `AWAITING_REASSESSMENT` state for the long interval, and **no
+  cross-WorkItem hold** — so there is no abandonment authority to design and a vanished origin blocks no one.
+  Optimistic base-SHA checks and `governance_stale` protect other sharers, as brief §3.5's last C1 bullet says.
+- **S2-L2-002 — my Level 1 response created a defect.** Per-WorkItem `pendingTransactions[]` pointers would
+  have written into other WorkItems' records, violating scenario 12. Replaced by one repository transaction
+  index (A6).
+- **S2-L1-001 and §0.4(7)** corrections as recorded in §0.6.1.
+
+**Owner decision, 2026-10-02: A8 / S2-L1-008 is CLOSED — option (A)** ("go with recommended"): the placement
+record pins the bound requirements' digest and approval refuses on mismatch, as its own small change before
+refinement Phase A, on its own branch off `main` (`fix/architecture-requirements-digest`). The text below
+records the question as it was put.
+
+**A11 / S2-L1-011 — decided 2026-10-02: option 1 plus an explicit dependencies statement in the sample, no brand.**
+The agreed measurement (`stage2/dependencies-measurement/`, 33 fresh-context runs, exploratory) found: the new
+definition fixes the `todo-api.md` false positive (`dependencies` FAIL 3/3 and 2/3 → 0/3), keeps catching a
+genuinely vague control (2/3 → 3/3), and flags no ordinary or clean document; **but** `todo-api.md` contains a real
+contradiction (`updated_at`, lines 42 and 63) that the Stage 1 label (`[]`, clean) was wrong to miss, and the sample
+passes all twelve checks 3/3 only with the dependencies statement **and** that contradiction resolved. The explicit
+statement alone removes the `dependencies` failure under either definition, so the definition change is a modest
+improvement and not the load-bearing fix. **Two corrections to my own earlier explanations**, made before the
+owner chose: the seeded `defect-dependencies.md` defect is a missing Dependencies *section*, not only vague wording,
+so "the check misses real defects" was overstated (its recall stays undetermined, as the Stage 1 ledger said); and
+the cost of editing the sample was overstated (three files carry the phrase, not thirty-three). **Resolved by the
+owner the same day:** `updated_at` means the time the row's fields were last actually changed, which is what
+requirement 5 said, so the Data Model line was aligned to it and the sample amended in its three copies
+(`requirements/todo-api.md`, the corpus fixture, and the Getting Started embedding). The corpus label note records
+that the Stage 1 runs were made against the pre-amendment bytes.
+
+**Targeted verification of the reconciliation (`20261002T094535-stage2-verify-codex-reconciliation`): PASS**, first
+attempt, `codex-cli 0.151.0`, read-only, ephemeral, detached worktree at `f4c10a9`, run with the owner's go-ahead.
+Scope: only the changed material (PLAN §0.6, the merged architecture fix, the sample amendment, the measurement).
+**11 dispositions: 7 RESOLVED, 2 REVISED (S2-L1-008, S2-L1-016), 2 UPHELD (S2-L1-006, S2-L2-001); 1 new finding
+(S2-L3-001, medium); `plan_ready_to_freeze: false`.** It also recomputed all 33 measurement outputs: every cell of
+`MEASUREMENT.md` matched, and both self-corrections (seeded-defect shape, the three-copies cost) were confirmed.
+Output unedited in `runs/20261002T094535-stage2-verify-codex-reconciliation.a1.review.json`.
+
+What was done with it: S2-L1-008 (revised) was a real narrow defect in code I had merged — the requirements check
+ran at the start of the command and the catalog write came later; fixed by rechecking inside the catalog lock, test
+first (PR #6). S2-L1-016 (revised) was right that the mutex only helps if every mutating refinement command holds
+it; A5 and A16 now say so. S2-L3-001 was right that several supersession markers named the wrong amendment and
+§5.c was unmarked; markers fixed and §0.6.5 lists the retained clauses to discard. **S2-L1-006 and S2-L2-001
+(upheld) are a genuine disagreement about what the owner's brief means** — Claude and Codex read §3.5's "the session
+lock is held from apply through re-assessment" differently, and the text supports both. It is escalated to the
+owner with the verbatim wording, both readings, and three options (PLAN §0.6.3, A5).
+
+**S2-L1-006 / S2-L2-001 — decided by the owner, 2026-10-02: option (D), the owner's own idea.** Asked to choose
+between the two readings, the owner pointed out that C1 already checks at the start who else shares the file and
+makes the refiner acknowledge them by name, so the only gap is a loop that *starts later*, because nothing records
+that one is in progress. Decision: record an **in-flight claim** in the repository transaction index when `apply`
+commits; show it at every start-check; refuse `refinement_document_in_flight` unless the person acknowledges the
+origin by name, audited in both WorkItems; release it on the correlated re-assessment or `cancel`; **no lock and no
+timer** — an abandoned loop is cleared by the next person's acknowledgement. This answers Codex's two upheld
+findings without choosing either reading of "the session lock": a second invocation refuses across WorkItems, and
+the abandonment authority is a human decision on the record. **New design, so the changed part (§0.6.3 (D), A5, A6)
+still needs a short targeted verification before the plan freezes.**
+
+**Second targeted verification (`20261002T120402-stage2-verify-codex-decision-d`): PASS**, first attempt, same
+harness and sandbox, detached worktree at `9784258`, with the owner's go-ahead. Scope: decision (D), the items
+fixed since the last round, and the 27-line code change on PR #6. **5 dispositions: 1 RESOLVED (S2-L1-016), 4
+REVISED (S2-L1-006, S2-L2-001, S2-L1-008, S2-L3-001); 7 new findings (S2-L4-001..007: 3 high in the state machine,
+1 high on release, 2 medium, 1 low); `plan_ready_to_freeze: false`.** Output unedited in
+`runs/20261002T120402-stage2-verify-codex-decision-d.a1.review.json`.
+
+My assessment, stated honestly: every finding is accurate. (D) was the right idea but I had specified the owner's
+intent, not a recoverable state machine — claim activation against A4's crash order, who may release, what an
+override does to the origin, how to clear a claim whose origin no longer exists, which commands check, and the
+shape of the acknowledgement were all open. None is a disagreement; all are gaps. `PLAN.md` §0.6.6 now completes
+the design on all of them, and also corrects §0.6.1 and §0.6.5, which still described the superseded reading. The
+`architecture apply` recheck is correctly placed but cannot be fully closed until the refinement mutex exists
+(Phase A); the plan says so. **Observation for the owner:** this is the third review round, and every round has
+found more detail in the *shared-document* machinery (C1: the transaction, the index, the claim, the override).
+That machinery is needed only when a document is bound by more than one WorkItem.
+
+**Consultation on the shared-document design, 2026-10-02 (owner-requested, two rounds with Codex).** Prompted by
+the owner's observation that in a team a refinement edit is not visible to anyone else until it is committed and
+pushed. Two questions: (1) drop decision (D)'s in-flight claim? (2) amend C1 so no WorkItem's audit is appended to
+by another?
+
+*Round 1* (`20261002T150413-stage2-consult-codex-round1`, PASS, `3fc2cb8`): Codex **agreed with both** and did not
+want even a local claim kept. It added: the brief contradicts itself (scenario 12 forbids one WorkItem writing
+another's record; C1 requires it); only `audit verify` detects a divergent chain (state loading and drift do not);
+git does not guarantee a conflict for disjoint edits, so safety rests on the digest and base-SHA checks; and what
+machinery can go. All six points accepted (`stage2/consult1-responses.md`). **The audit hazard was then
+reproduced**, not only reasoned: two branches that each append one chained entry to one WorkItem's audit conflict in
+`audit.md` and `state.json`, and keeping both by hand leaves a chain `audit verify` rejects (`audit_chain_broken`,
+exit 3) — `stage2/consultation-evidence/`. Correction to my own claim: `audit rebaseline` can rechain it as a
+deliberate, logged repair.
+
+*Round 2* (`20261002T151050-stage2-consult-codex-round2`, PASS, `3fa9d2f`): of the six round-1 ids, 5 RESOLVED and
+1 REVISED; 4 new findings (S2-C2-001..004); **`plan_ready_to_freeze: true`, no blocking disputes: "adopt Design R with
+specific changes".** My dispositions: 001 (the notification claim was false and provenance is lost) **accept**;
+004 (stale text throughout) **accept**; 002 (recovery discovery by affected WorkItems) **partially accept** — the
+affected-WorkItem audit entries it protected are exactly what Design R deletes, so B depends on nothing A recovers,
+and a pending transaction lags only A's own record; at most a read-only diagnostic is warranted; 003 (widen the A5
+mutex to advance / gate approve / gate omit / skip) **partially accept** — real, but the same TOCTOU class as a hand
+edit between a freshness check and a write, which no lock can prevent, and widening the mutex across every
+progression command is disproportionate for a rare same-checkout simultaneity; recommend a documented residual.
+
+**Awaiting the owner:** Design R changes the owner's constraint **C1** (and the brief's §3.5 and scenarios 12, 18
+and 29), so only the owner can adopt it. `PLAN.md` is not yet changed by any of this.
+
+**Owner request, 2026-10-02: guidance for requirements that change while WorkItems are in progress.** Prompted by the
+question "do WorkItems have to complete, or stop and be replaced?". Two things done: (1) the first user-facing
+guidance is in `docs/GETTING-STARTED.md` §11c (what SDLE does — `governance_stale` at the next progression — and does
+not do — nothing already produced is invalidated, apart from an architecture placement; there is no "replace"
+command; a four-situation table of what to do and what it costs), pointed at from the `governance_stale` entry in
+`docs/troubleshooting/README.md`; (2) **PLAN §7.1, Phase F, added as the last phase**: a scenario catalogue with
+options, impact and a recommended option in plain words, brainstormed with Codex under the same two-level protocol,
+every impact claim reproduced in a disposable project, and a **feasibility verdict on whether the engine can give this
+guidance to the human at the moment it occurs** (including the cost of recording the requirements digest per artifact,
+a state-schema change under the no-migration rule). Building engine support is out of scope unless the owner approves
+it after seeing the verdict.
+
+**Owner decision, 2026-10-02: Design R is deferred.** Asked whether to adopt Design R (amend C1), the owner chose to
+take it later, at the end. Recorded in PLAN §0.6 as a status note: the shared-document design is ON HOLD; nothing that
+exists only for shared documents is to be built; the independent parts (A1–A3, A7, A9, A10, A12–A19 as marked, Phase
+A0, the check-definition table, the single-WorkItem loop) proceed; and the decision is **required before Phase C
+starts**. Default if none is made: shared documents are refused with no acknowledgement path. This is a deferral, not
+a reconciliation: the Stage 2 checkpoint is **not complete** under brief §5 while an owner decision is outstanding,
+and proceeding on the independent parts is a recorded deviation under brief §6 that the owner has chosen.
+
+**Phase A0 — the three inherited Stage 0 defects — DONE, 2026-10-02**, started on the owner's go-ahead ("yes") with
+the independent parts of the plan treated as proceeding while the shared-document design is on hold (recorded in
+PLAN §0.6's status note). The plan's independent parts were taken as frozen at `036393d`. Each fix has tests that
+failed first, and each shared function's surfaces are all tested (CLAUDE.md's defect rule).
+- **RR-002** (`b98162e`): `_lexically_safe_path` no longer treats `.` or `..` as a trailing-dot alias. `.` is
+  accepted and canonicalised, so `./x` and `requirements/./x` key the same file as `x`; any `..` component is still
+  refused, as traversal and with a message that says so. Trailing dot and colon stream remain aliases. Tests on both
+  surfaces that reach the function (`scan --path`, `requirements bind`); 3 of 4 fail without the fix, the fourth is
+  the guard that the alias rule did not loosen.
+- **RR-008** (`b98162e`): post-init `accept-content --path` reads (validates) `state.json` before it writes the
+  acknowledgement store. Two parametrised tests (malformed; unsupported version) failed first.
+- **RR-007** (this commit): `governance_precondition` now asks again whether flagged bound content is still
+  acknowledged, against the exact bytes `governance_freshness` read (freshness hands them back, so there is no second
+  read for a concurrent edit to slip between), and refuses `governance_content_unacknowledged`; `governance assess`
+  and the precondition share one refusal builder so the wording cannot drift. The check also fires on the stateless
+  early call that `gate approve`, `gate omit` and `skip` make before their first irreversible write. Tests: advance
+  refuses with state and ledger byte-identical, the early call refuses, and an acknowledged document still advances;
+  the first two failed first.
+Verification, locally and in foreground batches: governance + startup + invariants + repo_config (349), whole-flow
+integration (117), transitions (36), gate policy + hooks (573), capabilities + hardening + architecture (257),
+shipped-surface, doc-link and documented-command scans, `lint-skill`. CI on the pushed commit is the full-suite check.
+Not done and not in A0: RR-003 and RR-006, which the owner sent to the §9 register.
+
+**Was open — two owner decisions, neither resolvable by the agents (brief §5):**
+1. **A11 / S2-L1-011** — `todo-api.md` blocked 3/3 on `dependencies` vs acceptance scenario 1 (options 1–3
+   above).
+2. **A8 / S2-L1-008** — placement staleness under a C1 shared edit. **A genuine surviving disagreement**: Claude
+   held it is a pre-existing architecture-memory gap to fix separately; Codex held, and Level 2 upheld, that a
+   C1 edit is engine-authorised and so the guarantee cannot be left weakened. Options: (A) pin the bound
+   requirements' digest in the placement record and refuse approval on mismatch (small change to the merged
+   design; also closes today's hand-edit case); (B) invalidate affected placements in the C1 transaction
+   (rejected: writes into other WorkItems' records); (C) accept the weakened guarantee. Claude recommends (A)
+   as its own change before Phase A.
+
+**Not yet done:** the brief's targeted Codex verification of the *changed material* (§0.6) — "substantial
+changes after Level 2 get targeted Codex verification of the changed material only" — which should follow the
+two owner decisions so the verified text is the final text. `PLAN.md` is therefore **not frozen**.
+
+**Pause note, as written when Stage 1 stopped (kept for the record):**
+
 **Phase:** Stage 1 — discovery, baseline, evaluation corpus, plan. **Paused here deliberately, by the
 owner's own choice, to prioritize other work — not blocked, not stuck.** Nothing below is mid-edit;
 every file is committed, `lint-skill` passes (`ok: true`), and the restatement/doc/collect-only tests
@@ -936,3 +1189,161 @@ tool use; `tool_uses: 0` is recorded on the three newest run files (`todo-api.md
 tool was actually invoked to discover it, matching PLAN.md §3.c's own note that filename neutrality was
 never the real guard. Earlier run files do not carry `tool_uses` (not captured at the time) — treat its
 absence there as "not recorded," not as evidence either way.
+
+## Phase A — steps 3, 4, 5 (2026-10-03)
+
+- **Step 3 (`69fa700`)**: `refinement.json` record (strict validator, `refinement_record_invalid` exit 3, one
+  validated writer, cap ceiling `REFINEMENT_ITERATION_CAP_MAX = 3`), lint-evidence validator (`floorEnforced`
+  must be false). `scan-acknowledgements.json` and `refinement.json` added to the runtime-member leak check
+  (the acknowledgement store had been missing from it). `write_atomic` pin 32 -> 33.
+- **Step 4**: `requirements_lint` + `REQUIREMENTS_LINT_RULES` (applicability declared per rule; normative text
+  only for line rules; code/quote/comment excluded; section and duplicate-id rules judge the bound set; ids
+  count only as definitions). Advisory: nothing on the assessment path reads it (AST test over four functions).
+  One finding from building it: the prototype's `out_of_scope` rule would have been a false positive on
+  `clean-baseline.md` and `todo-api.md` (an "Out of scope:" label inside a Scope section); the shipped rule
+  accepts a heading or a label. Corpus result: zero floor-eligible findings on the two clean documents; the
+  rules find the blocking_unknowns, out_of_scope and acceptance_criteria defects and the ambiguity defect.
+  `vague_term` fires on `defect-dependencies.md` and `defect-nfrs.md` (not their target) - which is why it and
+  `quantity_without_measure` are `floorEligible: false`.
+- **Step 5**: corpus additions are runtime-built fixtures in `test_units_refinement_lint.py` (duplicate-id pair
+  across documents, per-kind positives, neighbouring-kind negatives), not checked-in files.
+  **Re-measurement of the amended `todo-api.md`** against the engine's final `QUALITY_CHECK_DEFINITIONS`
+  (prompt identical modulo whitespace to the measured v2 prompt, verified in code), same method as before
+  (fresh agent, single Read, single Write, 3 runs): **3 of 3 pass all twelve checks**. Outputs in
+  `stage2/final-measurement/`. Exploratory (3 runs, one model), as the earlier measurement was.
+
+## Phase B — assessment integrity (2026-10-03)
+
+- **Flip refusal (A1/A2).** `quality_verdict_flip` (exit 1) fires before any write to `governance.json`, which
+  stays byte-identical; the attempt is kept as `evidence/governance-flip-attempt-*.json` (kind
+  `governance-flip-attempt`, status `REFUSED`, the flipped checks, the content digest, the proposed quality).
+  Both records carry `requirements.contentDigest`. History is read by `kind` from `evidence/governance-*.json`
+  plus the current record as the last entry; legacy entries are "unknown" unless their raw digest equals
+  today's. Corruption refuses `governance_history_invalid` (exit 3).
+  Two deliberate refinements of the plan text, for Codex to judge: (1) a **zero-byte** `governance-*.json` is
+  skipped, because `reserve_evidence` documents an empty file as the crash placeholder and refusing it would
+  brick a WorkItem after any crashed assessment; any other malformed file, including an object with no
+  `kind`, refuses. (2) `NOT_APPLICABLE` after a `FAIL` at the same content counts as a flip, not only `PASS`.
+- **Dispute exemption (A3), reading side only.** An earlier FAIL is exempt only for a (check, content digest)
+  pair listed in a validated `refinement.json` dispute outcome. The `dispute` command that writes one is Phase C.
+- **Existing test changed, on purpose:** `test_re_assessing_a_fixed_requirement_unblocks_the_same_advance`
+  re-assessed an unchanged document; it now makes the fix its name says. It was the only one of 245
+  governance tests, and of the other suites run, that relied on the old behaviour.
+- **The lint floor reason is not defined.** The plan asked for `quality_verdict_below_floor` to be "defined,
+  never raised". An unreachable constant is dead code with a pin, so it is omitted; the advisory-only property
+  is pinned by the AST test over the four assessment functions instead. Open to Codex's disposition.
+- **Assessor agent `sdle-requirements-review`** (read-only grant and fence like the other four; it lists no
+  check id or definition, which the parent copies from `governance policy`'s `check_definitions`). Tests prove
+  the agent glob picks it up and that it restates nothing. Pins moved: agent sets (capabilities, gate-policy,
+  install-contract), hook registration counts (8 -> 9, 4 -> 5), `new_prompt_files` 6 -> 7, `write_atomic` 33 -> 34.
+  "Four product subagents" updated to five in CLAUDE.md, SKILL.md, README, the Reference Guide and
+  GETTING-STARTED; the tutorial and ADR-007 describe the four review subagents historically and are unchanged.
+
+## Phase C go-ahead (2026-10-03) — Codex consulted on whether the owner is needed
+
+Question: may Phase C proceed under the recorded default (shared document refused, no acknowledgement path, no
+transaction index) without the owner? **Codex: VERDICT: PROCEED** — the default weakens no invariant, is
+reversible without touching `state.json` (the refinement record is independently versioned and a later
+`transactions[]` can be absent-means-empty in version 1), and satisfies scenario 17. Conditions recorded:
+**scenarios 18 and 29 stay explicitly deferred, not reported as passing**; tests must show `propose` and `apply`
+refuse a shared source before any write, with no acknowledgement path and no bind/check race. Codex's reminder,
+adopted: this is not approval to ship the reduced behaviour — the owner must still choose Design R or approve the
+default before the feature is declared complete. A person whose document is shared sees
+`refinement_shared_source` naming the other WorkItems and must edit by hand and re-assess each.
+
+- **Correction found by CI (2026-10-03):** the history reader first refused any `governance-*.json` object that
+  declared no `kind`. `test_units_execution_identity` plants a `{"sentinel": true}` file at an evidence name to force
+  an id collision, and every assessment after it failed `governance_history_invalid` - on both OSes, three tests.
+  The plan's own rule is inclusion by `kind`, so an object with no kind is "not history", not corruption. The
+  reader now skips it; it still refuses unreadable JSON, a non-object, and a `kind == "governance"` object whose
+  record is malformed. The earlier ledger note that "an object with no `kind` refuses" is superseded by this.
+  Lesson recorded: the targeted batches I chose missed this module; Phase C batches add `test_units_execution_identity`
+  and every module that writes under `evidence/`.
+
+## Phases C, D, E (2026-10-03)
+
+- **C** (`1a0e1e1` and following): `refinement propose|decide|apply|dispute|cancel|show`; one exclusive-lock
+  helper shared with the architecture catalog lock; the refinement mutex taken by every mutating command, by
+  `requirements bind` and by `init`; shared-source rule per the Codex-agreed definition; iteration-cap policy key;
+  baseline citations for `compatibility`/`dependencies` findings (A10); answered questions not re-asked.
+  Deviation from the plan text: **`propose` after a stall or the cap writes `ESCALATED` and the cap case then
+  refuses** (`refinement_cap_exhausted`); a stall returns ok with `status: ESCALATED`. The record schema gained
+  edit `id`/`text`/`appliedSha256` and iteration `assessmentRef` because the plan's §5.a had nowhere to keep the
+  edit payload or to say which assessment an iteration answered. Dispute evidence is the refused re-assessment
+  (`governance-flip-attempt-*`), the only independent PASS at the same content the engine can produce.
+- **Mutation proof:** shared-source guard on apply, post-init guard, human-decision requirement, `init` guard,
+  dispute replay (initially survived — two tests added), neutrality classification, citation stale-pin check: each
+  removal fails a test.
+- **D**: `modules/requirements-refinement.md`; routing in `SKILL.md` Step 6a and `/sdle-start` step 4;
+  `CAPABILITY_MAP` row on `requirements_check` (the module is routed explicitly because no phase exists to carry it).
+- **E**: GETTING-STARTED §11d, ADR-015, dry runs 21–22 (pre-init marker: the contract test now allows a transcript
+  with no status header only when it says so), troubleshooting rows for every new reason, matrix rows, README/Reference Guide.
+- **Scenario status:** 1–17, 19–28 have tests (21 is convention only: the assessor prompt is built by the parent,
+  and nothing machine-checks that no prior verdict is in it). **18 and 29 are DEFERRED** with Design R, per Codex;
+  they are not reported as passing. 30 was closed in Stage 0.
+- **Open for the owner:** the Design R / shared-document decision before the feature is called complete.
+
+## Phase F — requirements changing mid-flight (2026-10-03)
+
+Two-level protocol with Codex. **Level 1:** Codex produced, independently, a nine-scenario catalogue with options,
+impacts and a recommendation each, a feasibility verdict on engine-surfaced guidance, and four UNVERIFIED claims.
+**Level 2 (my evidence):** `tests/test_units_midflight_changes.py` (8 tests) reproduces the claims against the real
+engine; `docs/lifecycle/requirements-change-midflight.md` is the deliverable. Findings from reproduction: a gate
+refuses `review_missing` / `gate_not_approved` **before** `governance_stale`, so the first refusal a person sees may
+not be the stale one (added to the doc); `init` on a stale assessment starts and the first move refuses (claim 3
+confirmed); reset keeps governance, binding, evidence and refinement and deletes state, audit and lock (claim 4,
+with Codex's correction about the lock); a planted-completed WorkItem can be rolled back (claim 2, disclosed as
+planted); claim 1 (artifacts are redone after a restart) is an orchestrator behaviour, untestable at engine level.
+**Codex disposition: FIX** reset wording and effects (it keeps the WorkItem; also deletes the lock; abandons
+approved-but-unrealized architecture decisions in the shared catalog), the "exactly one thing" overstatement, the
+"every statement is reproduced" overstatement, and GETTING-STARTED's "regenerated" claim — all fixed.
+**Feasibility verdict (Codex, adopted):** partly feasible without deciding — the engine can enrich the
+`governance_stale` refusal and `governance show` with changed paths, phase and approval facts and sharers from one
+shared helper; it cannot know authorship, additive-versus-contradictory, or artifact-to-passage dependency. **Not
+built; the owner decides.** Escalated to the owner: whether regeneration after a restart should be an explicit
+orchestrator contract, and whether planted-completion coverage is enough.
+
+## Shared-document rule relaxed for not-started sharers (2026-10-03, owner's decision, Codex agreed)
+
+Owner: allow a refinement edit when the work on every sharing WorkItem has not started. Codex: yes, with the rule
+below and no acknowledgement step (the engine's own enumeration is stronger than a typed name). **Rule:** a sharer
+blocks if it has a state that does not prove completion, or has its own loop open; a sharer with a binding and no
+state (never started, or reset) does not block and is reported as **affected** — printed, and recorded in the
+apply evidence, with the note that only this checkout is seen. Nothing of an affected WorkItem is written; its
+assessment goes stale by itself. Corrupt binding/state/refinement record of a neighbour still fails closed. The
+check, the write, `init` and `bind` all run under the one mutex. This resolves the deferred shared-document design
+for the common case; **still deferred**: started sharers, open loops, other branches/worktrees (scenarios 18 and 29
+remain unreported as passing). Tests: dormant/reset/ended-loop allowed; open loop, started, failed, rejected,
+active block; sharer starting between the check and the write blocks the apply; neighbour untouched; stale by
+itself; the two bucket rules mutation-proved.
+
+## Guidance when requirements change mid-flight — built (2026-10-03, owner: "yes")
+
+Owner asked that the user be given the options and that SDLE then act on the choice; Codex recommended facts from the
+engine, a change summary from a kept copy of the assessed text, and incremental update as the default approach.
+**Engine:** `requirements_change_facts` (one helper) is carried by the `governance_stale` refusal and by
+`governance show`: changed documents (modified/missing/added/unbound) with a capped diff, binding change, the
+WorkItem's flow/phase/approved gates, the phases it could roll back to (numbers from the flow), the architecture
+placement status, and who else holds the document (started / not started). Each assessment's evidence now keeps a copy
+of every bound document (200 KB cap per document; over it, or an older assessment, still reports that it changed and why
+there is no diff). `restart --approach rebuild|update` records the choice in the audit entry. **Prompt:**
+`modules/requirements-change.md`, routed from `SKILL.md` — show the facts, put the four options, ask rebuild vs
+update if redoing, then do exactly that; CAPABILITY_MAP row on `requirements_check`. **It describes and never
+recommends in the engine;** the recommendation is in the module and the choice is the user's. Mutation-proved:
+facts only when stale; gates excluded from restart candidates; approach recorded.
+
+## PR #6 folded into this branch (2026-10-03)
+
+The owner asked whether PR #6 (`fix/architecture-apply-recheck`) was in this branch. **It was not**: this branch had
+wrapped `architecture_apply` in the refinement mutex (Stage 4), but the requirements recheck *inside* the catalog write,
+which is what the mutex is meant to protect, existed only on the PR #6 branch, so the wrapper guarded nothing. Both PR #6
+commits were cherry-picked here (`dedfae8`, `fd3a3ff`). The architecture, Stage 4 and invariants suites pass. PR #6 can
+now be closed as superseded once this branch merges; merging it first would also be fine (the change is identical).
+
+## Merge-readiness follow-ups (2026-10-03, after Codex's merge-readiness review)
+
+Codex rated the pending items: (a) shared edits for started WorkItems, (b) rollback quality, (e) checkout-local view =
+safe to defer; (c) real completed-rollback test, (d) the RR-010/RR-011 limits made visible, (f) assessor independence
+stated as convention = should be done before the first outside user. **Done:** (c) `tests/test_units_rollback_completed.py`;
+(d) and (f) stated in Getting Started section 11d and ADR-015 "What this does not claim"; (a), (b), (e) recorded with
+reasoning, fix sketches and triggers in `docs/enhancements/requirements-refinement/FUTURE.md`, linked from `docs/README.md`.

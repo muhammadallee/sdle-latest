@@ -1,0 +1,14 @@
+{
+  "problem_statement": {"result": "PASS", "finding": null},
+  "scope": {"result": "PASS", "finding": null},
+  "out_of_scope": {"result": "PASS", "finding": null},
+  "acceptance_criteria": {"result": "PASS", "finding": null},
+  "ambiguity": {"result": "PASS", "finding": null},
+  "contradictions": {"result": "PASS", "finding": null},
+  "constraints": {"result": "PASS", "finding": null},
+  "nfrs": {"result": "PASS", "finding": null},
+  "security_data_implications": {"result": "PASS", "finding": null},
+  "compatibility": {"result": "PASS", "finding": null},
+  "dependencies": {"result": "FAIL", "finding": "The Dependencies section refers only to 'a payment provider' and 'a third-party tax service' without naming either, so the external services the export depends on cannot be identified."},
+  "blocking_unknowns": {"result": "PASS", "finding": null}
+}

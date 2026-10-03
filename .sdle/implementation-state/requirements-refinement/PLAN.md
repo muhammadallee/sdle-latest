@@ -7,6 +7,362 @@ Baseline: `fca6c00` (branch `feat/requirements-refinement`), CI green on all fou
 command surface (`accept-content --path`) exist. Every fact below is re-verified against `fca6c00`, not
 assumed from the brief.
 
+## 0. Re-baseline at `276e152` (resumption, 2026-10-01)
+
+Stage 1 was paused at `65b75df`. While it was paused, the architecture-memory enhancement
+(ADR-013, ADR-014) was built, reviewed three times and merged into this branch by fast-forward, so the
+engine this plan will be implemented against is not the engine it was written against. This section is
+the delta, and **§§1–8 below are left exactly as written**: per the ledger, PLAN.md changes only through
+Stage 2 reconciliation, so a correction made here is a correction *proposed to* Stage 2, not a silent
+edit of it.
+
+Baseline: `276e152` on `feat/requirements-refinement`, identical to `feat/project-architecture-memory`;
+CI run `36806444263` green. Engine `CURRENT_VERSION` is `1.18` (it was `1.17`).
+
+### 0.1 What changed underneath the plan
+
+| Fact | At `fca6c00` | At `276e152` |
+|---|---|---|
+| Phase registry (`PHASE_SEQUENCE`) | 21 rows | 23 rows (`architecture_placement`, `gate_architecture`) |
+| GREENFIELD | 18 phases, 8 gates | 20 phases, 9 gates |
+| Mandatory governance floor | 10 phases | 12 phases |
+| Write-primitive pins (`WRITE_PRIMITIVE_COUNTS`) | 27 / 47 / 49 (`write_atomic` / `save_state` / `append_audit`) | 32 / 50 / 56; `.mkdir(` 10 → 11 |
+| Dry-run transcripts | sixteen | **twenty** (`test_dry_run_contracts.py` pins the number) |
+| ADRs | up to ADR-012 | ADR-013 and ADR-014 exist; **next free is ADR-015** |
+| Command surface | no `architecture` group | `architecture` added (`COMMANDS`, `RUNTIME_FREE_COMMANDS`) |
+| `.sdle/` boundary | `SDLE_OWNED_PREFIXES` names `.sdle/` whole | names `baseline.json`, `implementation-state/`, `architecture/` only |
+
+### 0.2 Brief §1 facts, re-verified against `276e152`
+
+| # | Status | Evidence |
+|---|---|---|
+| F1–F3 | **Hold** | `governance policy` reports the same twelve `quality_checks`, all twelve blocking, `optional_checks == ["nfrs"]` |
+| F4–F7 | Hold | `cmd_governance_assess`, `governance_precondition`, ADR-010/012 unchanged in intent |
+| F8 | Holds | convention-only, `CLAUDE.md` / ADR-007 §3 |
+| F9 | Holds | post-generation clarify still runs after `spec_draft` (now Phase 6) |
+| F10, F15, F16 | Hold as corrected in §1 below | the functions exist; only their line numbers moved (§0.3) |
+| **F11** | **Changed** | "exactly sixteen transcripts" is now **twenty** — `test_there_are_twenty_transcripts_and_they_are_numbered_densely`. OI-DOC-03 must change *that* assertion, not a sixteen one |
+| F12 | Holds | `ci.yml` matrix is unchanged: ubuntu/windows × 3.11/3.13 |
+| F13 | Holds | `import sdle` via the script path works (`CURRENT_VERSION == "1.18"`) |
+| F14 | Holds | `codex-cli 0.151.0` present; harness scripts exist in `open-items-01-02/runs/` and `runctl.py` here |
+
+### 0.3 Every `sdle.py:NNNN` citation in §§1–2, resolved to today
+
+No cited symbol has been removed or renamed. All twenty citing lines still resolve; only the numbers
+moved. **Cite by symbol, not by line, from here on.**
+
+| Symbol | Cited | Now |
+|---|---|---|
+| `governance_precondition` | 7427 | 9720 |
+| `cmd_governance_assess` | 5420 | 5516 |
+| `evaluate_quality` | 4791 | 4872 |
+| `requirements_sources` | 4694 | 4775 |
+| `unacknowledged_flagged_sources` | 9933 | 12370 |
+| `read_scan_acknowledgements` | 9810 | 12247 |
+| `write_content_acknowledgement` | 9897 | 12334 |
+| `record_scan_acknowledgement_audit` | 6935 | 9228 |
+| `_lexically_safe_path` / `safe_repo_path` | 4435 / 4478 | 4516 / 4559 |
+| `reserve_evidence` | 3005 | 3081 |
+| `append_audit` | 1407 | 1476 |
+| `bind_workitem` / `resolve_paths` | 2851 / 413 | 2927 / 472 |
+| `PRODUCT_AGENT_TOOLS` / `product_agent_files` | 11359 | 13893 / 14130 |
+| `_sources_digest` | 4742 | 4823 |
+
+### 0.4 What the architecture work changes for this plan
+
+1. **§3.b needs no re-measurement.** Its blast-radius concern was the lint *floor* breaking fixtures;
+   the owner's Option 3 decision (below, §3.b) ships the lint advisory-only, so nothing in this change
+   blocks on it and no `bare_project` fixture changes. What §3.b's decision *does* leave to verify is
+   §3.a's one test, `test_re_assessing_a_fixed_requirement_unblocks_the_same_advance`: it still exists
+   (`test_units_governance.py:919`) with the same premise.
+2. **C5 names the wrong ADR.** The brief's C5 and §6 phase E say "ADR-013". That number is now taken
+   by project architecture memory. The owner's decision is that *an ADR records the refinement record,
+   its refusals and the assessment-integrity rules* — the number was incidental. Proposed to Stage 2:
+   ADR-015, and every `ADR-013` in §7 of this plan is read as ADR-015.
+3. **[Corrected by §0.6 A5.]** **D2 (the refusing lock) has a second precedent.** `architecture_catalog_lock` is a short-lived
+   exclusive `O_EXCL` lock with a stale-break age and a timeout that becomes a *refusal*
+   (`architecture_catalog_locked`), never a hang, and a reader that never waits for it. D2 should be
+   checked against it and should reuse its shape rather than invent a second one.
+4. **A closed set now polices the `.sdle/` boundary from the other side.**
+   `test_the_repository_configuration_members_have_a_closed_reference_set` fails if any new function
+   references a boundary member directly — it failed this branch's own CI once. `refinement.json` is
+   WorkItem-owned, so the loop should not need it; any helper that must name a boundary path goes
+   through `architecture_catalog_relative`-style sanctioned readers.
+5. **`workitem_runtime_member_names` must learn the new record.** It omits
+   `scan_acknowledgements_file` today (recorded as RR-004 in `claude-review-rejections.md`), so the
+   repository-boundary leak check does not cover that pre-init record. `refinement.json` is a second
+   one; fixing both belongs in this change.
+6. **[Corrected by §0.6 A15 — the list below was incomplete and one item was wrong.]** **Pins this change will move, each in the commit that causes it (D4):** `WRITE_PRIMITIVE_COUNTS`
+   (from 32 / 50 / 56 and `.mkdir(` 11), `COMMANDS` (the `refinement` group), `PRODUCT_AGENTS` in
+   `test_units_capabilities.py` (the new `sdle-requirements-review` agent) and the dry-run count
+   (twenty) if OI-DOC-03 is ever taken up. Also: no test or doc may hardcode a flow size, phase count
+   or progress fraction (`lint-skill` and `test_dry_run_contracts` enforce it); read them from the
+   engine.
+7. **[Retracted by §0.6.1 and A8 — too strong for a C1 shared-document edit.]** **Interaction with `architecture_placement` is benign but must be stated.** Refinement runs pre-`init`
+   (C4), at governance; `architecture_placement` runs later and reads the bound requirements through the
+   requirements binding (ADR-012, D8). A refinement edit therefore always lands *before* any placement
+   reads the documents, and cannot stale one. The case to attack in Stage 2 is the converse: a bound
+   document edited *after* placement exists is `governance_stale` today (C4) and must stay so.
+
+### 0.5 Inherited defects that fall inside this plan's impact surface
+
+Recorded in `claude-review-rejections.md` during the architecture reviews; each exists identically in
+the Stage 0 code this work builds on. Disposition **confirmed by the owner, 2026-10-01** ("go ahead", in
+reply to this exact split): RR-002, RR-004, RR-007 and RR-008 are in scope; RR-003 and RR-006 go to the §9
+register for owner triage and are *not* fixed by this change.
+
+| Id | Defect | Disposition |
+|---|---|---|
+| RR-002 | `_lexically_safe_path` refuses `./x` and mis-messages it; its `cmd_scan` comment contradicts the code | **In scope** — D6 (path handling) must go through this function |
+| RR-007 | an acknowledgement removed after assessment is not re-checked at `advance` / `gate approve` | **In scope** — D7 (acknowledgement / refinement-edit interaction) |
+| RR-008 | post-init `accept-content --path` writes the store before it validates state | **In scope** — D7 |
+| RR-004 | `workitem_runtime_member_names` omits the acknowledgement store | **In scope** — 0.4(5) |
+| RR-003 | `scan_acknowledgements_invalid` (exit 3) has no in-band repair | §9 register — owner triage |
+| RR-006 | drift re-approval runs before the precondition stack | §9 register — owner triage |
+
+## 0.6 Stage 2 reconciliation — normative amendments (2026-10-01)
+
+Stage 2's two-level Codex review of this plan ran against the baseline `6162064`: Level 1 returned 19
+defect findings (`runs/20261001T162206-stage2-codex-plan-level1-attempt2.a1.review.json`), Claude responded to
+each (`stage2/level1-responses.md`), and Level 2 dispositioned those responses and added three findings
+(`runs/20261001T163832-stage2-level2-codex-plan-level2.a1.review.json`). **This section is normative. Where it
+conflicts with §§0.4–8, it wins**; each overridden section carries a "Superseded" marker pointing here. Nothing
+earlier was deleted, so the history stays readable. The plan is **not frozen**: one item below is open and
+needs the owner (A11), and the changed material needs a targeted verification (brief §5) before it is.
+
+> **Status, 2026-10-02 — the shared-document design is ON HOLD, by the owner's choice.** The owner has deferred the
+> decision on **Design R** (amending C1 so no WorkItem's audit is written by another; `stage2/consult1-responses.md`,
+> judged sound with changes by Codex in two consultation rounds) until **before Phase C**. Until it is made:
+>
+> - **Not adopted, and not to be built:** everything that exists only for a document bound by more than one
+>   WorkItem — the C1 multi-participant transaction and its recovery (A4's affected-WorkItem branches), A5's mutex
+>   participants beyond `init`, `requirements bind` and `architecture apply`, **A6 (the transaction index)**, A16's
+>   `PENDING`-participant rule, **decision (D) and all of §0.6.6**, and the §0.6.5 rows and tests for them. Where the
+>   text below describes them as decided, read it as *under review*.
+> - **Unaffected, may proceed:** A1–A3, A7, A9, A10, A12–A14, A17–A19; the pin inventory for everything that is not
+>   shared-document (A15); **Phase A0** (the three inherited-defect fixes); the check-definition table; and the
+>   single-WorkItem part of the loop (`propose`, `decide`, `cancel` and `apply` on a document that no other WorkItem
+>   binds).
+> - **Default if no decision is made before Phase C:** a shared document is refused (`refinement_shared_source`,
+>   listing the other WorkItems) with **no acknowledgement path**, so the loop refines only documents that one
+>   WorkItem binds and the person edits a shared one by hand and re-assesses. That is the safe floor, and it is a
+>   departure from C1 as written, so shipping it as final needs the owner's approval too.
+>
+> The decision is needed **before Phase C starts**, because Phase C is where the shared-document code would be
+> written.
+
+### 0.6.1 Two corrections of my own, stated plainly
+
+- **S2-L1-006 was upheld at Level 2 and the reviewer was right *about my response*;** the targeted verification then upheld it again against the *corrected* design, on a different reading of the brief's text (§0.6.3, A5). Level 2's point stands as stated here. My response reframed the long
+  apply→re-assessment interval as protected by the C1 `PENDING` intent. That over-read the brief. Brief §3.5
+  has two separate things: the **C1 transaction** (steps 1–4, ending at `COMMITTED`, a short operation) and, in
+  its last bullet, "the session lock is held from apply through re-assessment; a second invocation refuses" —
+  which is the **originating WorkItem's own** session lock and does not make any other WorkItem wait. A5 below
+  is the design that follows from reading it correctly; Level 1 and I had both merged the two.
+  **Superseded by the owner's decision (D) (§0.6.3, completed in §0.6.6): no reading of the brief's sentence is
+  adopted, and no lock is held across WorkItems.** The first bullet is kept as the record of what was wrong with my
+  response, not as the design.
+- **§0.4(7) was too strong** (S2-L1-008, upheld at Level 2). It holds for a WorkItem refining its own documents
+  pre-`init`; it does not hold for a C1 edit to a *shared* document made by another WorkItem. See A8.
+
+### 0.6.2 Amendments
+
+| # | Finding | Final status | Amendment |
+|---|---|---|---|
+| A1 | S2-L1-001 (critical) | RESOLVED at L2 | **The flip refusal fires before any write to `governance.json`, which stays byte-identical.** The engine otherwise writes that record *before* a blocking refusal, and `governance_precondition` authorises progression from the latest record alone, so a refused flip that persisted its PASS would unlock `advance`. The attempt is recorded only in `evidence/governance-flip-attempt-<execution_id>.json` (`kind: "governance-flip-attempt"`, `status: "REFUSED"`, the flipped checks, the `contentDigest`, the proposed record), id reserved with `reserve_evidence`, then exit 1. Test: after the refusal, `governance show` and `advance` still observe the preceding FAIL, and `governance.json` is byte-identical. The §6 row for the refused hand re-run is superseded. |
+| A2 | S2-L1-002 | REVISED at L2 | **History contract for `quality_verdict_flip`.** Source: this WorkItem's `evidence/governance-*.json` files with `kind == "governance"`, **plus the current `governance.json` as the final entry** (assess writes `governance.json` before its evidence, so a crash can leave a record with no evidence). `contentDigest` is written to both. Inclusion is by `kind`, never by filename, so `governance-flip-attempt-*` is excluded explicitly. **Corruption fails closed:** an unreadable, non-object or malformed `governance-*.json` refuses `governance_history_invalid` (exit 3) naming the file; it is never skipped. **Legacy:** a record with no `contentDigest` is "unknown" — except the *current* `governance.json`, whose raw `requirements.digest` equal to today's proves the bytes identical and therefore the normal form identical, so it counts as known. Refuse a PASS if **any** earlier non-overturned assessment at that `(checkId, contentDigest)` recorded FAIL. **Cost:** linear in this WorkItem's own assessment count, no cap set in this change; a journal is a recorded future optimisation, not a silent omission. **Limit stated:** deleting evidence by a shell actor is outside the engine's guarantee (invariant 6 and the write-fence are the control; ADR-007 §3's convention-only residue applies). |
+| A3 | S2-L1-003 | REVISED at L2 | **One dispute contract: `disputeOutcomes[]` (§5.a).** `refinement dispute` validates that (i) `evidenceRef` names an engine-written assessor-evidence file in which that check is `PASS` at the **same** `contentDigest` as the FAIL, with a non-empty rationale, **recorded after** that FAIL; (ii) `decisionRef` names a recorded human decision that binds exactly `{checkId, contentDigest, evidenceRef, action: "overturn"}`; (iii) neither ref is already cited by another dispute outcome — else `refinement_dispute_replayed` (new, exit 1). The effective-verdict rule: the overturned `(check, digest)` pair, and only that pair, is exempt from A2; the original FAIL and the refused-flip history are preserved. D9's `disputeOutcome` prose is superseded by the array. Tests: missing file, wrong digest, a FAIL as evidence, an earlier PASS, a replayed decision, and the positive case. |
+| A4 | S2-L1-004 | RESOLVED at L2 | **Transaction ordering and recovery.** Order: target evidence → repository index entry `PENDING` (A6) → origin intent (`transactions[]`, added to §5.a) → document write (base-SHA precondition) → per-WorkItem audit and state → `COMMITTED` in origin and index. Recovery runs before any other `refinement` command for the origin or an affected WorkItem and branches on the crash point: index entry without an origin intent → mark the index entry `ABORTED`; intent and document at `baseSha256` → re-apply from the stored target content, or `ABORTED` on cancel; document at `targetSha256` → append only the missing audit entries (idempotent by `transactionId`), then commit; **audit appended but `state.json` not saved** → recovery recomputes and saves that participant's state **before** ordinary drift validation would refuse it; any other document SHA → `refinement_record_invalid` (exit 3). That last window is the existing `append_audit` → `save_state` window (every caller pairs them and `read_state` does not verify `audit_sha`), made consequential by a multi-WorkItem transaction, per Level 2. |
+| A5 | S2-L1-005, -006 · S2-L2-001 | 005 RESOLVED at verification; **006 and L2-001 UPHELD at verification — CLOSED by the owner's decision (D), 2026-10-02 (§0.6.3)**; the paragraph below is amended accordingly | **Locking, corrected.** One **repository-scoped short mutex**, `workitems/.refinement-transaction.lock`, created with `os.open(..., O_CREAT\|O_EXCL)` — *not* `open(..., "x")`, so the exclusive-open invariant test stays true — with the architecture lock's shape (10 s wait, 60 s stale break, a timeout that is a refusal `refinement_transaction_locked`, readers never wait). A 60 s stale break is safe here because the lock is held for **one engine command**, milliseconds to seconds, never across a model call. It is taken by **every mutating refinement command across its state-absence check and its write** (`propose`, `decide`, `apply`, `dispute`, `cancel`; `apply` also recomputes the complete binding set under it, closing the concurrent-`bind` race), by `requirements bind`, by `cmd_init` (A16), where the C1 acknowledgement is recorded, and by `architecture apply` around its requirements recheck and catalog write (S2-L1-008). A mutex serialises only the parties that take it: the targeted verification found that naming `apply` alone left `init` racing a first `propose`. Location is under the already write-fenced `workitems/` registry area and gitignored beside `workitems/.active-context.json`, so no `.sdle/` boundary member is added. **The long interval is not a lock at all:** after `apply`, the origin's own record enters `AWAITING_REASSESSMENT`, which refuses a second `apply`/`propose` for **that WorkItem** until a correlated assessment is recorded or `refinement cancel` — the brief's own "held from apply through re-assessment; a second invocation refuses". Across WorkItems the interval is protected optimistically: every edit carries a base SHA, and every other sharer goes `governance_stale` (brief §3.5's last C1 bullet). On the owner's decision (D) the interval is also made **visible and refusable**: an in-flight claim in the A6 index, shown at every start-check, refused as `refinement_document_in_flight` unless acknowledged by name and audited in both WorkItems (§0.6.3). There is still **no cross-WorkItem lock** — nothing freezes another WorkItem — and no timer; a human acknowledgement clears an abandoned loop. D2 is superseded. |
+| A6 | S2-L2-002 | new, accepted | **Participant discovery by one repository transaction index, not per-WorkItem pointers.** My Level 1 response proposed a `pendingTransactions[]` pointer inside each affected WorkItem's record; that violates scenario 12 (A's refinement cannot write B's record) and leaves a crash window across several writes. Instead: one engine-written file, `workitems/.refinement-transactions.json`, written with `write_atomic` under the mutex **before** the origin intent: `{transactionId, originatingWorkitem, affectedWorkitems, status, documentPath, loop, since}`, where `loop` is the in-flight claim of decision (D): `AWAITING_REASSESSMENT`, `RELEASED`, `OVERRIDDEN` or `CANCELLED`. Affected-WorkItem commands read that one bounded file; the intent stays authoritative in the origin's record. One atomic write means no half-registered participants. C1's cross-WorkItem write exception stays limited to **audit entries**. A malformed index refuses `refinement_index_invalid` (exit 3). |
+| A7 | S2-L1-007 | RESOLVED at L2 | **Normal form.** A change to trailing whitespace on a **non-blank prose line** is non-neutral (needs a human decision), because two trailing spaces are Markdown's hard break. Trailing whitespace on blank lines and inside fenced blocks and code spans stays neutral as before. Scenario 27 gains hard-break, indented-code, inline-HTML and escaped-space fixtures. |
+| A8 | S2-L1-008 | UPHELD at L2 — **CLOSED by the owner, 2026-10-02: option (A)**; revised at verification | See §0.6.3. Implemented as its own change, before Phase A (merged, PR #5): the placement record pins the bound requirements' digest and approval refuses on mismatch. The targeted verification found one residual window — the check ran at the start of the command and the catalog write came later — closed by rechecking inside the catalog lock immediately before the write (PR #6, test written first and failing). What remains is serialisation with the *writers* of the bound documents, which needs a lock they share and is therefore carried by A5's participant list (`architecture apply` takes the refinement mutex). |
+| A9 | S2-L1-009 | RESOLVED at L2 | **An engine-owned structured check-definition table** (`QUALITY_CHECK_DEFINITIONS`): the policy's ids are derived from, or asserted equal to, it; `governance policy` and the assessor dispatch payload read it; the no-restatement test is extended to it; the agent file never lists ids or definitions. This is a Phase A engine change, not Phase D. D10's claim that definitions come from `GOVERNANCE_POLICY_BUILTIN` is superseded. The text of the `dependencies` definition waits on A11. |
+| A10 | S2-L1-010 | RESOLVED at L2 | Citations for `compatibility`/`dependencies` findings are structured `{kind: "baseline-reference" \| "discovery-finding", id}` and resolved against a sound baseline and its hash-pinned discovery record; an unknown or stale id refuses `refinement_citation_unresolved` (new, exit 1). Whether a cited entry *supports* the finding remains assessor judgement and is not represented as mechanically proven; scenario 14 is reworded to promise only the deterministic part. |
+| A11 | S2-L1-011 | UPHELD at L2 — **CLOSED by the owner 2026-10-02; the sample is amended** | Owner chose option 1 (refine the `dependencies` definition) **plus an explicit dependencies statement in the sample, no brand**. `stage2/dependencies-measurement/MEASUREMENT.md` found that is *not enough*: the sample also contains a real contradiction (`updated_at`, Data Model line 42 against requirement 5), and it passes all twelve checks 3 of 3 only with both corrections. The `updated_at` fix is made: the owner confirmed the intended meaning (the timestamp of the last time any field of the row was actually changed), which is what requirement 5 already said, so the Data Model line was aligned to it. The explicit statement alone removes the `dependencies` failure under either definition, so the definition change is an improvement with thin evidence, not the load-bearing fix. |
+| A12 | S2-L1-012 | RESOLVED at L2 | Each lint rule's applicability (normative vs descriptive text, code and quotation exclusion, document roles, bound-set vs per-document) is specified, with neighbouring-kind and multi-document fixtures, **before** the prototype is ported. The prototype is a measurement tool, not the shipped rules. |
+| A13 | S2-L1-013 | RESOLVED at L2 | Every corpus-derived number in this plan is **exploratory, not confirmatory**. Add the two-document duplicate-id positive/negative pair, independently authored positives and cleans per requirement kind, and uncertainty reporting; no claim may rest on a three-observation cell. |
+| A14 | S2-L1-014 | RESOLVED at L2 | Three explicit tasks with regression tests, as **Phase A0** (before any new feature): normalise a benign `./` before the alias check and correct the message (RR-002); re-scan the exact freshness bytes at the advance and gate preconditions (RR-007); validate state before the post-init acknowledgement write (RR-008). RR-003 and RR-006 stay in the §9 register. |
+| A15 | S2-L1-015 · S2-L2-003 | 015 REVISED, L2-003 new | **Pin inventory, after A5/A6 fixed the layout.** Moved by this change: the parser tokens (`refinement`, `propose`, `decide`, `dispute`, `cancel`; `apply` and `show` already exist) in `COMMANDS`; `WRITE_PRIMITIVE_COUNTS`, **recounted from the engine after implementation, not predicted**; `PRODUCT_AGENTS` (`sdle-requirements-review`); the runtime-member names gain **`refinement.json` only** (WorkItem-owned) plus the RR-004 fix `scan_acknowledgements_file`. **The lock and the index are repository-level files under `workitems/`, not WorkItem runtime members and not `.sdle/` boundary members**, so neither the runtime-member pin nor the closed configuration-reference set takes them; they need `Paths` properties, a `.gitignore` line (lock only), and write-fence coverage (already provided by the `workitems` prefix). The exclusive-open invariant stays true because the lock uses `os.open`. The earlier "runtime-member set including the lock" is superseded. |
+| A16 | S2-L1-016 | UPHELD at L2, accepted | **Pre-init orchestration is explicit.** `SKILL.md` and `sdle-start.md` route to the module before assessment (the `CAPABILITY_MAP` row alone cannot, because `resume` reports capabilities per current phase and pre-`init` there is none). Every mutating refinement command refuses `refinement_post_init` **before any write** when `state.json` exists; `refinement show` stays available. **Every mutating refinement command holds the A5 mutex across its state-absence check and its write, and `cmd_init` takes the same mutex and refuses `refinement_in_progress` (exit 1) while this WorkItem has any non-terminal loop** — `IN_PROGRESS` or `AWAITING_REASSESSMENT` — **or is named by any `PENDING` transaction**, not only a pending one, which closes the race between a refinement command's state-absence check and `init`. |
+| A17 | S2-L1-017 | RESOLVED at L2 | One engine-owned maximum (the cap constant) and one policy field, `refinement_iteration_cap`, accepting only integers in `1..max`, added to `GOVERNANCE_POLICY_OVERRIDABLE`; pinned at loop start with its source recorded in `refinement.json`. Tests: malformed, higher, changed mid-loop, lower. |
+| A18 | S2-L1-018 | RESOLVED at L2 | `governance assess` stays the **only** assessment door. `propose` records findings, questions and edits from an assessment that already exists and does not assess again; "sole writer" becomes **one validated writer helper** used by every command. Input envelopes, each strict and refused on any unknown key: `propose {workitem, assessmentRef, findings[], questions[], edits[]}`; `decide {workitem, questionId, answer}`; `apply {workitem, editId, baseSha256, acknowledgement?}`; `dispute {workitem, checkId, evidenceRef, decisionRef}`; `cancel {workitem, reason}`. `propose` and `decide` do not collapse: the human decision follows the proposal being shown. |
+| A19 | S2-L1-019 | RESOLVED at L2 | §5.b's `"floors": true` is replaced by `floorEligible` and `floorEnforced`, with `floorEnforced` **always `false`** for every shipped rule, so no engine-written record asserts an enforcement property the owner's Option 3 deviation makes false. |
+
+### 0.6.3 Open items — owner decisions (brief §5, "Escalation")
+
+**A11 — S2-L1-011 (high): `todo-api.md` against acceptance scenario 1.** *Closed 2026-10-02: option 1 plus an explicit dependencies statement (no brand), and the `updated_at` contradiction resolved — see the end of this paragraph and `stage2/dependencies-measurement/MEASUREMENT.md`.* The checked-in assessor runs report
+`dependencies` FAIL for the unchanged `todo-api.md` in **3 of 3** runs (false positives under the committed
+clean label; `dependencies` recall 0.00, precision 0.00), while scenario 1 requires it to pass unchanged with no
+loop. Both reviewers agree the three options cover the space: (1) refine the `dependencies` definition so the
+document passes; (2) amend the document, with explicit authorisation, and update scenario 1; (3) amend scenario
+1. Phase A cannot freeze its definition table until this is answered.
+
+**Finding from the measurement, resolved by the owner:** `todo-api.md` contained a genuine contradiction — the Data Model
+says `updated_at` is "updated on every write" (line 42), requirement 5 says it "changes only when a write actually
+modifies a field" (line 63). With the dependencies statement *and* the Data Model line changed to "updated whenever
+a write modifies a field" (aligning it with the more specific requirement), the sample passes all twelve checks in
+3 of 3 runs; without that second change it does not. The owner confirmed the intended meaning — `updated_at` is
+the time the row's fields were last actually changed — so both copies of the sample (`requirements/todo-api.md`
+and `tests/fixtures/requirements-quality/todo-api.md`) and the Getting Started embedding were amended together on
+2026-10-02, and scenario 1 reads "passes, as amended on 2026-10-02".
+
+**A8 — S2-L1-008 (high): placement staleness under a C1 shared edit.** *Claude's position:* the gap predates
+refinement — a hand edit after placement has the same effect today — and its fix changes the already-merged
+architecture-memory design, so it belongs to a separate change. *Codex's position (upheld at Level 2):* that
+does not make it benign here, because a hand edit is out-of-band whereas C1 is an **engine-authorised**
+cross-WorkItem edit that the engine itself audits; knowingly preserving the stale-derived-artifact path with a
+note and a characterisation test is a weakened guarantee. **Decision (owner, 2026-10-02): option (A) — "go with recommended".** Facts both sides accept: `architecture-placement.json`
+pins no requirements digest and no architecture precondition reads one. Options: **(A)** pin the bound
+requirements' digest in the placement record and refuse approval when it no longer matches — a small change to
+the merged design that also closes today's hand-edit case; **(B)** have the C1 transaction invalidate affected
+WorkItems' placements — rejected, it writes into other WorkItems' records (scenario 12); **(C)** accept the
+weakened guarantee explicitly. *Claude's recommendation:* **(A), as its own small change before refinement
+Phase A**, because it removes the disagreement at its source instead of documenting it.
+
+**A5 — S2-L1-006 and S2-L2-001 (high, upheld twice by Codex): what does brief §3.5's "the session lock is held
+from apply through re-assessment" bind?** *DECIDED by the owner, 2026-10-02: option (D), below — neither reading, and no
+lock.* The brief says, verbatim, in step 1 of the shared-document transaction: "Acquire the
+session lock of every affected WorkItem in sorted id order; refuse if any is held", and then, as a separate
+top-level bullet after the transaction: "The session lock is held from apply through re-assessment; a second
+invocation refuses."
+
+- *Claude's reading (A5 as written):* the second bullet is a separate bullet and says "the session lock" in the
+  singular, so it is the originating WorkItem's lock; the long interval is per-WorkItem state
+  (`AWAITING_REASSESSMENT`) and other sharers are protected optimistically, by the base SHA and
+  `governance_stale`. No abandonment authority is needed, because a vanished origin holds only itself.
+- *Codex's reading:* "the session lock" is the lock(s) acquired in step 1, so every affected WorkItem's lock
+  stays held until the origin's re-assessment completes, and "a second invocation refuses" applies to any
+  affected WorkItem. That requires durable ownership, a release rule, recovery, and an abandonment rule for a
+  vanished origin.
+- *Facts both sides accept:* the text is ambiguous. The existing session lock is advisory today (`lock acquire`
+  only warns) and counts as held only while touched within `LOCK_FRESH_SECONDS` = 600. Neither reading changes
+  integrity, because the base SHA already prevents a lost edit.
+- *Options:* **(A)** Claude's reading. **(B)** Codex's literal reading: hold every affected WorkItem's session
+  lock through re-assessment — it blocks unrelated work in those WorkItems for the interval, needs a *refusing*
+  hold where today's lock only warns, and leans on the 600 s freshness window or a new rule for abandonment.
+  **(C)** A narrower middle: a per-document "in flight" claim in the transaction index, with an expiry and an
+  explicit release by `refinement cancel`, so a second `refinement apply` on that document by any WorkItem
+  refuses while the origin is mid-loop, without blocking anything else in the affected WorkItems.
+- *Claude's recommendation at the time:* **(A)**.
+- **(D) — proposed by the owner and chosen.** The owner's own reasoning: C1 already checks, at the start, who else
+  uses the file and makes the person doing the refinement acknowledge them by name; the one gap is a loop that
+  *starts later*, while an earlier one is still mid-check, because nothing records that a loop is in progress.
+  So: **record it, show it at the start, and make the human acknowledge it** — no lock at all.
+  1. When `refinement apply` commits its edits, the repository transaction index (A6) carries an **in-flight
+     claim** for that document: `{transactionId, originatingWorkitem, documentPath, loop: "AWAITING_REASSESSMENT",
+     since}`.
+  2. Every refinement start-check — the same place C1's shared-source check runs — reads the index and, if
+     another WorkItem has an in-flight claim on a document it is about to edit, **refuses
+     `refinement_document_in_flight` (exit 1)**, naming the origin and how long the claim has been open.
+  3. The refusal is **overridable only by an explicit acknowledgement naming that WorkItem**, the same
+     mechanism as C1's shared-source acknowledgement. The override is **audited in both WorkItems** (audit entries
+     only — C1's cross-WorkItem exception, unchanged) and marks the claim `OVERRIDDEN` in the index.
+  4. The claim is released — `RELEASED` — when the origin's correlated re-assessment is recorded, or `CANCELLED`
+     by its `refinement cancel`. **There is no timer.** A loop whose origin vanished is cleared by the next
+     person's acknowledgement, which is the abandonment authority, and it is a human decision on the record.
+  5. Nothing is frozen. No WorkItem's session lock is held, no unrelated work is blocked, and the base-SHA check
+     still protects the file as the last safety net. The short mutex (A5) serialises the check-and-claim so two
+     people starting at the same instant cannot both pass.
+  This satisfies the brief's "a second invocation refuses" across WorkItems without choosing either reading of
+  "the session lock", and removes the abandonment problem Codex raised, because a human, not a clock, decides.
+
+### 0.6.4 New tests this section requires
+
+Refused flip leaves `governance.json` byte-identical · revert-to-C₁ flip is refused · corrupt governance
+evidence refuses `governance_history_invalid` · legacy current record with equal raw digest counts as known ·
+dispute with a missing file / wrong digest / a FAIL / an earlier PASS / a replayed decision · crash at each
+recovery branch of A4, including audit-appended-state-unsaved · concurrent `requirements bind` during apply ·
+`init` refused during `IN_PROGRESS`, `AWAITING_REASSESSMENT` and `PENDING` · `refinement_post_init` before any
+write · a second WorkItem's `apply` on a document with an in-flight claim is refused `refinement_document_in_flight` · the override needs an acknowledgement naming that WorkItem and is audited in both · an acknowledgement naming the wrong WorkItem is refused · the claim is `RELEASED` by the correlated re-assessment and `CANCELLED` by `cancel` · a claim whose origin vanished is cleared by an acknowledgement, with no timer · two starts at the same instant cannot both pass the check-and-claim · a malformed index refuses · hard-break normal-form fixtures · unresolved baseline citation · cap malformed / higher / mid-loop /
+lower · exclusive-open invariant still true · closed configuration-reference set unchanged.
+
+### 0.6.5 Retained text to discard
+
+The "Superseded" markers say *that* a section is overridden; this says *which retained clauses* an implementer
+must not follow. Anything not listed here and not contradicted by §0.6 stands.
+
+| Section | Discard |
+|---|---|
+| D1 | The question "is this precedent load-bearing for a multi-WorkItem transaction?" (answered: no, A4/A6). Any reading that puts a pointer in each affected WorkItem's own record. |
+| D2 | `open(paths.refinement_lock_file, "x")`, the per-affected-WorkItem lock files and their sorted acquisition, and "released on completion or abort" as the protection for the long interval (A5). |
+| D5 | "`propose` is the sole writer of `refinement.json`" and "`propose` re-assesses internally" (A18). |
+| D8 | "the engine performs no accuracy validation" of a cited id (A10: existence is validated, relevance is not). |
+| D9 | The per-check `disputeOutcome` field; the contract is the `disputeOutcomes[]` array (A3). |
+| D10 | Check definitions "from `GOVERNANCE_POLICY_BUILTIN`" (A9). |
+| D11 | Reading only the immediately superseded record, and writing `governance.json` before a refusal (A1, A2). |
+| §5.a | Absence of `transactions[]`, of the `AWAITING_REASSESSMENT` state, of the pinned cap and its source, and of the bound dispute fields (A3, A4, A5, A17). |
+| §5.b | `"floors": true` (A19). |
+| §6 | The refused-flip row's "`governance.json` only"; any row that writes `refinement.json` from a command other than through the single validated writer; any row implying `init` need not take the mutex (A1, A4, A16, A18). **The `refinement apply` row** ("IN_PROGRESS → IN_PROGRESS"): `apply` ends in `AWAITING_REASSESSMENT` and creates the in-flight claim (§0.6.6). **The `refinement cancel` row**: `cancel` also sets the claim `CANCELLED`. **The "Recovery" paragraph under the C1 record** (runs "before any other `refinement` command for the originating or an affected WorkItem"): recovery is index-based and claim-aware, and a `PENDING` entry is an active claim for everyone, not only for the named WorkItems (§0.6.6). |
+| §0.4 (3), (6), (7) | Already marked corrected or retracted in place. |
+
+### 0.6.6 Decision (D), completed as a state machine
+
+The second targeted verification found that (D) was the right idea but not yet a recoverable state machine:
+seven findings (`S2-L4-001`..`007`, with S2-L1-006 and S2-L2-001 revised). This section completes it. It adds
+no lock and no timer, and it overrides anything in §0.6.2–0.6.3 that conflicts with it.
+
+**1. Claim and transaction are two separate things (S2-L4-002).** The A6 index entry carries a transaction
+`status` (`PENDING` → `COMMITTED` or `ABORTED`, A4) and, separately, the claim's `loop` (`AWAITING_REASSESSMENT`
+→ exactly one of `RELEASED`, `OVERRIDDEN`, `CANCELLED`, each terminal and never changed again, so `OVERRIDDEN`
+stays as history). **The claim is active from the moment the index entry is written** — before the origin intent
+and before the document write (A4's order) — and stays active until it is released, overridden or cancelled. So
+there is no crash point at which a document has been rewritten and no claim exists. A `PENDING` entry is an
+**active claim for every WorkItem**, not only for the named ones: a start-check never ignores it, and a WorkItem
+that is named runs A4 recovery first. If the transaction is `ABORTED`, the claim becomes `CANCELLED` in the same
+index write.
+
+**2. Which commands check, and which never refuse (S2-L4-004).**
+
+| Command | Claim behaviour |
+|---|---|
+| `propose` | Checks **every path in its proposed edits** against active claims held by *other* WorkItems — this is where a second loop would start — and refuses `refinement_document_in_flight` unless acknowledged. |
+| `apply` | Rechecks the selected path **under the mutex** (a claim may have appeared since `propose`), then writes its own claim in the same atomic index write as the `PENDING` entry. |
+| `decide`, `dispute` | Not blocked: they edit no document. |
+| `cancel` | **Never blocked.** It sets this WorkItem's claim `CANCELLED` in the same step that closes its record. |
+| `show` | Displays claims; never refuses. |
+| `init` | Per A16: refused while this WorkItem's own loop is non-terminal. Other WorkItems' claims are irrelevant to it. |
+
+**3. One acknowledgement field with a defined shape (S2-L4-005).** `propose` and `apply` take
+`acknowledgement: {workitems: [<id>, ...]}`. The required set is the **union** of the C1 sharers of the document
+and the origins of any active claim on it. Missing, extra, duplicate and wrongly cased ids are refused
+`refinement_acknowledgement_invalid` (new, exit 1), naming which. The audit records the exact consumed set and, for
+each id, its purpose (`shared-source` or `in-flight`). This replaces A18's untyped `acknowledgement?`.
+
+**4. Exactly one command releases a claim (S2-L4-006).** Only **`refinement propose`** does, when it records an
+`assessmentRef`: under the mutex it validates that the assessment is correlated (its governance evidence postdates
+the claim's `apply` and its `contentDigest` equals the document's *current* digest), writes the origin's record,
+then the index entry (`RELEASED`). `governance assess` never touches claims. A crash between those two writes
+leaves the record advanced and the claim still `AWAITING_REASSESSMENT`; recovery completes the release, idempotent
+by `transactionId`. Tests: release against override, release against `apply`.
+
+**5. The override, completely (S2-L4-001, S2-L4-003).** Acknowledging an in-flight origin, under the mutex:
+
+1. mark the claim `OVERRIDDEN` (terminal; records the overriding WorkItem and the time);
+2. append an audit entry in the **overriding** WorkItem (always writable by definition) and in the **origin if it
+   can be validated**. If the origin is deleted, unbound, reset or has an unreadable or corrupt audit chain, **no
+   append is attempted**, the override is recorded instead in a repository-owned `abandonment` section of the index
+   entry, and the overrider's audit names the reason (`origin_missing | origin_reset | origin_unreadable`). The
+   engine never recreates or edits another WorkItem's record. This is what lets a human clear *every* orphan,
+   including one whose WorkItem no longer exists;
+3. **the origin's own loop afterwards.** The origin reads its claim as `OVERRIDDEN` the next time it runs any
+   command, and moves its **own** loop — written by its own command, never by the overrider — to `STALE_BASE`
+   (non-terminal). Its earlier edits are invalid because their base SHA no longer matches, it must `propose` again
+   against the current document, and it may `cancel`. `init` stays refused for it (A16 counts `STALE_BASE` as
+   non-terminal).
+
+**6. The architecture recheck (S2-L1-008, S2-L4-007).** The recheck inside `architecture_apply` narrows the window
+but cannot close it alone; closing it needs `architecture apply` to take the A5 mutex around its requirements
+recheck and catalog write, which is a Phase A item because the mutex does not exist yet. That is stated, not hidden.
+The regression test is strengthened separately so it pins that the recheck runs **under the catalog lock**, not
+merely somewhere in `architecture_apply` (PR #6).
+
+**New tests this section requires:** a second WorkItem's `propose` and `apply` refused on a claimed path;
+`decide`/`dispute`/`cancel`/`show` not refused; override needs the exact union of names and is refused on a
+missing, extra, duplicate or miscased one; override with a deleted, reset and unreadable origin; the origin
+reaching `STALE_BASE` and recovering through a fresh `propose`; the claim active at every crash point of A4; release
+by `propose` only, and a crash between its two writes; release against override and against `apply`.
+
 ## 1. §1 re-verification, corrected
 
 All facts F1–F14 hold as originally stated **except**:
@@ -222,6 +578,8 @@ regardless.
 
 ### D1 — pre-init audit for the shared-document transaction (C1)
 
+> **Superseded in part by §0.6 A4, A5, A6 — the transaction record has a durable home, and participants are discovered through one repository index, not per-WorkItem pointers. Stage 2 answered D1's own question: the F15 precedent is *not* sufficient for a multi-WorkItem transaction.**
+
 Precedent now exists and is followed exactly, not re-derived: `record_scan_acknowledgement_audit`
 (F15) validates unconditionally (even `state=None`) and replays only once state exists, de-duplicated
 structurally (`_already_recorded`, matching on the entry's own `event`/`Artifact` fields, never a
@@ -242,6 +600,8 @@ case need its own recovery state machine regardless? Codex is asked to decide th
 from this plan's framing.
 
 ### D2 — the refusing lock (shared-document transaction serialization)
+
+> **Superseded in part by §0.6 A5 — one repository-scoped short mutex using `os.open(O_EXCL)`; the long apply→re-assessment interval is per-WorkItem state, not a lock.**
 
 A new primitive: exclusive `open(paths.refinement_lock_file, "x")` per affected WorkItem, acquired in
 sorted WorkItem-id order, released on completion or abort. Unlike `lock acquire` (which only warns), this
@@ -268,6 +628,8 @@ explicitly to this primitive) — cited, not re-litigated.
 - A new test proves `lint-skill`'s `sdle-*.md` glob picks up the fifth agent — do not assume it.
 
 ### D5 — command surface
+
+> **Superseded in part by §0.6 A16, A18 — post-init refusal, `init` participation, `governance assess` as the sole assessment door, and the input envelopes.**
 
 `refinement propose | decide | apply | dispute | cancel | show`. `cancel` is added here, not in the
 brief's own list — §6's "human cancels → CANCELLED" row has no covering command without it, and folding
@@ -304,6 +666,8 @@ carry-forward mechanism built.
 
 ### D8 — brownfield baseline citation (new, found while building the §8 traceability table)
 
+> **Superseded in part by §0.6 A10 — citations are structured and resolved against the baseline and its pinned discovery record.**
+
 Acceptance scenario 14 requires that, for `ITERATIVE` bound to a repository `.sdle/baseline.json`, a
 `compatibility` or `dependencies` finding cites the relevant baseline entry when one overlaps. No design
 element above addressed this — found only by walking every Stage 5 scenario against this plan, not by
@@ -317,6 +681,8 @@ here to a citation rather than a whole answer.
 
 ### D9 — dispute outcome vocabulary (new, found while building the §8 traceability table)
 
+> **Superseded in part by §0.6 A3 — one `disputeOutcomes[]` contract with bound, single-use evidence and decision.**
+
 Acceptance scenario 26 requires a check overturned by dispute be reported as `overturned_by_dispute`,
 distinct from `improvement` or `progress`, with the original result preserved in evidence. §5.a's
 iteration record has no field for this. Position: add a per-check `disputeOutcome` field
@@ -329,6 +695,8 @@ boundary D3 draws for provenance, now drawn for an overturned result.
 
 ### D10 — the `sdle-requirements-review` agent must not restate the check-id vocabulary (new, found
 by empirically testing the draft prompt against the restatement guard)
+
+> **Superseded in part by §0.6 A9 — definitions come from a new engine-owned table, not from `GOVERNANCE_POLICY_BUILTIN`, which holds only ids.**
 
 `assessor-prompt-draft.md` (Stage 1's measurement prompt, never intended as the real agent file) spells
 out all twelve check ids as literal text. Copied verbatim to `.claude/agents/sdle-requirements-review.md`
@@ -357,6 +725,8 @@ row 21's D3/F8 annotation.
 
 ### D11 — where `quality_verdict_flip` reads the prior verdict and content digest from (new, found by
 tracing scenario 25 through the engine rather than assuming §6's rows cover it)
+
+> **Superseded in part by §0.6 A1, A2 — the refusal fires before any write, and history is the evidence set plus the current record, not only the adjacent record.**
 
 §6's rows write `refinement.json` only from `refinement propose` onward (D5's single-writer fix, above).
 But §3.a's one identified test
@@ -391,6 +761,8 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ### 5.a `refinement.json` (WorkItem-owned, `workitems/<id>/.sdle/refinement.json`)
 
+> **Superseded in part by §0.6 A3, A4, A5, A17, A18 — adds `transactions[]`, the bound dispute fields, the pinned cap and its source, and the `AWAITING_REASSESSMENT` state.**
+
 ```json
 {
   "refinementVersion": "1",
@@ -418,6 +790,8 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ### 5.b Lint evidence (`evidence/refinement-lint-<execution_id>.json`)
 
+> **Superseded in part by §0.6 A19 — `"floors": true` is replaced by `floorEligible` / `floorEnforced` (always `false`).**
+
 ```json
 {"kind": "refinement-lint", "executionId": "...", "documentSha256": "...",
  "findings": [{"ruleId": "...", "mappedCheck": "...", "floors": true, "line": N, "text": "..."}]}
@@ -425,10 +799,12 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 
 ### 5.c Refusal reason codes (new)
 
+> **Incomplete; extended by §0.6.** New reasons: `governance_history_invalid` (A2, exit 3), `refinement_dispute_replayed` (A3), `refinement_transaction_locked` (A5), `refinement_index_invalid` (A6, exit 3), `refinement_citation_unresolved` (A10), `refinement_post_init` and `refinement_in_progress` (A16), `refinement_document_in_flight` (decision D, exit 1, overridable only by an acknowledgement naming the origin). `quality_verdict_below_floor` stays defined and never fires (A19). Each needs a deterministic trigger, a test and a troubleshooting entry.
+
 | Reason | Raised by | Exit |
 |---|---|---|
 | `quality_verdict_flip` | `governance assess` | 1 |
-| `quality_verdict_below_floor` | *(defined, never raised in this change — Option 3, §3.b)* | 1 |
+| ~~`quality_verdict_below_floor`~~ | *Not defined (amended 2026-10-03, Codex: ACCEPT).* The engine has no reason registry and an unreachable constant or troubleshooting row would be dead code that advertises an impossible refusal. Advisory-only is pinned instead by the negative AST test (no assessment-path function references the lint) and the evidence validator (`floorEnforced` must be false). | — |
 | `refinement_shared_source` | `refinement propose`/`apply` | 1 |
 | `refinement_dispute_incomplete` | `refinement dispute` | 1 |
 | `refinement_cap_exhausted` | `refinement propose` | 1 |
@@ -436,6 +812,8 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 | `refinement_record_invalid` | any `refinement` command | 3 |
 
 ## 6. State-transition table
+
+> **Superseded in part by §0.6 A1 (the refused-flip row must not write `governance.json`), A3 (the dispute row), A4 (the crash rows), A5 (the `AWAITING_REASSESSMENT` state), A16 (`init`), A18 (the rows that call `propose` the sole writer or say it re-assesses internally). See §0.6.5.**
 
 | From | Event | To | Writes | Notes |
 |---|---|---|---|---|
@@ -454,6 +832,7 @@ dedicated small file `governance_freshness` and `quality_verdict_flip` would bot
 | IN_PROGRESS | `refinement propose` refuses `governance_content_unacknowledged` (Stage 0's own DEF-RR-001 check, unrelated to this brief's §3.2) | IN_PROGRESS, question pause | nothing new | **Not progress, not a stall**: no assessment was produced at all, so it cannot count toward Fₖ. Surfaced as a question ("this bound source is flagged, unacknowledged, unrelated to the edits just applied — acknowledge or edit it") rather than silently retried or counted against the stall/cap counters |
 | any | crash/interruption | resume | (none until next write) | Recovery reads `refinement.json`, finds the last-committed iteration, and either resumes (nothing pending) or replays a C1 intent (below) |
 | IN_PROGRESS | `refinement cancel` (D5) | CANCELLED | `refinement.json` closed, written by `cancel` | |
+| IN_PROGRESS | `refinement dispute`, with both an evidence citation and a recorded human decision | IN_PROGRESS (unchanged) | an entry appended to the current iteration's `disputeOutcomes[]` (§5.a), written by `dispute` | §3.4 / acceptance scenario 26. The assessor's original result stays in the iteration record and in evidence; nothing is mutated, only annotated alongside. Reported as `overturned_by_dispute`, **not** as improvement or progress, so it does not by itself empty Fₖ or open a new iteration. Refuses `refinement_dispute_incomplete` (§5.c, exit 1, nothing written) if either the evidence citation or the recorded decision is missing. **Flagged for Stage 2 (D9):** this must not become a second verdict channel that bypasses `evaluate_quality`'s own validation. **Naming mismatch for Stage 2 to settle:** D9's prose says a per-check `disputeOutcome` field, while §5.a and traceability row 26 show a `disputeOutcomes[]` array; this row follows §5.a, the contract that is actually written out. |
 | IN_PROGRESS | unrecoverable engine error | FAILED | `refinement.json` closed, error recorded, written by whichever command hit the error | Terminal; the WorkItem's `governance assess` remains usable independently — this record's terminal state does not itself block re-running `governance assess` by hand |
 | (none) | `governance assess`, hand re-run, no `refinement.json` ever created, FAIL→PASS at the same content digest | (unaffected) | `governance.json` only, refused | §3.a's identified test; D11 below — `quality_verdict_flip` reads the prior verdict and digest from `governance.json` itself, never from `refinement.json`, which need not exist for this refusal to fire |
 
@@ -491,6 +870,57 @@ SHA → `refinement_record_invalid` (exit 3), naming the transaction, changing n
 | C — edit/loop control | `sdle.py` (+~600: `cmd_refinement_*`, edit ops, D2's lock), `tests/test_units_refinement.py` (new) | Large |
 | D — orchestration | `modules/requirements-refinement.md`, `CAPABILITY_MAP` row, `SKILL.md` governance section, `/sdle-start` if needed, `CLAUDE.md` | Small |
 | E — tests/docs/ADR | `docs/GETTING-STARTED.md` §11/§13, `docs/architecture/ADR-013-*.md`, scenario tests | Medium |
+| **F — requirements changing mid-flight (last)** | scenario catalogue and options in `docs/`; a feasibility verdict on engine-surfaced guidance; engine or module changes **only if the owner approves them** | Research-led; small to medium (§7.1) |
+
+### 7.1 Phase F — requirements changing while WorkItems are in progress (added 2026-10-02 at the owner's request)
+
+**Why it exists.** Refinement works *before* `init` (C4). After `init`, a changed bound document behaves as it does
+today: the WorkItem goes `governance_stale` at its next progression and must re-assess, and nothing already produced
+from the old text is invalidated. What a person should *do* then — carry on, restart from an earlier phase, finish
+and raise a new WorkItem, or discard — is not written down anywhere the engine can show it. A first version of that
+guidance is in `docs/GETTING-STARTED.md` §11c. This phase makes it rigorous, and answers whether the engine can put it
+in front of the human at the moment the situation occurs.
+
+**Why last.** It needs the implemented loop and real Stage 5 evidence, and it must not delay the loop.
+
+**Deliverables.**
+
+1. **A scenario catalogue**, in simple words. At least: a shared document edited by another WorkItem (same checkout,
+   and after a pull) at each stage of a WorkItem — before the specification is approved, between approved gates,
+   during implementation, after completion; a hand edit; an edit by this change's own refinement loop; an additive
+   change against one that contradicts; two WorkItems affected differently; a WorkItem with an architecture placement
+   already approved; a WorkItem that has not run `init`.
+2. **For each scenario, the options** (carry on after re-assessing; `restart phase N` and which `N`; finish and raise a
+   new WorkItem; `reset` and replace), **the impact of each** in plain terms (what is kept, what is regenerated, which
+   approvals are cleared, what the audit trail still shows, what an architecture decision does), and **a recommended
+   option with the condition under which another is better**. Every claim about impact is reproduced in a disposable
+   project, as the audit-merge hazard was, not argued.
+3. **A brainstorm with Codex** under the same two-level protocol as the rest of Stage 2: Codex proposes scenarios and
+   options independently, Claude responds with evidence from the code, Codex dispositions the responses; any
+   disagreement that survives goes to the owner with both positions.
+4. **A feasibility verdict: can the engine give this guidance to the human when the situation occurs?** To be answered,
+   not assumed. The questions:
+   - *What can be computed deterministically?* Which bound documents changed, from which digest to which; which phases
+     were generated since the last assessment; which gates were approved after it. Today the engine records an
+     assessment digest but **not the requirements digest at the time each artifact was generated** (the architecture
+     placement record is now the one exception), so "which artifacts were derived from the old text" cannot be
+     answered without recording it — a state-schema change under the
+     no-migration rule (a version bump and a changed field list), a real cost to weigh.
+   - *Where could it appear?* (a) the `governance_stale` refusal itself naming the changed documents and pointing at
+     the guidance; (b) a new **read-only** command that reports the facts and the options for a WorkItem; (c) the
+     orchestrator prompt presenting the option table whenever that refusal occurs.
+   - *What must not change?* The engine refuses and does not warn; it **must not decide**. The recommendation is
+     judgement, so it lives in a prompt module, not in `sdle.py`; the engine supplies facts only. Gates stay in the
+     parent session (invariant 8), and a human, not the orchestrator, chooses.
+   - *Cost against value,* given how rarely a shared document changes under a WorkItem that is already running.
+5. **Outputs:** the user-facing guidance in `docs/` (extending §11c with what the scenarios show), the Codex record
+   under `stage2/`-style evidence, and the **verdict with a recommendation**. Building engine support is **out of
+   scope unless the owner approves it** after seeing the verdict; if approved it is its own change, with its own ADR
+   note.
+
+**Acceptance.** The catalogue exists and every impact claim has a reproduction; both Codex levels ran and every finding
+has a disposition; the feasibility question is answered with evidence; the owner has decided whether to build any of
+it.
 
 ## 8. Traceability, risks, rollback
 
@@ -502,7 +932,7 @@ not a function — exact names don't exist until phase C/E write the code.
 
 | # | Scenario (short) | Design coverage | Stage 3E test area |
 |---|---|---|---|
-| 1 | Clean pass, loop not entered | §6 row 1 (F₀=∅ → no loop). **Open question, §3.c:** this scenario's own worked example, `todo-api.md`, was measured 3/3 FAIL on `dependencies` in Stage 1 — not yet resolved whether the document or the check reading is at fault; flagged for Stage 2, not assumed passing here | `test_units_governance.py`, existing PASS-path, extended to assert no `refinement.json` is written — write the test against a document verified to pass all 12 checks, which may or may not end up being `todo-api.md` depending on the Stage 2 answer |
+| 1 | Clean pass, loop not entered | §6 row 1 (F₀=∅ → no loop). **Resolved 2026-10-02 (A11):** the worked example, `todo-api.md`, is amended with the owner's authorisation — an explicit Dependencies section and the `updated_at` contradiction resolved — and the scenario reads "passes, **as amended on 2026-10-02**". Measured 3/3 passing all twelve checks under the new `dependencies` definition (`stage2/dependencies-measurement/`, exploratory). It must be re-measured against the final definition table in Phase A before the test is written, not assumed from this run | `test_units_governance.py`, existing PASS-path, extended to assert no `refinement.json` is written — against a runtime-generated document, per the suite's rule that fixtures are never read from the checkout; the amended `todo-api.md` is exercised by the corpus measurement, not by this unit test |
 | 2 | One check fixed in one iteration | §6 rows 2–6 (entry → propose → decide → apply → PASSED) | `test_units_refinement.py` — single-iteration convergence |
 | 3 | Multi-iteration, findings trace to ids/decisions | §5.a `iterations[].findings`/`edits[].decision` | `test_units_refinement.py` — multi-iteration record integrity |
 | 4 | Question pauses, resumes without re-asking | §5.a `questions[].answer`; §3.4 human-burden cap (≤5/iteration) | `test_units_refinement.py` — question pause/resume |
@@ -512,8 +942,8 @@ not a function — exact names don't exist until phase C/E write the code.
 | 8 | Cap exhaustion → ESCALATED; per O1's restatement, `advance` (not `init`) stays refused `governance_blocked` while quality is blocked | §6 row "cap (3) reached"; `iterationCap` (§5.a); existing `governance_blocked` (unaffected, §1 F5) | `test_units_refinement.py` — exhaustion + `advance` refusal |
 | 9 | `nfrs: NOT_APPLICABLE`/tighten-only unchanged | D3 (no new governance-input key); `evaluate_quality` untouched (§2) | `test_units_governance.py` — explicit regression assertion, no new exception path |
 | 10 | Interruption resumes, no duplicate edit/decision | §6 "any → crash/interruption → resume"; D1's deferred-replay pattern (F15 precedent) | `test_units_refinement.py` — interruption/resume, mirroring existing scan-acknowledgement interruption tests |
-| 11 | Concurrent invocation refused by session lock | D2 — new refusing lock (exclusive `open(..., "x")`) | `test_units_refinement.py` — concurrent-lock refusal |
-| 12 | WorkItem A cannot write WorkItem B's refinement state | D6 (`safe_repo_path`); F15's WorkItem-scoped read pattern; D2's per-WorkItem lock | `test_units_refinement.py` — cross-WorkItem isolation, mirroring V3-03's acknowledgement-ownership test |
+| 11 | Concurrent invocation refused by session lock | ~~D2 — new refusing lock (exclusive `open(..., "x")`)~~ **§0.6 A5** — per-WorkItem `AWAITING_REASSESSMENT` plus the repository mutex | `test_units_refinement.py` — concurrent-lock refusal |
+| 12 | WorkItem A cannot write WorkItem B's refinement state | D6 (`safe_repo_path`); F15's WorkItem-scoped read pattern; ~~D2's per-WorkItem lock~~ **§0.6 A5/A6** (repository mutex and transaction index; C1's cross-WorkItem write stays limited to audit entries) | `test_units_refinement.py` — cross-WorkItem isolation, mirroring V3-03's acknowledgement-ownership test |
 | 13 | Legacy (post-`init`) WorkItem unaffected | C4 (refinement runs pre-`init` only); `governance_precondition` untouched (§2) | `test_units_governance.py` — legacy/post-`init` regression |
 | 14 | Brownfield baseline citation | **D8 (new, this pass)** — prompt-level citation, no engine validation, flagged for Stage 2 | `test_units_refinement.py` — brownfield finding cites a baseline entry id |
 | 15 | Edit after assessment triggers existing `governance_stale` | §1 F10 revised — existing `governance_freshness` mechanism, unaffected | Existing `governance_stale` tests, extended to cover a refinement-loop edit as the trigger |
@@ -521,7 +951,7 @@ not a function — exact names don't exist until phase C/E write the code.
 | 17 | Shared document refused without acknowledgement | D1/D2 (C1 transaction); §5.c `refinement_shared_source` | `test_units_refinement.py` — shared-source refusal |
 | 18 | Acknowledged shared edit dual-audited, staleness reported | D1 (affected-WorkItem audit append/deferred-replay); C1 record (§6) | `test_units_refinement.py` — shared-edit dual-audit + staleness |
 | 19 | FAIL→PASS at same digest refused | §3.a (the one identified test to edit, D4); §5.c `quality_verdict_flip` | `test_units_governance.py::test_re_assessing_a_fixed_requirement_unblocks_the_same_advance` (edited per D4) + new flip-refusal test |
-| 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. Test instead proves the reason code exists and stays inert | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
+| 20 | Lint failure blocks a PASS | **Does not apply as stated, per Option 3 (owner decision, §3.b):** the lint never refuses a PASS in this shipment. *Amended 2026-10-03:* the test proves the **negative** instead — no assessment-path function references the lint, and `floorEnforced` is validated false — not a defined-but-inert reason | `test_units_refinement_lint.py` — `quality_verdict_below_floor` defined, never raised |
 | 21 | Assessor's input has no prior verdicts/findings/proposals | D3; matches the dispatch discipline already validated in Stage 1's corpus measurement. Per **D10**, the committed prompt file carries no check-id vocabulary at all — the parent builds the actual dispatch payload at runtime, so "no prior state" must be verified against that payload, not the static file. **Convention only (F8), same class of gap as D8/D9:** nothing in this plan records the assessor's actual dispatch payload for later inspection. Flagged for Stage 2 rather than resolved here | New test on the parent's dispatch-payload construction (not `sdle-requirements-review.md`'s static template, which per D10 has nothing check-id-shaped to inspect) — no prior-state fields present in what's actually sent |
 | 22 | Whitespace-only auto-applies; one-word change does not | §6 presentation-neutral normal form algorithm (§3.2/§3.5); D7 | `test_units_refinement.py` — normal-form digest auto-apply boundary |
 | 23 | Corpus before/after metrics, zero findings on clean fixture | §3.c (Stage 1's "before"); Stage 5 reruns as "after" | Stage 5 `REPORT.md` corpus-metrics section, reusing `runs/recompute_metrics.py` |
@@ -548,3 +978,15 @@ Confirmed already, repeatedly, within this session rather than re-demonstrated: 
 add`/`git worktree remove` cycles (Stage 0's review rounds) and multiple Agent-tool dispatches (the three
 Stage 1 Explore agents) both worked cleanly throughout. No fresh drill needed; citing existing evidence
 per the brief's own "don't redo what's already done" principle.
+
+
+## Amendments of 2026-10-03 (Phase C start)
+
+- **"Shared" (C1), decided with Codex:** another WorkItem's binding of the document counts unless that WorkItem's
+  current, supported, structurally consistent `state.json` proves completion (`current_phase == "complete"` and
+  `status == "completed"`). Pre-init (binding, no state), reset (state deleted, binding kept), `failed`,
+  `rejected` and every active status all count. A present but corrupt/unreadable/unsupported/inconsistent binding
+  or state of another registered WorkItem fails closed (integrity error naming it); a missing binding is harmless.
+  Consequence: normal ITERATIVE reuse after completion is allowed; an active or unknown sharer must be completed
+  or re-bound first.
+- **`quality_verdict_below_floor`** is not defined; see the amended §5.c row and acceptance row 20.

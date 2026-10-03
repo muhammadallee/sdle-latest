@@ -1466,6 +1466,9 @@ def test_workitem_rebinding_happens_only_at_the_declared_sites():
         "candidate_evidence",
         "collect_validation_findings",
         "_validate_runtime_state",
+        # Reads ANOTHER WorkItem's binding and state, read-only, to say who
+        # shares a requirements document. It binds nothing and writes nothing.
+        "refinement_sharer_report",
     }
 
 
@@ -1483,7 +1486,7 @@ def test_the_active_context_is_written_only_by_the_declared_setters(
                     and getattr(node.func, "id", None) in {
                         "write_active_context", "clear_active_context"}):
                 writers.add(fn.name)
-    assert writers == {"cmd_init", "cmd_workitem_use"}
+    assert writers == {"_cmd_init_locked", "cmd_workitem_use"}
     assert sdle.ACTIVE_CONTEXT_SETTERS == ("init", "use")
 
     # T11 D9 / X5: the value is unchanged, but the constant is no longer

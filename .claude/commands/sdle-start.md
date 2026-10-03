@@ -94,7 +94,11 @@ argument-hint: "[--verbose]"
    `advance`, not before `init`. On exit 1 `governance_content_unacknowledged`,
    a bound document changed since it was scanned (or was never scanned at
    all) and is still flagged — same two remedies as the scan step, then
-   re-assess. On any other exit 1, print `message` and stop.
+   re-assess. On exit 1 `requirements_quality_blocked`, print `message`,
+   then offer — in plain words, once — to help fix the requirements: if the
+   user accepts, load `modules/requirements-refinement.md` and follow it; if
+   not, they edit the documents and re-assess. Do not start it unasked. On
+   any other exit 1, print `message` and stop.
 5. Then run
    `sdle.sh --workitem <id> --session <8-hex token for this conversation> init`,
    naming the id step 3 returned. The WorkItem is the durable identity *and*

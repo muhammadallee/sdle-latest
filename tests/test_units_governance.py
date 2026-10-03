@@ -245,6 +245,7 @@ MALFORMED_CASES = {
     "json_string": '"policy"\n',
     "unknown_key": json.dumps({"blocking_chekcs": []}),
     "quality_checks_not_overridable": json.dumps({"quality_checks": []}),
+    "check_definitions_not_overridable": json.dumps({"check_definitions": {}}),
     "bad_version": json.dumps({"policyVersion": "9"}),
     "blocking_checks_wrong_type": json.dumps({"blocking_checks": "all"}),
     "blocking_checks_unknown_id": json.dumps(
@@ -519,6 +520,83 @@ def test_no_policy_default_value_is_restated_outside_sdle_py():
         if hits:
             offenders[path.relative_to(REPO_ROOT).as_posix()] = hits
     assert offenders == {}, f"policy defaults restated outside sdle.py: {offenders}"
+
+
+# --------------------------------------------------------------------------
+# The check definitions: one engine-owned table, read by everything else
+# --------------------------------------------------------------------------
+
+# The digest of each definition's text, one line, whitespace collapsed. These
+# are the words the corpus was measured against; changing one is allowed, but
+# only on purpose and after re-measuring, which is what editing this table is.
+DEFINITION_DIGESTS = {
+    "problem_statement": "bdd5ec404512c60206e32bfcdec81ef0716659267610e117d43f0b3924faf3de",
+    "scope": "9d1352e5ad1f9465577efca6aa63e4e25165d2017da549e26358335df78e362b",
+    "out_of_scope": "3334d99a1dc39aae590d1e2ec0b271059cab665df4792b68de243c1db3949056",
+    "acceptance_criteria": "9cc850ec23e257f52f242874072012493a78d8ec356760171edf8d0619cea5df",
+    "ambiguity": "57559d865a8786b4eeeb6da1a92c24cb07c2867f08d1a985379d6f502c58f68e",
+    "contradictions": "6f222f6e1fa2580bfdeb0f8036a00b172862b5b24fc4b67fc6909db088a10fc1",
+    "constraints": "3fe4742f100306925b3eea0878f6e1d3af1e9276edb2af9480d6e26744050532",
+    "nfrs": "cf8993e8a94ea33d16ea35164c5ad01a29c6720e71d3665deedb38c3a0bd3e10",
+    "security_data_implications": "768b4fd18296a91ec338f6e155394a17bdfafc0e5b4587568c924a08ada1c955",
+    "compatibility": "24a8b223e99897d6f6174352c198d780d9b29560a9c31d9e3f63a7faf59795d6",
+    "dependencies": "70ed8464ceed855428a22282eb51989391148907a4cfe888b8c1849bb225ac95",
+    "blocking_unknowns": "28824a9e8a4b4616162235ba0b7898ec53933f8ea87340a764cc481002ea052c",
+}
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_the_definitions_cover_exactly_the_quality_checks_in_order():
+    assert list(sdle.QUALITY_CHECK_DEFINITIONS) == (
+        sdle.GOVERNANCE_POLICY_BUILTIN["quality_checks"])
+    for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items():
+        assert isinstance(text, str) and text.strip(), check
+
+
+def test_each_definition_is_the_measured_wording():
+    import hashlib
+    actual = {check: hashlib.sha256(
+        _one_line(text).encode("utf-8")).hexdigest()
+        for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items()}
+    assert actual == DEFINITION_DIGESTS, (
+        "a check definition changed: re-measure the corpus against the new "
+        "wording, then update DEFINITION_DIGESTS on purpose")
+
+
+def test_the_definitions_are_not_part_of_the_policy_or_what_is_pinned(project):
+    assert "check_definitions" not in sdle.GOVERNANCE_POLICY_BUILTIN
+    project.record_governance()
+    record_text = (project.runtime / "governance.json").read_text(
+        encoding="utf-8")
+    assert "someone unfamiliar with the project" not in record_text, (
+        "definition text reached a WorkItem's governance record")
+
+
+def test_governance_policy_reports_the_definitions_beside_the_policy(
+        bare_project):
+    result = bare_project.ok("governance", "policy")
+    assert result.data["check_definitions"] == sdle.QUALITY_CHECK_DEFINITIONS
+    assert "check_definitions" not in result.data["policy"]
+
+
+def test_no_check_definition_is_restated_outside_sdle_py():
+    """One source of truth: the wording lives in the engine's table and is
+    read from it, never copied into a prompt, a guide or a document."""
+    needles = {check: _one_line(text)
+               for check, text in sdle.QUALITY_CHECK_DEFINITIONS.items()}
+    offenders: dict[str, list[str]] = {}
+    for path in searchable_files():
+        try:
+            body = _one_line(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        hits = sorted(c for c, needle in needles.items() if needle in body)
+        if hits:
+            offenders[path.relative_to(REPO_ROOT).as_posix()] = hits
+    assert offenders == {}, f"check definitions restated outside sdle.py: {offenders}"
 
 
 def test_the_builtin_policy_is_not_written_to_disk_by_any_command(bare_project):
@@ -923,6 +1001,13 @@ def test_re_assessing_a_fixed_requirement_unblocks_the_same_advance(project):
     assert project.run("advance", "--to", "gate_constitution").reason \
         == "governance_blocked"
 
+    # The requirement is actually fixed: an unchanged document cannot turn a
+    # recorded FAIL into a PASS (`quality_verdict_flip`).
+    requirement = project.root / "requirements" / "todo-api.md"
+    requirement.write_text(
+        requirement.read_text(encoding="utf-8")
+        + "\n## Acceptance\n\n- AC-1: Creating a todo returns status 201.\n",
+        encoding="utf-8", newline="\n")
     assert assess(project).exit_code == EXIT_OK
 
     project.ok("advance", "--to", "gate_constitution")
@@ -1519,7 +1604,9 @@ def test_only_evaluate_risk_produces_a_final_level():
     # `finalLevel` — so it cannot appear in `producers`, and the producer
     # assertion above is what carries the guarantee. Asserted, not argued:
     # the producer set is re-checked immediately below against the new reader.
-    assert readers - producers == {"cmd_governance_assess",
+    # `cmd_governance_assess` became a thin wrapper that takes the assessment
+    # mutex; its body, which is the reader, is `_cmd_governance_assess_locked`.
+    assert readers - producers == {"_cmd_governance_assess_locked",
                                    "cmd_governance_gates",
                                    "gate_requirements_for_state",
                                    "record_governance_audit",
@@ -2766,6 +2853,151 @@ def test_v2_01_a_windows_alias_path_is_rejected_not_silently_miskeyed(project):
     result = project.run("scan", "--path", "requirements/todo-api.md.")
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "path_invalid", result
+
+
+# --------------------------------------------------------------------------
+# Phase A0 — inherited Stage 0 defects fixed ahead of the refinement work
+# --------------------------------------------------------------------------
+
+
+def test_a0_a_dot_component_names_the_same_file_under_the_same_key(project):
+    """RR-002. The alias loop treated the component "." as one ending in a dot,
+    so `./requirements/x.md` and `requirements/./x.md` were refused as a
+    Windows alias although each is plainly the same file as `requirements/x.md`.
+    They are canonicalised to the same key, which is what `cmd_scan`'s own
+    comment already promised."""
+    plain = project.run("scan", "--path", "requirements/todo-api.md")
+    assert plain.exit_code == EXIT_OK, plain
+
+    for spelling in ("./requirements/todo-api.md",
+                     "requirements/./todo-api.md"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_OK, (spelling, result)
+        assert result.data["path"] == plain.data["path"] == (
+            "requirements/todo-api.md"), (spelling, result)
+
+
+def test_a0_a_parent_component_is_reported_as_one_not_as_a_windows_alias(
+        project):
+    """RR-002. `..` also hit the alias rule first, so a path that climbs out of
+    the repository was reported as a cross-platform spelling problem and the
+    traversal branch was unreachable for it. Any `..` component is still
+    refused - lexically collapsing it through a symlinked directory could name
+    a different file than the filesystem does - but the message now says what
+    is wrong."""
+    for spelling in ("../outside.md", "./../outside.md",
+                     "a/../requirements/todo-api.md"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_REFUSED, (spelling, result)
+        assert result.reason == "path_invalid", (spelling, result)
+        message = result.envelope.get("message", "")
+        assert "'..'" in message, (spelling, message)
+        assert "different platforms" not in message, (spelling, message)
+
+
+def test_a0_requirements_bind_canonicalises_a_dot_component_too(project):
+    """The second surface that reaches `_lexically_safe_path`. A binding that
+    stored `./x` beside `x` would make one document look like two, and the
+    set's digest would differ for the same files."""
+    result = project.run("requirements", "bind",
+                         "--source", "./requirements/todo-api.md")
+    assert result.exit_code == EXIT_OK, result
+
+    shown = project.ok("requirements", "show").data
+    assert shown["sources"] == ["requirements/todo-api.md"], shown
+
+
+def test_a0_a_trailing_dot_is_still_a_windows_alias(project):
+    """The fix must not loosen the rule it sits beside: a trailing dot or a
+    colon stream still resolves to the ordinary file on Windows under a
+    different stored key, and stays refused as an alias."""
+    for spelling in ("requirements/todo-api.md.", "requirements/todo-api.md:s"):
+        result = project.run("scan", "--path", spelling)
+        assert result.exit_code == EXIT_REFUSED, (spelling, result)
+        assert "different platforms" in result.envelope.get("message", ""), (
+            spelling, result)
+
+
+@pytest.mark.parametrize("damage", [
+    "{not json",
+    json.dumps({"workflow_version": "0.1"}),
+], ids=["malformed", "unsupported-version"])
+def test_a0_accept_content_validates_state_before_it_writes_the_store(
+        project, damage):
+    """RR-008. The post-init `--path` route wrote the durable acknowledgement
+    and only then read `state.json`, so a state that could not be read
+    refused *after* the security decision store had already changed. A
+    refusal must leave every store as it found it."""
+    _flag_bound_document(project)
+    project.ok("init", session="a0-state")
+    store = project.runtime / "scan-acknowledgements.json"
+    assert not store.exists()
+    (project.runtime / "state.json").write_text(
+        damage, encoding="utf-8", newline="\n")
+
+    result = project.run("accept-content", "--path",
+                         "requirements/todo-api.md")
+
+    assert result.exit_code != EXIT_OK, result
+    assert not store.exists(), (
+        "a refused accept-content wrote the acknowledgement store anyway")
+
+
+def _assessed_with_acknowledged_flagged_content(project, session):
+    """Flagged content, acknowledged, assessed and initialised - then the
+    acknowledgement is lost while the requirements stay exactly as assessed."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    project.ok("init", session=session)
+    store = project.runtime / "scan-acknowledgements.json"
+    assert store.is_file(), "the acknowledgement was not recorded"
+    store.unlink()
+
+
+def test_a0_a_lost_acknowledgement_is_rechecked_at_advance(project):
+    """RR-007. `governance_precondition` validated the acknowledgement store's
+    structure but never asked whether flagged content still had a matching
+    acknowledgement, so once an assessment was recorded the durable
+    acknowledgement stopped being a progression precondition: delete it and
+    `advance` carried on. The requirements are unchanged, so governance
+    freshness cannot catch it."""
+    _assessed_with_acknowledged_flagged_content(project, "a0-lost-ack")
+    before = frozen(project)
+
+    result = project.run("advance", "--to", "gate_constitution")
+
+    assert result.exit_code == EXIT_REFUSED, result
+    assert result.reason == "governance_content_unacknowledged", result
+    assert frozen(project) == before, "a refused advance must change nothing"
+
+
+def test_a0_the_stateless_early_call_refuses_the_same_way(project):
+    """`gate approve`, `gate omit` and `skip` each call the precondition once,
+    early and without state, so the refusal lands before their own first
+    irreversible append. It has to fire there too, not only at the second,
+    state-carrying call."""
+    _assessed_with_acknowledged_flagged_content(project, "a0-early")
+    paths = sdle.bind_workitem(
+        sdle.resolve_paths(str(project.root), None), project.workitem)
+
+    with pytest.raises(sdle.Refused) as raised:
+        sdle.governance_precondition(paths)
+
+    assert raised.value.reason == "governance_content_unacknowledged"
+
+
+def test_a0_an_acknowledged_document_still_advances(project):
+    """The recheck is not a new refusal for ordinary flagged-and-accepted
+    content: the acknowledgement is there, so nothing changes."""
+    _flag_bound_document(project)
+    project.ok("accept-content", "--path", "requirements/todo-api.md")
+    project.record_governance()
+    project.ok("init", session="a0-ok")
+
+    project.ok("advance", "--to", "gate_constitution")
+
+    assert project.state()["current_phase"] == "gate_constitution"
 
 
 def test_v2_02_the_bare_route_revalidates_containment_at_accept_time(project):

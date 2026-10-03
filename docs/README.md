@@ -89,6 +89,7 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-012](architecture/ADR-012-requirements-source-binding.md) | A WorkItem declares the requirement documents it is about, instead of inheriting a directory |
 | [ADR-013](architecture/ADR-013-project-architecture-memory.md) | Repository-level architecture memory, and the placement phase and gate that read and write it |
 | [ADR-014](architecture/ADR-014-constitution-guidelines-and-precedence.md) | The constitution as the engineering profile, advisory guidelines, and the decision precedence chain |
+| [ADR-015](architecture/ADR-015-requirements-refinement.md) | Fixing blocked requirements before the workflow starts: the loop, one verdict per content, the advisory lint, and the shared-document default |
 
 The frozen contracts ADR-013 was built against — catalog and proposal schemas, command surface, refusal reasons, revision and replay semantics — are in [`architecture/architecture-memory-contracts.md`](architecture/architecture-memory-contracts.md).
 
@@ -103,6 +104,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | [REVIEW-ROUND-1.md](enhancements/architecture-memory/REVIEW-ROUND-1.md) | The first independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-2.md](enhancements/architecture-memory/REVIEW-ROUND-2.md) | The second independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-3.md](enhancements/architecture-memory/REVIEW-ROUND-3.md) | The third independent review, of the Stage 0 restoration, verbatim, with dispositions |
+| [FUTURE.md](enhancements/requirements-refinement/FUTURE.md) | Requirements refinement: the known gaps recorded for future enhancement runs, with their reasoning and triggers |
 | [REVIEW-ROUND-3-CODEX.md](enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md) | The second reviewer of round 3, a Codex pass over the same patch, with dispositions |
 
 ## Specification — not documentation

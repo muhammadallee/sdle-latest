@@ -39,7 +39,7 @@ A **Todo** has:
 | `completed` | boolean | Defaults to `false` |
 | `due_date` | date | Optional, ISO-8601 (`YYYY-MM-DD`) |
 | `created_at` | timestamp | Server-assigned, UTC, immutable |
-| `updated_at` | timestamp | Server-assigned, UTC, updated on every write |
+| `updated_at` | timestamp | Server-assigned, UTC, updated whenever a write modifies a field |
 
 ## Endpoints
 
@@ -83,6 +83,12 @@ Every failure returns the same envelope:
 
 Validation happens at the boundary. No unvalidated user data reaches the
 persistence layer.
+
+## Dependencies
+
+- None external. The service calls no other service and uses no third-party API.
+- Persistence is a relational store. Which product and version is an engineering choice recorded in
+  the project constitution, not a requirement of this document.
 
 ## Non-Functional Constraints
 

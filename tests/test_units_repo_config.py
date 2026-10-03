@@ -700,6 +700,13 @@ def test_the_runtime_member_names_are_derived_from_paths():
         # the decision *this* WorkItem made, and the repository catalog
         # that outlives it records the decision rather than the record.
         "architecture-placement.json",
+        # The content-acknowledgement store: written before `init`, yet one
+        # WorkItem's own decision about its own bound documents, so it is
+        # WorkItem-owned and was missing from the leak check until now.
+        "scan-acknowledgements.json",
+        # The requirements-refinement record: what the loop did to this
+        # WorkItem's bound requirements. Engine-written, WorkItem-owned.
+        "refinement.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "baseline.json",

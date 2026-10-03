@@ -241,7 +241,7 @@ A **Todo** has:
 | `completed` | boolean | Defaults to `false` |
 | `due_date` | date | Optional, ISO-8601 (`YYYY-MM-DD`) |
 | `created_at` | timestamp | Server-assigned, UTC, immutable |
-| `updated_at` | timestamp | Server-assigned, UTC, updated on every write |
+| `updated_at` | timestamp | Server-assigned, UTC, updated whenever a write modifies a field |
 
 ## Endpoints
 
@@ -286,6 +286,12 @@ Every failure returns the same envelope:
 Validation happens at the boundary. No unvalidated user data reaches the
 persistence layer.
 
+## Dependencies
+
+- None external. The service calls no other service and uses no third-party API.
+- Persistence is a relational store. Which product and version is an engineering choice recorded in
+  the project constitution, not a requirement of this document.
+
 ## Non-Functional Constraints
 
 - Single-process deployment is acceptable; no clustering required.
@@ -313,7 +319,7 @@ Optional inputs, when you want them:
 
 ## 7. The layout before you launch Claude Code
 
-Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, four `sdle-*` agent files, and in the skill `SKILL.md`, six files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
+Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, eight files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
 
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|
@@ -471,6 +477,80 @@ claude          # this directory drives its own WorkItem, with no --workitem fla
 
 Outside that window, two WorkItems in one checkout are fine: everything else
 SDLE writes is per WorkItem and is excluded from the other's evidence.
+
+## 11c. When the requirements change while work is in progress
+
+A requirements document can be bound by more than one WorkItem, and people edit them. Once a WorkItem has
+started, a change to a document it is bound to is something SDLE notices but does not decide for you.
+
+**What SDLE does.** The next time that WorkItem tries to move forward — advance, approve a gate, omit a gate,
+or skip — it is refused with `governance_stale`, and it stays refused until the requirements are assessed again.
+That is the only automatic reaction.
+
+**What SDLE does not do.** It does not invalidate anything already produced from the old text. The
+specification, plan, tasks and design that were approved stay approved, even if the change affects them. (One
+exception: an architecture placement that was reasoned from the old text is refused at its gate as
+`architecture_requirements_stale` until you re-run the placement.) Which of the finished work is affected is your
+judgement, not the tool's.
+
+**There is no "replace" command.** Your choices are to carry on after re-assessing, to roll the WorkItem back to an
+earlier phase, to finish it and raise the change as a new WorkItem, or to discard it.
+
+| The situation | What to do | What it costs |
+|---|---|---|
+| The change does not touch what this WorkItem is about (wording, an unrelated section) | Ask SDLE to assess the requirements again, then carry on | Nothing is lost |
+| The change alters what the WorkItem has already produced, and the WorkItem is still early (before its specification is approved) | `restart phase <N>` at the earliest phase the change affects, and redo the work from there. SDLE asks you to confirm | The approvals after that phase are cleared and must be given again, and the work from that phase on is redone: the files are kept, so SDLE and you redo the phases from there |
+| The change adds a new requirement, and the WorkItem is well advanced | Finish this WorkItem against the old requirements. Once the repository has a baseline, raise the addition as a new WorkItem; it runs as an iterative one | Nothing is thrown away; the addition waits for its own WorkItem |
+| The change contradicts what has been built, or the WorkItem's goal itself changed | Restart from the earliest phase the change affects. If the work is obsolete, `reset workflow` and create a new WorkItem | A reset discards that WorkItem's workflow state and its audit trail (its assessment, binding and generated files are kept), so use it only when nothing is worth keeping |
+
+The earlier a WorkItem is, the cheaper it is to restart; the later it is, the better it usually is to finish it
+and treat additions as new work. Before editing a document that other WorkItems are bound to, tell whoever owns
+those WorkItems: their next move will be refused the moment your edit lands.
+
+When a move is refused `governance_stale`, SDLE shows you what changed (with a diff against the text as it was assessed), where the WorkItem is and who else holds the document, then asks you which of these you want - carry on, redo from an earlier phase, finish and raise a new WorkItem, or reset - and, if you redo, whether to build on the existing work or rebuild from scratch. The scenario-by-scenario version of this section, with what each option keeps and clears, is `docs/lifecycle/requirements-change-midflight.md`.
+
+## 11d. When the assessment blocks: fixing the requirements
+
+If `governance assess` reports your requirements quality **blocked**, you can fix the documents yourself and
+assess again, or ask SDLE to help. Help is a short loop that runs **before** the workflow starts, and it never
+starts unasked:
+
+1. SDLE shows you what failed and offers to help. You say yes or no.
+2. If yes, SDLE proposes changes **in the conversation**: the findings, at most a few questions that only you
+   can answer, and each edit with the text it would change. A change that only alters layout (spacing, line
+   endings) the engine applies by itself, because it compares the text before and after; anything that changes
+   what the requirements *say* waits for you to accept it.
+3. The engine applies only what you accepted, and refuses an edit written against text that has since changed.
+4. SDLE assesses again. If nothing blocking is left, the loop ends **passed** and the workflow starts. If the
+   loop stops making progress, or uses all its rounds, it ends **escalated**: SDLE tells you what was tried and
+   what is still wrong, and the next step is yours (edit by hand, ask the owners, or stop). The number of rounds
+   is the engine's; a repository policy may lower it, never raise it.
+
+Three rules keep the loop honest. A check that **failed** cannot later pass on **unchanged** requirements — the
+engine keeps the first answer (`quality_verdict_flip`); if the first answer really was wrong, the way back is an
+explicit dispute that needs independent evidence, a written reason and **your** decision. A document that
+**another WorkItem that has started and is not finished** also holds is refused outright (`refinement_shared_source`):
+editing it would silently invalidate their assessment, so finish or re-bind them first, or edit by hand and
+re-assess each. If the other WorkItems have **not started**, the edit is allowed and SDLE tells you which of them
+must assess again (it only sees this checkout; tell teammates on other branches yourself). And
+once the workflow has started the loop is closed (`refinement_post_init`): from then on a change to the
+requirements is an ordinary edit followed by `governance assess`, as in section 11c.
+
+**Limits you should know before relying on it.**
+
+- *The protections are the engine's, not the file system's.* The verdict-flip rule reads this WorkItem's own
+  assessment records. Someone with a shell who truncates or replaces an old assessment record can make an earlier
+  failure disappear. SDLE stops Claude from writing those files and never promised to stop a person doing so by hand.
+- *Older assessments compare less reliably.* An assessment recorded before this feature has no stored content digest,
+  so a failure in it can only be matched against requirements whose bytes are unchanged. Re-assessing once under
+  this version gives every later comparison a proper basis.
+- *The assessor's independence is a convention.* That the reviewer is shown only the documents and the check
+  definitions, and never an earlier verdict or proposal, is what the prompt instructs the orchestrator to do; the
+  engine does not build or inspect what the reviewer is shown. What the engine does enforce is that no proposal can
+  carry a verdict, that only `governance assess` records one, and that the same content cannot be re-judged.
+
+A lint runs over each document and its findings are recorded as **hints**. They never refuse anything and never
+override an assessment. See `docs/architecture/ADR-015-requirements-refinement.md`.
 
 ## 12. What exists after the first start
 

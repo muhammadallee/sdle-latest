@@ -58,6 +58,7 @@ PRODUCT_AGENTS = (
     "sdle-code-review.md",
     "sdle-design-review.md",
     "sdle-discovery.md",
+    "sdle-requirements-review.md",
     "sdle-security-review.md",
 )
 NEW_CAPABILITY_FILES = ("design-review.md", "code-review.md")
@@ -262,7 +263,7 @@ def discovery_identifiers() -> set[str]:
 
 
 def new_prompt_files() -> list[Path]:
-    """Every prompt file T10 authored: two capability files, four agents.
+    """Every prompt file T10 authored: two capability files, five agents.
 
     Both populations get the same content search, because both are prompt
     files this phase wrote and either is a place a rule the engine owns could
@@ -316,7 +317,7 @@ def test_n28_invariant_3_holds_for_every_new_prompt_file(relative):
 def test_n6_the_needle_sets_are_not_vacuous():
     assert len(policy_identifiers()) >= 15
     assert len(discovery_identifiers()) >= 12
-    assert len(new_prompt_files()) == 6
+    assert len(new_prompt_files()) == 7
 
 
 # ==========================================================================
@@ -924,6 +925,7 @@ ACTOR_HONESTY_REQUIRED = (
     ".claude/agents/sdle-code-review.md",
     ".claude/agents/sdle-security-review.md",
     ".claude/agents/sdle-discovery.md",
+    ".claude/agents/sdle-requirements-review.md",
     ".claude/commands/sdle-continue.md",
     ".claude/commands/sdle-start.md",
     "README.md",

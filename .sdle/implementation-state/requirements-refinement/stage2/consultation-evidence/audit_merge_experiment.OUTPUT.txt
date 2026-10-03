@@ -1,0 +1,17 @@
+Run 2026-10-02 against the checkout at 3fc2cb8, with:
+  cp audit_merge_experiment.py tests/test_scratch_audit_merge.py
+  python -m pytest -q -s -p no:cacheprovider tests/test_scratch_audit_merge.py     (then deleted)
+
+base branch: master
+verify at baseline: 0
+verify on A: 0
+verify on B: 0
+merge exit code: 1
+conflicted files: ['workitems/fixture-workitem/.sdle/audit.md', 'workitems/fixture-workitem/.sdle/state.json']
+verify after the hand-resolved merge: exit 3 | reason audit_chain_broken
+data: {'entries': 5}
+
+Reading: two branches that each append one chained entry to the same WorkItem's audit.md cannot be merged
+cleanly (audit.md and state.json both conflict), and keeping both entries by hand leaves a chain that
+`audit verify` rejects with the integrity failure `audit_chain_broken`. Branch A stands in for a refinement
+loop's cross-WorkItem write under constraint C1; branch B for the owner's own work.

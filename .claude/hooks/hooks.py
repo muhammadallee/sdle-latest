@@ -485,7 +485,7 @@ def product_agent_fence(payload):
     anything, so denial is total -- there is no list to drift, no payload
     shape that gets through, and no path on which it fails open.
 
-    It is registered in the four product agents' own frontmatter and NOT in
+    It is registered in the product agents' own frontmatter and NOT in
     .claude/settings.json, because it must bind those agents and not the
     parent session: the parent legitimately writes, through sdle.py.
     """
