@@ -151,8 +151,9 @@ Lesson recorded: local batches must include every module that writes under `evid
    refusal was safe but is not final approval of the reduced behaviour.
 2. **Regeneration after a rollback** is the orchestrator's behaviour, not an engine property; the new module and
    `restart --approach` make the choice explicit and recorded. Decide whether to make it a stronger contract.
-3. **Completed-WorkItem rollback** is tested from a planted completed state, not a real full second pass.
-4. The two limits in RR-010 and RR-011 are accepted, not fixed.
+3. ~~Completed-WorkItem rollback tested only from a planted state~~ — **done**: `tests/test_units_rollback_completed.py` drives HOTFIX and GREENFIELD to `complete`, changes a bound requirement, rolls back with `--approach update`, re-assesses and completes again (approvals re-given, audit chain verifies, the second baseline supersedes the first).
+4. The two limits in RR-010 and RR-011 are accepted, not fixed — and are now **stated to users** (Getting Started 11d, ADR-015), together with the convention-only status of scenario 21.
+5a. **Recorded for future enhancement runs** (not built): editing a document a *started* WorkItem holds, what happens to files after a rollback, and the checkout-local view — `docs/enhancements/requirements-refinement/FUTURE.md`.
 5. The mid-flight facts see only this checkout; another branch or uncommitted copy is invisible and the notices say so.
 
 ## How to verify

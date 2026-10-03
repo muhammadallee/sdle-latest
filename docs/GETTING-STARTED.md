@@ -536,6 +536,19 @@ must assess again (it only sees this checkout; tell teammates on other branches 
 once the workflow has started the loop is closed (`refinement_post_init`): from then on a change to the
 requirements is an ordinary edit followed by `governance assess`, as in section 11c.
 
+**Limits you should know before relying on it.**
+
+- *The protections are the engine's, not the file system's.* The verdict-flip rule reads this WorkItem's own
+  assessment records. Someone with a shell who truncates or replaces an old assessment record can make an earlier
+  failure disappear. SDLE stops Claude from writing those files and never promised to stop a person doing so by hand.
+- *Older assessments compare less reliably.* An assessment recorded before this feature has no stored content digest,
+  so a failure in it can only be matched against requirements whose bytes are unchanged. Re-assessing once under
+  this version gives every later comparison a proper basis.
+- *The assessor's independence is a convention.* That the reviewer is shown only the documents and the check
+  definitions, and never an earlier verdict or proposal, is what the prompt instructs the orchestrator to do; the
+  engine does not build or inspect what the reviewer is shown. What the engine does enforce is that no proposal can
+  carry a verdict, that only `governance assess` records one, and that the same content cannot be re-judged.
+
 A lint runs over each document and its findings are recorded as **hints**. They never refuse anything and never
 override an assessment. See `docs/architecture/ADR-015-requirements-refinement.md`.
 

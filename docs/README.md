@@ -104,6 +104,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | [REVIEW-ROUND-1.md](enhancements/architecture-memory/REVIEW-ROUND-1.md) | The first independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-2.md](enhancements/architecture-memory/REVIEW-ROUND-2.md) | The second independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-3.md](enhancements/architecture-memory/REVIEW-ROUND-3.md) | The third independent review, of the Stage 0 restoration, verbatim, with dispositions |
+| [FUTURE.md](enhancements/requirements-refinement/FUTURE.md) | Requirements refinement: the known gaps recorded for future enhancement runs, with their reasoning and triggers |
 | [REVIEW-ROUND-3-CODEX.md](enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md) | The second reviewer of round 3, a Codex pass over the same patch, with dispositions |
 
 ## Specification — not documentation

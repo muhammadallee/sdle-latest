@@ -36,7 +36,7 @@ one. And an architecture placement reasoned from the old text is refused at its 
 A rollback does **not** delete files, and a reset does not replace anything: it keeps the WorkItem, and starting
 again is a separate step. `init` on a reset WorkItem whose requirements changed starts, and then the first move is
 refused `governance_stale` until you re-assess. A WorkItem that has already completed can also be rolled back
-(reproduced from a completed state; a full second pass through completion is not reproduced here).
+(reproduced by driving a real run to completion, rolling it back with a changed requirement, and completing it again, in `tests/test_units_rollback_completed.py`, including the repository baseline a completed run establishes).
 
 Which phase to roll back to is read from the flow the WorkItem is bound to — the number you are shown in its
 status header — never from a fixed table, because the same phase has a different number in each of the five flows.

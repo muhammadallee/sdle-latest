@@ -1339,3 +1339,11 @@ wrapped `architecture_apply` in the refinement mutex (Stage 4), but the requirem
 which is what the mutex is meant to protect, existed only on the PR #6 branch, so the wrapper guarded nothing. Both PR #6
 commits were cherry-picked here (`dedfae8`, `fd3a3ff`). The architecture, Stage 4 and invariants suites pass. PR #6 can
 now be closed as superseded once this branch merges; merging it first would also be fine (the change is identical).
+
+## Merge-readiness follow-ups (2026-10-03, after Codex's merge-readiness review)
+
+Codex rated the pending items: (a) shared edits for started WorkItems, (b) rollback quality, (e) checkout-local view =
+safe to defer; (c) real completed-rollback test, (d) the RR-010/RR-011 limits made visible, (f) assessor independence
+stated as convention = should be done before the first outside user. **Done:** (c) `tests/test_units_rollback_completed.py`;
+(d) and (f) stated in Getting Started section 11d and ADR-015 "What this does not claim"; (a), (b), (e) recorded with
+reasoning, fix sketches and triggers in `docs/enhancements/requirements-refinement/FUTURE.md`, linked from `docs/README.md`.
