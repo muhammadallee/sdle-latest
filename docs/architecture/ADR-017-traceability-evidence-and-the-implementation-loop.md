@@ -1,0 +1,66 @@
+# ADR-017 — Obligations are traced to the end, evidence is bound to the tree it came from, and the implement phase runs a bounded loop
+
+**Status:** Accepted
+**Date:** 2026-10
+**Builds on:** ADR-016 (requirements packages), ADR-009 (gate evidence), ADR-011 (the pinned policy), ADR-003 (reviews). It adds no phase, no gate and no `state.json` field; `CURRENT_VERSION` is unchanged.
+
+---
+
+## 1. The decision, in three parts
+
+1. **Trace.** For a WorkItem started from a package, every in-scope obligation is carried into the specification and the tasks, and every acceptance criterion ends with a recorded **verification disposition**. The engine checks that the links exist and are well-formed; it never decides that what they link satisfies anything. A valid link proves structure, not satisfaction; satisfaction is a review.
+2. **Evidence.** A passing test run is evidence about the tree it ran against. The implementation evidence records a digest of that tree, taken on both sides of the run, and the gate recomputes it.
+3. **Loop.** The existing `implement` phase runs a bounded implement, verify, review, converge, repair loop that stops at the existing human gate. *(Section 6.)*
+
+## 2. Compatibility: what is universal and what is not
+
+Every trace and package rule is **inert unless the WorkItem was started from a package** (it carries a `package-binding.json`). Two behaviours are deliberately universal, because the defect each closes is not about packages:
+
+- **`review_type_mismatch`.** A gate approves only on the newest current review of a type and actor type the `GATE_REVIEW_TYPES` table in SKILL.md names for it. The table starts narrow: `gate_architecture` takes `architecture-placement`, `gate_design` takes `design-review`, `gate_implement` takes `code-review`; every other gate takes `any`, because no review capability yet defines a type for it. A review of the right kind for older content is *stale*, not *mismatched*; a wrong-kind review of current content is a mismatch; a later review of another kind never displaces an earlier one of the right kind.
+- **Tree-bound evidence.** A manifest built under this ADR always records a tree digest and the gate enforces it, because editing a file after a passing run and still passing the gate affected every WorkItem. Evidence built before this ADR carries no tree binding and keeps the checks it always had; the gate does not pretend otherwise.
+
+## 3. Trace
+
+`trace check` (a pure reader) reports, for the bound work item: which in-scope ids the specification and tasks cite, which they omit, which ids they cite that the package does not define, which acceptance criteria have no task or no *test* task, which tasks cite no id and no obligation tag (listed, never blocking), and each criterion's disposition. It is enforced as a precondition, ahead of the first write:
+
+| Gate | Refuses when |
+|---|---|
+| `gate_spec` | an in-scope id is missing from spec.md and has no approved exclusion (`trace_spec_incomplete`), or spec.md cites an id the package does not define (`trace_unknown_id`) |
+| `gate_tasks` | an acceptance criterion has no task citing it, or none whose text says it tests it (`trace_tasks_uncovered`), or tasks.md cites an unknown id |
+| `gate_implement` | the task coverage above fails again (so an omitted `gate_tasks`, and a flow with none, cannot let an uncovered criterion through), or a criterion has no disposition or is `blocked` (`trace_verification_missing`), or the policy makes an unmapped pass blocking (`trace_verification_unmapped`) |
+
+It is also applied at drift re-approval, because re-approving drifted content is exactly when an obligation could have fallen out of it. Ids are extracted **by the package's declared grammar only**; an engineering task may cite an *obligation tag* (a constitution principle, an architecture decision, a plan decision) declared in the manifest instead of a business id. An approved exclusion is recorded with an approver and their words (`verification record --disposition excluded-approved`); it is a human decision, and the engine records it as given.
+
+**Dispositions.** `verified-mapped` comes **only** from a JUnit XML result in which a test case's name cites the criterion's id, read from the report that **`manifest build --junit` captured** (its path and digest are recorded with the evidence, and `verification map` refuses any other file or one edited since), and only while it names the evidence the implementation manifest names *now*: rebuilding the evidence ends the mapping, and so does every other disposition derived from a run, a failure included. A disposition a person typed in stands until something newer replaces it. The verification record is hash-chained and each record's fields are checked on every read, so a fabricated or edited exclusion is an integrity failure, not an exclusion. Otherwise a criterion with a passing suite behind it is `suite-pass-unmapped`, **shown apart from the verified ones and never as verified**; it blocks only if the repository policy sets `unmapped_verification_blocks` (tighten-only, and pinned like the rest of the policy, ADR-011). `manual-evidence`, `excluded-approved` and `blocked` are recorded explicitly. No runner format other than JUnit is interpreted.
+
+## 4. Evidence bound to the tree
+
+`manifest build` records a **tree digest**: every file git would track plus untracked files that are not ignored, hashed by content, minus exactly the paths `implementation_exclusions` names (the same boundary the manifest and the security review use) and a closed set of tool caches. SDLE's own bookkeeping, and other WorkItems' runtimes, never move it; code under the bound WorkItem's own directory, `design/`, `requirements/` and `.sdle/config.json` do. It is taken **before and after** the run: if the two differ the evidence is `invalid_changed_during_run`, because a result obtained while the tree moved proves nothing about either state. The gate recomputes it and refuses `test_evidence_stale` (`mismatch: treeDigest`, or `changed_during_run`). Without git the working tree is walked and the method is recorded. Files are hashed in Python, not through a temporary git index, so the answer does not depend on git's line-ending conversion and no new process is spawned. Historical evidence is never deleted.
+
+The evidence also records the test command, the runner, the package digest, the bound-requirements digest and the tasks digest. A project whose test command leaves untracked, un-ignored files behind will see its run marked `invalid_changed_during_run`: have the command write to an ignored path or to the WorkItem's evidence directory.
+
+## 5. Review enforcement and findings
+
+`artifact review --findings <file>` stores structured findings (`id`, `severity`, `location`, `obligations[]`, `disposition`) with the review and refuses a `PASS` while a blocking one is open (`review_findings_open`). The code, design and security reviews are given the package files and the trace report, and their findings cite obligation ids. A design that conflicts with an approved architecture decision is a blocking finding at `gate_design`. The analyze phase no longer re-baselines the tasks gate: v1.0.6 `analyze` is read-only, so a change made during it is drift like any other, and for a package WorkItem `drift rebaseline` is refused outright (`rebaseline_not_permitted`).
+
+## 6. The implementation loop
+
+The loop runs **inside the existing `implement` phase** (or its remediation after a human rejection), after `implement preflight`. It is a **recorder and referee**: the engine neither invokes Spec Kit nor an agent (a pinned property), so the orchestrator performs each step and the engine checks and records it. `loop begin` opens a *run* in `workitems/<id>/.sdle/implementation-loop.json` (engine-written and self-digested, like `requirements.json`) with a limit copied from the policy: `implementation_loop_max_iterations`, built-in 3, **lowered only**, read as the stricter of the live policy and the one the WorkItem started under, and as the built-in where a policy pinned before the key existed does not carry it. (This is where D09 was settled: the limit lives in the pinned governance policy, not in `.sdle/config.json`, which ADR-002 keeps free of lifecycle reads.)
+
+Per iteration the engine enforces the order **implement, reconcile, manifest, review, converge, [reconcile], trace**, then `loop record`. Each step is refused unless the one before it is recorded; a step is refused when its output duplicates an earlier one (the same evidence recorded twice, a review already used, a second converge with no `implement` between); and every step after the manifest is refused `loop_snapshot_stale` when the working tree is no longer the one the evidence was taken from, after which the evidence is rebuilt, never reused. That is the guarantee: **recorded sequence and accepted outputs**. It is deliberately about what the loop *records*: one evidence and one review per iteration, each used once, the latest standing. An extra output produced in a crash window (a second manifest built before the first was recorded) is history, never deleted and never recorded; the producers (`manifest build`, the code review of the manifest) refuse only when they are out of order. A "produced once" marker was tried and withdrawn: it needed locks around the producers, a recovery path for every refusal after production and a persisted intent for every crash window, and each piece was itself a way to wedge an iteration. It cannot stop the orchestrator invoking `converge` twice outside the recorder; that stays convention.
+
+**One completion predicate.** `implementation_ready` is the single function that says whether `gate_implement` could be approved: the manifest and its tree-bound evidence, the traceability of the obligations, a current review of the right kind, and that the last converge left the task list unchanged. `gate approve` raises the first unmet entry; `loop record` reports all of them, so the loop can never call ready what the gate would refuse.
+
+**The task list.** The one change to an approved task list the loop accepts is ticking a task or appending whole `## Phase N: Convergence` sections (and ticking inside sections it accepted earlier), verified structurally against the last accepted snapshot by `tasks reconcile`, audited, and applied to the task gates' baselines through the one place that moves them. The snapshot is taken at `loop begin` and only if the task list is the one the task gates approved (a flow with no task gate, or one it omitted without a baseline, takes an audited starting snapshot). Anything else stops the run `tasks_drift`. This is a deliberate exception to "a change to an approved artifact is drift", not a technical necessity: a tick or a convergence task is not a new decision about the plan. `drift rebaseline` stays refused for a package WorkItem.
+
+**Stop reasons.** `ready_for_gate`, `limit_exhausted`, `no_progress` (the digest of the failing test names from the captured report, the runner status only where there is none, the open blocking findings, the unverified and uncovered obligations repeats; appended tasks are not progress), `environment_blocker` (the runner is missing or unavailable: never a pass), `ambiguity` (routes to the requirements-change process), `test_expectation_change` (a test file deleted; a test case present before and gone now, read from the complete inventory of the captured JUnit report; or an acceptance test, one that names an in-scope criterion, whose original lines were removed or changed, additions being fine; `loop begin` is the person's re-entry and accepts the tests as they stand), `tasks_drift`, `interrupted` (stated with `loop stop`). The model proposes the failure class; the engine records it. A repair that keeps the expected behaviour proceeds; one that changes expected behaviour or weakens coverage is a person's.
+
+**The loop never approves, omits or skips a gate.** `ready_for_gate` means ready for human review, and a test pins structurally that nothing the loop runs can reach an approving or advancing function. Verification, loop and task-list commands hold a per-WorkItem OS lock for their whole read-modify-write, so two of them cannot lose a record.
+
+## 7. Enforcement split
+
+**The engine guarantees:** that the checks above hold at the gates and at drift re-approval before anything is written; that a disposition is recorded only in the shapes allowed and is never typed in as `verified-mapped`; that evidence names the tree it was taken from and is refused for any other; that a review of the wrong kind does not carry a gate; that a `PASS` is refused over an open blocking finding.
+
+**The Claude Code runtime guarantees, not SDLE:** that a reviewer subagent's `tools:` grant and `PreToolUse` fence are honoured.
+
+**Convention only:** that the orchestrator performs the loop's steps in the order it records them, and does not invoke `converge` outside the recorder; that the reviewer was actually delegated to and its findings reported faithfully; that `--actor-name` names the real producer; that a test whose name cites an id actually tests it; that the specification's text says what the requirement says. The engine checks that ids are present and well-formed, never that they are meant.

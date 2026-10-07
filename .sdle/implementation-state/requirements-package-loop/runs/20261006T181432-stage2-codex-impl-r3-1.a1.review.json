@@ -1,0 +1,138 @@
+{
+  "reviewed_commit": "cfc2689fc3ff03d296d975b28b79b4fcba69d0fe",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants, PLAN.md §4 and round dispositions, BRIEF.md §5 and AS-20..AS-29",
+      "Loop completion predicate, commands, step ordering, stale recovery, task reconciliation, progress and stop detection",
+      "Ordinary and drift implementation-gate approval paths",
+      "Verification chain validation, captured JUnit mapping, disposition expiry, submodule tree hashing and OS mutation-lock implementation",
+      "Loop tests, changed invariant pins, Phase 17 procedure, SKILL.md invocation row, gate protocol, ADR-017 §6 and DR-25",
+      "Relevant troubleshooting, Getting Started and lifecycle loop documentation",
+      "Executed read-only Python probes of task deltas and stale-recovery step ordering"
+    ],
+    "areas_not_reviewed": [
+      "Full test suite and lint execution: these workflows write files and were not run in the read-only sandbox",
+      "Live Windows/POSIX contention and process-crash experiments",
+      "Real Claude Code hook enforcement and Spec Kit execution"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R3R1-001",
+      "severity": "high",
+      "category": "defect/gate-predicate",
+      "path": "scripts/sdle.py",
+      "line": 12843,
+      "claim": "Drift re-approval of gate_implement bypasses implementation_ready, including evidence freshness and pending convergence.",
+      "evidence": "_approve_drift calls required_gate_artifact, trace_precondition and review_precondition at lines 12842–12849, then writes an approved decision. It never calls implementation_ready or gate_precondition_hook. cmd_gate_approve dispatches directly to this path whenever drift_queue is nonempty (lines 12620–12622). Thus a fresh PASS review of a rebuilt manifest can re-approve while the last converge still owes tasks, and evidence checks are also bypassed.",
+      "evidence_type": "static",
+      "suggested_fix": "Use implementation_ready for gate_implement in _approve_drift before any approval, baseline or audit write; test pending convergence and stale/failing evidence through drift re-approval.",
+      "ac_ids": ["PLAN §4.2", "AS-20", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-002",
+      "severity": "high",
+      "category": "defect/test-coverage-regression",
+      "path": "scripts/sdle.py",
+      "line": 16244,
+      "claim": "Removing a mapped test can evade test_expectation_change because vanished mappings remain in the historical verification record.",
+      "evidence": "_mapped_test_names selects the latest historical row per criterion and unions its evidence.tests, without checking evidenceId freshness. cmd_verification_map appends rows only for criteria present in the new report (lines 15926–15940). If the only mapped test for a criterion disappears, no replacement row is appended, so _mapped_test_names still returns that deleted test. cmd_loop_record compares these historical sets at lines 16631–16636; with unmapped passes allowed, the loop can report ready_for_gate.",
+      "evidence_type": "static",
+      "suggested_fix": "Compare complete test-case inventories captured from each iteration's JUnit report, bound to its evidence, rather than historical disposition rows. Cover disappearance of the sole mapped test and disappearance of an unmapped test.",
+      "ac_ids": ["PLAN §4.3", "AS-27", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-003",
+      "severity": "high",
+      "category": "defect/test-expectations",
+      "path": "scripts/sdle.py",
+      "line": 16651,
+      "claim": "Changing an acceptance-tagged test's assertion while preserving its name never triggers the required human stop.",
+      "evidence": "cmd_loop_record detects test expectation changes only through deleted file paths and shrinking mapped-name sets (lines 16630–16636 and 16651–16658). There is no comparison of modified tagged tests or assertions. PLAN §4.3 explicitly requires stopping when an ACC-tagged test is removed or changed; a weakened assertion with the same test name and a passing run reaches the 'elif not unmet' ready_for_gate branch.",
+      "evidence_type": "static",
+      "suggested_fix": "Capture acceptance-tagged test content at the run baseline and stop for human disposition when those tests change expected behavior; conservatively stop on tagged-test edits where semantic equivalence cannot be established.",
+      "ac_ids": ["PLAN §4.3", "AS-27", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-004",
+      "severity": "medium",
+      "category": "defect/progress-digest",
+      "path": "scripts/sdle.py",
+      "line": 16233,
+      "claim": "The progress digest can stop a repairing loop despite its failing-test set improving.",
+      "evidence": "_loop_progress returns 'tests': [tests.get('status'), tests.get('exit_code')] rather than failing test IDs. Two runs that both exit 1 but repair different failing tests therefore have identical test contributions; if obligations and findings stay unchanged, cmd_loop_record reports no_progress. PLAN §4.3 and BRIEF §5 require the set of failing tests in the digest.",
+      "evidence_type": "static",
+      "suggested_fix": "Persist and hash a sorted failing-test identity set from captured results. Define an explicit fallback for runners without structured results rather than treating equal exit codes as equal failures.",
+      "ac_ids": ["PLAN §4.3", "AS-23", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-005",
+      "severity": "medium",
+      "category": "defect/tasks-reconcile",
+      "path": "scripts/sdle.py",
+      "line": 16086,
+      "claim": "Reconcile accepts unticking approved tasks, contrary to the one-way mutation policy.",
+      "evidence": "The checkbox comparison normalizes both lines to '[ ]' and accepts any checkbox-only difference. A read-only Python probe of _tasks_delta('- [X] T001 done\\n', '- [ ] T001 done\\n') returned ({'ticked': 1, 'appendedSections': []}, None). PLAN §4.4 explicitly permits only '- [ ]' to '[X]'/'[x]'. The accepted reverse change is then audited and rebaselined as a tick.",
+      "evidence_type": "executed",
+      "suggested_fix": "Require the original task checkbox to be unchecked and the new checkbox to be checked; reject reverse transitions and add direct and command-level tests.",
+      "ac_ids": ["PLAN §4.4", "AS-22", "R2-005"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-006",
+      "severity": "medium",
+      "category": "defect/resume",
+      "path": "scripts/sdle.py",
+      "line": 16592,
+      "claim": "A crash after reconcile writes the loop record but before saving state leaves task baselines unrecoverable through reconcile.",
+      "evidence": "cmd_tasks_reconcile replaces run.tasksSnapshot and records the reconcile step, then write_loop_record at line 16592, append_audit and save_state at lines 16593–16600. A crash before save_state leaves the disk artifact_shas at the previous tasks digest while the loop snapshot and step have advanced. Retrying reconcile is refused by _step_order_ok, and starting another run refuses tasks_drift against the old gate baseline.",
+      "evidence_type": "static",
+      "suggested_fix": "Make reconciliation recoverable with a persisted transaction containing old/new baselines and an idempotent recovery path, so restart can complete the state/audit update without duplicating steps or requiring gate re-approval.",
+      "ac_ids": ["PLAN §4.4", "AS-25", "BRIEF §5 Resume"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-007",
+      "severity": "medium",
+      "category": "defect/loop-output-order",
+      "path": "scripts/sdle.py",
+      "line": 18741,
+      "claim": "Manifest and review writers do not enforce the approved active-loop ordering, allowing duplicate evidence production during resume.",
+      "evidence": "PLAN §4.1 states that 'manifest build, artifact review and tasks reconcile consult the active loop step and refuse out of order.' cmd_manifest_build reads state and runs tests without consulting read_loop_record or _step_order_ok. The AS-25 test repeats only 'loop step --step manifest'; it does not retry manifest build itself. Rebuilding outside the recorder is merely detected later by _check_tree_unmoved, after another evidence file has already been produced.",
+      "evidence_type": "static",
+      "suggested_fix": "Check the active loop's permitted output-producing step before manifest builds and implementation reviews, with an explicit stale-recovery exception and idempotent resume behavior.",
+      "ac_ids": ["PLAN §4.1", "R1-005", "AS-25"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-008",
+      "severity": "medium",
+      "category": "defect/tests",
+      "path": "tests/test_units_loop.py",
+      "line": 460,
+      "claim": "The missing-mapped-test test is vacuous and the classification test never exercises ambiguity.",
+      "evidence": "test_a_mapped_test_that_disappears_stops_the_loop asserts 'first.data[\"stopReason\"] == \"ready_for_gate\" or True' and ends without removing a test or running a second iteration. test_a_stated_environment_blocker_or_ambiguity_ends_the_run returns inside the first loop iteration at line 428, so requirement_ambiguity is never tested.",
+      "evidence_type": "static",
+      "suggested_fix": "Replace the unconditional assertion with a two-iteration test that removes a previously mapped test and requires test_expectation_change. Parameterize classification cases with independent fixtures so both environment_blocker and ambiguity execute.",
+      "ac_ids": ["AS-27", "PLAN §4.6", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R1-009",
+      "severity": "high",
+      "category": "defect/submodule-evidence",
+      "path": "scripts/sdle.py",
+      "line": 18707,
+      "claim": "The R2 submodule fix still omits symlink entries inside submodules, allowing implementation changes without invalidating evidence.",
+      "evidence": "The top-level tree walk hashes symlinks as 'link:' plus their targets (lines 18694–18695), but the new submodule walk explicitly skips '_is_link(inner)' at line 18707. Retargeting or deleting a tracked symlink inside a gitlink directory therefore leaves the digest unchanged, although the same change outside a submodule invalidates evidence.",
+      "evidence_type": "static",
+      "suggested_fix": "Include submodule symlink entries using the same link-target hashing as top-level entries; add tests for retargeting, adding and deleting a tracked submodule symlink.",
+      "ac_ids": ["PLAN §3.6", "AS-14", "AS-15", "IR-R2R1-002"],
+      "confidence": "high"
+    }
+  ]
+}

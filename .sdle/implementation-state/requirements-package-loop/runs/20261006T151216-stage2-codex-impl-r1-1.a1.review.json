@@ -1,0 +1,163 @@
+{
+  "reviewed_commit": "01776da53f1c54e46b5f684eea43148a03ca3f0b",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; PLAN.md sections 1–2; BRIEF.md R1 contract and AS-01–AS-09; LEDGER.md decisions; ADR-016",
+      "Actual e454121..HEAD engine diff, package validation, import, replacement, approval, revision storage, ledger locking and reads",
+      "Handoff, package pins, adoption, intake, requirements-binding refactor and lifecycle precondition placement",
+      "Hooks, settings, package prompts, requirements-review agent, owned prefixes, parser and runtime membership",
+      "Both new package test files, package_support.py, pinned-list edits and package documentation",
+      "Executed read-only python -B scripts/sdle.py lint-skill: exit 0, failed list empty"
+    ],
+    "areas_not_reviewed": [
+      "Full pytest execution on the final tree",
+      "Live Claude Code hook enforcement and real SpecKit execution",
+      "Executed crash, symlink and concurrent-process reproductions"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R1-001",
+      "severity": "high",
+      "category": "defect/package-containment",
+      "path": "scripts/sdle.py",
+      "line": 14173,
+      "claim": "Package operations follow symlinks without establishing containment, allowing reads outside staging and writes or deletions outside the package.",
+      "evidence": "At 13635–13636, package_files_on_disk includes entries using item.is_file(), which follows file symlinks. At 14175–14177, _copy_package_tree reads source / rel and writes target / rel without checking resolved containment or symlink ancestors. At 14252–14255, replacement unlinks target / rel. A symlinked target package directory or descendant directory redirects these engine operations outside requirements/packages; a staging file symlink imports external content.",
+      "evidence_type": "static",
+      "suggested_fix": "Reject symlinks and Windows junctions/reparse points throughout package, staging and revision trees, including ancestor directories. Check resolved containment before every read, copy and deletion; use a validated snapshot for copying.",
+      "ac_ids": ["PLAN §2.2", "PLAN §2.3", "AS-09"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-002",
+      "severity": "medium",
+      "category": "defect/source-containment",
+      "path": "scripts/sdle.py",
+      "line": 13913,
+      "claim": "Manifest source paths can make validation hash files outside the repository.",
+      "evidence": "_package_structure at 13722–13723 checks sources[].path only for a nonempty string. The source-check loop constructs target = paths.project_root / rel and calls sha256_file(target), without rejecting absolute paths, '..' or resolved symlink escapes. An absolute path overrides project_root; '../outside.md' escapes it.",
+      "evidence_type": "static",
+      "suggested_fix": "Validate source paths as canonical repository-relative paths and require their resolved targets to remain under project_root, using the existing requirements-source containment approach.",
+      "ac_ids": ["PLAN §2.1", "PLAN §2.2", "BRIEF §3"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-003",
+      "severity": "high",
+      "category": "defect/approval-recovery",
+      "path": "scripts/sdle.py",
+      "line": 14302,
+      "claim": "Retrying approval after an interrupted revision copy can record approval with an incomplete immutable revision.",
+      "evidence": "At 14302–14304, approval copies only if 'not revision.is_dir()'. _copy_package_tree creates the destination incrementally through write_atomic. A crash after its first file leaves the directory present but incomplete; the next approval skips copying and writes the ledger at 14313–14316. _approved_manifest at 14119–14131 checks only that package.json exists and parses, not that the stored tree matches the approved digest.",
+      "evidence_type": "static",
+      "suggested_fix": "Build revisions in a temporary directory, verify their full digest, then publish atomically. Verify any existing revision before reuse, and verify revision integrity when reading approval history or producing diffs.",
+      "ac_ids": ["PLAN §2.3", "AS-05", "AS-08"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-004",
+      "severity": "high",
+      "category": "defect/id-history",
+      "path": "scripts/sdle.py",
+      "line": 14000,
+      "claim": "Approved identifiers can be reused for different statements, and retired identifiers can return after an intermediate revision drops their retirement record.",
+      "evidence": "package_history_findings at 14009–14028 compares surviving requirements only by workItem, never by statement or semantic identity. At 14011 and 14029, retired_before is drawn only from the latest approved manifest, with no requirement that earlier retired IDs remain retired. Thus revision A can retire FR-900, revision B can omit FR-900 entirely, and revision C can activate FR-900; the latest-only checks accept that sequence.",
+      "evidence_type": "static",
+      "suggested_fix": "Enforce the approved requirement-identity policy for statement changes, and preserve a cumulative retirement set across all approved revisions or require retirement records to persist monotonically.",
+      "ac_ids": ["PLAN §2.1", "PLAN §2.3", "BRIEF D03"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-005",
+      "severity": "high",
+      "category": "defect/package-adoption",
+      "path": "scripts/sdle.py",
+      "line": 14617,
+      "claim": "Adoption can authorize a work item that is now NOT_READY, removed, or bound to files inconsistent with the new manifest.",
+      "evidence": "cmd_package_adopt at 14617–14632 checks only package_status == 'approved', then preserves the old pin's workItem and writes the new digest. It never invokes package_handoff_precondition, whose readiness and binding checks are at 14513–14533. package_pin_precondition subsequently checks only the directory digest at 14590–14592. A manifest-only change setting WI-001 to NOT_READY can therefore be approved, adopted and advanced while the bound requirement bytes remain unchanged.",
+      "evidence_type": "static",
+      "suggested_fix": "Before adoption writes, validate the current requirements binding against the newly approved manifest, require the same package work item to exist and be READY, and require its complete current file set.",
+      "ac_ids": ["PLAN §2.3", "PLAN §2.4", "AS-06"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-006",
+      "severity": "high",
+      "category": "defect/adoption-reassessment",
+      "path": "scripts/sdle.py",
+      "line": 14634,
+      "claim": "Adoption does not force the reassessment promised by the plan and ADR.",
+      "evidence": "At 14634–14643, adoption writes the pin and audit but does not invalidate the governance assessment or establish a reassessment requirement. governance_precondition at 12026–12028 tests freshness of bound file bytes only. tests/test_units_package_approval.py explicitly demonstrates this in test_adopting_a_newly_approved_revision_unblocks_progression: an unbound open-issues edit is adopted and advance immediately succeeds without reassessment.",
+      "evidence_type": "static",
+      "suggested_fix": "Persist an adoption marker that governance assessment must acknowledge, or invalidate the existing governance record on a moved adoption. Require a successful subsequent assessment before progression and update the test to assert that intermediate refusal.",
+      "ac_ids": ["PLAN §2.3", "ADR-016 §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-007",
+      "severity": "high",
+      "category": "defect/pin-enforcement",
+      "path": "scripts/sdle.py",
+      "line": 12868,
+      "claim": "Gate rejection and remediation entry points mutate lifecycle records despite a changed package pin, contrary to the approved placement rule.",
+      "evidence": "PLAN §2.3 explicitly includes 'cmd_gate_reject/remediation entry points' before their first irreversible write. cmd_gate_reject starts at 12868 and its drift branch appends audit and saves state at 12883–12894 without a pin check. cmd_remediate_begin starts at 15213 and likewise has no package_pin_precondition or governance_precondition. The new test test_skip_and_omit_and_approve_carry_the_pin_check_too also accepts unrelated 'not_at_gate'/'not_failed' refusals, so it does not establish the planned per-site coverage.",
+      "evidence_type": "static",
+      "suggested_fix": "Add the pure pin check before writes at the specified rejection and remediation sites. Test each command from a state that otherwise permits its mutation, require package_revision_changed specifically, and compare state and audit bytes.",
+      "ac_ids": ["PLAN §2.3"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-008",
+      "severity": "medium",
+      "category": "defect/handoff-binding",
+      "path": "scripts/sdle.py",
+      "line": 14527,
+      "claim": "A manually bound package WorkItem can omit declared shared requirements and still pass init.",
+      "evidence": "At 14527–14529, handoff forms allowed = {primary} | declared shared files but computes only extra = binding sources - allowed. It never checks allowed - binding sources. Binding only the work item's primary requirements.md therefore passes even when sharedFiles includes system-context.md, bypassing the required complete intake binding.",
+      "evidence_type": "static",
+      "suggested_fix": "Require equality between the binding's source set and the work item's primary plus declared sharedFiles, reporting both missing and extra files.",
+      "ac_ids": ["BRIEF D01", "BRIEF §3 Intake and handoff", "PLAN §2.4"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-009",
+      "severity": "medium",
+      "category": "defect/validation-regex",
+      "path": "scripts/sdle.py",
+      "line": 13758,
+      "claim": "Attacker-controlled grammar patterns can cause unbounded regex backtracking during package validation.",
+      "evidence": "At 13758–13767, grammar validation limits pattern length and checks re.compile only. At 13982–13987, those patterns are combined and evaluated with token.finditer against arbitrary traceability text. A short valid pattern such as '(a+)+b' and a long run of 'a' characters trigger catastrophic backtracking; the same patterns also run in fullmatch on manifest IDs.",
+      "evidence_type": "static",
+      "suggested_fix": "Define and validate a restricted ID-pattern syntax suitable for prefixes and bounded character classes, avoiding unrestricted Python regex constructs. Bound ID and scanned-text sizes and add an adversarial performance test.",
+      "ac_ids": ["PLAN §2.1", "PLAN §2.2", "AS-01"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-010",
+      "severity": "high",
+      "category": "defect/approval-concurrency",
+      "path": "scripts/sdle.py",
+      "line": 14090,
+      "claim": "The package ledger mutex can admit two live writers once an operation lasts longer than sixty seconds.",
+      "evidence": "package_ledger_lock at 14090–14092 uses PACKAGE_LOCK_STALE_AFTER = 60.0. exclusive_file_lock at 8818–8822 unlinks an old lock solely by mtime, without checking owner liveness or renewing it. Approval holds this lock across validation, hashing and a full revision copy. A slow or paused first writer can resume after a second writer breaks its lock; both can read the same ledger tail and overwrite one another's appended approval.",
+      "evidence_type": "static",
+      "suggested_fix": "Use a lock mechanism that cannot expire while its owner is alive, or implement owner-liveness checks and renewal with safe takeover semantics. Add a controlled concurrency test with a writer paused beyond the stale threshold.",
+      "ac_ids": ["PLAN §2.3", "AS-05"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R1-011",
+      "severity": "medium",
+      "category": "defect/ledger-validation",
+      "path": "scripts/sdle.py",
+      "line": 14068,
+      "claim": "Ledger reads validate the chain but not approval-record structure, allowing malformed records to escape the fail-closed JSON error contract.",
+      "evidence": "At 14068–14077, read_package_ledger validates only n, prev and hash. It does not require digest, package, approver, role, timestamp or wording. A correctly hashed record without digest passes this reader, then package_status at 14106 indexes latest['digest'] and raises an uncaught KeyError. main at 18723 catches only SdleError, so this produces a traceback instead of package_approvals_invalid and exit 3.",
+      "evidence_type": "static",
+      "suggested_fix": "Validate every required record field, its type, package identity and digest/hash format before accepting the chain. Convert malformed-record and unreadable-ledger conditions to IntegrityError, and test structurally malformed but correctly hashed records.",
+      "ac_ids": ["PLAN §2.3", "ADR-016 §7"],
+      "confidence": "high"
+    }
+  ]
+}

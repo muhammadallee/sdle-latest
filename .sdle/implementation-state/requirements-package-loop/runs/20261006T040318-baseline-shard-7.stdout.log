@@ -1,0 +1,36 @@
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 37%]
+........................................................................ [ 49%]
+....................................................................F... [ 62%]
+........................................................................ [ 74%]
+........................................................................ [ 87%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+================================== FAILURES ===================================
+_______ test_the_restatement_search_skips_only_the_maintenance_records ________
+
+tmp_path = WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1136/test_the_restatement_search_sk0')
+
+    def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
+        """F-025, widened twice in the requirements-refinement work: once for its
+        own execution record, once for open-items-01-02's (a Codex review run's
+        event stream, committed in the same session, quotes back whatever
+        vocabulary the reviewed diff discussed). All three have the same job:
+        quoting engine vocabulary — check ids, refusal codes — as evidence, not
+        as documentation. The exclusion is this **enumerated, named set of
+        three** directories and nothing wider: an unlisted sibling under
+        `.sdle/implementation-state/`, the policies and the templates are
+        product surface and stay searched. Widening the set is not a pattern
+        match on `implementation-state/*` — a fourth, unnamed sibling proves
+        that."""
+        from conftest import MAINTENANCE_RECORDS
+    
+>       assert len(MAINTENANCE_RECORDS) == 3
+E       AssertionError: assert 4 == 3
+E        +  where 4 = len((WindowsPath('.sdle/implementation-state/repository-cleanup'), WindowsPath('.sdle/implementation-state/requirements-re...th('.sdle/implementation-state/open-items-01-02'), WindowsPath('.sdle/implementation-state/requirements-package-loop')))
+
+tests\test_units_capabilities.py:657: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_capabilities.py::test_the_restatement_search_skips_only_the_maintenance_records
+1 failed, 576 passed in 458.68s (0:07:38)

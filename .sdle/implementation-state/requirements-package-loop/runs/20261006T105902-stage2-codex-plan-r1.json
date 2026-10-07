@@ -1,0 +1,80 @@
+{
+  "run_id": "20261006T105902-stage2-codex-plan-r1",
+  "result": "BLOCKED",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "plan-r1",
+  "codex_version": "codex-cli 0.151.0",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "9458a0477cd216045771a4415263473f7bb4ed79",
+  "timeout_seconds": 2400,
+  "prompt": "plan-round1.prompt.md",
+  "prompt_sha256": "0d0e1fcc0eab547a82ab384e9c00be5957e98d0add2b7522503400c415e3a987",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T10:59:02Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T105902-stage2-codex-plan-r1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T10:59:02Z",
+      "exit_code": 1,
+      "finished_utc": "2026-10-06T10:59:14Z",
+      "model_reported": null,
+      "validation_problems": [
+        "nonzero exit / timeout"
+      ],
+      "outputs": {
+        "events": "20261006T105902-stage2-codex-plan-r1.a1.events.jsonl",
+        "stderr": "20261006T105902-stage2-codex-plan-r1.a1.stderr.log",
+        "review": "20261006T105902-stage2-codex-plan-r1.a1.review.json"
+      }
+    },
+    {
+      "attempt": 2,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T105902-stage2-codex-plan-r1.a2.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T10:59:14Z",
+      "exit_code": 1,
+      "finished_utc": "2026-10-06T10:59:22Z",
+      "model_reported": null,
+      "validation_problems": [
+        "nonzero exit / timeout"
+      ],
+      "outputs": {
+        "events": "20261006T105902-stage2-codex-plan-r1.a2.events.jsonl",
+        "stderr": "20261006T105902-stage2-codex-plan-r1.a2.stderr.log",
+        "review": "20261006T105902-stage2-codex-plan-r1.a2.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T10:59:22Z"
+}

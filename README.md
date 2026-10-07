@@ -351,6 +351,7 @@ scripts/
 │   │   ├── code-review.md        ← Code review capability
 │   │   ├── requirements-refinement.md ← Fixing blocked requirements (before init)
 │   │   ├── requirements-change.md ← When requirements change under a WorkItem
+│   │   ├── requirements-package.md ← A source document to an approved package (before init)
 │   │   └── security-review.md    ← Review template (loaded at Phase 17)
 │   └── templates/state.json  ← Initial state template (the only copy)
 ├── commands/                 ← The nine /sdle-* slash commands

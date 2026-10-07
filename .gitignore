@@ -8,8 +8,16 @@ __pycache__/
 .pytest_cache/
 workitems/*/.sdle/lock
 .sdle/architecture/catalog.lock
+.sdle/package-approvals/*/ledger.lock
+package-staging/
 workitems/.active-context.json
 workitems/.refinement-transaction.lock
 
 # Developer-local Claude Code settings: per-developer, never shipped or installed
 .claude/settings.local.json
+workitems/*/.sdle/mutation.lock
+# The owner's client SRS names real staff; it is never committed (LEDGER L1).
+docs/enhancements/requirements-package/reference/
+
+# Raw Codex transcripts of this enhancement quote what the reviewer read; run records and review JSON are kept.
+.sdle/implementation-state/requirements-package-loop/runs/*.events.jsonl

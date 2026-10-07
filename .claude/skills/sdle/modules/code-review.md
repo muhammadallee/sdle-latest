@@ -9,12 +9,14 @@ One question: **does the implementation do what the tasks and the plan say, and 
 - `sdle.sh implement preflight` pins the base reference before implementation starts; the review reads the diff from that pinned point, not from an assumed one-commit history.
 - `sdle.sh manifest build` produces the file list, the secrets scan and the test evidence. Read it rather than re-deriving it.
 - Read the tasks and the plan, so "does it do what was asked" has something to be measured against.
+- When the WorkItem was started from a requirements package, also read the package files for this work item and run `sdle.sh trace check` and `sdle.sh verification show`. The question is then also whether each in-scope requirement is implemented and each acceptance criterion tested; findings cite the obligation ids they concern.
 
 ### 2. Delegate the analysis, or do it here
 
 Code review is high-context independent analysis over a diff. Hand it to **`sdle-code-review`** and give it, in the delegation message:
 
 - the changed files, and the base reference the diff is taken from;
+- for a package WorkItem, the package files, the trace report and the **raw** test evidence (the manifest and the evidence record the engine built), never your own summary of them;
 - the tasks and plan paths;
 - the finding shape below.
 
@@ -49,7 +51,7 @@ sdle.sh artifact review --path <artifact> --type code-review \
   --evidence <pointer> --comments "<one-line summary>"
 ```
 
-The same three rules apply as for any governed review: `FAIL` when a finding is `blocking`; `--actor-name` is an attribution and not an attestation; the record binds to the current fingerprint and goes stale the moment the content changes.
+Findings can be given to the engine as structured data (`--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`); a `PASS` is refused while a blocking one is open. The same three rules apply as for any governed review: `FAIL` when a finding is `blocking`; `--actor-name` is an attribution and not an attestation; the record binds to the current fingerprint and goes stale the moment the content changes.
 
 ## The rule that does not bend
 

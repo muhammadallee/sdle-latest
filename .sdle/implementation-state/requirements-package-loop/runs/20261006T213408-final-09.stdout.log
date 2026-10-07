@@ -1,0 +1,21 @@
+...........................................................F............ [ 82%]
+...............                                                          [100%]
+================================== FAILURES ===================================
+_______ test_every_page_under_docs_is_reachable_from_an_entry_document ________
+
+    def test_every_page_under_docs_is_reachable_from_an_entry_document():
+        entries = [REPO_ROOT / e for e in ENTRY_DOCUMENTS]
+        reachable = reachable_from(entries, REPO_ROOT)
+        docs = {p.resolve() for p in (REPO_ROOT / "docs").rglob("*.md")}
+        orphans = sorted(p.relative_to(REPO_ROOT.resolve()).as_posix() for p in docs - reachable)
+>       assert orphans == [], orphans
+E       AssertionError: ['docs/enhancements/requirements-package/DELIVERY.md']
+E       assert ['docs/enhanc.../DELIVERY.md'] == []
+E         
+E         Left contains one more item: 'docs/enhancements/requirements-package/DELIVERY.md'
+E         Use -v to get more diff
+
+tests\test_units_doc_links.py:190: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_doc_links.py::test_every_page_under_docs_is_reachable_from_an_entry_document
+1 failed, 86 passed in 29.68s

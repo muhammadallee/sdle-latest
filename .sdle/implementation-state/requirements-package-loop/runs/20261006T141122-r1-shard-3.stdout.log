@@ -1,0 +1,72 @@
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 36%]
+........................................................................ [ 49%]
+...............................................................F........ [ 61%]
+........................................................................ [ 73%]
+........................................................................ [ 86%]
+........................................................................ [ 98%]
+........                                                                 [100%]
+================================== FAILURES ===================================
+________ test_t10_ships_exactly_the_declared_agents_skills_and_modules ________
+
+    def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
+        """X1 (TP-003 category 2). Was the first half of
+        `test_n31_no_t10_or_t11_leakage`, which asserted T10's *absence*: no agent
+        outside the `sdle-transition-` control plane, and exactly three modules.
+        T10 has landed, so the same three assertions now enumerate T10's expected
+        shape instead.
+    
+        The shape of each assertion is unchanged — exact equality against a
+        written-out set, never relaxed to a prefix test, a subset or an `any`. The
+        agent list is in fact *stronger* than what it replaced: `stray == []` was a
+        derived check that said nothing about which control-plane files exist,
+        where this enumerates all of them. A fifth product agent, a second product
+        skill or a sixth capability file appearing without a plan still fails here.
+        """
+        agents = sorted(p.name for p in (REPO_ROOT / ".claude" / "agents").iterdir()
+                        if p.is_file())
+        # Closed set, narrowed by the post-transition cleanup the deleted comment
+        # below deferred to. Old value: the four product subagents plus
+        # `sdle-transition-implementer.md`, `sdle-transition-orchestrator.md`,
+        # `sdle-transition-planner.md` and `sdle-transition-verifier.md`, eight
+        # names. New value: the five product subagents, five names. Exact equality
+        # either way, and now over the whole directory rather than one population
+        # within it.
+        assert agents == [
+            # The four product subagents contract §16 names, and the requirements assessor.
+            "sdle-code-review.md",
+            "sdle-design-review.md",
+            "sdle-discovery.md",
+            "sdle-requirements-review.md",
+            "sdle-security-review.md",
+        ], agents
+    
+        # The product skill is still exactly one, undivided: T10 split the
+        # *capability files*, not the skill. `apply-sdle-transition` used to sit
+        # beside it — the migration control plane, the skill that ran this
+        # transition — enumerated by name rather than excluded by pattern so a
+        # second control-plane skill could not sneak a product split in with it.
+        # The post-migration cleanup deleted it, so this closed set narrows from
+        # `["apply-sdle-transition", "sdle"]` to `["sdle"]` and `.claude/skills/`
+        # now holds the product skill and nothing else.
+        skills = sorted(p.name for p in
+                        (REPO_ROOT / ".claude" / "skills").iterdir() if p.is_dir())
+        assert skills == ["sdle"], skills
+        modules = sorted(p.name for p in (REPO_ROOT / ".claude" / "skills" / "sdle"
+                                          / "modules").glob("*.md"))
+>       assert modules == ["architecture-placement.md", "code-review.md",
+                           "design-review.md", "gate-protocol.md",
+                           "phase-execution.md", "requirements-change.md",
+                           "requirements-refinement.md", "security-review.md"], modules
+E       AssertionError: ['architecture-placement.md', 'code-review.md', 'design-review.md', 'gate-protocol.md', 'phase-execution.md', 'requirements-change.md', ...]
+E       assert ['architectur...ange.md', ...] == ['architectur...ange.md', ...]
+E         
+E         At index 6 diff: 'requirements-package.md' != 'requirements-refinement.md'
+E         Left contains one more item: 'security-review.md'
+E         Use -v to get more diff
+
+tests\test_units_gate_policy.py:1397: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_gate_policy.py::test_t10_ships_exactly_the_declared_agents_skills_and_modules
+1 failed, 583 passed in 325.11s (0:05:25)

@@ -43,6 +43,10 @@ Recommend building on the existing work unless the change contradicts what exist
 - **Redo:** run `sdle.sh restart --to <N> --approach <rebuild|update>` with the number and the approach the user chose, show what it would clear, and only after they confirm run it again with `--confirm`. Then assess the requirements again — the rollback does not refresh the assessment — and execute the phases from there with the approach you were given. For *build on the existing work*, show at each gate what changed against the previous version of the artifact. Every cleared gate is a human gate again.
 - **New WorkItem or reset:** do what the user asked and nothing more; a reset is its own two-step command.
 
+### 4a. When the requirements are a package
+
+If the WorkItem started from a requirements package and the engine refuses `package_revision_changed`, or `sdle.sh package show` reports the approval **stale**, the package moved after the Solution Architect approved the revision this WorkItem started under. That is a different fact from `governance_stale`: governance freshness sees only the bound documents, the pin covers the whole package. Show what the engine says (`package show --diff` is the diff since the last approved revision) and put the choice to the user as above. The way forward for a package is fixed: the new revision is drafted in staging and imported with `--replace` (`modules/requirements-package.md`), the Solution Architect approves it, `sdle.sh package adopt` re-pins this WorkItem, and the requirements are assessed again. Adoption never decides what to do with work already done; that is still the user's choice from step 2.
+
 ### 5. Things that do not bend
 
 - The user chooses; you describe and recommend.

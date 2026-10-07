@@ -1,0 +1,55 @@
+{
+  "run_id": "20261006T181432-stage2-codex-impl-r3-1",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "impl-r3-1",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "cfc2689fc3ff03d296d975b28b79b4fcba69d0fe",
+  "timeout_seconds": 3000,
+  "prompt": "impl-r3-round1.prompt.md",
+  "prompt_sha256": "98eb026c9053878d27ef9be997ebc48ff8476f838a9680773a519a699eae22e5",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T18:14:32Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T181432-stage2-codex-impl-r3-1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T18:14:32Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-06T18:17:12Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261006T181432-stage2-codex-impl-r3-1.a1.events.jsonl",
+        "stderr": "20261006T181432-stage2-codex-impl-r3-1.a1.stderr.log",
+        "review": "20261006T181432-stage2-codex-impl-r3-1.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T18:17:12Z",
+  "findings": 9,
+  "coverage_not_reviewed": [
+    "Full test suite and lint execution: these workflows write files and were not run in the read-only sandbox",
+    "Live Windows/POSIX contention and process-crash experiments",
+    "Real Claude Code hook enforcement and Spec Kit execution"
+  ],
+  "review_output": "20261006T181432-stage2-codex-impl-r3-1.a1.review.json"
+}

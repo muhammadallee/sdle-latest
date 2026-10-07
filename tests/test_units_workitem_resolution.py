@@ -1393,6 +1393,11 @@ def test_runtime_free_commands_is_a_closed_enumerated_set():
         # WorkItem bound. `assess`, `apply` and `realize` bind explicitly
         # through `bind_for_architecture`.
         "architecture",
+        # ADR-016: a requirements package is repository-level. `validate`,
+        # `import`, `approve`, `show`, `reseal` and `intake` answer with no
+        # WorkItem bound; `adopt` and a WorkItem-derived `show` bind
+        # explicitly through `bind_workitem`.
+        "package",
     })
 
 
@@ -1469,6 +1474,10 @@ def test_workitem_rebinding_happens_only_at_the_declared_sites():
         # Reads ANOTHER WorkItem's binding and state, read-only, to say who
         # shares a requirements document. It binds nothing and writes nothing.
         "refinement_sharer_report",
+        # ADR-016: `package intake` binds each WorkItem it has just created (or
+        # found) to write that WorkItem's requirements binding through the one
+        # binding writer. It resolves nothing: the ids come from the package.
+        "cmd_package_intake",
     }
 
 

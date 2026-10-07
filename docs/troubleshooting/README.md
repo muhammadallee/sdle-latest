@@ -472,3 +472,82 @@ ADR-013. Those two are human-authored and are visible to the implementation
 dirty-tree guard; only `.sdle/baseline.json`, `.sdle/implementation-state/` and
 `.sdle/architecture/` are engine-owned. Commit or stash the configuration
 change, or confirm to proceed (which is logged).
+
+## Requirements packages and the handoff (ADR-016)
+
+A package is imported with `package import`, approved by a Solution Architect with `package approve`, and a developer starts a WorkItem from it. Every refusal below fires before the first write, so a refused command leaves the package, the approval ledger and the WorkItem exactly as they were.
+
+| Reason | Exit | Meaning | Way out |
+|---|---|---|---|
+| `package_invalid` | 1 | The package has structural problems. `offenders` lists every one, each with a `rule` (`package_id_duplicate`, `package_id_outside_grammar`, `package_reference_dangling`, `package_requirement_unsourced`, `package_source_unknown`, `package_source_missing`, `package_source_changed`, `package_scope_unassigned`, `package_workitem_no_criterion`, `package_ready_with_blocking_issue`, `package_core_file_missing`, `package_file_missing`, `package_file_undeclared`, `package_files_changed`, `package_supporting_file_empty`, `package_absent_supporting_unexplained`, `package_traceability_disagrees`, `package_id_reused`, `package_supersedes_missing`, `package_id_retired_without_successor`, `package_id_moved`, `package_manifest_invalid`, `package_content_flagged`, `package_file_not_text`, `package_symlink_refused`, `package_source_unsafe`, `package_file_too_large`, `package_retirement_dropped`, `package_id_changed_kind`) | Fix each offender and run `package validate --package <id> --staging` again. A source document that changed needs the package regenerated from the current source |
+| `package_not_found` | 1 | There is no staging directory or imported package of that id | Draft it in `package-staging/<id>/` and run `package import` |
+| `package_exists` | 1 | The package is already imported and `--replace` was not given | `package import --replace`; any approval becomes stale |
+| `package_locked` | 1 | Another process holds the package's approval lock, or the approvals or the package changed while this approval was being recorded | Nothing was written. Retry. The lock is held by the operating system, so a holder that died releases it and a file left behind blocks nothing |
+| `package_path_invalid` | 1 | A package or approval directory resolves outside the repository, or a component of its path is a link | SDLE never follows a link into or out of a package. Remove the link |
+| `package_reassessment_required` | 1 | A WorkItem adopted a new package revision and has not been assessed since | Run `governance assess`; nothing advances until a new assessment exists |
+| `package_approval_missing` | 1 | `init` for a WorkItem bound to a package that no Solution Architect has approved | Have the package reviewed (`package show`), then `package approve` |
+| `package_approval_stale` | 1 | The package changed after its latest approval (also reported by `package adopt`) | `package show --diff` shows what changed. If the edit was intended and made by `refinement`, run `package reseal`; then approve again |
+| `package_workitem_not_ready` | 1 | The package work item is marked NOT READY | Resolve its blocking open issues in the package, re-import, re-approve |
+| `package_binding_invalid` | 1 | The WorkItem's binding is not one package work item's own `requirements.md` plus the shared files it cites | Use `package intake`, or re-run `requirements bind` with exactly those files |
+| `package_binding_mixed` | 1 | The binding mixes files of two packages, or a package file with a document from outside any package | Re-run `requirements bind` |
+| `package_intake_conflict` | 1 | A WorkItem for that package work item already exists with a different binding | Intake never overwrites a binding. Use `requirements bind` deliberately |
+| `package_revision_changed` | 1 | The package moved under a WorkItem that had already started. Checked before the first write at `advance`, `gate approve`, `gate omit`, `skip` and drift re-approval | Draft the new revision in staging, `package import --replace`, have it approved, then `package adopt` and re-assess. Governance freshness alone cannot see this: it covers only the bound files |
+| `package_not_bound` | 1 | `package adopt` or a WorkItem-derived `package show` on a WorkItem with no package pin | Name a package with `--package`, or use a WorkItem started from one |
+| `package_approvals_invalid` | **3** | The approval ledger or an approved revision cannot be read, or breaks its hash chain | An integrity failure, never an empty ledger. Restore `.sdle/package-approvals/` from version control; never edit it by hand |
+| `package_binding_invalid` (pin) | **3** | A WorkItem's `package-binding.json` is unreadable, belongs to another WorkItem or was edited | Restore it from version control; it is written only by `init` and `package adopt` |
+| `package_manifest_invalid` | **3** | `package reseal` found a manifest damaged beyond its file digests | Re-import the package from staging |
+
+**The approver is a name, not an identity.** The ledger records the name, role, time and wording the approver gave, and the engine cannot verify who typed them. Protect `requirements/packages/` and `.sdle/package-approvals/` with CODEOWNERS and branch protection so the Git host supplies the identity.
+
+## Traceability, verification and evidence bound to the tree (ADR-017)
+
+Every `trace_*` and `verification_*` refusal below applies only to a WorkItem started from a requirements package. `review_type_mismatch`, `review_findings_open` and the tree-digest refusals apply to every WorkItem. All of them fire before the first write.
+
+| Reason | Exit | Meaning | Way out |
+|---|---|---|---|
+| `trace_spec_incomplete` | 1 | `gate_spec` (or its drift re-approval): an in-scope requirement of the work item is missing from spec.md and has no approved exclusion | Cover it in the specification, or record an approved exclusion with `verification record --disposition excluded-approved` |
+| `trace_unknown_id` | 1 | spec.md or tasks.md cites an id, matching the package's grammar, that the package does not define (a retired id counts as unknown: cite its successor) | Cite only ids `package show` lists |
+| `trace_tasks_uncovered` | 1 | `gate_tasks`, or `gate_implement` again: an acceptance criterion has no task citing it, or none whose text says it tests it | Add a test task citing the criterion. `data.withoutTask` and `data.withoutTestTask` name them |
+| `trace_verification_missing` | 1 | `gate_implement`: an acceptance criterion has no disposition (no passing suite behind it and nothing recorded) or is `blocked` | Run the tests, then `verification map --junit <file>` or `verification record` |
+| `trace_verification_unmapped` | 1 | The policy sets `unmapped_verification_blocks` and a criterion is only `suite-pass-unmapped` | Map it from a JUnit result in which a test's name cites the id, or record a disposition |
+| `verification_not_applicable` | 1 | A verification command on a WorkItem not started from a package | Nothing to record: the rules do not apply |
+| `verification_id_unknown` | 1 | The id is not an in-scope requirement of this work item | Use an id `trace check` lists |
+| `verification_mapped_is_derived`, `verification_unmapped_is_derived` | 1 | `verified-mapped` and `suite-pass-unmapped` cannot be typed in | The first comes from `verification map`; the second is derived from a passing suite |
+| `verification_evidence_missing` | 1 | `manual-evidence` names a file that is not there, or `verification map` found no implementation evidence | Name an existing file; run `manifest build` first |
+| `verification_junit_invalid`, `verification_junit_not_captured`, `verification_junit_changed`, `manifest_junit_missing` | 2 / 1 | The report is not JUnit XML; the evidence captured none, or you named another file; it was edited after it was captured; or `manifest build --junit` named a file the test command did not write | Build with `manifest build --test-command <cmd> --junit <report>`; only the report the build captured is mapped, and only while it is unchanged |
+| `verification_record_invalid` | **3** | `verification.json` is unreadable or is not this WorkItem's | Restore it from version control; never edit it by hand |
+| `review_type_mismatch` | 1 | The artifact was reviewed, but not by a review type and actor type the gate's row in `GATE_REVIEW_TYPES` accepts | Record the review that capability describes with `artifact review --type <type>`. `data.accepted_types` names it |
+| `review_findings_open` | 1 | `artifact review --result PASS` with a blocking finding still open in `--findings` | Resolve it, or record `FAIL` |
+| `review_findings_invalid` | 2 | The findings file is not a list of `{id, severity, location, obligations[], disposition}` | Fix the file; nothing was recorded |
+| `test_evidence_stale` with `mismatch: treeDigest` | 1 | The working tree is not the one the passing run was taken against: a tracked or untracked file changed since | Rebuild with `manifest build` |
+| `test_evidence_stale` with `mismatch: changed_during_run` | 1 | The tree changed while the tests ran (`data.changed` names the paths), so the result proves nothing about either state | Make the test command write to an ignored path or to `workitems/<id>/.sdle/evidence/`, then rebuild |
+| `rebaseline_not_permitted` | 1 | `drift rebaseline` on a WorkItem started from a package | A change to an approved artifact is drift: re-approve it or restore it |
+
+**Evidence built before ADR-017** carries no tree binding and keeps the checks it always had.
+
+## The implementation loop (ADR-017)
+
+The loop runs inside `implement`. It records and refuses; it never advances or approves a gate.
+
+| Reason | Exit | Meaning | Way out |
+|---|---|---|---|
+| `loop_wrong_phase` | 1 | `loop begin` outside `implement` (or its remediation after a rejection) | Reach the phase, or the remediation, first |
+| `loop_no_base` | 1 | The implementation base is not pinned | `implement preflight` |
+| `loop_no_tasks` | 1 | There is no task list | Generate and approve tasks first |
+| `tasks_drift` | 1 | At `loop begin`: the task list differs from what the task gates approved. At `tasks reconcile`: it changed in a way the loop does not accept (only ticks and appended `## Phase N: Convergence` sections are), and **the run is stopped with this reason** | Restore the list or re-approve it, then `loop begin`. A person decides |
+| `reconcile_unrelated_drift` | 1 | Another approved artifact has drifted, and reconciling the task list must not hide it | Re-approve or restore that artifact first |
+| `loop_in_progress` | 1 | A run is already active | Continue it (`loop show`), or end it with `loop stop` |
+| `loop_not_active` | 1 | A loop command with no active run | `loop begin` |
+| `loop_step_out_of_order` | 1 | A step recorded without the one before it, or repeated (a second `converge` with no `implement` between) | `loop show` names the last completed step and what comes next |
+| `loop_step_duplicate` | 1 | The evidence or the review was already recorded by an earlier step | Build fresh evidence; request a fresh review |
+| `loop_inventory_too_large` | 1 | The captured JUnit report holds more test cases than the loop tracks completely (5000) | Split the report per suite, or run the loop over a narrower suite; the loop never tracks a truncated inventory |
+| `loop_snapshot_stale` | 1 | The working tree is not the one the evidence was taken from (or the evidence was rebuilt outside the recorder). Its snapshot is never reused | Rebuild: `manifest build`, then `loop step --step manifest`, then review it again |
+| `loop_manifest_missing`, `loop_manifest_invalid` | 1 | No tree-bound evidence, or the tests changed the tree while they ran | Run `manifest build`; make the test command leave the tree alone |
+| `loop_review_missing` | 1 | No `code-review` of the current manifest | Hand the review to `sdle-code-review` and record it with `artifact review --type code-review` |
+| `loop_limit_reached` | 1 | The run's iterations are used | `loop record` ends the run `limit_exhausted`; a person decides whether to `loop begin` again |
+| `loop_converge_pending` | 1 | `gate approve`, or `loop record`: the last converge appended tasks no later converge has found done | Run the next iteration over the open tasks |
+| `loop_record_invalid` | **3** | `implementation-loop.json` is not a file this engine wrote for this WorkItem, or a snapshot cannot be trusted | Restore it from version control; never edit it by hand |
+| `workitem_locked` | 1 | Another command holds the WorkItem's verification and loop lock | Nothing was written; retry. The lock is held by the operating system and released if its holder dies |
+
+**Stop reasons** (`loop record` / `loop show`, each with a `next` action): `ready_for_gate`, `limit_exhausted`, `no_progress`, `environment_blocker`, `ambiguity`, `test_expectation_change`, `tasks_drift`, `interrupted`. `test_expectation_change` is a person's decision; `loop begin` accepts the deletions as they stand. `ready_for_gate` means ready for human review, not approved.
+

@@ -1,0 +1,59 @@
+{
+  "reviewed_commit": "d1f06a0309c1b2127dac9d1914d904953d976e1b",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; round-1 fix diff cfc2689..HEAD; LEDGER review dispositions",
+      "Bounded loop block, completion predicate, drift approval, gate omission, step ordering, stale recovery, reconciliation and stop classification",
+      "R2 verification-chain validation, captured JUnit mapping, disposition expiry, gitlink tree hashing and OS-held mutation locks",
+      "PLAN §4, BRIEF AS-20..AS-29, loop tests and invariant pins",
+      "Phase 17 procedure, gate protocol, SKILL invocation table, ADR-017, DR-25, troubleshooting and Getting Started changes",
+      "Executed read-only helper probes and lint-skill; lint-skill passed"
+    ],
+    "areas_not_reviewed": [
+      "Full pytest execution and real Spec Kit execution",
+      "Live multiprocess contention and physical crash testing on Windows and POSIX",
+      "Every existing legacy test body and unrelated engine code"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R3R2-001",
+      "severity": "high",
+      "category": "defect/completion",
+      "path": "scripts/sdle.py",
+      "line": 16167,
+      "claim": "Starting another run erases the completion predicate's knowledge of pending convergence tasks.",
+      "evidence": "loop_converge_precondition scans only `record[\"runs\"][-1][\"iterations\"]`. cmd_loop_begin appends a run with `\"iterations\": []`, while cmd_loop_stop permits interruption after an appended convergence was reconciled. An executed probe supplied an interrupted run whose converge had `appended: true`, followed by an empty active run; loop_converge_precondition returned successfully. Thus stop/begin can remove loop_converge_pending without any subsequent converge finding the work done. Fresh evidence and review can then satisfy the gate despite that pending work.",
+      "evidence_type": "executed",
+      "suggested_fix": "Preserve pending convergence across run boundaries, either by scanning backward across runs for the latest converge or carrying its pending state into each new run. Add a stop/begin/gate regression where appended tasks remain pending.",
+      "ac_ids": ["PLAN §4.2", "AS-20", "BRIEF §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R2-002",
+      "severity": "medium",
+      "category": "defect/resume",
+      "path": "scripts/sdle.py",
+      "line": 16364,
+      "claim": "The producer precondition still allows duplicate evidence and reviews in the crash window before their loop steps are recorded.",
+      "evidence": "loop_output_precondition checks only `_last_step(iteration)`, permitting manifest production at reconcile/stale and review production at manifest. Neither producer records consumption of that permission. An executed probe called the manifest precondition twice against the same reconcile step; both calls succeeded. Consequently, crashing after manifest build but before loop step manifest and retrying the build produces another evidence file; the analogous review retry also succeeds. tests/test_units_loop.py:732 checks repetition only after recording the corresponding step, leaving this AS-25 window uncovered.",
+      "evidence_type": "executed",
+      "suggested_fix": "Bind producer outputs to the iteration under a shared lock and persist their production before permitting another output. On resume, return or record the existing output, with an explicit invalidation path for stale rebuilds. Test retries before loop step manifest and loop step review.",
+      "ac_ids": ["PLAN §4.1", "R1-005", "AS-25", "IR-R3R1-007"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R2-003",
+      "severity": "medium",
+      "category": "defect/test-inventory",
+      "path": "scripts/sdle.py",
+      "line": 16285,
+      "claim": "Truncating JUnit inventories silently hides removed cases and changes to failing sets in larger suites.",
+      "evidence": "_junit_inventory returns `\"cases\": names[:5000]` and truncates `failing` to 5000, although cmd_loop_record compares only these stored cases and _loop_progress hashes only the stored failures. Its complete count is unused by those decisions. An executed probe compared inventories of 5001 sorted cases and the same suite with its last case removed: counts were 5001 and 5000, but the detected removal set was empty. This bypasses test_expectation_change; failing-set truncation can likewise produce false no_progress.",
+      "evidence_type": "executed",
+      "suggested_fix": "Retain complete inventories for enforcement, optionally in a separately hashed snapshot, and truncate only presentation. Alternatively refuse oversized reports explicitly. Add regressions for deletion beyond case 5000 and changes beyond failure 5000.",
+      "ac_ids": ["PLAN §4.3", "AS-23", "AS-27", "IR-R3R1-002", "IR-R3R1-004"],
+      "confidence": "high"
+    }
+  ]
+}

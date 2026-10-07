@@ -246,6 +246,31 @@ class Paths:
         return self.runtime / "requirements.json"
 
     @property
+    def implementation_loop_file(self) -> Path:
+        """The implementation loop's record (ADR-017 section 6). Engine-written
+        and self-digested, beside `requirements.json` and for the same reason:
+        it says what the loop did, and a file the engine did not write is not
+        evidence of that."""
+        return self.runtime / "implementation-loop.json"
+
+    @property
+    def verification_file(self) -> Path:
+        """Per-criterion verification dispositions (ADR-017). Append-only and
+        engine-written, beside `reviews.json` and for the same reason: a
+        record of what was established is not a field of the state."""
+        return self.runtime / "verification.json"
+
+    @property
+    def package_binding_file(self) -> Path:
+        """The package revision this WorkItem started under (ADR-016 §3).
+
+        Written by `init` and `package adopt` only, beside `requirements.json`,
+        because governance freshness sees only the *bound* files and the pin
+        is what covers the rest of the package.
+        """
+        return self.runtime / "package-binding.json"
+
+    @property
     def refinement_lock_file(self) -> Path:
         """The short repository mutex for requirements ownership.
 
@@ -413,6 +438,33 @@ class Paths:
     def architecture_lock_file(self) -> Path:
         """Held only across one read-check-write of the catalog."""
         return self.architecture_dir / "catalog.lock"
+
+    @property
+    def package_approvals_dir(self) -> Path:
+        """Repository-level requirements-package approvals (ADR-016).
+
+        Same location rule as the architecture catalog: derived from
+        ``project_root`` alone, never from the bound WorkItem, and outside the
+        package directory so an approval never changes the digest it approves.
+        """
+        return self.config_root / "package-approvals"
+
+    def package_dir(self, package_id: str) -> Path:
+        return self.project_root / "requirements" / "packages" / package_id
+
+    def package_staging_dir(self, package_id: str) -> Path:
+        """Where the orchestrator drafts a package. Deliberately not fenced:
+        `package import` is the only thing that copies it into place."""
+        return self.project_root / "package-staging" / package_id
+
+    def package_ledger_file(self, package_id: str) -> Path:
+        return self.package_approvals_dir / package_id / "ledger.json"
+
+    def package_lock_file(self, package_id: str) -> Path:
+        return self.package_approvals_dir / package_id / "ledger.lock"
+
+    def package_revisions_dir(self, package_id: str) -> Path:
+        return self.package_approvals_dir / package_id / "revisions"
 
     @property
     def agents_dir(self) -> Path:
@@ -847,6 +899,11 @@ class Constants:
     # phase context" is a deterministic lookup rather than a judgement the
     # model re-makes every turn.
     capability_map: dict[str, list[str]] = field(default_factory=dict)
+    # Which review types, by which actor types, may carry each gate (ADR-017).
+    # `any` in a cell means "any". Parsed from GATE_REVIEW_TYPES, never inferred:
+    # a PASS of the wrong kind of review is not a PASS of this gate's review.
+    gate_review_types: dict[str, tuple[list[str], list[str]]] = field(
+        default_factory=dict)
 
     # -- derived ---------------------------------------------------------
 
@@ -1132,6 +1189,15 @@ def load_constants(paths: Paths) -> Constants:
         if phase:
             cell = _column(row, "capabilities") or ""
             consts.capability_map[phase] = cell.split()
+
+    # Parsed here, validated in `run_sync_checks` (a malformed row must be the
+    # named check it breaks, not one opaque `tables_wellformed` failure).
+    for row in parse_md_table(skill, "GATE_REVIEW_TYPES"):
+        key = _column(row, "gate_key")
+        if key:
+            consts.gate_review_types[key] = (
+                (_column(row, "review_types") or "").split(),
+                (_column(row, "actor_types") or "").split())
 
     for row in parse_md_table(paths.gate_protocol_md, "GATE_TO_EXECUTION_PHASE"):
         key = _column(row, "gate_key")
@@ -1766,6 +1832,11 @@ def _cmd_init_locked(args, paths: Paths) -> int:
             {"workitem": paths.workitem, "missing": absent},
         )
 
+    # ADR-016: a binding that names a requirements package must name an
+    # approved, current one, for a READY work item. Inert for every other
+    # binding, so this is a pure reader that refuses before the first mkdir.
+    package_pin = package_handoff_precondition(paths, validated_binding(paths))
+
     # The WorkItem title sits *after* heading inference deliberately: it is a
     # better identity than a directory name, but the requirements heading is
     # still the most specific thing the project says about itself, and moving
@@ -1814,6 +1885,10 @@ def _cmd_init_locked(args, paths: Paths) -> int:
     stamp = now_iso()
     execution_id = execution_identity(paths, stamp)
     write_execution_file(paths, execution_id, stamp)
+    if package_pin:
+        write_atomic(paths.package_binding_file, json.dumps(
+            _package_binding_body(package_pin, paths.workitem, stamp),
+            indent=2) + "\n")
     append_audit(
         paths,
         state,
@@ -1837,6 +1912,19 @@ def _cmd_init_locked(args, paths: Paths) -> int:
             + " A flow is bound once and never re-bound."
         ),
     )
+
+    if package_pin:
+        append_audit(
+            paths,
+            state,
+            phase="requirements_check",
+            event="package_pinned",
+            message=(
+                f"Started under package {package_pin['package']} work item "
+                f"{package_pin['workItem']}, revision "
+                f"{package_pin['digest'][:12]}, approval record "
+                f"{package_pin['ledgerHash'][:12]}."),
+        )
 
     # Requirements check completes immediately; the workflow advances to the
     # first generation phase, matching dry-run 01's first turn.
@@ -2392,14 +2480,18 @@ def current_branch(paths: Paths) -> str | None:
     return None if branch == "HEAD" else branch
 
 
-def cmd_workitem_create(args, paths: Paths) -> int:
-    raw = (args.name or "").strip()
+def _create_workitem(paths: Paths, raw_name, type_, synopsis_arg,
+                     auto_generate: bool) -> dict:
+    """Mint a WorkItem. Every validation precedes every write; the result is
+    the data `workitem create` reports, so `package intake` reuses the one
+    implementation instead of restating it."""
+    raw = (raw_name or "").strip()
     name = normalize_workitem_name(raw)
 
     # One clock read for the whole command: two would let createdAt and the
     # generated id straddle a second boundary.
     stamp = now_iso()
-    if args.auto_generate:
+    if auto_generate:
         workitem_id = f"WI-{name}-{stamp.replace('-', '').replace(':', '')}"
         if not AUTO_ID_RE.match(workitem_id):
             raise _name_invalid(
@@ -2431,13 +2523,13 @@ def cmd_workitem_create(args, paths: Paths) -> int:
         )
 
     branch = current_branch(paths)  # None when detached or git is absent
-    synopsis = (args.synopsis or "").strip() or None
+    synopsis = (synopsis_arg or "").strip() or None
 
     metadata = {
         "id": workitem_id,
         "name": name,
         "title": raw,
-        "type": (args.type or "").strip() or "enhancement",
+        "type": (type_ or "").strip() or "enhancement",
         "synopsis": synopsis,
         "createdAt": stamp,
         "createdBy": {
@@ -2470,7 +2562,7 @@ def cmd_workitem_create(args, paths: Paths) -> int:
             pass
         raise
 
-    emit("workitem create", {
+    return {
         "id": workitem_id,
         "name": name,
         "title": metadata["title"],
@@ -2480,7 +2572,12 @@ def cmd_workitem_create(args, paths: Paths) -> int:
         "path": str(target),
         "metadata_file": str(metadata_file),
         "index_file": str(workitem_index_file(paths)),
-    })
+    }
+
+
+def cmd_workitem_create(args, paths: Paths) -> int:
+    emit("workitem create", _create_workitem(
+        paths, args.name, args.type, args.synopsis, args.auto_generate))
     return EXIT_OK
 
 
@@ -2544,6 +2641,11 @@ RUNTIME_FREE_COMMANDS = frozenset({
     # (`assess`, `apply`, `realize`) bind explicitly through
     # `bind_for_architecture`, so the ladder is exercised, not bypassed.
     "architecture",
+    # A package is repository-level (ADR-016): `validate`, `import`, `approve`,
+    # `show`, `reseal` and `intake` answer with no WorkItem bound. `adopt`
+    # and a WorkItem-derived `show` bind explicitly, so the ladder is
+    # exercised, not bypassed.
+    "package",
 })
 
 
@@ -3559,7 +3661,8 @@ def workitem_runtime_member_names(bound: Paths) -> tuple[str, ...]:
         bound.completion_file, bound.governance_file, bound.reviews_file,
         bound.discovery_file, bound.requirements_binding_file,
         bound.architecture_placement_file, bound.scan_acknowledgements_file,
-        bound.refinement_file,
+        bound.refinement_file, bound.package_binding_file,
+        bound.verification_file, bound.implementation_loop_file,
     ))
 
 
@@ -4072,6 +4175,15 @@ GOVERNANCE_POLICY_BUILTIN = {
     # reported NOT_APPLICABLE. Every other check must be answered.
     "optional_checks": ["nfrs"],
     "refinement_iteration_cap": REFINEMENT_ITERATION_CAP_MAX,
+    # ADR-017. Does a passing suite count for an acceptance criterion that no
+    # test names? No by default: it is shown apart from "verified" and does
+    # not block. A repository may make it block, never the reverse.
+    "unmapped_verification_blocks": False,
+    # ADR-017. How many iterations one `loop begin` allows. A repository may
+    # lower it, never raise it; read as the stricter of the live policy and the
+    # one a WorkItem started under, and as this default where a policy pinned
+    # before the key existed does not carry it.
+    "implementation_loop_max_iterations": 3,
     "risk_signals": {
         "external_api_surface": 2,
         "persistent_data_store": 2,
@@ -4220,6 +4332,8 @@ GOVERNANCE_POLICY_OVERRIDABLE = (
     "blocking_checks",
     "optional_checks",
     "refinement_iteration_cap",
+    "unmapped_verification_blocks",
+    "implementation_loop_max_iterations",
     "risk_signals",
     "risk_thresholds",
     "hard_floors",
@@ -4316,6 +4430,19 @@ def _validate_policy_shapes(document: dict, relative: str,
                 relative,
                 f"refinement_iteration_cap must be an integer from 1 to "
                 f"{REFINEMENT_ITERATION_CAP_MAX}, not {cap!r}")
+
+    if "implementation_loop_max_iterations" in document:
+        cap = document["implementation_loop_max_iterations"]
+        if not _is_int(cap) or not 1 <= cap <= LOOP_ITERATION_LIMIT_MAX:
+            raise _policy_malformed(
+                relative,
+                f"implementation_loop_max_iterations must be an integer "
+                f"from 1 to {LOOP_ITERATION_LIMIT_MAX}, not {cap!r}")
+
+    if "unmapped_verification_blocks" in document and not isinstance(
+            document["unmapped_verification_blocks"], bool):
+        raise _policy_malformed(
+            relative, "unmapped_verification_blocks must be true or false")
 
     if "risk_signals" in document:
         value = document["risk_signals"]
@@ -4441,6 +4568,21 @@ def _refuse_weakening(merged: dict, relative: str) -> None:
             relative, "optional_checks",
             f"it lets {', '.join(widened)} be reported NOT_APPLICABLE",
             added=widened)
+
+    if merged["implementation_loop_max_iterations"] > builtin[
+            "implementation_loop_max_iterations"]:
+        raise _policy_weakens(
+            relative, "implementation_loop_max_iterations",
+            f"it allows {merged['implementation_loop_max_iterations']} "
+            "iterations, above the built-in "
+            f"{builtin['implementation_loop_max_iterations']}")
+
+    if builtin["unmapped_verification_blocks"] and not merged[
+            "unmapped_verification_blocks"]:
+        raise _policy_weakens(
+            relative, "unmapped_verification_blocks",
+            "it lets an unmapped passing suite count for a criterion the "
+            "built-in policy refuses it for")
 
     for signal, weight in builtin["risk_signals"].items():
         current = merged["risk_signals"].get(signal)
@@ -11714,8 +11856,24 @@ def impact_analysis_precondition(paths: Paths,
     )
 
 
+def gate_review_requirement(paths: Paths, gate_key: str,
+                            consts: "Constants | None" = None
+                            ) -> tuple[list[str], list[str]] | None:
+    """The review types and actor types a gate accepts, or None for any.
+
+    `any` in both cells is "any", which is how a gate no review capability
+    defines a type for stays unconstrained rather than inventing one.
+    """
+    table = (consts or load_constants(paths)).gate_review_types
+    types, actors = table.get(gate_key, (["any"], ["any"]))
+    if types == ["any"] and actors == ["any"]:
+        return None
+    return types, actors
+
+
 def review_precondition(paths: Paths, state: dict, gate_key: str,
-                        resolved: str | None) -> None:
+                        resolved: str | None,
+                        consts: "Constants | None" = None) -> None:
     """Enforcement clause E2 — TP-011 at the approval choke point.
 
     Called from both ``cmd_gate_approve`` and ``_approve_drift``. Drift is
@@ -11731,7 +11889,48 @@ def review_precondition(paths: Paths, state: dict, gate_key: str,
     if not (paths.project_root / review_key(paths, resolved)).is_file():
         return None  # `artifact_missing` is the caller's refusal to raise.
 
-    status = review_status(paths, resolved)
+    reviews = None
+    requirement = gate_review_requirement(paths, gate_key, consts)
+    if requirement is not None:
+        # The newest *current* review of an acceptable kind decides the gate.
+        # A design review does not stand in for a code review, and a PASS of
+        # the right kind recorded earlier is not displaced by a later review
+        # of another kind (ADR-017).
+        types, actors = requirement
+        key = review_key(paths, resolved)
+
+        def fits(record: dict) -> bool:
+            return ((types == ["any"] or record.get("reviewType") in types)
+                    and (actors == ["any"]
+                         or (record.get("actor") or {}).get("type") in actors))
+
+        every = read_reviews(paths)
+        mine = [r for r in every if r.get("path") == key]
+        reviews = [r for r in every if r.get("path") != key or fits(r)]
+        # A mismatch is about the content as it stands: a review of the right
+        # kind for older content is stale, not mismatched, and is reported as
+        # such by the ordinary checks below.
+        current = sha256_file(paths.project_root / key)
+        now = [r for r in mine
+               if str(r.get("sha256") or "").lower() == current]
+        if now and not any(fits(r) for r in now):
+            raise Refused(
+                "review_type_mismatch",
+                f"{key} has been reviewed, but not by a review {gate_key} "
+                f"accepts (it needs {', '.join(types)} by "
+                f"{', '.join(actors)}; recorded: "
+                + ", ".join(sorted({f"{r.get('reviewType')} by "
+                                    f"{(r.get('actor') or {}).get('type')}"
+                                    for r in mine})) + "). Record the "
+                "review that capability describes with `artifact review "
+                "--type <type>`; another kind of review does not stand in "
+                "for it.",
+                {"gate": gate_key, "path": key, "accepted_types": types,
+                 "accepted_actors": actors,
+                 "recorded": [{"type": r.get("reviewType"),
+                               "actor": (r.get("actor") or {}).get("type")}
+                              for r in mine]})
+    status = review_status(paths, resolved, reviews)
     if not status["records"]:
         raise Refused(
             "review_missing",
@@ -11768,8 +11967,71 @@ def review_precondition(paths: Paths, state: dict, gate_key: str,
     return None
 
 
+REVIEW_FINDING_SEVERITIES = ("blocking", "advisory")
+REVIEW_FINDING_DISPOSITIONS = ("open", "resolved", "accepted")
+
+
+def read_review_findings(paths: Paths, raw: str | None) -> list[dict] | None:
+    """Structured findings for one review, or None when none were given.
+
+    Each is `{id, severity, location, obligations[], disposition}`. The
+    obligations are the requirement ids a finding cites, so a finding can be
+    traced to what it is about (ADR-017); the engine records them and checks
+    shape, never whether the finding is right.
+    """
+    if not raw:
+        return None
+    target, relative = safe_repo_path(paths, raw)
+    if not target.is_file():
+        raise UsageError("review_findings_invalid",
+                         f"--findings names {relative}, which is not a file.")
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise UsageError("review_findings_invalid",
+                         f"{relative} is not JSON: {exc}.") from None
+    rows = document.get("findings") if isinstance(document, dict) else document
+    if not isinstance(rows, list):
+        raise UsageError("review_findings_invalid",
+                         f"{relative} must be a list of findings, or an "
+                         "object with a `findings` list.")
+    seen: set[str] = set()
+    for index, row in enumerate(rows):
+        problems = []
+        if not isinstance(row, dict):
+            problems.append("is not an object")
+        else:
+            if not (isinstance(row.get("id"), str) and row["id"].strip()):
+                problems.append("has no id")
+            elif row["id"] in seen:
+                problems.append(f"repeats id {row['id']}")
+            else:
+                seen.add(row["id"])
+            if row.get("severity") not in REVIEW_FINDING_SEVERITIES:
+                problems.append("severity is not blocking or advisory")
+            if row.get("disposition") not in REVIEW_FINDING_DISPOSITIONS:
+                problems.append("disposition is not open, resolved or "
+                                "accepted")
+            if not (isinstance(row.get("location"), str)
+                    and row["location"].strip()):
+                problems.append("has no location")
+            obligations = row.get("obligations")
+            if not (isinstance(obligations, list) and all(
+                    isinstance(o, str) and o.strip() for o in obligations)):
+                problems.append("obligations must be a list of ids")
+        if problems:
+            raise UsageError(
+                "review_findings_invalid",
+                f"finding {index} in {relative} " + "; ".join(problems) + ".")
+    return rows
+
+
 def cmd_artifact_review(args, paths: Paths) -> int:
-    """Record a review of an artifact's exact current content (TP-011)."""
+    """Record a review of an artifact's exact current content (TP-011).
+
+    The code review of the manifest is the loop's review output: while a run
+    is open it is only produced between the manifest step and the review step
+    (ADR-017)."""
     state = read_state(paths)
 
     if args.result not in REVIEW_RESULTS:
@@ -11812,7 +12074,23 @@ def cmd_artifact_review(args, paths: Paths) -> int:
             "specific content.",
             {"path": key},
         )
+    if (args.type == "code-review"
+            and key == paths.manifest_file.relative_to(
+                paths.project_root).as_posix()):
+        loop_output_precondition(paths, "review")
     sha = sha256_file(full)
+    findings = read_review_findings(paths, getattr(args, "findings", None))
+    blocking_open = [row["id"] for row in findings or []
+                     if row["severity"] == "blocking"
+                     and row["disposition"] == "open"]
+    if args.result == "PASS" and blocking_open:
+        raise Refused(
+            "review_findings_open",
+            f"A PASS cannot be recorded while blocking finding(s) "
+            f"{', '.join(blocking_open)} are open. Resolve them, or record "
+            "FAIL and fix the artifact; a review that carries an open "
+            "blocking finding is not a pass.",
+            {"path": key, "open_blocking": blocking_open})
 
     reviews = read_reviews(paths)
     stamp = now_iso()
@@ -11831,6 +12109,12 @@ def cmd_artifact_review(args, paths: Paths) -> int:
         "comments": args.comments,
         "timestamp": stamp,
     }
+    if findings is not None:
+        record["findings"] = {
+            "total": len(findings),
+            "blocking": sum(1 for r in findings if r["severity"] == "blocking"),
+            "open": sum(1 for r in findings if r["disposition"] == "open"),
+        }
     reviews.append(record)
     write_atomic(paths.reviews_file, json.dumps(
         {"reviewsVersion": REVIEWS_VERSION, "reviews": reviews}, indent=2) + "\n")
@@ -11840,6 +12124,7 @@ def cmd_artifact_review(args, paths: Paths) -> int:
         "workitem": paths.workitem,
         "record": record,
         "detail": args.evidence,
+        "findings": findings,
     }, indent=2) + "\n")
 
     append_audit(
@@ -11912,7 +12197,13 @@ def governance_precondition(paths: Paths, state: dict | None = None) -> None:
     ledger exactly once, from ``apply_advance``.
 
     There is no binding without a WorkItem, so E1 applies unconditionally.
+
+    The package pin (ADR-016) is checked here too, first, so it rides every
+    site that already runs this precondition ahead of its first irreversible
+    write -- `advance`, `gate approve`, `gate omit` and `skip` -- instead of
+    being restated at each. Inert for a WorkItem with no pin.
     """
+    package_pin_precondition(paths)
     record = read_governance_record(paths)
     if record is None:
         raise Refused(
@@ -12352,8 +12643,16 @@ def cmd_gate_approve(args, paths: Paths) -> int:
     if sha:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
-    gate_precondition_hook(paths, state, consts, args.gate, resolved)
-    review_precondition(paths, state, args.gate, resolved)
+    if args.gate == "gate_implement":
+        # The one completion predicate (ADR-017): the loop's `loop record`
+        # evaluates the same list and reports all of it; the gate raises the
+        # first, in the order it has always refused in.
+        unmet = implementation_ready(paths, state, consts, resolved)
+        if unmet:
+            raise unmet[0]
+    else:
+        gate_precondition_hook(paths, state, consts, args.gate, resolved)
+        review_precondition(paths, state, args.gate, resolved, consts)
     # E1's enforcement site is `apply_advance` — but this command calls it
     # *after* it has already appended the `gate_approved` entry, and an
     # append to `audit.md` cannot be undone by a later raise. Evaluate the
@@ -12539,9 +12838,24 @@ def _approve_drift(args, paths: Paths, state: dict, consts: Constants,
             {"gate": gate_key, "workitem": paths.workitem,
              "queue": list(state.get("drift_queue") or [])})
 
+    # ADR-016: drift re-approval does not pass through `governance_precondition`
+    # before its first write, so the package pin is checked here explicitly.
+    package_pin_precondition(paths)
     resolved, sha = required_gate_artifact(paths, state, consts, gate_key,
                                            "re-approve")
-    review_precondition(paths, state, gate_key, resolved)
+    # Drift re-approval does not pass through `gate_precondition_hook`, so the
+    # traceability rule is applied here too: re-approving drifted content is
+    # exactly when an obligation could have fallen out of it.
+    if gate_key == "gate_implement":
+        # The one completion predicate, here too: re-approving a drifted
+        # manifest must be as hard as approving it, evidence freshness and a
+        # pending convergence included.
+        unmet = implementation_ready(paths, state, consts, resolved)
+        if unmet:
+            raise unmet[0]
+    else:
+        trace_precondition(paths, state, consts, gate_key)
+        review_precondition(paths, state, gate_key, resolved, consts)
     if sha:
         state.setdefault("artifact_shas", {})[gate_key] = sha
 
@@ -12700,7 +13014,7 @@ def cmd_gate_omit(args, paths: Paths) -> int:
         state.setdefault("artifact_shas", {})[args.gate] = sha
 
     gate_precondition_hook(paths, state, consts, args.gate, resolved)
-    review_precondition(paths, state, args.gate, resolved)
+    review_precondition(paths, state, args.gate, resolved, consts)
     # The same pure-reader block `cmd_gate_approve` uses, and for the same
     # reason: every refusal above and here happens before the first
     # `append_audit`, so a refused omission leaves the ledger byte-identical.
@@ -12786,6 +13100,9 @@ def cmd_gate_omit(args, paths: Paths) -> int:
 def cmd_gate_reject(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    # ADR-016: a rejection records a decision and moves the WorkItem; a
+    # WorkItem whose package moved under it does neither until it is adopted.
+    package_pin_precondition(paths)
     stamp = now_iso()
 
     queue = list(state.get("drift_queue") or [])
@@ -12961,9 +13278,11 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
     """Move a gate's baseline to current content without a re-approval.
 
     Only legitimate where the same file is deliberately refined between two
-    gates that both own it — analyze refining tasks.md, which the tasks gate already
-    fingerprinted. Without this the drift check would raise a false alarm on a
-    clean run.
+    gates that both own it. Nothing in the lifecycle does that any more: the
+    analyze step is read-only, so it no longer re-baselines the tasks gate
+    (ADR-017), and a change made during it is drift like any other. The
+    command remains for an operator who knows better, and is refused for a
+    WorkItem started from a package.
     """
     consts = load_constants(paths)
     state = read_state(paths)
@@ -12988,6 +13307,19 @@ def cmd_drift_rebaseline(args, paths: Paths) -> int:
             "generated file from version control, or `restart` to "
             f"{ARCHITECTURE_PHASE} — which disposes of the applied decision "
             "and lets this WorkItem propose afresh.",
+            {"gate": args.gate, "workitem": paths.workitem})
+
+    # ADR-017. A WorkItem started from a package may not have a baseline moved
+    # by hand at all: the one sanctioned change to an approved artifact after
+    # its gate is the task-list policy `tasks reconcile` applies, and a
+    # command that accepts whatever is on disk is the door that policy exists
+    # to close.
+    if read_package_binding(paths) is not None:
+        raise Refused(
+            "rebaseline_not_permitted",
+            "A WorkItem started from a requirements package cannot have an "
+            "approved baseline moved without a re-approval. A change to an "
+            "approved artifact is drift: re-approve it, or restore it.",
             {"gate": args.gate, "workitem": paths.workitem})
 
     if (state.get("artifact_shas") or {}).get(args.gate) is None:
@@ -13376,6 +13708,30 @@ def cmd_feature_resolve(args, paths: Paths) -> int:
     return EXIT_OK
 
 
+def _write_requirements_binding(paths: Paths, sources: list[str],
+                                primary: str) -> tuple[dict, dict | None]:
+    """Write the binding. The one writer: `requirements bind` and `package
+    intake` both end here, so a binding means the same thing either way."""
+    try:
+        previous = read_requirements_binding(paths)
+    except IntegrityError:
+        # `bind` is how a corrupt binding is repaired, so it must not refuse on
+        # the file it is about to replace. `rebound` below is only evidence.
+        previous = None
+    document = {
+        "bindingVersion": REQUIREMENTS_BINDING_VERSION,
+        "workitem": paths.workitem,
+        "boundAt": now_iso(),
+        "primary": primary,
+        "sources": sorted(sources),
+        "digest": binding_digest(sources),
+    }
+    paths.runtime.mkdir(parents=True, exist_ok=True)
+    write_atomic(paths.requirements_binding_file,
+                 json.dumps(document, indent=2) + "\n")
+    return document, previous
+
+
 def cmd_requirements_bind(args, paths: Paths) -> int:
     # Ownership of a document is decided here and checked by `refinement`
     # commands, so both take the same mutex.
@@ -13405,6 +13761,11 @@ def _cmd_requirements_bind_locked(args, paths: Paths) -> int:
         explicit = sorted(
             item.relative_to(paths.project_root).as_posix()
             for item in root.rglob("*") if item.is_file()
+            # An imported package is bound deliberately, work item by work
+            # item, by `package intake`; sweeping every file of it in would
+            # bind a WorkItem to documents it is not about (ADR-016).
+            if package_path_id(
+                item.relative_to(paths.project_root).as_posix()) is None
         ) if root.is_dir() else []
         if not explicit:
             raise _binding_refused(
@@ -13450,23 +13811,7 @@ def _cmd_requirements_bind_locked(args, paths: Paths) -> int:
             f"The primary document '{args.primary}' is not one of the bound "
             "sources.", source=args.primary, sources=sources)
 
-    try:
-        previous = read_requirements_binding(paths)
-    except IntegrityError:
-        # `bind` is how a corrupt binding is repaired, so it must not refuse on
-        # the file it is about to replace. `rebound` below is only evidence.
-        previous = None
-    document = {
-        "bindingVersion": REQUIREMENTS_BINDING_VERSION,
-        "workitem": paths.workitem,
-        "boundAt": now_iso(),
-        "primary": primary,
-        "sources": sorted(sources),
-        "digest": binding_digest(sources),
-    }
-    paths.runtime.mkdir(parents=True, exist_ok=True)
-    write_atomic(paths.requirements_binding_file,
-                 json.dumps(document, indent=2) + "\n")
+    document, previous = _write_requirements_binding(paths, sources, primary)
     emit("requirements bind", {
         "workitem": paths.workitem,
         "sources": document["sources"],
@@ -13478,6 +13823,3119 @@ def _cmd_requirements_bind_locked(args, paths: Paths) -> int:
         and previous.get("digest") != document["digest"],
     })
     return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Requirements packages (ADR-016)
+#
+# A package is a uniform, engine-validated rendering of a source requirements
+# document (an SRS, say) that a Solution Architect approves at an exact digest
+# and a developer then starts from. The engine owns the structural facts: ids,
+# references, assignment, digests, the approval ledger and the handoff
+# refusals. Whether a requirement says what its source says is a review
+# judgement (`sdle-requirements-review`, source-fidelity mode), never a check
+# here, and a valid link proves structure rather than satisfaction.
+# --------------------------------------------------------------------------
+
+PACKAGE_VERSION = "1"
+PACKAGE_MANIFEST = "package.json"
+PACKAGE_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
+PACKAGE_CORE_FILES = {
+    "overview": "overview.md",
+    "traceability": "traceability.md",
+    "open-issues": "open-issues.md",
+}
+PACKAGE_FILE_ROLES = ("overview", "traceability", "open-issues", "work-item",
+                      "supporting")
+PACKAGE_REQUIREMENT_KINDS = (
+    "functional", "business_rule", "acceptance_criterion", "nfr", "security",
+    "constraint", "interface", "data")
+PACKAGE_CRITERION_KIND = "acceptance_criterion"
+PACKAGE_REQUIREMENT_STATUSES = ("draft", "confirmed")
+PACKAGE_READINESS = ("READY", "NOT_READY")
+PACKAGE_ISSUE_DISPOSITIONS = ("open", "resolved", "deferred")
+PACKAGE_RETIRED_DISPOSITIONS = ("superseded", "withdrawn")
+PACKAGE_LEDGER_VERSION = "1"
+PACKAGE_BINDING_VERSION = "1"
+PACKAGE_GRAMMAR_MAX = 120
+PACKAGE_TEXT_MAX = 4_000_000
+PACKAGE_DIFF_LINES = 400
+PACKAGE_LOCK_TIMEOUT = 10.0
+PACKAGE_LOCK_POLL = 0.05
+PACKAGE_WORK_ITEM_FILE_RE = re.compile(
+    r"^work-items/([^/]+)/requirements\.md$")
+
+
+def _canonical_json(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"))
+
+
+def package_file_sha(path: Path) -> str:
+    """Digest of a package file, line-ending independent: a package is text
+    that moves between platforms, and a digest that changed with the checkout's
+    line endings would make an approval stale for no reason."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _is_link(item: Path) -> bool:
+    """A symlink, or on Windows a junction: anything that can make a path mean
+    a different place than the one it spells."""
+    junction = getattr(os.path, "isjunction", None)
+    return item.is_symlink() or bool(junction and junction(item))
+
+
+def package_files_on_disk(root: Path) -> list[str]:
+    """The package's regular files. Links are never followed and never listed;
+    `package_link_problems` is what names them."""
+    if not root.is_dir():
+        return []
+    found = []
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        base = Path(directory)
+        dirnames[:] = [d for d in dirnames if not _is_link(base / d)]
+        found += [(base / name).relative_to(root).as_posix()
+                  for name in filenames if not _is_link(base / name)]
+    return sorted(found)
+
+
+def package_link_problems(root: Path) -> list[str]:
+    found = []
+    if not root.is_dir():
+        return found
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        base = Path(directory)
+        found += [(base / name).relative_to(root).as_posix()
+                  for name in (*dirnames, *filenames) if _is_link(base / name)]
+    return sorted(found)
+
+
+def _require_contained(paths: Paths, root: Path) -> None:
+    """The directory is inside the repository and no component of its path,
+    up to the repository root, is a link. A symlinked package directory would
+    let an import read, or a replacement delete, outside the tree."""
+    base = paths.project_root.resolve()
+    try:
+        root.resolve().relative_to(base)
+    except (OSError, ValueError):
+        raise Refused(
+            "package_path_invalid",
+            f"{root} resolves outside the repository, so SDLE will not read, "
+            "copy or delete anything through it.",
+            {"path": str(root)}) from None
+    current = root
+    while current != paths.project_root and current != current.parent:
+        if _is_link(current):
+            raise Refused(
+                "package_path_invalid",
+                f"{current} is a link. SDLE will not follow a link into or "
+                "out of a package.", {"path": str(current)})
+        current = current.parent
+
+
+def package_digest(root: Path) -> str:
+    """Identity of one package directory: every file, by relative path and
+    content, sorted. The approval ledger lives outside it (ADR-016), so
+    approving a package never changes the digest it approves."""
+    entries = [[rel, package_file_sha(root / rel)]
+               for rel in package_files_on_disk(root)]
+    return hashlib.sha256(
+        _canonical_json(entries).encode("utf-8")).hexdigest()
+
+
+def package_path_id(relative: str) -> str | None:
+    """The package id a repository-relative path belongs to, or None."""
+    parts = relative.replace("\\", "/").split("/")
+    if (len(parts) >= 4 and parts[0] == "requirements"
+            and parts[1] == "packages" and PACKAGE_ID_RE.match(parts[2])):
+        return parts[2]
+    return None
+
+
+def _pf(rule: str, subject: str, detail: str) -> dict:
+    return {"rule": rule, "subject": subject, "detail": detail}
+
+
+def _is_str(value, *, nonempty: bool = True) -> bool:
+    return isinstance(value, str) and (bool(value.strip()) or not nonempty)
+
+
+def load_package_manifest(root: Path) -> tuple[dict | None, list[dict]]:
+    target = root / PACKAGE_MANIFEST
+    if not target.is_file():
+        return None, [_pf("package_manifest_invalid", PACKAGE_MANIFEST,
+                          "package.json is missing")]
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, [_pf("package_manifest_invalid", PACKAGE_MANIFEST,
+                          f"package.json cannot be read as JSON: {exc}")]
+    if not isinstance(document, dict):
+        return None, [_pf("package_manifest_invalid", PACKAGE_MANIFEST,
+                          "package.json is not an object")]
+    return document, []
+
+
+def _package_structure(doc: dict) -> list[dict]:
+    """Shape only. Everything past this assumes these types hold."""
+    out: list[dict] = []
+
+    def bad(subject: str, detail: str) -> None:
+        out.append(_pf("package_manifest_invalid", subject, detail))
+
+    if doc.get("packageVersion") != PACKAGE_VERSION:
+        bad("packageVersion",
+            f"must be {PACKAGE_VERSION!r}, not {doc.get('packageVersion')!r}")
+    if not (isinstance(doc.get("packageId"), str)
+            and PACKAGE_ID_RE.match(doc["packageId"])):
+        bad("packageId", "must be kebab-case [a-z0-9-], at most 64 characters")
+
+    def rows(key: str, fields: dict) -> list:
+        value = doc.get(key)
+        if not isinstance(value, list):
+            bad(key, "must be a list")
+            return []
+        good = []
+        for index, row in enumerate(value):
+            if not isinstance(row, dict):
+                bad(f"{key}[{index}]", "must be an object")
+                continue
+            for name, check in fields.items():
+                if not check(row.get(name)):
+                    bad(f"{key}[{index}].{name}", "missing or malformed")
+            good.append(row)
+        return good
+
+    nonempty = _is_str
+    sha = lambda v: isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)  # noqa: E731
+    str_list = lambda v: isinstance(v, list) and all(  # noqa: E731
+        _is_str(item) for item in v)
+
+    rows("sources", {"path": nonempty, "sha256": sha,
+                     "statedVersion": nonempty})
+    rows("files", {"path": nonempty, "role":
+                   lambda v: v in PACKAGE_FILE_ROLES, "sha256": sha})
+    rows("workItems", {"id": nonempty, "slug": nonempty,
+                       "readiness": lambda v: v in PACKAGE_READINESS,
+                       "file": nonempty, "sharedFiles": str_list})
+    for index, row in enumerate(rows("requirements", {
+            "id": nonempty, "kind": lambda v: v in PACKAGE_REQUIREMENT_KINDS,
+            "statement": nonempty,
+            "status": lambda v: v in PACKAGE_REQUIREMENT_STATUSES})):
+        for name, shape in (("source", ("document", "anchor")),
+                            ("clarification", ("ref",))):
+            value = row.get(name)
+            if value is None:
+                continue
+            if not (isinstance(value, dict)
+                    and all(_is_str(value.get(k)) for k in shape)):
+                bad(f"requirements[{index}].{name}",
+                    "must carry " + " and ".join(shape))
+        if row.get("workItem") is not None and not _is_str(row["workItem"]):
+            bad(f"requirements[{index}].workItem", "must be a work item id")
+        if row.get("supersedes") is not None and not str_list(
+                row["supersedes"]):
+            bad(f"requirements[{index}].supersedes", "must be a list of ids")
+    rows("exclusions", {"requirementId": nonempty, "disposition": nonempty,
+                        "reason": nonempty})
+    rows("retired", {"id": nonempty, "reason": nonempty, "disposition":
+                     lambda v: v in PACKAGE_RETIRED_DISPOSITIONS})
+    rows("openIssues", {"id": nonempty, "question": nonempty,
+                        "affects": str_list,
+                        "blocking": lambda v: isinstance(v, bool),
+                        "disposition":
+                        lambda v: v in PACKAGE_ISSUE_DISPOSITIONS})
+    rows("absentSupporting", {"name": nonempty, "reason": nonempty})
+    tags = doc.get("obligationTags")
+    if tags is not None:
+        if not (isinstance(tags, dict)
+                and all(_is_str(k) and _is_str(v) for k, v in tags.items())):
+            bad("obligationTags", "must map each obligation family to a "
+                "pattern")
+        else:
+            for family, pattern in tags.items():
+                problem = _id_pattern_problem(pattern)
+                if problem:
+                    bad(f"obligationTags.{family}", problem)
+    for index, row in enumerate(doc.get("requirements")
+                                if isinstance(doc.get("requirements"), list)
+                                else []):
+        if isinstance(row, dict) and "testable" in row and not isinstance(
+                row["testable"], bool):
+            bad(f"requirements[{index}].testable", "must be true or false")
+
+    grammar = doc.get("idGrammar")
+    if not (isinstance(grammar, dict) and grammar
+            and all(_is_str(k) and _is_str(v) for k, v in grammar.items())):
+        bad("idGrammar", "must map each id family to a pattern")
+    else:
+        for family, pattern in grammar.items():
+            problem = _id_pattern_problem(pattern)
+            if problem:
+                bad(f"idGrammar.{family}", problem)
+    def listed(key: str) -> list:
+        return doc[key] if isinstance(doc.get(key), list) else []
+
+    for key in ("files", "workItems"):
+        for index, row in enumerate(listed(key)):
+            if not isinstance(row, dict):
+                continue
+            names = [row.get("path" if key == "files" else "file")]
+            if key == "workItems" and isinstance(row.get("sharedFiles"), list):
+                names += row["sharedFiles"]
+            for name in names:
+                problem = _relative_path_problem(name) \
+                    if isinstance(name, str) else None
+                if problem:
+                    bad(f"{key}[{index}]", f"path {name!r} {problem}")
+    for index, row in enumerate(listed("sources")):
+        if isinstance(row, dict) and isinstance(row.get("path"), str):
+            problem = _relative_path_problem(row["path"])
+            if problem:
+                bad(f"sources[{index}]", f"path {row['path']!r} {problem}")
+    return out
+
+
+def _relative_path_problem(raw: str) -> str | None:
+    """Why ``raw`` is not a plain relative path, or None. Used for every path
+    a manifest names, so no manifest can point the engine outside the tree it
+    was told about."""
+    if raw.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", raw):
+        return "is an absolute path"
+    parts = raw.replace("\\", "/").split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return "contains an empty, '.' or '..' component"
+    if any(":" in part or part != part.rstrip(". ") for part in parts):
+        return "uses a spelling that names different files on different platforms"
+    return None
+
+
+# An id pattern is a closed little language that is **deterministic**: a
+# sequence of single-character atoms (a literal, `\d`, a bracketed class), each
+# optionally repeated an exact number of times with `{n}`, and groups of
+# alternatives that are all the same length and all different, so at most one
+# can match at any position. There is no `*`, `+`, `?` or `{n,m}` and nothing
+# can be repeated ambiguously, so matching costs time linear in the text and a
+# manifest cannot hand the engine a pattern that hangs it.
+_ID_PATTERN_TOKEN = re.compile(
+    r"""(?:[A-Za-z0-9_-]|\\d|\[(?:[A-Za-z0-9_]|[A-Za-z0-9]-[A-Za-z0-9])+\])"""
+    r"""(?:\{[0-9]{1,2}\})?""")
+_ID_PATTERN_GROUP = re.compile(r"\(\?:([A-Za-z0-9_|-]{1,60})\)")
+
+
+def _id_pattern_problem(pattern: str) -> str | None:
+    if len(pattern) > PACKAGE_GRAMMAR_MAX:
+        return f"is longer than {PACKAGE_GRAMMAR_MAX} characters"
+    position = 0
+    while position < len(pattern):
+        group = _ID_PATTERN_GROUP.match(pattern, position)
+        if group:
+            alternatives = group.group(1).split("|")
+            if (len(set(map(len, alternatives))) != 1
+                    or len(set(alternatives)) != len(alternatives)
+                    or not all(alternatives)):
+                return ("has a group whose alternatives are not all "
+                        "distinct and the same length, so it could match "
+                        "ambiguously")
+            position = group.end()
+            continue
+        token = _ID_PATTERN_TOKEN.match(pattern, position)
+        if not token:
+            return (f"uses syntax outside the id-pattern language at "
+                    f"character {position + 1}: only literals, \\d, [...] "
+                    "classes, (?:ab|cd) groups of same-length alternatives "
+                    "and exact {n} repetition are allowed")
+        position = token.end()
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        return f"is not a valid pattern: {exc}"
+    return None
+
+
+def _grammar_regexes(doc: dict) -> list[re.Pattern]:
+    return [re.compile(p) for p in doc["idGrammar"].values()]
+
+
+def _package_blocking_issue_ids(doc: dict) -> list[dict]:
+    return [issue for issue in doc["openIssues"]
+            if issue["blocking"] and issue["disposition"] == "open"]
+
+
+def package_findings(paths: Paths, root: Path, *,
+                     check_hashes: bool = True,
+                     check_sources: bool = True) -> list[dict]:
+    """Every structural problem with one package directory, all named.
+
+    A pure reader. `check_hashes` is off only for `package reseal`, which
+    exists to recompute them; `check_sources` is off nowhere today but is a
+    parameter so a future offline verification has one place to say so.
+    """
+    links = package_link_problems(root)
+    if links:
+        return [_pf("package_symlink_refused", rel,
+                    "a link in a package could point anywhere; a package "
+                    "holds regular files only") for rel in links]
+    doc, problems = load_package_manifest(root)
+    if doc is None:
+        return problems
+    problems = _package_structure(doc)
+    if problems:
+        return problems
+    out: list[dict] = []
+    grammar = _grammar_regexes(doc)
+
+    # --- files --------------------------------------------------------
+    declared = {row["path"]: row for row in doc["files"]}
+    if len(declared) != len(doc["files"]):
+        out.append(_pf("package_id_duplicate", "files",
+                       "a file path is declared twice"))
+    on_disk = set(package_files_on_disk(root))
+    for role, name in PACKAGE_CORE_FILES.items():
+        row = declared.get(name)
+        if row is None or row["role"] != role:
+            out.append(_pf("package_core_file_missing", name,
+                           f"the core file {name} must be declared with role "
+                           f"'{role}'"))
+        elif name not in on_disk:
+            out.append(_pf("package_core_file_missing", name,
+                           f"{name} is declared but not present"))
+    for rel, row in declared.items():
+        if rel == PACKAGE_MANIFEST:
+            out.append(_pf("package_manifest_invalid", rel,
+                           "package.json does not list itself"))
+            continue
+        if rel not in on_disk:
+            if rel not in PACKAGE_CORE_FILES.values():
+                out.append(_pf("package_file_missing", rel,
+                               "declared in package.json but not present"))
+            continue
+        if check_hashes and package_file_sha(root / rel) != row["sha256"]:
+            out.append(_pf("package_files_changed", rel,
+                           "its content no longer matches the digest in "
+                           "package.json; run `package reseal` after an "
+                           "intended edit"))
+        if row["role"] == "supporting":
+            text = (root / rel).read_text(encoding="utf-8", errors="replace")
+            body = [line for line in text.splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")]
+            if not body:
+                out.append(_pf("package_supporting_file_empty", rel,
+                               "a supporting file with no content beyond "
+                               "headings is never generated"))
+    for rel in sorted(on_disk - set(declared) - {PACKAGE_MANIFEST}):
+        out.append(_pf("package_file_undeclared", rel,
+                       "present in the package but not declared in "
+                       "package.json"))
+
+    # --- ids ----------------------------------------------------------
+    owners: dict[str, str] = {}
+
+    def claim(identifier: str, kind: str) -> None:
+        if identifier in owners:
+            out.append(_pf("package_id_duplicate", identifier,
+                           f"used as a {kind} and as a {owners[identifier]}"
+                           if owners[identifier] != kind
+                           else f"declared twice as a {kind}"))
+        else:
+            owners[identifier] = kind
+        if not any(rx.fullmatch(identifier) for rx in grammar):
+            out.append(_pf("package_id_outside_grammar", identifier,
+                           "matches none of the patterns in idGrammar"))
+
+    for row in doc["requirements"]:
+        claim(row["id"], "requirement")
+    for row in doc["workItems"]:
+        claim(row["id"], "work item")
+    for row in doc["openIssues"]:
+        claim(row["id"], "open issue")
+    retired_ids = {row["id"] for row in doc["retired"]}
+    if len(retired_ids) != len(doc["retired"]):
+        out.append(_pf("package_id_duplicate", "retired",
+                       "an id is retired twice"))
+    for row in doc["retired"]:
+        if row["id"] in owners:
+            out.append(_pf("package_id_reused", row["id"],
+                           f"is retired and also in use as a "
+                           f"{owners[row['id']]}; a retired id is never "
+                           "active again"))
+        if not any(rx.fullmatch(row["id"]) for rx in grammar):
+            out.append(_pf("package_id_outside_grammar", row["id"],
+                           "matches none of the patterns in idGrammar"))
+    requirement_ids = {row["id"] for row in doc["requirements"]}
+    work_item_ids = {row["id"] for row in doc["workItems"]}
+    for row in doc["requirements"]:
+        for target in row.get("supersedes") or []:
+            if target not in retired_ids:
+                out.append(_pf("package_supersedes_missing", row["id"],
+                               f"supersedes {target}, which is not listed "
+                               "under retired"))
+    superseding = {t for row in doc["requirements"]
+                   for t in row.get("supersedes") or []}
+    for row in doc["retired"]:
+        if (row["disposition"] == "superseded"
+                and row["id"] not in superseding):
+            out.append(_pf("package_supersedes_missing", row["id"],
+                           "is retired as superseded but no requirement "
+                           "lists it under supersedes"))
+
+    # --- sources and references ---------------------------------------
+    source_paths = {row["path"]: row for row in doc["sources"]}
+    for row in doc["requirements"]:
+        has_source = isinstance(row.get("source"), dict)
+        has_clarification = isinstance(row.get("clarification"), dict)
+        if not (has_source or has_clarification):
+            out.append(_pf("package_requirement_unsourced", row["id"],
+                           "carries neither a source reference nor a "
+                           "clarification reference"))
+        if has_source and row["source"]["document"] not in source_paths:
+            out.append(_pf("package_source_unknown", row["id"],
+                           f"cites {row['source']['document']}, which is not "
+                           "among the package's source documents"))
+    if check_sources:
+        base = paths.project_root.resolve()
+        for rel, row in source_paths.items():
+            target = paths.project_root / rel
+            try:
+                target.resolve().relative_to(base)
+            except (OSError, ValueError):
+                out.append(_pf("package_source_unsafe", rel,
+                               "the source path resolves outside the "
+                               "repository"))
+                continue
+            if not target.is_file():
+                out.append(_pf("package_source_missing", rel,
+                               "the source document is not in the repository"))
+            elif sha256_file(target) != row["sha256"]:
+                out.append(_pf("package_source_changed", rel,
+                               "the source document differs from the digest "
+                               "this package recorded; regenerate the package "
+                               "from the current source"))
+
+    # --- scope --------------------------------------------------------
+    excluded = {row["requirementId"] for row in doc["exclusions"]}
+    for row in doc["exclusions"]:
+        if row["requirementId"] not in requirement_ids:
+            out.append(_pf("package_reference_dangling", row["requirementId"],
+                           "an exclusion names a requirement that does not "
+                           "exist"))
+    for row in doc["requirements"]:
+        assigned = row.get("workItem")
+        if assigned is not None and assigned not in work_item_ids:
+            out.append(_pf("package_reference_dangling", row["id"],
+                           f"is assigned to {assigned}, which is not a "
+                           "declared work item"))
+        if assigned is None and row["id"] not in excluded:
+            out.append(_pf("package_scope_unassigned", row["id"],
+                           "is neither assigned to a work item nor excluded "
+                           "with a disposition"))
+        if assigned is not None and row["id"] in excluded:
+            out.append(_pf("package_scope_unassigned", row["id"],
+                           "is both assigned to a work item and excluded"))
+
+    # --- work items ---------------------------------------------------
+    for row in doc["workItems"]:
+        expected = f"work-items/{row['id']}-{row['slug']}/requirements.md"
+        if row["file"] != expected:
+            out.append(_pf("package_manifest_invalid", row["id"],
+                           f"its file must be {expected}"))
+        elif declared.get(expected, {}).get("role") != "work-item":
+            out.append(_pf("package_core_file_missing", expected,
+                           "the work item's requirements.md is not declared "
+                           "with role 'work-item'"))
+        elif expected not in on_disk:
+            out.append(_pf("package_core_file_missing", expected,
+                           "the work item's requirements.md is not present"))
+        for shared in row["sharedFiles"]:
+            if shared not in declared:
+                out.append(_pf("package_reference_dangling", row["id"],
+                               f"cites shared file {shared}, which the "
+                               "package does not declare"))
+        mine = [r for r in doc["requirements"]
+                if r.get("workItem") == row["id"]]
+        if not any(r["kind"] == PACKAGE_CRITERION_KIND for r in mine):
+            out.append(_pf("package_workitem_no_criterion", row["id"],
+                           "has no acceptance criterion assigned to it"))
+        if row["readiness"] == "READY":
+            owned = {r["id"] for r in mine} | {row["id"]}
+            for issue in _package_blocking_issue_ids(doc):
+                if owned & set(issue["affects"]):
+                    out.append(_pf("package_ready_with_blocking_issue",
+                                   row["id"],
+                                   f"is READY but blocking issue "
+                                   f"{issue['id']} is open"))
+    for issue in doc["openIssues"]:
+        for target in issue["affects"]:
+            if target not in owners and target not in retired_ids:
+                out.append(_pf("package_reference_dangling", issue["id"],
+                               f"affects {target}, which does not exist"))
+
+    # --- absent supporting files named by the overview ------------------
+    overview = root / PACKAGE_CORE_FILES["overview"]
+    overview_text = (overview.read_text(encoding="utf-8", errors="replace")
+                     .lower() if overview.is_file() else "")
+    for row in doc["absentSupporting"]:
+        if row["name"].lower() not in overview_text:
+            out.append(_pf("package_absent_supporting_unexplained",
+                           row["name"],
+                           "is declared absent but overview.md does not name "
+                           "it and give the reason"))
+
+    # --- traceability.md agrees with the manifest ------------------------
+    trace = root / PACKAGE_CORE_FILES["traceability"]
+    if trace.is_file() and trace.stat().st_size > PACKAGE_TEXT_MAX:
+        out.append(_pf("package_file_too_large", trace.name,
+                       f"is larger than {PACKAGE_TEXT_MAX} bytes, so SDLE "
+                       "will not scan it for ids"))
+    elif trace.is_file():
+        union = "|".join(f"(?:{p})" for p in doc["idGrammar"].values())
+        token = re.compile(
+            rf"(?<![A-Za-z0-9_-])(?:{union})(?![A-Za-z0-9_-])")
+        found = {m.group(0) for m in token.finditer(
+            trace.read_text(encoding="utf-8", errors="replace"))}
+        known = set(owners) | retired_ids
+        for identifier in sorted(requirement_ids - found):
+            out.append(_pf("package_traceability_disagrees", identifier,
+                           "is in package.json but traceability.md never "
+                           "mentions it"))
+        for identifier in sorted(found - known):
+            out.append(_pf("package_traceability_disagrees", identifier,
+                           "appears in traceability.md but package.json "
+                           "does not declare it"))
+    return out
+
+
+def package_history_findings(doc: dict, approved: dict) -> list[dict]:
+    """A replacement manifest against the latest approved revision.
+
+    An approved id never silently disappears, never moves to another work
+    item, and a retired id is never reused. Retirement is the only way out.
+    """
+    out: list[dict] = []
+    now = {row["id"]: row for row in doc["requirements"]}
+    retired_now = {row["id"] for row in doc["retired"]}
+    retired_before = {row["id"] for row in approved.get("retired", [])}
+    for identifier in sorted(retired_before - retired_now):
+        out.append(_pf("package_retirement_dropped", identifier,
+                       "was retired in an approved revision and must stay "
+                       "listed under retired"))
+    for row in approved.get("requirements", []):
+        current = now.get(row["id"])
+        if current is None:
+            if row["id"] not in retired_now:
+                out.append(_pf("package_id_retired_without_successor",
+                               row["id"],
+                               "was approved and is now neither present nor "
+                               "retired"))
+        elif current.get("workItem") != row.get("workItem"):
+            out.append(_pf("package_id_moved", row["id"],
+                           f"was approved under {row.get('workItem')!r} and "
+                           f"now sits under {current.get('workItem')!r}; "
+                           "retire it and supersede it instead"))
+        elif current.get("kind") != row.get("kind"):
+            out.append(_pf("package_id_changed_kind", row["id"],
+                           f"was approved as {row.get('kind')!r} and is now "
+                           f"{current.get('kind')!r}; a different kind of "
+                           "requirement is a different requirement, so "
+                           "retire it and supersede it"))
+    for identifier in sorted(retired_before & set(now)):
+        out.append(_pf("package_id_reused", identifier,
+                       "was retired in an approved revision and is active "
+                       "again"))
+    return out
+
+
+# ---- the approval ledger -------------------------------------------------
+
+
+def _ledger_record_hash(record: dict) -> str:
+    body = {k: v for k, v in record.items() if k != "hash"}
+    return hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
+
+
+def read_package_ledger(paths: Paths, package_id: str) -> list[dict]:
+    """The append-only approval records for one package, chain verified.
+
+    A ledger SDLE cannot verify is an integrity failure, never an empty one:
+    reading it as "no approvals" would let a damaged file read as an
+    un-approved package and be quietly rewritten.
+    """
+    _require_contained(paths, paths.package_approvals_dir / package_id)
+    target = paths.package_ledger_file(package_id)
+    if not target.is_file():
+        return []
+    where = target.relative_to(paths.project_root).as_posix()
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "package_approvals_invalid",
+            f"{where} cannot be read ({exc}). SDLE will not treat an "
+            "unreadable approval ledger as an empty one.",
+            {"path": where}) from None
+    records = document.get("records") if isinstance(document, dict) else None
+    if (not isinstance(records, list)
+            or document.get("ledgerVersion") != PACKAGE_LEDGER_VERSION
+            or document.get("package") != package_id):
+        raise IntegrityError(
+            "package_approvals_invalid",
+            f"{where} is not an approval ledger for package {package_id}.",
+            {"path": where})
+    previous = "0" * 64
+    for index, record in enumerate(records, start=1):
+        hexed = lambda v: isinstance(v, str) and re.fullmatch(  # noqa: E731
+            r"[0-9a-f]{64}", v)
+        if not (isinstance(record, dict)
+                and record.get("package") == package_id
+                and hexed(record.get("digest")) and hexed(record.get("hash"))
+                and hexed(record.get("prev"))
+                and all(_is_str(record.get(k)) for k in (
+                    "approver", "role", "wording", "approvedAt"))):
+            raise IntegrityError(
+                "package_approvals_invalid",
+                f"{where} record {index} is not a complete approval record "
+                "for this package.", {"path": where, "record": index})
+        if (record.get("n") != index
+                or record.get("prev") != previous
+                or record.get("hash") != _ledger_record_hash(record)):
+            raise IntegrityError(
+                "package_approvals_invalid",
+                f"{where} record {index} breaks the hash chain, so the "
+                "ledger was edited after it was written.",
+                {"path": where, "record": index})
+        previous = record["hash"]
+    return records
+
+
+def _os_lock(handle: int) -> None:
+    """Take a non-blocking exclusive lock the *operating system* holds for as
+    long as this process lives. Unlike a lock file broken by age, it cannot
+    be taken from a holder that is merely slow, and it is released by the
+    system if the holder dies."""
+    if os.name == "nt":
+        import msvcrt
+        os.lseek(handle, 0, os.SEEK_SET)
+        msvcrt.locking(handle, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _os_unlock(handle: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+        os.lseek(handle, 0, os.SEEK_SET)
+        msvcrt.locking(handle, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _os_held_lock(lock: Path, refusal: "Callable[[], Refused]"):
+    """Hold ``lock`` with an operating-system lock for the whole ``with``.
+
+    The file is only the thing the lock is taken on. It is never broken by age:
+    the operating system releases the lock if its holder dies, and a holder
+    that is merely slow keeps it. Waits up to PACKAGE_LOCK_TIMEOUT, then
+    refuses what ``refusal`` builds.
+    """
+    os.makedirs(lock.parent, exist_ok=True)
+    handle = os.open(str(lock), os.O_RDWR | os.O_CREAT)
+    deadline = time.monotonic() + PACKAGE_LOCK_TIMEOUT
+    try:
+        while True:
+            try:
+                _os_lock(handle)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise refusal() from None
+                time.sleep(PACKAGE_LOCK_POLL)
+        try:
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                _os_unlock(handle)
+    finally:
+        os.close(handle)
+
+
+@contextlib.contextmanager
+def package_ledger_lock(paths: Paths, package_id: str):
+    """Serialise every command that changes one package or its approvals.
+
+    Held for the whole command, across validation, the copy and the ledger
+    write."""
+    _require_contained(paths, paths.package_approvals_dir / package_id)
+
+    def refusal() -> Refused:
+        return Refused(
+            "package_locked",
+            f"Another process is changing package {package_id}'s approvals. "
+            "Nothing was written; retry in a moment.",
+            {"package": package_id, "waited_seconds": PACKAGE_LOCK_TIMEOUT})
+
+    with _os_held_lock(paths.package_lock_file(package_id), refusal):
+        yield
+
+
+@contextlib.contextmanager
+def workitem_mutation_lock(paths: Paths):
+    """Serialise the commands that read-modify-write one WorkItem's
+    verification record, loop record and task-list baselines.
+
+    Each reads state and a record, decides, and writes both; two of them
+    running together could lose a record or overwrite an audit entry.
+    Held for the whole command, so the state is read *inside* it."""
+    def refusal() -> Refused:
+        return Refused(
+            "workitem_locked",
+            f"Another command is changing WorkItem '{paths.workitem}' "
+            "records. Nothing was written; retry in a moment.",
+            {"workitem": paths.workitem,
+             "waited_seconds": PACKAGE_LOCK_TIMEOUT})
+
+    with _os_held_lock(paths.runtime / "mutation.lock", refusal):
+        yield
+
+
+def package_status(paths: Paths, package_id: str) -> dict:
+    root = paths.package_dir(package_id)
+    records = read_package_ledger(paths, package_id)
+    latest = records[-1] if records else None
+    if not root.is_dir():
+        return {"package": package_id, "present": False, "digest": None,
+                "status": "missing", "approvals": len(records),
+                "latest": latest}
+    digest = package_digest(root)
+    if latest is None:
+        status = "unapproved"
+    elif latest["digest"] == digest:
+        status = "approved"
+    else:
+        status = "stale"
+    return {"package": package_id, "present": True, "digest": digest,
+            "status": status, "approvals": len(records), "latest": latest}
+
+
+def _publish_revision(paths: Paths, root: Path, package_id: str,
+                      digest: str) -> None:
+    """Store the approved revision whole or not at all.
+
+    Built beside its destination, verified to reproduce the digest it will be
+    filed under, and moved into place in one step, so a crash can leave a
+    stray temporary directory but never a revision that is present and
+    incomplete. An existing revision is verified before it is trusted.
+    """
+    _require_contained(paths, paths.package_revisions_dir(package_id))
+    final = paths.package_revisions_dir(package_id) / digest
+    if final.is_dir():
+        if package_digest(final) != digest:
+            raise IntegrityError(
+                "package_approvals_invalid",
+                f"The stored revision {digest[:12]} of package {package_id} "
+                "does not match its own digest.",
+                {"package": package_id, "digest": digest})
+        return
+    staging = final.with_name(f".{digest}.{secrets.token_hex(4)}.tmp")
+    try:
+        _copy_package_tree(root, staging)
+        if package_digest(staging) != digest:
+            raise IntegrityError(
+                "package_approvals_invalid",
+                f"Copying package {package_id} did not reproduce digest "
+                f"{digest[:12]}: the package changed while it was being "
+                "approved. Nothing was recorded; retry.",
+                {"package": package_id, "digest": digest})
+        os.replace(staging, final)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _approved_manifest(paths: Paths, package_id: str,
+                       latest: dict | None) -> dict | None:
+    if latest is None:
+        return None
+    revision = paths.package_revisions_dir(package_id) / latest["digest"]
+    if revision.is_dir() and package_digest(revision) != latest["digest"]:
+        raise IntegrityError(
+            "package_approvals_invalid",
+            f"The stored revision {latest['digest'][:12]} of package "
+            f"{package_id} does not match its own digest.",
+            {"package": package_id, "digest": latest["digest"]})
+    target = revision / PACKAGE_MANIFEST
+    if not target.is_file():
+        raise IntegrityError(
+            "package_approvals_invalid",
+            f"the approved revision {latest['digest'][:12]} of package "
+            f"{package_id} is missing from the revision store.",
+            {"package": package_id, "digest": latest["digest"]})
+    try:
+        return json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "package_approvals_invalid",
+            f"the stored manifest of revision {latest['digest'][:12]} cannot "
+            f"be read ({exc}).", {"package": package_id}) from None
+
+
+def _package_arg(args, paths: Paths) -> str:
+    package_id = getattr(args, "package", None)
+    if not package_id or not PACKAGE_ID_RE.match(package_id):
+        raise UsageError(
+            "package_id_invalid",
+            "Name the package with --package <id> (kebab-case, at most 64 "
+            "characters).")
+    return package_id
+
+
+def _refuse_invalid(findings: list[dict], package_id: str) -> None:
+    if findings:
+        rules = sorted({f["rule"] for f in findings})
+        raise Refused(
+            "package_invalid",
+            f"Package {package_id} has {len(findings)} problem(s) "
+            f"({', '.join(rules)}). Nothing was written. Fix every offender "
+            "listed in `offenders`, then run `package validate` again.",
+            {"package": package_id, "offenders": findings})
+
+
+def _scan_package_texts(root: Path) -> list[dict]:
+    flagged = []
+    for rel in package_files_on_disk(root):
+        raw = (root / rel).read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            flagged.append(_pf("package_file_not_text", rel,
+                               "a package holds UTF-8 text only"))
+            continue
+        for match in scan_text(text):
+            flagged.append(_pf(
+                "package_content_flagged", rel,
+                f"line {match['line']} looks like an instruction to a model "
+                f"({match['pattern']}); package files are data. Reword it."))
+    return flagged
+
+
+def _copy_package_tree(source: Path, target: Path) -> None:
+    for rel in package_files_on_disk(source):
+        text = (source / rel).read_bytes().decode("utf-8").replace("\r\n", "\n")
+        write_atomic(target / rel, text)
+
+
+def cmd_package_validate(args, paths: Paths) -> int:
+    """Validate a package in place or in staging. A pure reader."""
+    package_id = _package_arg(args, paths)
+    root = (paths.package_staging_dir(package_id) if args.staging
+            else paths.package_dir(package_id))
+    _require_contained(paths, root)
+    if not root.is_dir():
+        raise Refused(
+            "package_not_found",
+            f"There is no package directory at "
+            f"{root.relative_to(paths.project_root).as_posix()}.",
+            {"package": package_id})
+    findings = package_findings(paths, root)
+    doc, _ = load_package_manifest(root)
+    if doc is not None and not findings and doc.get("packageId") != package_id:
+        findings.append(_pf("package_manifest_invalid", "packageId",
+                            f"is {doc.get('packageId')!r}, not {package_id!r}"))
+    _refuse_invalid(findings, package_id)
+    emit("package validate", {
+        "package": package_id, "valid": True,
+        "location": "staging" if args.staging else "repository",
+        "requirements": len(doc["requirements"]),
+        "workItems": [{"id": w["id"], "readiness": w["readiness"]}
+                      for w in doc["workItems"]],
+    })
+    return EXIT_OK
+
+
+def _snapshot_package(root: Path) -> tuple[dict[str, str], list[dict]]:
+    """Every regular file of a package, read **once**, as LF-normalised text.
+
+    Unfenced staging can be edited while an import runs, so the import reads
+    it a single time and everything after (the scan, the validation, the
+    publication) works on that copy: the bytes that are published are the
+    bytes that were validated.
+    """
+    files: dict[str, str] = {}
+    problems: list[dict] = []
+    for rel in package_files_on_disk(root):
+        raw = (root / rel).read_bytes()
+        try:
+            files[rel] = raw.decode("utf-8").replace("\r\n", "\n")
+        except UnicodeDecodeError:
+            problems.append(_pf("package_file_not_text", rel,
+                                "a package holds UTF-8 text only"))
+    return files, problems
+
+
+def _swap_into_place(new: Path, target: Path) -> None:
+    """Replace ``target`` by ``new`` as two renames. A package directory is
+    never edited in place: it is built whole beside its destination and moved
+    in, so there is no moment at which it is half one revision and half
+    another, and a link inside the old directory is removed rather than
+    written through."""
+    trash = None
+    if target.exists():
+        trash = target.with_name(f".{target.name}.old-{secrets.token_hex(4)}")
+        os.replace(target, trash)
+    try:
+        os.replace(new, target)
+    except BaseException:
+        if trash is not None:
+            os.replace(trash, target)
+        raise
+    if trash is not None:
+        shutil.rmtree(trash, ignore_errors=True)
+
+
+def _import_locked(args, paths: Paths, package_id: str) -> int:
+    staging = paths.package_staging_dir(package_id)
+    target = paths.package_dir(package_id)
+    packages = paths.project_root / "requirements" / "packages"
+    for place in (staging, target, packages):
+        _require_contained(paths, place)
+    if not staging.is_dir():
+        raise Refused(
+            "package_not_found",
+            f"There is no staging directory at "
+            f"{staging.relative_to(paths.project_root).as_posix()}. The "
+            "orchestrator drafts the package there; `package import` is the "
+            "only thing that copies it into requirements/.",
+            {"package": package_id})
+    _refuse_invalid(
+        [_pf("package_symlink_refused", rel,
+             "a link in a package could point anywhere; a package holds "
+             "regular files only")
+         for rel in package_link_problems(staging)], package_id)
+    snapshot, unreadable = _snapshot_package(staging)
+    _refuse_invalid(unreadable, package_id)
+
+    private = packages / f".import-{package_id}-{secrets.token_hex(4)}"
+    try:
+        for rel, text in snapshot.items():
+            write_atomic(private / rel, text)
+        _refuse_invalid(_scan_package_texts(private), package_id)
+        findings = package_findings(paths, private)
+        doc, _ = load_package_manifest(private)
+        if (doc is not None and not findings
+                and doc.get("packageId") != package_id):
+            findings.append(_pf(
+                "package_manifest_invalid", "packageId",
+                f"is {doc.get('packageId')!r}, not {package_id!r}"))
+        _refuse_invalid(findings, package_id)
+
+        records = read_package_ledger(paths, package_id)
+        approved = _approved_manifest(paths, package_id,
+                                      records[-1] if records else None)
+        if approved is not None:
+            _refuse_invalid(package_history_findings(doc, approved),
+                            package_id)
+
+        staged = package_digest(private)
+        if target.is_dir() and package_files_on_disk(target):
+            _refuse_invalid(
+                [_pf("package_symlink_refused", rel,
+                     "a link inside the package already imported; remove it "
+                     "before replacing the package")
+                 for rel in package_link_problems(target)], package_id)
+            before = package_digest(target)
+            if staged == before:
+                emit("package import", {
+                    "package": package_id, "imported": False,
+                    "digest": before, "unchanged": True})
+                return EXIT_OK
+            if not args.replace:
+                raise Refused(
+                    "package_exists",
+                    f"Package {package_id} is already in requirements/. Use "
+                    "`package import --replace` to replace it; any approval "
+                    "becomes stale.",
+                    {"package": package_id, "digest": before})
+        _swap_into_place(private, target)
+    finally:
+        shutil.rmtree(private, ignore_errors=True)
+    digest = package_digest(target)
+    status = package_status(paths, package_id)
+    emit("package import", {
+        "package": package_id, "imported": True, "digest": digest,
+        "status": status["status"],
+        "files": len(snapshot),
+        "next": ("run `package approve` after the Solution Architect has "
+                 "reviewed it"
+                 if status["status"] != "approved" else None),
+    })
+    return EXIT_OK
+
+
+def cmd_package_import(args, paths: Paths) -> int:
+    package_id = _package_arg(args, paths)
+    with package_ledger_lock(paths, package_id):
+        return _import_locked(args, paths, package_id)
+
+
+def cmd_package_approve(args, paths: Paths) -> int:
+    package_id = _package_arg(args, paths)
+    for flag, label in (("approver", "--approver"), ("role", "--role"),
+                        ("wording", "--wording")):
+        if not (getattr(args, flag, "") or "").strip():
+            raise UsageError(
+                "package_approval_incomplete",
+                f"{label} is required: an approval records who approved, in "
+                "what capacity, and in what words.")
+    with package_ledger_lock(paths, package_id):
+        root = paths.package_dir(package_id)
+        _require_contained(paths, root)
+        if not root.is_dir():
+            raise Refused(
+                "package_not_found",
+                f"Package {package_id} is not in requirements/packages/. "
+                "Import it first.", {"package": package_id})
+        _refuse_invalid(package_findings(paths, root), package_id)
+        digest = package_digest(root)
+        records = read_package_ledger(paths, package_id)
+        if records and records[-1]["digest"] == digest:
+            emit("package approve", {
+                "package": package_id, "approved": True, "replayed": True,
+                "digest": digest, "record": records[-1]["n"]})
+            return EXIT_OK
+        approved = _approved_manifest(paths, package_id,
+                                      records[-1] if records else None)
+        doc, _ = load_package_manifest(root)
+        if approved is not None:
+            _refuse_invalid(package_history_findings(doc, approved),
+                            package_id)
+        _publish_revision(paths, root, package_id, digest)
+        # The lock is a short-lived mutex, not a lease. If this command was
+        # paused past its stale limit another writer may have taken the lock
+        # and recorded an approval; recording ours on top would erase it. So
+        # the facts this decision rested on are re-read just before the
+        # write, and a change is a refusal, never an overwrite.
+        if (len(read_package_ledger(paths, package_id)) != len(records)
+                or package_digest(root) != digest):
+            raise Refused(
+                "package_locked",
+                f"Package {package_id}'s approvals or content changed while "
+                "this approval was being recorded. Nothing was recorded; "
+                "retry.", {"package": package_id})
+        record = {
+            "n": len(records) + 1, "package": package_id, "digest": digest,
+            "approver": args.approver.strip(), "role": args.role.strip(),
+            "approvedAt": now_iso(), "wording": args.wording.strip(),
+            "prev": records[-1]["hash"] if records else "0" * 64,
+        }
+        record["hash"] = _ledger_record_hash(record)
+        records.append(record)
+        write_atomic(paths.package_ledger_file(package_id), json.dumps(
+            {"ledgerVersion": PACKAGE_LEDGER_VERSION, "package": package_id,
+             "records": records}, indent=2) + "\n")
+    emit("package approve", {
+        "package": package_id, "approved": True, "replayed": False,
+        "digest": digest, "record": record["n"], "hash": record["hash"],
+        "approver": record["approver"], "role": record["role"],
+        "identity_note": "The approver's name is recorded, not verified: "
+                         "protect the package and .sdle/package-approvals/ "
+                         "with CODEOWNERS and branch protection so the Git "
+                         "host supplies real identity.",
+    })
+    return EXIT_OK
+
+
+def _package_diff(paths: Paths, package_id: str, latest: dict | None) -> dict:
+    if latest is None:
+        return {"against": None, "added": [], "removed": [], "changed": []}
+    old = paths.package_revisions_dir(package_id) / latest["digest"]
+    new = paths.package_dir(package_id)
+    old_files, new_files = set(package_files_on_disk(old)), set(
+        package_files_on_disk(new))
+    changed = []
+    budget = PACKAGE_DIFF_LINES
+    for rel in sorted(old_files & new_files):
+        if package_file_sha(old / rel) == package_file_sha(new / rel):
+            continue
+        lines = list(difflib.unified_diff(
+            (old / rel).read_text(encoding="utf-8", errors="replace")
+            .splitlines(),
+            (new / rel).read_text(encoding="utf-8", errors="replace")
+            .splitlines(), "approved/" + rel, "current/" + rel, lineterm="",
+            n=1))
+        changed.append({"path": rel, "diff": lines[:budget],
+                        "truncated": len(lines) > budget})
+        budget = max(budget - len(lines), 0)
+    return {"against": latest["digest"],
+            "added": sorted(new_files - old_files),
+            "removed": sorted(old_files - new_files), "changed": changed}
+
+
+def _package_for_show(args, paths: Paths) -> str:
+    if getattr(args, "package", None):
+        return _package_arg(args, paths)
+    bound = bind_workitem(paths, getattr(args, "workitem", None))
+    package_id = package_of_binding(bound)
+    if package_id is None:
+        raise Refused(
+            "package_not_bound",
+            f"WorkItem '{bound.workitem}' is not bound to a requirements "
+            "package. Name one with --package <id>.",
+            {"workitem": bound.workitem})
+    return package_id
+
+
+def cmd_package_show(args, paths: Paths) -> int:
+    """The revision, its approval and what changed since. A pure reader."""
+    package_id = _package_for_show(args, paths)
+    status = package_status(paths, package_id)
+    data: dict = {**status}
+    root = paths.package_dir(package_id)
+    if root.is_dir():
+        doc, problems = load_package_manifest(root)
+        if doc is not None and not _package_structure(doc):
+            data["workItems"] = [
+                {"id": w["id"], "slug": w["slug"],
+                 "readiness": w["readiness"], "file": w["file"]}
+                for w in doc["workItems"]]
+            data["openIssues"] = {
+                "blocking": len(_package_blocking_issue_ids(doc)),
+                "total": len(doc["openIssues"])}
+            data["files"] = [{"path": f["path"], "role": f["role"],
+                              "sha256": f["sha256"]} for f in doc["files"]]
+            data["sources"] = [{"path": s["path"], "sha256": s["sha256"],
+                                "statedVersion": s["statedVersion"]}
+                               for s in doc["sources"]]
+        else:
+            data["manifest_problems"] = problems or _package_structure(doc)
+    if args.diff:
+        data["diff"] = _package_diff(paths, package_id, status["latest"])
+    emit("package show", data)
+    return EXIT_OK
+
+
+def cmd_package_reseal(args, paths: Paths) -> int:
+    """Recompute the file digests after an intended edit (ADR-016 §4).
+
+    The only way back from `package_files_changed`. It keeps the approval
+    history, validates the result, and leaves the package stale until it is
+    approved again. A manifest damaged beyond its file digests is refused.
+    """
+    package_id = _package_arg(args, paths)
+    with package_ledger_lock(paths, package_id):
+        root = paths.package_dir(package_id)
+        _require_contained(paths, root)
+        if not root.is_dir():
+            raise Refused("package_not_found",
+                          f"Package {package_id} is not in requirements/.",
+                          {"package": package_id})
+        doc, problems = load_package_manifest(root)
+        if doc is None or _package_structure(doc):
+            raise IntegrityError(
+                "package_manifest_invalid",
+                f"{package_id}/package.json is damaged beyond its file "
+                "digests, so it cannot be resealed. Re-import the package "
+                "from staging.",
+                {"package": package_id,
+                 "problems": problems or _package_structure(doc)})
+        for row in doc["files"]:
+            target = root / row["path"]
+            if target.is_file():
+                row["sha256"] = package_file_sha(target)
+        rendered = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+        previous = (root / PACKAGE_MANIFEST).read_text(encoding="utf-8")
+        write_atomic(root / PACKAGE_MANIFEST, rendered)
+        findings = package_findings(paths, root)
+        if findings:
+            write_atomic(root / PACKAGE_MANIFEST, previous)
+            _refuse_invalid(findings, package_id)
+        records = read_package_ledger(paths, package_id)
+        approved = _approved_manifest(paths, package_id,
+                                      records[-1] if records else None)
+        if approved is not None:
+            history = package_history_findings(doc, approved)
+            if history:
+                write_atomic(root / PACKAGE_MANIFEST, previous)
+                _refuse_invalid(history, package_id)
+    status = package_status(paths, package_id)
+    emit("package reseal", {
+        "package": package_id, "digest": status["digest"],
+        "status": status["status"],
+        "next": "the package is stale until `package approve` records a new "
+                "approval" if status["status"] == "stale" else None})
+    return EXIT_OK
+
+
+# ---- the WorkItem side: handoff, pin, intake ------------------------------
+
+
+def package_of_sources(sources: list[str]) -> str | None:
+    """The one package a binding belongs to, or None. A binding that names two
+    packages, or a package file beside a document from outside any package,
+    is refused: the pin says which revision a WorkItem started under, so it
+    must be about exactly one."""
+    ids = {package_path_id(item) for item in sources}
+    packaged = {i for i in ids if i}
+    if not packaged:
+        return None
+    if len(packaged) > 1 or None in ids:
+        raise Refused(
+            "package_binding_mixed",
+            "This WorkItem's requirements binding mixes documents of more "
+            "than one package, or a package file with documents from "
+            "outside it. A package work item is bound to its own files "
+            "only: re-run `requirements bind`.",
+            {"sources": sources, "packages": sorted(packaged)})
+    return packaged.pop()
+
+
+def package_of_binding(paths: Paths) -> str | None:
+    binding = read_requirements_binding(paths)
+    return package_of_sources(binding["sources"]) if binding else None
+
+
+def package_handoff_precondition(paths: Paths, binding: dict) -> dict | None:
+    """The handoff check at `init` (ADR-016 §4). A pure reader.
+
+    Inert for any binding that names no package file, so every legacy
+    WorkItem is unaffected. Returns the facts the pin records.
+    """
+    package_id = package_of_sources(binding["sources"])
+    if package_id is None:
+        return None
+    status = package_status(paths, package_id)
+    if not status["present"]:
+        raise Refused(
+            "package_not_found",
+            f"The requirements binding names package {package_id}, which is "
+            "not in requirements/packages/.", {"package": package_id})
+    if status["status"] == "unapproved":
+        raise Refused(
+            "package_approval_missing",
+            f"Package {package_id} has not been approved by a Solution "
+            "Architect, so a developer cannot start from it. Run "
+            "`package approve` once it has been reviewed.",
+            {"package": package_id, "digest": status["digest"]})
+    if status["status"] == "stale":
+        raise Refused(
+            "package_approval_stale",
+            f"Package {package_id} changed after it was approved (current "
+            f"{status['digest'][:12]}, approved "
+            f"{status['latest']['digest'][:12]}). It needs a new approval; "
+            "`package show --diff` shows what changed.",
+            {"package": package_id, "digest": status["digest"],
+             "approved_digest": status["latest"]["digest"]})
+    doc, _ = load_package_manifest(paths.package_dir(package_id))
+    primary = binding["primary"]
+    prefix = f"requirements/packages/{package_id}/"
+    work_files = {w["file"]: w for w in doc["workItems"]}
+    mine = [s for s in binding["sources"] if s[len(prefix):] in work_files]
+    if primary[len(prefix):] not in work_files or len(mine) != 1:
+        raise Refused(
+            "package_binding_invalid",
+            "A package work item is bound with its own requirements.md as "
+            "the primary document and no other work item's file. Use "
+            "`package intake`, or re-run `requirements bind`.",
+            {"package": package_id, "primary": primary})
+    item = work_files[primary[len(prefix):]]
+    if item["readiness"] != "READY":
+        raise Refused(
+            "package_workitem_not_ready",
+            f"Package work item {item['id']} is marked NOT READY, so "
+            "nothing can be built from it yet. Resolve its blocking open "
+            "issues and re-approve the package.",
+            {"package": package_id, "workItem": item["id"]})
+    allowed = {primary} | {prefix + s for s in item["sharedFiles"]}
+    extra = sorted(set(binding["sources"]) - allowed)
+    missing = sorted(allowed - set(binding["sources"]))
+    if extra or missing:
+        raise Refused(
+            "package_binding_invalid",
+            f"The binding of work item {item['id']} is not exactly its own "
+            "requirements.md and the shared files it cites"
+            + (f"; it names files the work item does not cite: "
+               f"{', '.join(extra)}" if extra else "")
+            + (f"; it omits files the work item cites: "
+               f"{', '.join(missing)}" if missing else "")
+            + ". Use `package intake`, or re-run `requirements bind`.",
+            {"package": package_id, "extra": extra, "missing": missing})
+    return {"package": package_id, "workItem": item["id"],
+            "digest": status["digest"],
+            "ledgerHash": status["latest"]["hash"]}
+
+
+def _package_binding_body(pin: dict, workitem: str, stamp: str,
+                          reassess_after: str | None = None) -> dict:
+    body = {"packageBindingVersion": PACKAGE_BINDING_VERSION,
+            "workitem": workitem, "package": pin["package"],
+            "workItem": pin["workItem"], "digest": pin["digest"],
+            "ledgerHash": pin["ledgerHash"], "pinnedAt": stamp}
+    if reassess_after is not None:
+        # The governance record this WorkItem held when it adopted a moved
+        # revision. Progression needs a *different* one: adoption says the
+        # package is the new revision, and only an assessment says the
+        # requirements still pass against it.
+        body["reassessAfter"] = reassess_after
+    body["selfDigest"] = hashlib.sha256(
+        _canonical_json(body).encode("utf-8")).hexdigest()
+    return body
+
+
+def read_package_binding(paths: Paths) -> dict | None:
+    """The WorkItem's package pin, or None. Engine-written, self-digested."""
+    target = paths.package_binding_file
+    if not target.is_file():
+        return None
+    where = f"{paths.runtime_relative}/{target.name}"
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "package_binding_invalid", f"{where} cannot be read: {exc}.",
+            {"path": where}) from None
+    if (not isinstance(document, dict)
+            or document.get("packageBindingVersion") != PACKAGE_BINDING_VERSION
+            or document.get("workitem") != paths.workitem):
+        raise IntegrityError(
+            "package_binding_invalid",
+            f"{where} is not this WorkItem's package pin.", {"path": where})
+    body = {k: v for k, v in document.items() if k != "selfDigest"}
+    if document.get("selfDigest") != hashlib.sha256(
+            _canonical_json(body).encode("utf-8")).hexdigest():
+        raise IntegrityError(
+            "package_binding_invalid",
+            f"{where} does not match its own digest, so it was edited after "
+            "it was written.", {"path": where})
+    return document
+
+
+def package_pin_precondition(paths: Paths) -> None:
+    """Refuse progression once the package moved under a started WorkItem.
+
+    Governance freshness sees only the *bound* files, so a change to the
+    manifest or to a shared file the work item does not bind would be
+    invisible to it. The pin covers the whole package. A pure reader: callers
+    place it ahead of their first irreversible write.
+    """
+    pin = read_package_binding(paths)
+    if pin is None:
+        return None
+    root = paths.package_dir(pin["package"])
+    current = package_digest(root) if root.is_dir() else None
+    marker = pin.get("reassessAfter")
+    if marker is not None and current == pin["digest"]:
+        record = read_governance_record(paths)
+        unchanged = (record is None if marker == "none"
+                     else (record or {}).get("executionId") == marker)
+        if unchanged:
+            raise Refused(
+                "package_reassessment_required",
+                f"WorkItem '{paths.workitem}' adopted a new revision of "
+                f"package {pin['package']}, and the requirements have not "
+                "been assessed since. Run `governance assess`; nothing "
+                "advances until it passes.",
+                {"workitem": paths.workitem, "package": pin["package"]})
+    if current != pin["digest"]:
+        raise Refused(
+            "package_revision_changed",
+            f"Package {pin['package']} is no longer the revision WorkItem "
+            f"'{paths.workitem}' started under ("
+            f"{pin['digest'][:12]} then, "
+            f"{(current or 'absent')[:12]} now). Have the new revision "
+            "approved with `package approve`, then adopt it with `package "
+            "adopt` and re-assess; nothing advances until then.",
+            {"workitem": paths.workitem, "package": pin["package"],
+             "pinned_digest": pin["digest"], "current_digest": current})
+    return None
+
+
+def cmd_package_adopt(args, paths: Paths) -> int:
+    """Re-pin a started WorkItem to the package's newly approved revision."""
+    bound = bind_workitem(paths, getattr(args, "workitem", None))
+    pin = read_package_binding(bound)
+    if pin is None:
+        raise Refused(
+            "package_not_bound",
+            f"WorkItem '{bound.workitem}' has no package pin to adopt a "
+            "revision into.", {"workitem": bound.workitem})
+    status = package_status(bound, pin["package"])
+    if status["status"] != "approved":
+        raise Refused(
+            "package_approval_stale" if status["status"] == "stale"
+            else "package_approval_missing",
+            f"Package {pin['package']} is {status['status']}: only an "
+            "approved revision can be adopted.",
+            {"package": pin["package"], "status": status["status"]})
+    stamp = now_iso()
+    moved = status["digest"] != pin["digest"]
+    # The new revision must still be one this WorkItem can start from: the
+    # same package work item, present and READY, and the binding exactly its
+    # files. Approval of the package says nothing about this WorkItem.
+    new_pin = package_handoff_precondition(bound, validated_binding(bound))
+    if (new_pin is None or new_pin["package"] != pin["package"]
+            or new_pin["workItem"] != pin["workItem"]):
+        raise Refused(
+            "package_binding_invalid",
+            f"WorkItem '{bound.workitem}' is bound to package work item "
+            f"{pin['workItem']}; the requirements binding no longer names "
+            "it.", {"workitem": bound.workitem})
+    state = read_state(bound) if bound.state_file.is_file() else None
+    # A moved revision needs a new assessment, measured from the one the
+    # WorkItem holds now. Adopting the same revision again must not forget a
+    # reassessment that is still owed: the marker is carried, never dropped.
+    reassess = pin.get("reassessAfter")
+    if moved:
+        held = read_governance_record(bound)
+        reassess = (held or {}).get("executionId") or "none"
+    write_atomic(bound.package_binding_file, json.dumps(
+        _package_binding_body(new_pin, bound.workitem, stamp, reassess),
+        indent=2) + "\n")
+    if state is not None:
+        append_audit(
+            bound, state, phase=state.get("current_phase") or "unknown",
+            event="package_adopted",
+            message=f"Package {pin['package']} revision "
+                    f"{status['digest'][:12]} adopted (was "
+                    f"{pin['digest'][:12]}). Requirements must be re-assessed "
+                    "before the workflow advances.")
+        save_state(bound, state, args.session)
+    emit("package adopt", {
+        "workitem": bound.workitem, "package": pin["package"],
+        "digest": status["digest"], "moved": moved,
+        "next": "re-run `governance assess`: the bound files may have "
+                "changed" if moved else None})
+    return EXIT_OK
+
+
+def cmd_package_intake(args, paths: Paths) -> int:
+    """One WorkItem per package work item, bound to its own files.
+
+    Reuses the pre-`init` machinery unchanged: `workitem create`, then
+    `requirements bind`. The governance assessment stays with the
+    orchestrator, because it takes an assessor's findings as input that the
+    engine cannot produce. Idempotent, and independent of approval: intake
+    happens before the Solution Architect approves.
+    """
+    package_id = _package_arg(args, paths)
+    root = paths.package_dir(package_id)
+    _require_contained(paths, root)
+    if not root.is_dir():
+        raise Refused("package_not_found",
+                      f"Package {package_id} is not in requirements/.",
+                      {"package": package_id})
+    _refuse_invalid(package_findings(paths, root), package_id)
+    doc, _ = load_package_manifest(root)
+    chosen = set(getattr(args, "work_item", None) or [])
+    unknown = sorted(chosen - {w["id"] for w in doc["workItems"]})
+    if unknown:
+        raise UsageError(
+            "package_work_item_unknown",
+            f"Package {package_id} has no work item {', '.join(unknown)}.")
+    prefix = f"requirements/packages/{package_id}/"
+    results = []
+    registered = {row["WorkItem"] for row in read_index(paths)}
+    for item in doc["workItems"]:
+        if chosen and item["id"] not in chosen:
+            continue
+        name = normalize_workitem_name(
+            f"{package_id}-{item['id']}-{item['slug']}")
+        sources = [prefix + item["file"]] + [
+            prefix + s for s in item["sharedFiles"]]
+        with refinement_mutex(paths):
+            created = name not in registered
+            if created:
+                _create_workitem(paths, name, "enhancement",
+                                 f"Package {package_id} work item "
+                                 f"{item['id']}", False)
+                registered.add(name)
+            bound = dataclass_replace(paths, workitem=name)
+            existing = read_requirements_binding(bound)
+            if existing is not None and sorted(existing["sources"]) != sorted(
+                    sources):
+                raise Refused(
+                    "package_intake_conflict",
+                    f"WorkItem '{name}' already exists with a different "
+                    "requirements binding. Resolve it with `requirements "
+                    "bind`; intake does not overwrite a binding.",
+                    {"workitem": name, "bound": existing["sources"]})
+            if existing is None:
+                _write_requirements_binding(bound, sources, sources[0])
+        results.append({
+            "workItem": item["id"], "workitem": name, "created": created,
+            "bound": sources, "primary": sources[0],
+            "readiness": item["readiness"],
+            "next": f"`governance assess --workitem {name}`, then optional "
+                    "refinement, then Solution Architect approval"})
+    emit("package intake", {"package": package_id, "workitems": results})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# Traceability and verification (ADR-017)
+#
+# A package gives every obligation an id. This block checks, for a WorkItem
+# started from a package, that each in-scope obligation is carried into the
+# specification and the tasks, and that each acceptance criterion ends the
+# lifecycle with a recorded verification disposition. It checks that the
+# links exist and are well-formed; it never decides that what they link
+# satisfies anything. That is a review's judgement.
+# --------------------------------------------------------------------------
+
+VERIFICATION_VERSION = "1"
+VERIFICATION_DISPOSITIONS = (
+    "verified-mapped", "suite-pass-unmapped", "manual-evidence",
+    "excluded-approved", "blocked")
+# Dispositions that count as the criterion being accounted for. Everything
+# else is displayed apart and never shown as verified.
+VERIFICATION_ACCOUNTED = ("verified-mapped", "manual-evidence",
+                          "excluded-approved")
+TRACE_GATES = ("gate_spec", "gate_tasks", "gate_implement")
+TASK_LINE = re.compile(r"^\s*[-*]\s*\[[ xX]\]\s*(?P<text>.+)$")
+TEST_WORD = re.compile(r"\btests?\b|\bverif", re.IGNORECASE)
+
+
+def _verification_hash(row: dict) -> str:
+    body = {k: v for k, v in row.items() if k != "hash"}
+    return hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
+
+
+def _verification_row_problem(row: object) -> str | None:
+    """Why a record is not one the engine could have written, or None. Each
+    disposition carries the fields that make it mean what it says: an
+    exclusion without an approver and their words is not an exclusion."""
+    if not isinstance(row, dict) or not _is_str(row.get("id")):
+        return "has no id"
+    disposition = row.get("disposition")
+    if disposition not in VERIFICATION_DISPOSITIONS:
+        return "has an unknown disposition"
+    if disposition == "excluded-approved" and not all(
+            _is_str(row.get(k)) for k in ("reason", "approver", "wording")):
+        return "is an exclusion without a reason, an approver and their words"
+    if disposition == "blocked" and not _is_str(row.get("reason")):
+        return "is blocked without a reason"
+    if disposition == "manual-evidence" and not _is_str(row.get("evidence")):
+        return "is manual evidence without a file"
+    if disposition == "verified-mapped" and not (
+            isinstance(row.get("evidence"), dict)
+            and _is_str(row["evidence"].get("junit"))
+            and _is_str(row.get("evidenceId"))):
+        return "is a mapping without its test report and its evidence"
+    return None
+
+
+def read_verification(paths: Paths) -> list[dict]:
+    """The append-only verification records, chained like the approval ledger
+    and fail-closed: a record SDLE cannot verify is not the same as one nobody
+    wrote, and a fabricated or edited one must not read as an exclusion."""
+    target = paths.verification_file
+    if not target.is_file():
+        return []
+    where = f"{paths.runtime_relative}/{target.name}"
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError(
+            "verification_record_invalid", f"{where} cannot be read: {exc}.",
+            {"path": where}) from None
+    rows = document.get("records") if isinstance(document, dict) else None
+    if (not isinstance(rows, list)
+            or document.get("verificationVersion") != VERIFICATION_VERSION
+            or document.get("workitem") != paths.workitem):
+        raise IntegrityError(
+            "verification_record_invalid",
+            f"{where} is not this WorkItem's verification record.",
+            {"path": where})
+    previous = "0" * 64
+    for index, row in enumerate(rows, start=1):
+        problem = _verification_row_problem(row)
+        if (problem or row.get("n") != index or row.get("prev") != previous
+                or row.get("hash") != _verification_hash(row)):
+            raise IntegrityError(
+                "verification_record_invalid",
+                f"{where} record {index} "
+                + (problem or "breaks the hash chain, so it was edited "
+                              "after the engine wrote it") + ".",
+                {"path": where, "record": index})
+        previous = row["hash"]
+    return rows
+
+
+def _id_token_regex(patterns: list[str],
+                    loose: bool = False) -> re.Pattern | None:
+    """One regex finding any declared id as a whole token. `loose` is for
+    names a test runner writes, where `_` separates words and so must not
+    count as part of an id: `test_AC-001_creates` names AC-001."""
+    if not patterns:
+        return None
+    union = "|".join(f"(?:{p})" for p in patterns)
+    edge = "A-Za-z0-9" if loose else "A-Za-z0-9_-"
+    return re.compile(rf"(?<![{edge}])(?:{union})(?![{edge}])")
+
+
+def trace_scope(paths: Paths, state: dict,
+                consts: "Constants | None" = None) -> dict | None:
+    """What this WorkItem is accountable for, or None.
+
+    None for every WorkItem that was not started from a package, which is
+    what keeps every legacy WorkItem untouched (ADR-017 §1).
+    """
+    pin = read_package_binding(paths)
+    if pin is None:
+        return None
+    root = paths.package_dir(pin["package"])
+    doc, problems = load_package_manifest(root)
+    if doc is None or _package_structure(doc):
+        raise IntegrityError(
+            "package_manifest_invalid",
+            f"Package {pin['package']} cannot be read as a package, so "
+            "traceability cannot be checked.",
+            {"package": pin["package"]})
+    mine = [r for r in doc["requirements"] if r.get("workItem") == pin["workItem"]]
+    consts = consts or load_constants(paths)
+
+    def text_of(gate_key: str) -> str:
+        # The artifact each gate owns is ARTIFACT_OWNERSHIP's business, not a
+        # file name this function knows: the engine names no Spec Kit file.
+        resolved, _ = resolve_artifact_path(state, consts, gate_key, paths)
+        target = paths.project_root / resolved if resolved else None
+        return (target.read_text(encoding="utf-8", errors="replace")
+                if target is not None and target.is_file() else "")
+
+    return {
+        "package": pin["package"], "workItem": pin["workItem"], "doc": doc,
+        "inScope": [r["id"] for r in mine],
+        "criteria": [r["id"] for r in mine
+                     if r["kind"] == PACKAGE_CRITERION_KIND],
+        "testable": {r["id"]: r.get("testable", True) is not False
+                     for r in mine},
+        "known": ({r["id"] for r in doc["requirements"]}
+                  | {w["id"] for w in doc["workItems"]}
+                  | {i["id"] for i in doc["openIssues"]}),
+        "spec": text_of("gate_spec"), "tasks": text_of("gate_tasks"),
+    }
+
+
+def _ids_in(text: str, doc: dict, key: str) -> set[str]:
+    patterns = (list(doc["idGrammar"].values()) if key == "ids"
+                else list((doc.get("obligationTags") or {}).values()))
+    regex = _id_token_regex(patterns)
+    if regex is None or len(text) > PACKAGE_TEXT_MAX:
+        return set()
+    return {m.group(0) for m in regex.finditer(text)}
+
+
+def effective_dispositions(paths: Paths, state: dict, scope: dict) -> dict:
+    """Each acceptance criterion's verification disposition, or None.
+
+    The newest recorded one wins, except that a `verified-mapped` record is
+    only as good as the test run it was mapped from: it counts only while it
+    names the evidence the implementation manifest names now. A criterion
+    nothing was recorded for is `suite-pass-unmapped` when that evidence's
+    suite passed (displayed apart, never as verified) and unaccounted for
+    otherwise.
+    """
+    latest: dict[str, dict] = {}
+    for row in read_verification(paths):
+        latest[row["id"]] = row
+    evidence = current_implementation_evidence(paths)
+    passed = bool(evidence and (evidence.get("tests") or {}).get("status")
+                  == TEST_STATUS_PASSED
+                  and (evidence.get("tests") or {}).get("exit_code") == 0)
+    out: dict[str, dict | None] = {}
+    for criterion in scope["criteria"]:
+        row = latest.get(criterion)
+        # A disposition derived from a test run, a mapping or a failure alike,
+        # counts only for the run it came from. One typed in by a person
+        # carries no run and stands until something newer replaces it.
+        if (row and row.get("evidenceId") is not None
+                and row["evidenceId"] != (evidence or {}).get(
+                    "executionId")):
+            row = None
+        if row is not None:
+            out[criterion] = {"disposition": row["disposition"],
+                              "recordedAt": row.get("recordedAt"),
+                              "evidence": row.get("evidence")}
+        elif passed:
+            out[criterion] = {"disposition": "suite-pass-unmapped",
+                              "recordedAt": None, "evidence": None}
+        else:
+            out[criterion] = None
+    return out
+
+
+def current_implementation_evidence(paths: Paths) -> dict | None:
+    """The evidence record the current implementation manifest names, or
+    None. A pure reader; the gate's own precondition judges its validity."""
+    if not paths.manifest_file.is_file():
+        return None
+    match = MANIFEST_EVIDENCE_LINE.search(
+        paths.manifest_file.read_text(encoding="utf-8", errors="replace"))
+    if not match:
+        return None
+    target = paths.project_root / match.group(1)
+    try:
+        target.resolve().relative_to(paths.evidence_dir.resolve())
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def unmapped_verification_blocks(paths: Paths,
+                                 consts: "Constants | None" = None) -> bool:
+    """Does this WorkItem's policy make an unmapped pass blocking? The
+    stricter of the live policy and the one it started under (ADR-011), so a
+    policy can only ever make the answer more demanding."""
+    consts = consts or load_constants(paths)
+    live = read_governance_policy(paths, consts)["policy"].get(
+        "unmapped_verification_blocks", False)
+    record = read_governance_record(paths) or {}
+    pinned = ((record.get("pinnedPolicy") or {}).get("policy") or {}).get(
+        "unmapped_verification_blocks", False)
+    return bool(live or pinned)
+
+
+def trace_report(paths: Paths, state: dict, scope: dict | None = None,
+                 consts: "Constants | None" = None) -> dict | None:
+    """The whole trace for one WorkItem, as data. A pure reader."""
+    scope = scope if scope is not None else trace_scope(paths, state, consts)
+    if scope is None:
+        return None
+    doc = scope["doc"]
+    # An exclusion stands only while it is the newest word about that id.
+    latest: dict[str, str] = {}
+    for row in read_verification(paths):
+        latest[row["id"]] = row["disposition"]
+    excluded = {i for i, d in latest.items() if d == "excluded-approved"}
+
+    spec_cited = _ids_in(scope["spec"], doc, "ids")
+    tasks_cited = _ids_in(scope["tasks"], doc, "ids")
+    tags = _ids_in(scope["tasks"], doc, "tags")
+    lines = []
+    for number, line in enumerate(scope["tasks"].splitlines(), start=1):
+        task = TASK_LINE.match(line)
+        if task:
+            text = task.group("text")
+            lines.append({"line": number, "text": text,
+                          "ids": sorted(_ids_in(text, doc, "ids")),
+                          "tags": sorted(_ids_in(text, doc, "tags"))})
+    cited_by = {}
+    for entry in lines:
+        for identifier in entry["ids"]:
+            cited_by.setdefault(identifier, []).append(entry)
+    no_task = [c for c in scope["criteria"]
+               if c not in cited_by and c not in excluded]
+    no_test_task = [c for c in scope["criteria"]
+                    if c in cited_by and scope["testable"].get(c, True)
+                    and not any(TEST_WORD.search(e["text"])
+                                for e in cited_by[c])
+                    and c not in excluded]
+    return {
+        "package": scope["package"], "workItem": scope["workItem"],
+        "inScope": scope["inScope"], "criteria": scope["criteria"],
+        "spec": {
+            "cited": sorted(spec_cited & set(scope["inScope"])),
+            "missing": sorted(set(scope["inScope"]) - spec_cited - excluded),
+            "unknown": sorted(spec_cited - scope["known"]),
+        },
+        "tasks": {
+            "criteriaWithoutTask": sorted(no_task),
+            "criteriaWithoutTestTask": sorted(no_test_task),
+            "unknown": sorted(tasks_cited - scope["known"]),
+            "untraced": [{"line": e["line"], "text": e["text"][:120]}
+                         for e in lines if not e["ids"] and not e["tags"]],
+            "obligationTagged": sum(1 for e in lines
+                                    if e["tags"] and not e["ids"]),
+            "tagsCited": sorted(tags),
+        },
+        "excluded": sorted(excluded),
+        "verification": {
+            criterion: (row or {}).get("disposition")
+            for criterion, row in effective_dispositions(
+                paths, state, scope).items()},
+    }
+
+
+def trace_precondition(paths: Paths, state: dict, consts: "Constants",
+                       gate_key: str) -> None:
+    """Refuse a gate whose obligations are not carried through (ADR-017).
+
+    A pure reader, placed ahead of the first write like every precondition,
+    and **inert** for a WorkItem not started from a package. It is the
+    gates every flow must pass that carry the rule (`gate_spec` and
+    `gate_implement`); `gate_tasks` carries it too where it is not omitted,
+    and `gate_implement` re-checks task coverage so an omitted `gate_tasks`
+    cannot let an uncovered criterion through.
+    """
+    if gate_key not in TRACE_GATES:
+        return None
+    report = trace_report(paths, state, None, consts)
+    if report is None:
+        return None
+    where = {"gate": gate_key, "package": report["package"],
+             "workItem": report["workItem"]}
+    if gate_key == "gate_spec":
+        if report["spec"]["unknown"]:
+            raise Refused(
+                "trace_unknown_id",
+                f"spec.md cites {', '.join(report['spec']['unknown'])}, which "
+                f"package {report['package']} does not define. Cite only "
+                "ids the package declares.",
+                {**where, "unknown": report["spec"]["unknown"]})
+        if report["spec"]["missing"]:
+            raise Refused(
+                "trace_spec_incomplete",
+                f"spec.md does not carry {', '.join(report['spec']['missing'])}"
+                f" of work item {report['workItem']}. Every in-scope "
+                "requirement must appear in the specification, or be "
+                "excluded with an approved disposition "
+                "(`verification record --disposition excluded-approved`).",
+                {**where, "missing": report["spec"]["missing"]})
+        return None
+    if report["tasks"]["unknown"]:
+        raise Refused(
+            "trace_unknown_id",
+            f"tasks.md cites {', '.join(report['tasks']['unknown'])}, which "
+            f"package {report['package']} does not define.",
+            {**where, "unknown": report["tasks"]["unknown"]})
+    gaps = report["tasks"]["criteriaWithoutTask"] \
+        + report["tasks"]["criteriaWithoutTestTask"]
+    if gaps:
+        raise Refused(
+            "trace_tasks_uncovered",
+            "These acceptance criteria have no task that tests them: "
+            f"{', '.join(sorted(set(gaps)))}. Add a test task citing each, "
+            "or record an approved exclusion.",
+            {**where, "withoutTask": report["tasks"]["criteriaWithoutTask"],
+             "withoutTestTask": report["tasks"]["criteriaWithoutTestTask"]})
+    if gate_key != "gate_implement":
+        return None
+    missing = [c for c, d in report["verification"].items()
+               if d in (None, "blocked")]
+    if missing:
+        raise Refused(
+            "trace_verification_missing",
+            "These acceptance criteria have no verification disposition, or "
+            f"are blocked: {', '.join(missing)}. Run the tests, then "
+            "`verification map --junit <file>` or record a disposition with "
+            "`verification record`.",
+            {**where, "missing": missing})
+    unmapped = [c for c, d in report["verification"].items()
+                if d == "suite-pass-unmapped"]
+    if unmapped and unmapped_verification_blocks(paths, consts):
+        raise Refused(
+            "trace_verification_unmapped",
+            "The policy does not accept a passing suite for these criteria "
+            f"without a test that names each: {', '.join(unmapped)}. Map "
+            "them from a JUnit file or record a disposition.",
+            {**where, "unmapped": unmapped})
+    return None
+
+
+def _junit_results(path: Path) -> list[dict]:
+    """The test cases of one JUnit XML file: name, class, whether it passed.
+    The standard library's parser, on a file the repository holds."""
+    import xml.etree.ElementTree as ET
+    try:
+        tree = ET.parse(path)
+    except (ET.ParseError, OSError) as exc:
+        raise UsageError("verification_junit_invalid",
+                         f"{path.name} is not JUnit XML: {exc}.") from None
+    cases = []
+    for case in tree.getroot().iter("testcase"):
+        bad = any(child.tag in ("failure", "error", "skipped")
+                  for child in case)
+        cases.append({"name": case.get("name") or "",
+                      "classname": case.get("classname") or "",
+                      "passed": not bad})
+    return cases
+
+
+def cmd_trace_check(args, paths: Paths) -> int:
+    """Report what the specification and tasks carry of the package. A pure
+    reader; the gates enforce it, this shows it."""
+    state = read_state(paths)
+    report = trace_report(paths, state)
+    if report is None:
+        emit("trace check", {"applies": False,
+                             "reason": "this WorkItem was not started from a "
+                                       "requirements package"})
+        return EXIT_OK
+    gaps = (report["spec"]["missing"] + report["spec"]["unknown"]
+            + report["tasks"]["criteriaWithoutTask"]
+            + report["tasks"]["criteriaWithoutTestTask"]
+            + report["tasks"]["unknown"])
+    print(f"trace: {len(report['inScope'])} in scope, "
+          f"{len(gaps)} gap(s), {len(report['tasks']['untraced'])} untraced "
+          "task(s)", file=sys.stderr)
+    emit("trace check", {"applies": True, "complete": not gaps, **report})
+    return EXIT_OK
+
+
+def cmd_verification_show(args, paths: Paths) -> int:
+    """Each criterion's disposition, with the mapped ones apart from the
+    unmapped. A pure reader."""
+    state = read_state(paths)
+    scope = trace_scope(paths, state)
+    if scope is None:
+        emit("verification show", {"applies": False})
+        return EXIT_OK
+    rows = effective_dispositions(paths, state, scope)
+    emit("verification show", {
+        "applies": True,
+        "verified": sorted(c for c, r in rows.items() if r and
+                           r["disposition"] in VERIFICATION_ACCOUNTED),
+        "unmapped": sorted(c for c, r in rows.items() if r and
+                           r["disposition"] == "suite-pass-unmapped"),
+        "blocked": sorted(c for c, r in rows.items() if r and
+                          r["disposition"] == "blocked"),
+        "missing": sorted(c for c, r in rows.items() if r is None),
+        "dispositions": {c: (r or {}).get("disposition")
+                         for c, r in rows.items()},
+        "unmappedBlocks": unmapped_verification_blocks(paths),
+    })
+    return EXIT_OK
+
+
+def _append_verification(paths: Paths, state: dict, rows: list[dict],
+                         stamp: str, session) -> None:
+    existing = read_verification(paths)
+    for row in rows:
+        row["n"] = len(existing) + 1
+        row["prev"] = existing[-1]["hash"] if existing else "0" * 64
+        row["hash"] = _verification_hash(row)
+        existing.append(row)
+    write_atomic(paths.verification_file, json.dumps(
+        {"verificationVersion": VERIFICATION_VERSION,
+         "workitem": paths.workitem, "records": existing}, indent=2) + "\n")
+    for row in rows:
+        append_audit(
+            paths, state, phase=state.get("current_phase") or "unknown",
+            event="verification_recorded",
+            message=f"{row['id']}: {row['disposition']}.")
+    save_state(paths, state, session)
+
+
+def cmd_verification_record(args, paths: Paths) -> int:
+    """Record one criterion's disposition. `verified-mapped` is never typed
+    in: it comes from `verification map` or not at all."""
+    with workitem_mutation_lock(paths):
+        return _verification_record_locked(args, paths)
+
+
+def _verification_record_locked(args, paths: Paths) -> int:
+    state = read_state(paths)
+    scope = trace_scope(paths, state)
+    if scope is None:
+        raise Refused("verification_not_applicable",
+                      "This WorkItem was not started from a requirements "
+                      "package, so there is nothing to record against.",
+                      {"workitem": paths.workitem})
+    if args.id not in scope["inScope"]:
+        raise Refused(
+            "verification_id_unknown",
+            f"{args.id} is not an in-scope requirement of work item "
+            f"{scope['workItem']}.", {"id": args.id})
+    disposition = args.disposition
+    if disposition not in VERIFICATION_DISPOSITIONS:
+        raise UsageError("verification_disposition_invalid",
+                         "--disposition is one of "
+                         + ", ".join(VERIFICATION_DISPOSITIONS) + ".")
+    if disposition == "verified-mapped":
+        raise Refused(
+            "verification_mapped_is_derived",
+            "`verified-mapped` comes from a test result: run "
+            "`verification map --junit <file>`.", {"id": args.id})
+    if disposition == "suite-pass-unmapped":
+        raise Refused(
+            "verification_unmapped_is_derived",
+            "`suite-pass-unmapped` is derived from a passing suite, never "
+            "recorded.", {"id": args.id})
+    evidence = None
+    if disposition == "manual-evidence":
+        if not args.evidence:
+            raise UsageError("verification_evidence_required",
+                             "manual-evidence needs --evidence <path>.")
+        target, evidence = safe_repo_path(paths, args.evidence)
+        if not target.is_file():
+            raise Refused("verification_evidence_missing",
+                          f"{evidence} is not a file.", {"path": evidence})
+    if disposition in ("excluded-approved", "blocked") and not (
+            (args.reason or "").strip()):
+        raise UsageError("verification_reason_required",
+                         f"{disposition} needs --reason.")
+    if disposition == "excluded-approved" and not (
+            (args.approver or "").strip() and (args.wording or "").strip()):
+        raise UsageError(
+            "verification_approver_required",
+            "excluded-approved needs --approver and --wording: an exclusion "
+            "is a human decision, recorded as the words they gave.")
+    row = {"id": args.id, "disposition": disposition, "evidence": evidence,
+           "reason": (args.reason or "").strip() or None,
+           "approver": (args.approver or "").strip() or None,
+           "wording": (args.wording or "").strip() or None,
+           "recordedAt": now_iso()}
+    _append_verification(paths, state, [row], row["recordedAt"], args.session)
+    emit("verification record", {"id": args.id, "disposition": disposition})
+    return EXIT_OK
+
+
+def cmd_verification_map(args, paths: Paths) -> int:
+    """Map criteria to the test cases that name them, from the JUnit report
+    the implementation evidence recorded.
+
+    A criterion is `verified-mapped` when a passing test case's name or class
+    names its id and none naming it failed; `blocked` when one naming it
+    failed. Only the report `manifest build --junit` captured is read, and
+    only while it is byte-for-byte the one it captured: a report from another
+    run, or one edited since, cannot be presented as this run's. The mapping
+    is bound to that evidence and stops counting the moment it is rebuilt.
+    Only JUnit XML is read; no other runner format is interpreted.
+    """
+    with workitem_mutation_lock(paths):
+        state = read_state(paths)
+        scope = trace_scope(paths, state)
+        if scope is None:
+            raise Refused("verification_not_applicable",
+                          "This WorkItem was not started from a requirements "
+                          "package, so there is nothing to map.",
+                          {"workitem": paths.workitem})
+        evidence = current_implementation_evidence(paths)
+        if evidence is None:
+            raise Refused(
+                "verification_evidence_missing",
+                "There is no implementation evidence to map a test run onto. "
+                "Run `manifest build --junit <report>` first.",
+                {"workitem": paths.workitem})
+        captured = evidence.get("junit")
+        if not isinstance(captured, dict):
+            raise Refused(
+                "verification_junit_not_captured",
+                "The implementation evidence recorded no JUnit report, so "
+                "there is nothing to map. Build it with `manifest build "
+                "--test-command <cmd> --junit <report>`.",
+                {"evidenceId": evidence.get("executionId")})
+        if args.junit:
+            _, asked = safe_repo_path(paths, args.junit)
+            if asked != captured["path"]:
+                raise Refused(
+                    "verification_junit_not_captured",
+                    f"{asked} is not the report this evidence captured "
+                    f"({captured['path']}); only that one can be mapped.",
+                    {"captured": captured["path"], "asked": asked})
+        target, relative = safe_repo_path(paths, captured["path"])
+        if not target.is_file() or sha256_file(target) != captured["sha256"]:
+            raise Refused(
+                "verification_junit_changed",
+                f"{relative} is missing or is no longer the report the "
+                "evidence captured. Rebuild the evidence.",
+                {"path": relative})
+        cases = _junit_results(target)
+        regex = _id_token_regex(
+            list(scope["doc"]["idGrammar"].values()), loose=True)
+        by_criterion: dict[str, list[dict]] = {}
+        for case in cases:
+            for identifier in {m.group(0) for m in regex.finditer(
+                    f"{case['classname']} {case['name']}")}:
+                if identifier in scope["criteria"]:
+                    by_criterion.setdefault(identifier, []).append(case)
+        stamp = now_iso()
+        rows = []
+        for criterion, mapped in sorted(by_criterion.items()):
+            failing = [c["name"] for c in mapped if not c["passed"]]
+            rows.append({
+                "id": criterion,
+                "disposition": "blocked" if failing else "verified-mapped",
+                "evidence": {"junit": relative,
+                             "junitSha256": captured["sha256"],
+                             "tests": [c["name"] for c in mapped][:20]},
+                "reason": ("a mapped test is failing: " + ", ".join(failing)
+                           if failing else None),
+                "evidenceId": evidence.get("executionId"),
+                "recordedAt": stamp})
+        if rows:
+            _append_verification(paths, state, rows, stamp, args.session)
+        emit("verification map", {
+            "junit": relative, "cases": len(cases),
+            "mapped": sorted(r["id"] for r in rows
+                             if r["disposition"] == "verified-mapped"),
+            "blocked": sorted(r["id"] for r in rows
+                              if r["disposition"] == "blocked"),
+            "unmapped": sorted(set(scope["criteria"]) - set(by_criterion))})
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------
+# The bounded implementation loop (ADR-017 section 6)
+#
+# The loop runs inside the existing `implement` phase: implement, reconcile
+# the task list, build tree-bound evidence, review it independently, converge,
+# trace, then record. The engine neither invokes Spec Kit nor an agent, so it
+# is a **recorder and referee**, not a driver: the orchestrator performs each
+# step, and the engine refuses a step that is out of order, that repeats an
+# output an earlier step already produced, or that rests on a tree that has
+# moved. What it cannot do is stop the orchestrator invoking `converge` twice
+# outside the recorder; that stays convention (ADR-017 section 7).
+#
+# The loop never approves a gate. `ready_for_gate` means ready for a human.
+# --------------------------------------------------------------------------
+
+LOOP_VERSION = "1"
+LOOP_STEPS = ("implement", "reconcile", "manifest", "review", "converge",
+              "trace")
+LOOP_CLASSES = ("implementation_defect", "test_defect",
+                "requirement_ambiguity", "environment_blocker")
+LOOP_STOP_REASONS = (
+    "ready_for_gate", "limit_exhausted", "no_progress", "environment_blocker",
+    "ambiguity", "test_expectation_change", "tasks_drift", "interrupted")
+# The stop reasons a person or the orchestrator may state; the engine decides
+# the rest from the facts.
+LOOP_STATED_STOPS = ("interrupted", "ambiguity", "environment_blocker")
+LOOP_TASK_GATES = ("gate_tasks", "gate_analyze")
+LOOP_ITERATION_LIMIT_MAX = 10
+LOOP_INVENTORY_MAX = 5000
+CONVERGENCE_HEADING = re.compile(r"^##\s+Phase\s+(\d+):\s+Convergence\b",
+                                 re.IGNORECASE)
+TASK_CHECKBOX = re.compile(r"\[[ xX]\]")
+TEST_FILE = re.compile(
+    r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]*$|_test\.[A-Za-z]+$"
+    r"|\.(test|spec)\.[A-Za-z]+$")
+ENVIRONMENT_TEST_STATUSES = ("no runner detected", "runner not installed",
+                             "skipped by caller")
+
+
+def loop_iteration_limit(paths: Paths,
+                         consts: "Constants | None" = None) -> int:
+    """How many iterations one `loop begin` allows: the policy's, the stricter
+    of the live one and the one this WorkItem started under (ADR-011)."""
+    consts = consts or load_constants(paths)
+    key = "implementation_loop_max_iterations"
+    live = read_governance_policy(paths, consts)["policy"].get(
+        key, GOVERNANCE_POLICY_BUILTIN[key])
+    record = read_governance_record(paths) or {}
+    pinned = ((record.get("pinnedPolicy") or {}).get("policy") or {}).get(
+        key, GOVERNANCE_POLICY_BUILTIN[key])
+    return min(live, pinned)
+
+
+def _loop_digest(record: dict) -> str:
+    body = {k: v for k, v in record.items() if k != "selfDigest"}
+    return hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
+
+
+def read_loop_record(paths: Paths) -> dict | None:
+    """The WorkItem's loop record, or None. Engine-written and self-digested:
+    a file the engine did not write is an integrity failure, never an absence."""
+    target = paths.implementation_loop_file
+    if not target.is_file():
+        return None
+    where = f"{paths.runtime_relative}/{target.name}"
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise IntegrityError("loop_record_invalid",
+                             f"{where} cannot be read: {exc}.",
+                             {"path": where}) from None
+    if (not isinstance(document, dict)
+            or document.get("loopVersion") != LOOP_VERSION
+            or document.get("workitem") != paths.workitem
+            or not isinstance(document.get("runs"), list)
+            or document.get("selfDigest") != _loop_digest(document)):
+        raise IntegrityError(
+            "loop_record_invalid",
+            f"{where} is not a loop record this engine wrote for this "
+            "WorkItem.", {"path": where})
+    return document
+
+
+def write_loop_record(paths: Paths, record: dict) -> None:
+    record["selfDigest"] = _loop_digest(record)
+    write_atomic(paths.implementation_loop_file,
+                 json.dumps(record, indent=2) + "\n")
+
+
+def _active_run(record: dict | None) -> dict | None:
+    if not record or not record["runs"]:
+        return None
+    run = record["runs"][-1]
+    return run if run.get("stopReason") is None else None
+
+
+def _open_iteration(run: dict) -> dict | None:
+    if not run["iterations"]:
+        return None
+    last = run["iterations"][-1]
+    return None if last.get("closed") else last
+
+
+def _last_step(iteration: dict | None) -> str | None:
+    if not iteration or not iteration["steps"]:
+        return None
+    return iteration["steps"][-1]["step"]
+
+
+def _tasks_text_and_path(paths: Paths, state: dict,
+                         consts: "Constants") -> tuple[str, str | None]:
+    resolved, _ = resolve_artifact_path(state, consts, "gate_tasks", paths)
+    target = paths.project_root / resolved if resolved else None
+    if target is None or not target.is_file():
+        return "", resolved
+    # Bytes decoded, never newline-translated: the digest of this text must be
+    # the digest `artifact_shas` holds for the file.
+    return target.read_bytes().decode("utf-8", errors="replace"), resolved
+
+
+def _tasks_delta(old: str, new: str) -> tuple[dict | None, str | None]:
+    """The one kind of change to an approved task list the loop accepts:
+    ticking a task, and appending whole `## Phase N: Convergence` sections.
+    Returns (delta, None) or (None, why not). Structural: nothing is judged
+    by what a task says."""
+    before = old.replace("\r\n", "\n").rstrip("\n").split("\n")
+    after = new.replace("\r\n", "\n").rstrip("\n").split("\n")
+    if len(after) < len(before):
+        return None, "lines were removed"
+    ticked = 0
+    for index, line in enumerate(before):
+        if after[index] == line:
+            continue
+        old_box = TASK_CHECKBOX.search(line)
+        new_box = TASK_CHECKBOX.search(after[index])
+        if (TASK_LINE.match(line) and TASK_LINE.match(after[index])
+                and old_box and new_box and old_box.group(0) == "[ ]"
+                and new_box.group(0) in ("[x]", "[X]")
+                and TASK_CHECKBOX.sub("[ ]", line, 1)
+                == TASK_CHECKBOX.sub("[ ]", after[index], 1)):
+            ticked += 1
+            continue
+        return None, f"line {index + 1} was changed"
+    sections: list[int] = []
+    for line in after[len(before):]:
+        heading = CONVERGENCE_HEADING.match(line)
+        if heading:
+            sections.append(int(heading.group(1)))
+        elif not sections and line.strip():
+            return None, ("text was appended that is not inside a "
+                          "convergence section")
+    existing = {int(m.group(1)) for line in before
+                if (m := CONVERGENCE_HEADING.match(line))}
+    repeated = sorted((set(sections) & existing)
+                      | {s for s in sections if sections.count(s) > 1})
+    if repeated:
+        return None, ("convergence section(s) "
+                      + ", ".join(map(str, repeated)) + " already exist")
+    return {"ticked": ticked, "appendedSections": sections}, None
+
+
+def _store_tasks_snapshot(paths: Paths, text: str, stamp: str) -> dict:
+    execution_id, target = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"tasks-snapshot-{eid}.json")
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    write_atomic(target, json.dumps(
+        {"kind": "tasks-snapshot", "executionId": execution_id,
+         "workitem": paths.workitem, "recordedAt": stamp, "sha256": sha,
+         "text": text}, indent=2) + "\n")
+    return {"sha": sha, "evidence": target.relative_to(
+        paths.project_root).as_posix()}
+
+
+def _read_tasks_snapshot(paths: Paths, run: dict) -> str:
+    target = paths.project_root / run["tasksSnapshot"]["evidence"]
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+        text = document["text"]
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != \
+                run["tasksSnapshot"]["sha"]:
+            raise ValueError("digest mismatch")
+    except (OSError, ValueError, KeyError) as exc:
+        raise IntegrityError(
+            "loop_record_invalid",
+            f"The task-list snapshot {run['tasksSnapshot']['evidence']} "
+            f"cannot be trusted ({exc}).", {}) from None
+    return text
+
+
+def loop_converge_precondition(paths: Paths) -> None:
+    """The last converge must have left the task list unchanged (ADR-017).
+
+    Inert for a WorkItem with no loop. A converge that appended tasks means
+    work is owed that no later converge has found done, so nothing is ready.
+    It reads every run, active or not: ending a run, or beginning another,
+    does not make appended tasks done."""
+    record = read_loop_record(paths)
+    if not record or not record["runs"]:
+        return None
+    # The latest converge of any run: appended tasks are still owed after the
+    # run that found them was stopped and another begun.
+    last = None
+    for run in record["runs"]:
+        for iteration in run["iterations"]:
+            for entry in iteration["steps"]:
+                if entry["step"] == "converge":
+                    last = entry
+    if last is not None and last["detail"].get("appended"):
+        raise Refused(
+            "loop_converge_pending",
+            "The last converge appended tasks, so there is implementation "
+            "work no later converge has found done. Run the loop's next "
+            "iteration over the open tasks.", {"workitem": paths.workitem})
+    return None
+
+
+def implementation_ready(paths: Paths, state: dict, consts: "Constants",
+                         resolved: str | None) -> list[Refused]:
+    """Everything `gate_implement` needs, as one list of what is unmet.
+
+    **The one completion predicate.** `gate approve` raises the first entry
+    and `loop record` reports them all, so the loop can never call ready what
+    the gate would refuse. Order is the order the gate has always refused in:
+    the manifest and its evidence, the traceability of the obligations, the
+    review of the right kind, then what only a loop knows.
+    """
+    unmet: list[Refused] = []
+    checks = (
+        lambda: gate_precondition_hook(paths, state, consts, "gate_implement",
+                                       resolved),
+        lambda: review_precondition(paths, state, "gate_implement", resolved,
+                                    consts),
+        lambda: loop_converge_precondition(paths),
+    )
+    for check in checks:
+        try:
+            check()
+        except Refused as exc:
+            unmet.append(exc)
+    return unmet
+
+
+def _fingerprint(*parts) -> str:
+    return hashlib.sha256(
+        _canonical_json(list(parts)).encode("utf-8")).hexdigest()[:16]
+
+
+def _blocking_finding_fingerprints(paths: Paths, key: str) -> list[str]:
+    """Fingerprints of the open blocking findings of the newest code review of
+    this artifact. Same finding, same fingerprint, however it is reworded."""
+    records = [r for r in read_reviews(paths) if r.get("path") == key]
+    if not records:
+        return []
+    evidence = paths.project_root / records[-1].get("evidenceId", "")
+    try:
+        findings = json.loads(evidence.read_text(encoding="utf-8")).get(
+            "findings") or []
+    except (OSError, ValueError):
+        return []
+    return sorted(_fingerprint(f.get("location"), sorted(f.get("obligations")
+                                                        or []))
+                  for f in findings if f.get("severity") == "blocking"
+                  and f.get("disposition") == "open")
+
+
+def _loop_progress(paths: Paths, state: dict, consts: "Constants",
+                   evidence: dict | None,
+                   inventory: dict | None = None) -> dict:
+    """What would have to change for this iteration to have made progress.
+    Tasks that were merely appended are deliberately not part of it."""
+    tests = (evidence or {}).get("tests") or {}
+    manifest_key = paths.manifest_file.relative_to(
+        paths.project_root).as_posix()
+    report = trace_report(paths, state, None, consts)
+    blocked = []
+    if report is not None:
+        blocked = sorted(c for c, d in report["verification"].items()
+                         if d in (None, "blocked"))
+    uncovered = []
+    if report is not None:
+        uncovered = sorted(set(report["spec"]["missing"])
+                           | set(report["tasks"]["criteriaWithoutTask"])
+                           | set(report["tasks"]["criteriaWithoutTestTask"]))
+    # A criterion only an unmapped pass stands behind is outstanding exactly
+    # when the policy refuses that.
+    unmapped = []
+    if report is not None and unmapped_verification_blocks(paths, consts):
+        unmapped = sorted(c for c, d in report["verification"].items()
+                          if d == "suite-pass-unmapped")
+    # The failing tests themselves where the report names them; the runner's
+    # status is only the fallback, because two runs that both exit 1 may have
+    # repaired different tests.
+    return {"tests": (["junit", inventory["failing"]] if inventory
+                      else [tests.get("status"), tests.get("exit_code")]),
+            "unverified": blocked, "uncovered": uncovered,
+            "unmapped": unmapped,
+            "findings": _blocking_finding_fingerprints(paths, manifest_key)}
+
+
+def _case_name(case: dict) -> str:
+    return f"{case['classname']}::{case['name']}"
+
+
+def _junit_inventory(paths: Paths, evidence: dict | None) -> dict | None:
+    """Every test case of the report the evidence captured, and which of them
+    failed, or None where no report was captured or it no longer matches. The
+    inventory is the loop's evidence about the tests themselves: not what
+    exit code a runner returned, but which tests exist and which fail."""
+    junit = (evidence or {}).get("junit")
+    if not isinstance(junit, dict):
+        return None
+    try:
+        target, _ = safe_repo_path(paths, junit["path"])
+        if not target.is_file() or sha256_file(target) != junit.get("sha256"):
+            return None
+        cases = _junit_results(target)
+    except (UsageError, KeyError):
+        return None
+    except Refused as exc:
+        if exc.reason == "package_path_invalid" or exc.reason == "path_invalid":
+            return None
+        raise
+    names = sorted(_case_name(c) for c in cases)
+    if len(names) > LOOP_INVENTORY_MAX:
+        # Complete or refused: a truncated inventory would hide a removed
+        # test or a changed failure beyond the cut.
+        raise Refused(
+            "loop_inventory_too_large",
+            f"The captured test report holds {len(names)} cases, more than "
+            f"the {LOOP_INVENTORY_MAX} the loop tracks completely. Split the "
+            "report (one per suite) or run the loop over a narrower suite.",
+            {"cases": len(names), "limit": LOOP_INVENTORY_MAX})
+    return {"cases": names, "count": len(names),
+            "failing": sorted(_case_name(c) for c in cases
+                              if not c["passed"])}
+
+
+def _tagged_test_files(paths: Paths, state: dict,
+                       scope: dict | None) -> dict[str, str]:
+    """The test files that name an in-scope acceptance criterion, with their
+    text. These are the tests whose expectations the requirements fixed."""
+    if scope is None or not scope["criteria"]:
+        return {}
+    regex = _id_token_regex(list(scope["doc"]["idGrammar"].values()),
+                            loose=True)
+    found: dict[str, str] = {}
+    for name in sorted(tree_digest(paths, state)["entries"]):
+        if not TEST_FILE.search(name):
+            continue
+        target = paths.project_root / name
+        if not target.is_file() or target.stat().st_size > PACKAGE_TEXT_MAX:
+            continue
+        text = target.read_text(encoding="utf-8", errors="replace")
+        if {m.group(0) for m in regex.finditer(text)} & set(
+                scope["criteria"]):
+            found[name] = text
+        if len(found) >= 200:
+            break
+    return found
+
+
+def _store_tagged_snapshot(paths: Paths, files: dict[str, str],
+                           stamp: str) -> dict:
+    execution_id, target = reserve_evidence(
+        paths, paths.evidence_dir, stamp,
+        lambda eid: f"tagged-tests-{eid}.json")
+    write_atomic(target, json.dumps(
+        {"kind": "tagged-tests-snapshot", "executionId": execution_id,
+         "workitem": paths.workitem, "recordedAt": stamp, "files": files},
+        indent=2) + "\n")
+    return {"evidence": target.relative_to(paths.project_root).as_posix(),
+            "count": len(files)}
+
+
+def _tagged_test_changes(paths: Paths, state: dict, run: dict,
+                         scope: dict | None) -> list[str]:
+    """Tagged tests whose original lines were removed or changed since the run
+    began. Adding lines (new tests, new cases) is not weakening and passes;
+    anything else cannot be told from a weakened assertion by structure, so it
+    stops for a person (ADR-017)."""
+    snapshot = run.get("taggedTests")
+    if not snapshot:
+        return []
+    try:
+        baseline = json.loads((paths.project_root / snapshot["evidence"])
+                              .read_text(encoding="utf-8"))["files"]
+    except (OSError, ValueError, KeyError):
+        raise IntegrityError(
+            "loop_record_invalid",
+            "The tagged-test snapshot cannot be read.", {}) from None
+    current = _tagged_test_files(paths, state, scope)
+    changed = []
+    for name, old in baseline.items():
+        new = current.get(name)
+        if new is None:
+            changed.append(name)
+            continue
+        matcher = difflib.SequenceMatcher(
+            None, old.splitlines(), new.splitlines(), autojunk=False)
+        if any(op[0] in ("replace", "delete") for op in matcher.get_opcodes()):
+            changed.append(name)
+    return sorted(changed)
+
+
+def loop_output_precondition(paths: Paths, kind: str) -> None:
+    """The commands that *produce* a loop step's output (`manifest build`, the
+    code review of the manifest) consult the active loop: out of order they are
+    refused, so an output is never produced twice outside the recorder. Inert
+    when no run is active (ADR-017)."""
+    record = read_loop_record(paths)
+    run = _active_run(record)
+    iteration = _open_iteration(run) if run else None
+    if iteration is None:
+        return None
+    allowed = {"manifest": ("reconcile", "stale"), "review": ("manifest",)}[
+        kind]
+    last = _last_step(iteration)
+    if last not in allowed:
+        raise Refused(
+            "loop_step_out_of_order",
+            f"The loop is at {last}, so a {kind} cannot be produced now: "
+            f"it follows {' or '.join(allowed)}. Producing it again would "
+            "duplicate an output the loop already recorded. `loop show` "
+            "names where it is.", {"step": kind, "last": last})
+    return None
+
+
+def _deleted_test_files(evidence: dict | None) -> set[str]:
+    return {c["path"] for c in (evidence or {}).get("changes") or []
+            if c.get("status") == "D" and TEST_FILE.search(c["path"])}
+
+
+def _loop_stop(paths: Paths, record: dict, run: dict, reason: str,
+               next_action: str) -> None:
+    run["stopReason"] = reason
+    run["next"] = next_action
+    run["endedAt"] = now_iso()
+    write_loop_record(paths, record)
+
+
+def cmd_loop_begin(args, paths: Paths) -> int:
+    """Start a run of at most the policy's number of iterations."""
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    consts = load_constants(paths)
+    # Inside the implement phase, or in the remediation of it: a human
+    # rejection at the implementation gate leaves the WorkItem standing at the
+    # gate while the implementation is redone (the existing remediation path,
+    # with its own counter).
+    remediating = (
+        state.get("current_phase") == "gate_implement"
+        and ((state.get("approvals") or {}).get("gate_implement") or {}
+             ).get("decision") == "rejected")
+    if state.get("current_phase") != "implement" and not remediating:
+        raise Refused(
+            "loop_wrong_phase",
+            f"The loop runs inside the implement phase (or its remediation), "
+            f"and this WorkItem is at {state.get('current_phase')}.",
+            {"current_phase": state.get("current_phase")})
+    base = state.get("implementation_base_ref")
+    if not base:
+        raise Refused(
+            "loop_no_base",
+            "The implementation base is not pinned. Run `implement "
+            "preflight` first, so the loop measures from a fixed point.",
+            {"workitem": paths.workitem})
+    record = read_loop_record(paths) or {
+        "loopVersion": LOOP_VERSION, "workitem": paths.workitem, "runs": []}
+    if _active_run(record) is not None:
+        raise Refused(
+            "loop_in_progress",
+            "A loop run is already active. Continue it (`loop show` names "
+            "the last completed step), or end it with `loop stop`.",
+            {"workitem": paths.workitem})
+    stamp = now_iso()
+    text, resolved = _tasks_text_and_path(paths, state, consts)
+    if not resolved or not text:
+        raise Refused(
+            "loop_no_tasks",
+            "There is no task list to loop over.", {"workitem": paths.workitem})
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    baselines = state.get("artifact_shas") or {}
+    based = [g for g in LOOP_TASK_GATES if baselines.get(g)]
+    wrong = [g for g in based if baselines[g].lower() != sha]
+    if wrong:
+        raise Refused(
+            "tasks_drift",
+            f"The task list differs from what {', '.join(wrong)} approved, "
+            "so the loop cannot start from it. Re-approve or restore it "
+            "first.", {"gates": wrong})
+    snapshot = _store_tasks_snapshot(paths, text, stamp)
+    if not based:
+        append_audit(
+            paths, state, phase="implement",
+            event="tasks_snapshot_established",
+            message=f"Task list {sha[:12]} taken as the loop's starting "
+                    "point; no task gate approved it in this flow.")
+    limit = loop_iteration_limit(paths, consts)
+    evidence = current_implementation_evidence(paths)
+    pin = read_package_binding(paths)
+    tagged = _tagged_test_files(paths, state, trace_scope(paths, state,
+                                                          consts))
+    tagged_snapshot = (_store_tagged_snapshot(paths, tagged, stamp)
+                       if tagged else None)
+    run = {"n": len(record["runs"]) + 1, "startedAt": stamp, "limit": limit,
+           "baseRef": base, "packageDigest": (pin or {}).get("digest"),
+           "tasksSnapshot": snapshot,
+           "acceptedDeletions": sorted(_deleted_test_files(evidence)),
+           "baselineInventory": _junit_inventory(paths, evidence),
+           "taggedTests": tagged_snapshot,
+           "iterations": [], "stopReason": None, "next": None,
+           "endedAt": None}
+    record["runs"].append(run)
+    save_state(paths, state, args.session)
+    write_loop_record(paths, record)
+    emit("loop begin", {"run": run["n"], "limit": limit, "baseRef": base,
+                        "tasksSha256": sha, "next": "implement"})
+    return EXIT_OK
+
+
+def _require_run(paths: Paths) -> tuple[dict, dict]:
+    record = read_loop_record(paths)
+    run = _active_run(record)
+    if run is None:
+        raise Refused(
+            "loop_not_active",
+            "There is no active loop run. Start one with `loop begin`.",
+            {"workitem": paths.workitem})
+    return record, run
+
+
+def _step_order_ok(run: dict, iteration: dict | None, step: str) -> bool:
+    """The order a step may be recorded in. Each step needs the one before it,
+    so none can run twice in an iteration without that one, and a second
+    `converge` needs an `implement` between (a new iteration)."""
+    if iteration is None:
+        return step == "implement"
+    if step == "implement":
+        return False
+    last = _last_step(iteration)
+    if last == "stale":
+        return step == "manifest"
+    converged = [e for e in iteration["steps"] if e["step"] == "converge"]
+    appended = bool(converged and converged[-1]["detail"].get("appended"))
+    if step == "reconcile":
+        return last == "implement" or (last == "converge" and appended)
+    if step == "manifest":
+        return last == "reconcile" and not converged
+    if step == "review":
+        return last == "manifest"
+    if step == "converge":
+        return last == "review" and not converged
+    if step == "trace":
+        return ((last == "converge" and not appended)
+                or (last == "reconcile" and bool(converged))
+                or (last == "review" and bool(converged)))
+    return False
+
+
+def _refuse_order(step: str, iteration: dict | None) -> Refused:
+    last = _last_step(iteration)
+    return Refused(
+        "loop_step_out_of_order",
+        f"`{step}` cannot follow {last or 'nothing'} in this iteration. The "
+        "order is implement, reconcile, manifest, review, converge, "
+        "trace, then `loop record`; a step is never run twice without the "
+        "one before it.", {"step": step, "last": last})
+
+
+def _check_tree_unmoved(paths: Paths, state: dict, run: dict,
+                        iteration: dict) -> None:
+    """Steps after the manifest rest on the tree the manifest recorded. If it
+    moved, the snapshot is stale: say so, mark the iteration, and require the
+    manifest to be rebuilt rather than reuse evidence for another tree."""
+    manifest = next((e for e in reversed(iteration["steps"])
+                     if e["step"] == "manifest"), None)
+    if manifest is None:
+        return None
+    now = tree_digest(paths, state)["digest"]
+    evidence = current_implementation_evidence(paths)
+    rebuilt = (evidence or {}).get("executionId") != manifest["detail"].get(
+        "evidenceId")
+    if now != manifest["detail"].get("treeDigest") or rebuilt:
+        iteration["steps"].append({
+            "step": "stale", "at": now_iso(),
+            "detail": {"recorded": manifest["detail"].get("treeDigest"),
+                       "current": now}})
+        record = read_loop_record(paths)
+        record["runs"][-1] = run
+        write_loop_record(paths, record)
+        raise Refused(
+            "loop_snapshot_stale",
+            "The working tree is not the one the evidence was taken from, "
+            "so its snapshot is stale and is never reused. Rebuild the "
+            "evidence (`manifest build`, then `loop step --step manifest`) "
+            "and review it again.",
+            {"recorded": manifest["detail"].get("treeDigest"),
+             "current": now})
+    return None
+
+
+def cmd_loop_step(args, paths: Paths) -> int:
+    """Record one completed step, after checking its order and its output."""
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    consts = load_constants(paths)
+    record, run = _require_run(paths)
+    step = args.step
+    if step not in LOOP_STEPS or step == "reconcile":
+        raise UsageError(
+            "loop_step_invalid",
+            "--step is one of implement, manifest, review, converge, trace; "
+            "`tasks reconcile` records the reconcile step itself.")
+    iteration = _open_iteration(run)
+    if not _step_order_ok(run, iteration, step):
+        raise _refuse_order(step, iteration)
+    stamp = now_iso()
+    text, _ = _tasks_text_and_path(paths, state, consts)
+    detail: dict = {}
+    if step == "implement":
+        if len(run["iterations"]) >= run["limit"]:
+            raise Refused(
+                "loop_limit_reached",
+                f"This run's {run['limit']} iterations are used. "
+                "`loop record` ends the run when the limit is reached.",
+                {"limit": run["limit"]})
+        iteration = {"n": len(run["iterations"]) + 1, "startedAt": stamp,
+                     "steps": [], "closed": False, "outcome": None,
+                     "classification": None, "progressDigest": None}
+        run["iterations"].append(iteration)
+        detail = {"tasksSha256": hashlib.sha256(text.encode()).hexdigest()}
+    else:
+        if step != "manifest":
+            _check_tree_unmoved(paths, state, run, iteration)
+    if step == "manifest":
+        evidence = current_implementation_evidence(paths)
+        if evidence is None or "treeDigest" not in evidence:
+            raise Refused(
+                "loop_manifest_missing",
+                "There is no tree-bound implementation evidence. Run "
+                "`manifest build` first.", {"workitem": paths.workitem})
+        used = {e["detail"].get("evidenceId") for it in run["iterations"]
+                for e in it["steps"] if e["step"] == "manifest"}
+        if evidence["executionId"] in used:
+            raise Refused(
+                "loop_step_duplicate",
+                "That evidence was already recorded by an earlier manifest "
+                "step. Build it again: evidence is never reused.",
+                {"evidenceId": evidence["executionId"]})
+        if evidence.get("evidenceStatus") != EVIDENCE_STATUS_VALID:
+            raise Refused(
+                "loop_manifest_invalid",
+                "The tests changed the working tree while they ran, so "
+                "this evidence proves nothing. Make the test command leave "
+                "the tree alone and rebuild.",
+                {"changed": evidence.get("changedDuringRun")})
+        if tree_digest(paths, state)["digest"] != evidence["treeDigest"][
+                "digest"]:
+            raise Refused(
+                "loop_snapshot_stale",
+                "The working tree changed after the evidence was built; "
+                "rebuild it.", {"evidenceId": evidence["executionId"]})
+        detail = {"evidenceId": evidence["executionId"],
+                  "treeDigest": evidence["treeDigest"]["digest"],
+                  "tests": (evidence.get("tests") or {}).get("status"),
+                  "exitCode": (evidence.get("tests") or {}).get("exit_code"),
+                  "inventory": _junit_inventory(paths, evidence)}
+    elif step == "review":
+        key = paths.manifest_file.relative_to(paths.project_root).as_posix()
+        status = review_status(paths, key)
+        records = read_reviews(paths)
+        indices = [i for i, r in enumerate(records) if r.get("path") == key
+                   and r.get("reviewType") == "code-review"
+                   and str(r.get("sha256") or "").lower() == (
+                       status["current_sha"] or "")]
+        if not indices:
+            raise Refused(
+                "loop_review_missing",
+                "There is no `code-review` of the current manifest. Hand it "
+                "to `sdle-code-review` and record it with `artifact review "
+                "--type code-review`.", {"path": key})
+        used = {e["detail"].get("reviewIndex") for it in run["iterations"]
+                for e in it["steps"] if e["step"] == "review"}
+        if indices[-1] in used:
+            raise Refused(
+                "loop_step_duplicate",
+                "That review was already recorded by an earlier iteration; "
+                "a fresh review of fresh evidence is needed.",
+                {"reviewIndex": indices[-1]})
+        review = records[indices[-1]]
+        detail = {"reviewIndex": indices[-1], "result": review["result"],
+                  "findings": review.get("findings")}
+    elif step == "converge":
+        detail = {"tasksSha256": hashlib.sha256(text.encode()).hexdigest()}
+        detail["appended"] = (detail["tasksSha256"]
+                              != run["tasksSnapshot"]["sha"])
+    elif step == "trace":
+        report = trace_report(paths, state, None, consts)
+        detail = ({"applies": False} if report is None else {
+            "applies": True,
+            "uncovered": sorted(set(report["spec"]["missing"])
+                                | set(report["tasks"]["criteriaWithoutTask"])
+                                | set(report["tasks"][
+                                    "criteriaWithoutTestTask"])),
+            "unverified": sorted(c for c, d in report["verification"].items()
+                                 if d in (None, "blocked"))})
+    iteration["steps"].append({"step": step, "at": stamp, "detail": detail})
+    record["runs"][-1] = run
+    write_loop_record(paths, record)
+    emit("loop step", {"step": step, "iteration": iteration["n"],
+                       "detail": {k: v for k, v in detail.items()},
+                       "next": _next_step_name(run, iteration)})
+    return EXIT_OK
+
+
+def _next_step_name(run: dict, iteration: dict) -> str:
+    for step in ("reconcile", "manifest", "review", "converge", "trace"):
+        if _step_order_ok(run, iteration, step):
+            return step
+    return "record" if _last_step(iteration) == "trace" else "implement"
+
+
+def cmd_tasks_reconcile(args, paths: Paths) -> int:
+    """Accept the one kind of change to an approved task list a loop makes.
+
+    The deliberate exception to "a change to an approved artifact is drift":
+    ticking a task and appending convergence sections is the loop's own work,
+    not a new decision about the plan. It is verified structurally against the
+    last accepted snapshot, audited, and the task gates' baselines are moved
+    through the one place that moves them. Anything else stops the run
+    `tasks_drift` and is a human's.
+    """
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    consts = load_constants(paths)
+    record, run = _require_run(paths)
+    iteration = _open_iteration(run)
+    if iteration is None or not _step_order_ok(run, iteration, "reconcile"):
+        raise _refuse_order("reconcile", iteration)
+    drifted = [d["gate"] for d in compute_drift(paths, state, consts)]
+    other = sorted(set(drifted) - set(LOOP_TASK_GATES))
+    queued = sorted(set(state.get("drift_queue") or []) - set(LOOP_TASK_GATES))
+    if other or queued:
+        raise Refused(
+            "reconcile_unrelated_drift",
+            "Another approved artifact has drifted "
+            f"({', '.join(other + queued)}). Reconciling the task list must "
+            "not hide that; deal with it first.", {"gates": other + queued})
+    current, resolved = _tasks_text_and_path(paths, state, consts)
+    old = _read_tasks_snapshot(paths, run)
+    delta, why = _tasks_delta(old, current)
+    if delta is None:
+        _loop_stop(paths, record, run, "tasks_drift",
+                   "A person decides: the task list changed in a way the "
+                   f"loop does not accept ({why}). Restore it, or "
+                   "re-approve it, then `loop begin`.")
+        raise Refused(
+            "tasks_drift",
+            f"The task list changed in a way the loop does not accept: "
+            f"{why}. The run is stopped. Ticking a task and appending "
+            "convergence sections are the only changes accepted.",
+            {"why": why, "stopReason": "tasks_drift"})
+    stamp = now_iso()
+    snapshot = _store_tasks_snapshot(paths, current, stamp)
+    run["tasksSnapshot"] = snapshot
+    moved = []
+    for gate in LOOP_TASK_GATES:
+        if (state.get("artifact_shas") or {}).get(gate):
+            state["artifact_shas"][gate] = snapshot["sha"]
+            moved.append(gate)
+    iteration["steps"].append({"step": "reconcile", "at": stamp,
+                               "detail": {**delta, "rebaselined": moved,
+                                          "tasksSha256": snapshot["sha"]}})
+    append_audit(
+        paths, state, phase=state.get("current_phase", "unknown"),
+        event="tasks_reconciled",
+        message=f"Task list reconciled: {delta['ticked']} task(s) ticked, "
+                f"convergence section(s) {delta['appendedSections'] or 'none'}"
+                f" appended; baseline moved for {', '.join(moved) or 'no gate'}.",
+        artifact=resolved, artifact_sha=snapshot["sha"])
+    save_state(paths, state, args.session)
+    # The loop record is written last. A crash before this line leaves the
+    # baselines moved and the record one step behind, and a retry of
+    # `tasks reconcile` accepts the same change again (the delta is taken from
+    # the still-old snapshot) and finishes: nothing is stranded.
+    record["runs"][-1] = run
+    write_loop_record(paths, record)
+    emit("tasks reconcile", {**delta, "rebaselined": moved,
+                             "tasksSha256": snapshot["sha"]})
+    return EXIT_OK
+
+
+def cmd_loop_record(args, paths: Paths) -> int:
+    """Close the iteration and say whether to go on, with the reason."""
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    consts = load_constants(paths)
+    record, run = _require_run(paths)
+    iteration = _open_iteration(run)
+    if iteration is None or _last_step(iteration) != "trace":
+        raise _refuse_order("record", iteration)
+    classification = args.classification or "implementation_defect"
+    if classification not in LOOP_CLASSES:
+        raise UsageError("loop_class_invalid",
+                         "--classification is one of "
+                         + ", ".join(LOOP_CLASSES) + ".")
+    _check_tree_unmoved(paths, state, run, iteration)
+    resolved, _ = resolve_artifact_path(state, consts, "gate_implement", paths)
+    evidence = current_implementation_evidence(paths)
+    unmet = implementation_ready(paths, state, consts, resolved)
+    manifest_step = next((e for e in reversed(iteration["steps"])
+                          if e["step"] == "manifest"), None)
+    inventory = ((manifest_step or {}).get("detail") or {}).get("inventory")
+    progress = _loop_progress(paths, state, consts, evidence, inventory)
+    digest = _fingerprint(progress)
+    previous = [it.get("progressDigest") for it in run["iterations"]
+                if it is not iteration and it.get("progressDigest")]
+    tests_status = ((evidence or {}).get("tests") or {}).get("status")
+    deleted = _deleted_test_files(evidence) - set(run["acceptedDeletions"])
+    before = run.get("baselineInventory")
+    for earlier in run["iterations"]:
+        if earlier is iteration:
+            continue
+        step = next((e for e in reversed(earlier["steps"])
+                     if e["step"] == "manifest"), None)
+        if step and (step["detail"] or {}).get("inventory"):
+            before = step["detail"]["inventory"]
+    shrunk = (sorted(set(before["cases"]) - set(inventory["cases"]))
+              if before and inventory else [])
+    tagged = _tagged_test_changes(paths, state, run,
+                                  trace_scope(paths, state, consts))
+    iteration.update({"progressDigest": digest, "classification":
+                      classification, "closed": True})
+
+    reason = None
+    if classification == "environment_blocker" or tests_status in \
+            ENVIRONMENT_TEST_STATUSES or (tests_status or "").startswith(
+            "timed out after "):
+        reason = "environment_blocker"
+        nxt = ("A person fixes the environment (the runner is missing, "
+               "unavailable or timed out); this is never a pass. Then "
+               "`loop begin`.")
+    elif classification == "requirement_ambiguity":
+        reason = "ambiguity"
+        nxt = ("Take the ambiguity to the owners through the "
+               "requirements-change process; do not decide it here.")
+    elif deleted or shrunk or tagged:
+        reason = "test_expectation_change"
+        nxt = ("A person decides: test file(s) "
+               f"{', '.join(sorted(deleted)) or '-'} were deleted, test "
+               f"case(s) {', '.join(shrunk[:10]) or '-'} are gone, and "
+               f"acceptance test(s) {', '.join(tagged) or '-'} had original "
+               "lines removed or changed. A repair that removes or weakens "
+               "coverage is not within scope. `loop begin` accepts the "
+               "tests as they now stand.")
+    elif not unmet:
+        reason = "ready_for_gate"
+        nxt = ("Advance to the implementation gate and present it. The loop "
+               "never approves, omits or skips a gate.")
+    elif digest in previous:
+        reason = "no_progress"
+        nxt = ("The same failures, findings and uncovered obligations "
+               "stand as in an earlier iteration; appending tasks is not "
+               "progress. A person looks at it, then `loop begin`.")
+    elif len(run["iterations"]) >= run["limit"]:
+        reason = "limit_exhausted"
+        nxt = (f"The {run['limit']} iterations of this run are used. A person "
+               "decides whether to run again (`loop begin`).")
+    iteration["outcome"] = reason or "continue"
+    if reason:
+        _loop_stop(paths, record, run, reason, nxt)
+    else:
+        record["runs"][-1] = run
+        write_loop_record(paths, record)
+    emit("loop record", {
+        "iteration": iteration["n"], "status": "stopped" if reason
+        else "continue", "stopReason": reason, "next": nxt if reason else
+        "Run the next iteration over the open tasks: `loop step --step "
+        "implement`.",
+        "unmet": [{"reason": u.reason, "message": u.message} for u in unmet],
+        "classification": classification, "progress": progress})
+    return EXIT_OK
+
+
+def cmd_loop_stop(args, paths: Paths) -> int:
+    """End an active run for a reason only a person or the orchestrator can
+    state. The engine decides the other stop reasons from the facts."""
+    state = read_state(paths)
+    branch_guard(args, paths, state)
+    record, run = _require_run(paths)
+    if args.reason not in LOOP_STATED_STOPS:
+        raise UsageError("loop_stop_invalid",
+                         "--reason is one of "
+                         + ", ".join(LOOP_STATED_STOPS) + ".")
+    iteration = _open_iteration(run)
+    if iteration is not None:
+        iteration["closed"] = True
+        iteration["outcome"] = args.reason
+    _loop_stop(paths, record, run, args.reason,
+               "Resume with `loop begin` once the cause is dealt with.")
+    emit("loop stop", {"stopReason": args.reason, "run": run["n"]})
+    return EXIT_OK
+
+
+def cmd_loop_show(args, paths: Paths) -> int:
+    """Where the loop is, and what the gate will be shown. A pure reader."""
+    state = read_state(paths)
+    consts = load_constants(paths)
+    record = read_loop_record(paths)
+    if record is None or not record["runs"]:
+        emit("loop show", {"runs": 0, "active": False})
+        return EXIT_OK
+    run = record["runs"][-1]
+    active = run.get("stopReason") is None
+    iteration = run["iterations"][-1] if run["iterations"] else None
+    data = {
+        "runs": len(record["runs"]), "run": run["n"], "active": active,
+        "limit": run["limit"], "baseRef": run["baseRef"],
+        "iterations": len(run["iterations"]),
+        "lastCompletedStep": _last_step(iteration),
+        "resumable": bool(active and iteration and not iteration["closed"]),
+        "stopReason": run.get("stopReason"), "next": run.get("next")
+        or (_next_step_name(run, iteration) if iteration and active
+            else "implement"),
+    }
+    if run.get("stopReason") == "ready_for_gate" or args.gate_summary:
+        evidence = current_implementation_evidence(paths)
+        report = trace_report(paths, state, None, consts)
+        data["gate"] = {
+            "scopeCoverage": None if report is None else {
+                "inScope": len(report["inScope"]),
+                "specMissing": report["spec"]["missing"],
+                "tasksUncovered": report["tasks"]["criteriaWithoutTask"]
+                + report["tasks"]["criteriaWithoutTestTask"]},
+            "treeDigest": ((evidence or {}).get("treeDigest") or {}).get(
+                "digest"),
+            "baseRef": run["baseRef"],
+            "tests": ((evidence or {}).get("tests") or {}).get("status"),
+            "findings": _blocking_finding_fingerprints(
+                paths, paths.manifest_file.relative_to(
+                    paths.project_root).as_posix()),
+            "unverified": None if report is None else sorted(
+                c for c, d in report["verification"].items()
+                if d in (None, "blocked")),
+            "unmapped": None if report is None else sorted(
+                c for c, d in report["verification"].items()
+                if d == "suite-pass-unmapped"),
+            "stopReason": run.get("stopReason"),
+        }
+    emit("loop show", data)
+    return EXIT_OK
+
+
+def _under_workitem_lock(handler):
+    """Run a loop or task-list command under the WorkItem mutation lock, so
+    its read-decide-write of state and record cannot interleave with another
+    command's. The state it reads is read inside the lock."""
+    def locked(args, paths: Paths) -> int:
+        with workitem_mutation_lock(paths):
+            return handler(args, paths)
+    locked.__name__ = handler.__name__
+    locked.__doc__ = handler.__doc__
+    return locked
+
+
+cmd_loop_begin = _under_workitem_lock(cmd_loop_begin)
+cmd_loop_step = _under_workitem_lock(cmd_loop_step)
+cmd_loop_record = _under_workitem_lock(cmd_loop_record)
+cmd_loop_stop = _under_workitem_lock(cmd_loop_stop)
+cmd_tasks_reconcile = _under_workitem_lock(cmd_tasks_reconcile)
 
 
 def cmd_requirements_show(args, paths: Paths) -> int:
@@ -13501,7 +16959,18 @@ def cmd_requirements_show(args, paths: Paths) -> int:
     sources = list(binding["sources"])
     missing = [relative for relative in sources
                if not (paths.project_root / relative).is_file()]
+    try:
+        package_id = package_of_sources(sources)
+    except Refused:
+        package_id = None
+    package = None
+    if package_id:
+        package = {k: v for k, v in package_status(paths, package_id).items()
+                   if k != "latest"}
+        pin = read_package_binding(paths)
+        package["pinned_digest"] = (pin or {}).get("digest")
     emit("requirements show", {
+        "package": package,
         "workitem": paths.workitem,
         "bound": True,
         "sources": sources,
@@ -13589,6 +17058,16 @@ def _implementation_evidence_shape(document: object) -> str | None:
         return f"status says passed but the exit code is {code!r}"
     if status == TEST_STATUS_FAILED and code in (0, None):
         return f"status says FAILED but the exit code is {code!r}"
+    tree = document.get("treeDigest")
+    if tree is not None:
+        if not (isinstance(tree, dict)
+                and all(isinstance(tree.get(k), str)
+                        for k in ("digest", "before", "method"))
+                and tree["method"] in TREE_DIGEST_METHODS):
+            return "treeDigest is not a tree digest SDLE records"
+        if document.get("evidenceStatus") not in (
+                EVIDENCE_STATUS_VALID, EVIDENCE_STATUS_CHANGED):
+            return "evidenceStatus is missing or not one SDLE records"
     return None
 
 
@@ -13659,6 +17138,34 @@ def implementation_evidence_precondition(paths: Paths, state: dict,
                  "recorded": document.get(field_name), "expected": expected},
             )
 
+    # ADR-017: evidence that carries a tree binding is only as good as the
+    # tree it was taken against. Evidence built before the binding existed
+    # has none and keeps the checks above; that is a compatibility choice,
+    # not a silent skip -- the gate's own contract says so.
+    tree = document.get("treeDigest")
+    if tree is not None:
+        if document.get("evidenceStatus") == EVIDENCE_STATUS_CHANGED:
+            raise Refused(
+                "test_evidence_stale",
+                f"Cannot approve {gate_key}: the working tree changed while "
+                f"the tests were running ({', '.join(document.get('changedDuringRun') or ['unknown'])}), so "
+                "the result proves nothing about either state. Make the "
+                f"tests leave the tree alone, then rebuild. {REBUILD_HINT}",
+                {"gate": gate_key, "evidence": relative,
+                 "mismatch": "changed_during_run",
+                 "changed": document.get("changedDuringRun")})
+        current = tree_digest(paths, state)
+        if current["digest"] != tree["digest"]:
+            raise Refused(
+                "test_evidence_stale",
+                f"Cannot approve {gate_key}: the implementation changed "
+                "after the tests ran against it (the working tree is not "
+                "the one the evidence was taken from). A passing result for "
+                f"other content proves nothing about this one. {REBUILD_HINT}",
+                {"gate": gate_key, "evidence": relative,
+                 "mismatch": "treeDigest",
+                 "recorded": tree["digest"], "expected": current["digest"]})
+
     tests = document["tests"]
     if tests["status"] != TEST_STATUS_PASSED or tests["exit_code"] != 0:
         raise Refused(
@@ -13725,6 +17232,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
                 {"gate": gate_key, "workitem": paths.workitem,
                  "feature_directory": directory, "expected_prefix": prefix},
             )
+        trace_precondition(paths, state, consts, gate_key)
         return None
 
     if gate_key != "gate_implement" or not resolved:
@@ -13755,6 +17263,7 @@ def gate_precondition_hook(paths: Paths, state: dict, consts: Constants,
     # section reports is a passing run of *this* implementation.
     implementation_evidence_precondition(paths, state, gate_key, resolved,
                                          body)
+    trace_precondition(paths, state, consts, gate_key)
     return None
 
 
@@ -13976,6 +17485,7 @@ FEEDBACK_FILE = ".specify/sdle-feedback.md"
 def cmd_remediate_begin(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
+    package_pin_precondition(paths)
     gate_key = args.gate
     flow = flow_for_state(state, consts)
     execution_phase = consts.gate_to_execution_phase.get(gate_key)
@@ -14068,6 +17578,9 @@ def cmd_skip(args, paths: Paths) -> int:
     consts = load_constants(paths)
     state = read_state(paths)
     branch_guard(args, paths, state)
+    # The first call of `skip` saves a pending confirmation before it reaches
+    # `governance_precondition`, so the package pin is checked here, ahead of it.
+    package_pin_precondition(paths)
     phase = state.get("current_phase")
 
     if not args.confirm:
@@ -14845,6 +18358,8 @@ SDLE_OWNED_PREFIXES = (
     ".sdle/baseline.json",
     ".sdle/implementation-state/",
     ".sdle/architecture/",
+    ".sdle/package-approvals/",
+    "package-staging/",
     "workitems/", ".specify/", "design/", "reviews/",
     "clarifications/", "guidance/", "requirements/",
 )
@@ -15129,6 +18644,8 @@ def implementation_exclusions(paths: Paths, state: dict) -> Exclusions:
         f"{boundary}/baseline.json",           # engine-written at the gate
         f"{boundary}/implementation-state/",   # engine-written records
         f"{boundary}/architecture/",           # the shared catalog
+        f"{boundary}/package-approvals/",      # engine-written approvals
+        "package-staging/",                    # a package being drafted
         ".specify/",                           # Spec Kit's own tree
     ]
     feature_directory = speckit_ref(state)["featureDirectory"]
@@ -15293,9 +18810,111 @@ def _looks_binary(path: Path) -> bool:
         return False
 
 
+TREE_DIGEST_METHODS = ("git-listed-files", "walked-files")
+# Tool caches a test run leaves behind. They are not the implementation, and a
+# project that does not ignore them would otherwise see every run look like a
+# change to the tree it ran against.
+TREE_SKIPPED_PARTS = frozenset({
+    ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    "node_modules"})
+EVIDENCE_STATUS_VALID = "valid"
+EVIDENCE_STATUS_CHANGED = "invalid_changed_during_run"
+
+
+def tree_digest(paths: Paths, state: dict) -> dict:
+    """The implementation's working tree as one digest (ADR-017).
+
+    What the tests ran against, so evidence can say whether it still applies:
+    every file git would track, committed or not, plus untracked files that
+    are not ignored, minus exactly the paths `implementation_exclusions`
+    names -- the same boundary the manifest and the security review use. The
+    engine's own bookkeeping (state, audit, manifest, evidence, reviews, the
+    loop record, other WorkItems' runtimes) therefore never moves it, while
+    code, `design/`, `requirements/` and `.sdle/config.json` do.
+
+    Files are hashed by content in Python, not through a temporary git index,
+    so the answer does not depend on git's line-ending conversion and costs no
+    new process. Without git the working tree is walked instead and the
+    method says so.
+    """
+    excluded = implementation_exclusions(paths, state)
+    root = paths.project_root
+    names: set[str] = set()
+    if git_available(paths):
+        _, listed = git(paths, "ls-files", "-z", "--cached", "--others",
+                        "--exclude-standard")
+        names = {name for name in listed.split("\0") if name
+                 and not TREE_SKIPPED_PARTS & set(name.split("/"))
+                 and not name.endswith(".pyc")}
+        method = TREE_DIGEST_METHODS[0]
+    else:
+        for item in root.rglob("*"):
+            relative = item.relative_to(root)
+            if TREE_SKIPPED_PARTS & set(relative.parts):
+                continue
+            if item.is_file() and item.suffix != ".pyc":
+                names.add(relative.as_posix())
+        method = TREE_DIGEST_METHODS[1]
+    entries: dict[str, str] = {}
+    for name in sorted(names):
+        if excluded.hides(name):
+            continue
+        item = root / name
+        if _is_link(item):
+            entries[name] = "link:" + os.readlink(item)
+        elif item.is_file():
+            entries[name] = "file:" + sha256_file(item)
+        elif item.is_dir():
+            # A submodule is listed by git as one entry and holds the
+            # implementation's files too. Its checkout is walked, so an edit
+            # inside it, committed or not, moves the digest.
+            for inner in sorted(item.rglob("*")):
+                relative = inner.relative_to(root)
+                if (TREE_SKIPPED_PARTS & set(relative.parts)
+                        or inner.suffix == ".pyc"):
+                    continue
+                if _is_link(inner):
+                    entries[relative.as_posix()] = "link:" + os.readlink(inner)
+                elif inner.is_file():
+                    entries[relative.as_posix()] = (
+                        "file:" + sha256_file(inner))
+    digest = hashlib.sha256(
+        _canonical_json(sorted(entries.items())).encode("utf-8")).hexdigest()
+    return {"digest": digest, "method": method, "entries": entries}
+
+
+def _tree_changes(before: dict, after: dict) -> list[str]:
+    """The paths that differ between two tree digests, for the refusal."""
+    a, b = before["entries"], after["entries"]
+    return sorted(name for name in a.keys() | b.keys()
+                  if a.get(name) != b.get(name))
+
+
+def _evidence_bindings(paths: Paths, state: dict, tests: dict) -> dict:
+    """What else the evidence is about, so a later reader can tell which
+    package revision, which requirements and which tasks the run was made
+    against. Recorded, never re-derived into a refusal here."""
+    try:
+        requirements = requirements_sources(paths)[1]
+    except Refused:
+        requirements = None
+    pin = read_package_binding(paths)
+    tasks_sha = None
+    tasks_path, _ = resolve_artifact_path(state, load_constants(paths),
+                                          "gate_tasks", paths)
+    if tasks_path and (paths.project_root / tasks_path).is_file():
+        tasks_sha = sha256_file(paths.project_root / tasks_path)
+    return {"testCommand": tests.get("command"),
+            "runner": tests.get("runner"),
+            "packageDigest": (pin or {}).get("digest"),
+            "requirementsDigest": requirements,
+            "tasksSha256": tasks_sha}
+
+
 def cmd_manifest_build(args, paths: Paths) -> int:
     state = read_state(paths)
     branch_guard(args, paths, state)
+    loop_output_precondition(paths, "manifest")
     relative = str(
         paths.manifest_file.relative_to(paths.project_root)
     ).replace(os.sep, "/")
@@ -15316,8 +18935,7 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                 for p in paths.project_root.rglob("*")
                 if p.is_file() and p.suffix in TEXT_SUFFIXES
                 and not str(p.relative_to(paths.project_root)).startswith("."))
-            if not any(relative_path.startswith(prefix)
-                       for prefix in excluded)
+            if not excluded.hides(relative_path)
         ]
         note = "git not initialized — file list is approximate."
     changed = [entry["path"] for entry in changes]
@@ -15344,6 +18962,9 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                     findings.append(f"{name}:{number} — {label} — {masked}")
                     break
 
+    # The tree the tests run against, taken on both sides of the run: a run
+    # during which the tree changed proved nothing about either state.
+    tree_before = tree_digest(paths, state)
     if args.skip_tests:
         # Kept, and recorded as exactly what it is. It cannot carry the
         # implementation gate: that gate refuses any result but a run that
@@ -15352,6 +18973,18 @@ def cmd_manifest_build(args, paths: Paths) -> int:
                  "output": None, "status": "skipped by caller"}
     else:
         tests = run_tests(paths, args.test_timeout, args.test_command)
+    tree_after = tree_digest(paths, state)
+    changed_during = _tree_changes(tree_before, tree_after)
+    junit = None
+    if getattr(args, "junit", None):
+        report, junit_relative = safe_repo_path(paths, args.junit)
+        if not report.is_file():
+            raise Refused(
+                "manifest_junit_missing",
+                f"--junit names {junit_relative}, which the test command did "
+                "not write. Nothing was recorded.",
+                {"path": junit_relative})
+        junit = {"path": junit_relative, "sha256": sha256_file(report)}
 
     secrets_block = "\n".join(findings) if findings else "None detected."
     if tests["runner"] is None:
@@ -15407,6 +19040,15 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         "secrets": findings,
         "tests": {key: tests.get(key) for key in
                   ("runner", "command", "exit_code", "status", "output")},
+        "treeDigest": {"digest": tree_after["digest"],
+                       "before": tree_before["digest"],
+                       "method": tree_after["method"],
+                       "files": len(tree_after["entries"])},
+        "evidenceStatus": (EVIDENCE_STATUS_CHANGED if changed_during
+                           else EVIDENCE_STATUS_VALID),
+        "changedDuringRun": changed_during[:50],
+        "junit": junit,
+        "bindings": _evidence_bindings(paths, state, tests),
     }, indent=2) + "\n")
 
     if findings:
@@ -15432,6 +19074,10 @@ def cmd_manifest_build(args, paths: Paths) -> int:
         # re-derives this from the evidence file; it never reads this flag.
         "tests_passed": (tests["status"] == TEST_STATUS_PASSED
                          and tests["exit_code"] == 0),
+        "tree_digest": tree_after["digest"],
+        "evidence_status": (EVIDENCE_STATUS_CHANGED if changed_during
+                            else EVIDENCE_STATUS_VALID),
+        "changed_during_run": changed_during[:50],
     })
     return EXIT_OK
 
@@ -15742,6 +19388,8 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
             problems.append("ARTIFACT_OWNERSHIP")
         if key not in consts.gate_to_execution_phase:
             problems.append("GATE_TO_EXECUTION_PHASE")
+        if key not in consts.gate_review_types:
+            problems.append("GATE_REVIEW_TYPES")
         if template_keys and key not in template_keys:
             problems.append("templates/state.json approvals")
         checks.append(
@@ -15751,6 +19399,29 @@ def run_sync_checks(paths: Paths, consts: Constants) -> list[Check]:
                 "registered everywhere" if not problems else f"missing from {problems}",
             )
         )
+
+    # GATE_REVIEW_TYPES names only registered gates and only actor types the
+    # review ledger accepts; `any` is the one wildcard.
+    review_problems = []
+    gates = set(consts.phase_to_gate_key.values())
+    for key, (types, actors) in consts.gate_review_types.items():
+        if key not in gates:
+            review_problems.append(f"{key}: not a registered gate")
+        if not types or not actors:
+            review_problems.append(f"{key}: an empty cell")
+        bad = [a for a in actors if a != "any" and a not in REVIEW_ACTOR_TYPES]
+        if bad:
+            review_problems.append(f"{key}: unknown actor type(s) {bad}")
+        if ("any" in types and len(types) > 1
+                or "any" in actors and len(actors) > 1):
+            review_problems.append(f"{key}: 'any' mixed with named values")
+    checks.append(
+        Check(
+            "gate_review_types_are_well_formed",
+            not review_problems,
+            "ok" if not review_problems else "; ".join(review_problems),
+        )
+    )
 
     # Every phase in PHASE_SEQUENCE has a block in phase-execution.md, keyed by
     # its block header rather than an incidental mention. ``requirements_check``
@@ -17246,6 +20917,114 @@ def build_parser() -> argparse.ArgumentParser:
     req_show = req_sub.add_parser("show", help="Report the binding.")
     req_show.set_defaults(handler=cmd_requirements_show)
 
+    loop_p = subparsers.add_parser(
+        "loop", help="The bounded implementation loop (inside implement).")
+    loop_sub = loop_p.add_subparsers(dest="subcommand", required=True)
+    loop_sub.add_parser(
+        "begin", help="Start a run of at most the policy's iterations."
+    ).set_defaults(handler=cmd_loop_begin)
+    loop_step = loop_sub.add_parser(
+        "step", help="Record one completed step, after checking it.")
+    loop_step.add_argument("--step", required=True)
+    loop_step.set_defaults(handler=cmd_loop_step)
+    loop_rec = loop_sub.add_parser(
+        "record", help="Close the iteration: continue, or why to stop.")
+    loop_rec.add_argument("--classification",
+                          help="implementation_defect | test_defect | "
+                               "requirement_ambiguity | environment_blocker.")
+    loop_rec.set_defaults(handler=cmd_loop_record)
+    loop_stop = loop_sub.add_parser(
+        "stop", help="End the active run for a stated reason.")
+    loop_stop.add_argument("--reason", required=True)
+    loop_stop.set_defaults(handler=cmd_loop_stop)
+    loop_show = loop_sub.add_parser(
+        "show", help="Where the loop is and what the gate will be shown.")
+    loop_show.add_argument("--gate-summary", action="store_true",
+                           dest="gate_summary")
+    loop_show.set_defaults(handler=cmd_loop_show)
+    tasks_p = subparsers.add_parser(
+        "tasks", help="The task list during the implementation loop.")
+    tasks_sub = tasks_p.add_subparsers(dest="subcommand", required=True)
+    tasks_sub.add_parser(
+        "reconcile", help="Accept ticks and appended convergence sections."
+    ).set_defaults(handler=cmd_tasks_reconcile)
+
+    trace_p = subparsers.add_parser(
+        "trace", help="What the specification and tasks carry of a package.")
+    trace_sub = trace_p.add_subparsers(dest="subcommand", required=True)
+    trace_sub.add_parser(
+        "check", help="Report coverage of the package's obligations."
+    ).set_defaults(handler=cmd_trace_check)
+    ver_p = subparsers.add_parser(
+        "verification", help="Per-criterion verification dispositions.")
+    ver_sub = ver_p.add_subparsers(dest="subcommand", required=True)
+    ver_sub.add_parser(
+        "show", help="Each criterion's disposition, mapped apart from "
+                     "unmapped.").set_defaults(handler=cmd_verification_show)
+    ver_record = ver_sub.add_parser(
+        "record", help="Record one criterion's disposition.")
+    ver_record.add_argument("--id", required=True)
+    ver_record.add_argument("--disposition", required=True)
+    ver_record.add_argument("--evidence")
+    ver_record.add_argument("--reason")
+    ver_record.add_argument("--approver")
+    ver_record.add_argument("--wording")
+    ver_record.set_defaults(handler=cmd_verification_record)
+    ver_map = ver_sub.add_parser(
+        "map", help="Map criteria to the JUnit test cases that name them.")
+    ver_map.add_argument("--junit",
+                         help="Optional: must name the report the evidence "
+                              "captured; it is read from there either way.")
+    ver_map.set_defaults(handler=cmd_verification_map)
+
+    pkg_p = subparsers.add_parser(
+        "package", help="Requirements packages: import, approve, hand off.")
+    pkg_sub = pkg_p.add_subparsers(dest="subcommand", required=True)
+    pkg_import = pkg_sub.add_parser(
+        "import", help="Validate a staged package and copy it into place.")
+    pkg_import.add_argument("--package", required=True)
+    pkg_import.add_argument("--replace", action="store_true",
+                            help="Replace a package already imported; any "
+                                 "approval becomes stale.")
+    pkg_import.set_defaults(handler=cmd_package_import)
+    pkg_validate = pkg_sub.add_parser(
+        "validate", help="Name every structural problem with a package.")
+    pkg_validate.add_argument("--package", required=True)
+    pkg_validate.add_argument("--staging", action="store_true",
+                              help="Validate the staged draft, not the "
+                                   "imported package.")
+    pkg_validate.set_defaults(handler=cmd_package_validate)
+    pkg_approve = pkg_sub.add_parser(
+        "approve", help="Record a Solution Architect approval at the "
+                        "package's exact digest.")
+    pkg_approve.add_argument("--package", required=True)
+    pkg_approve.add_argument("--approver", required=True)
+    pkg_approve.add_argument("--role", required=True)
+    pkg_approve.add_argument("--wording", required=True,
+                             help="The approval wording, recorded verbatim.")
+    pkg_approve.set_defaults(handler=cmd_package_approve)
+    pkg_show = pkg_sub.add_parser(
+        "show", help="Report a package's revision, approval and diff.")
+    pkg_show.add_argument("--package")
+    pkg_show.add_argument("--diff", action="store_true",
+                          help="Show what changed since the last approved "
+                               "revision.")
+    pkg_show.set_defaults(handler=cmd_package_show)
+    pkg_reseal = pkg_sub.add_parser(
+        "reseal", help="Recompute file digests after an intended edit.")
+    pkg_reseal.add_argument("--package", required=True)
+    pkg_reseal.set_defaults(handler=cmd_package_reseal)
+    pkg_adopt = pkg_sub.add_parser(
+        "adopt", help="Re-pin a started WorkItem to the newly approved "
+                      "revision.")
+    pkg_adopt.set_defaults(handler=cmd_package_adopt)
+    pkg_intake = pkg_sub.add_parser(
+        "intake", help="Create and bind one WorkItem per package work item.")
+    pkg_intake.add_argument("--package", required=True)
+    pkg_intake.add_argument("--work-item", action="append",
+                            help="Only this package work item. Repeatable.")
+    pkg_intake.set_defaults(handler=cmd_package_intake)
+
     sr_p = subparsers.add_parser("security-review", help="Security-review support.")
     sr_sub = sr_p.add_subparsers(dest="subcommand", required=True)
     sr_begin = sr_sub.add_parser("begin", help="Pin the review filename.")
@@ -17282,6 +21061,11 @@ def build_parser() -> argparse.ArgumentParser:
     reviewed.add_argument("--evidence",
                           help="Pointer to the detailed review artifact.")
     reviewed.add_argument("--comments")
+    reviewed.add_argument("--findings",
+                          help="A JSON file of structured findings (id, "
+                               "severity, location, obligations, "
+                               "disposition). A PASS is refused while a "
+                               "blocking finding is open.")
     reviewed.set_defaults(handler=cmd_artifact_review)
     review_list = artifact_sub.add_parser(
         "reviews", help="List review records and their freshness."
@@ -17400,6 +21184,13 @@ def build_parser() -> argparse.ArgumentParser:
     mbuild.add_argument("--summary")
     mbuild.add_argument("--skip-tests", action="store_true")
     mbuild.add_argument("--test-timeout", type=int, default=600)
+    mbuild.add_argument(
+        "--junit",
+        help="The JUnit XML report the test command writes, relative to the "
+             "repository. Its digest is recorded with the evidence, and "
+             "`verification map` reads only that report. Have the command "
+             "write it under the WorkItem's evidence directory or to an "
+             "ignored path.")
     mbuild.add_argument(
         "--test-command",
         help="The project's own test command, for a runner SDLE does not "

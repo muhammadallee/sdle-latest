@@ -77,6 +77,25 @@ workflow starts, so these two have no status header and no progress fraction.
 | [21-requirements-refinement-loop.md](21-requirements-refinement-loop.md) | DR-21 · Blocked requirements fixed in one loop: a human decides each change, the engine decides what is only layout | `GREENFIELD` |
 | [22-requirements-refinement-stops.md](22-requirements-refinement-stops.md) | DR-22 · When refinement stops: a refused verdict flip and the dispute path, a shared document, a stall, an exhausted cap, and a loop attempted after `init` | `GREENFIELD` |
 
+Added with the requirements package (ADR-016). A package is made and approved
+before any WorkItem exists, so this one has no status header either.
+
+| File | Scenario | Flow |
+|---|---|---|
+| [23-requirements-package-and-handoff.md](23-requirements-package-and-handoff.md) | DR-23 · A source document becomes an approved package, one package work item becomes one WorkItem, and the engine refuses a stale, unapproved or not-ready package | `GREENFIELD` |
+
+Added with traceability and tree-bound evidence (ADR-017).
+
+| File | Scenario | Flow |
+|---|---|---|
+| [24-traceability-and-tree-bound-evidence.md](24-traceability-and-tree-bound-evidence.md) | DR-24 · Obligations traced from a package to the end, evidence bound to the tree it came from, and a gate that takes only its own kind of review | `GREENFIELD` |
+
+Added with the implementation loop (ADR-017).
+
+| File | Scenario | Flow |
+|---|---|---|
+| [25-the-implementation-loop.md](25-the-implementation-loop.md) | DR-25 · A bounded loop inside implement: ordered, recorded and refereed steps, one completion predicate shared with the gate, a stop reason and a next action, and a gate the loop never approves | `GREENFIELD` |
+
 Flow sizes are stated as the engine reports them: executable phases,
 excluding the terminal `complete`, which is the number in the progress header.
 `lint-skill`'s `doc_flow_counts_match_engine` checks every one of them.

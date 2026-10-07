@@ -238,8 +238,11 @@ def test_d02_7_there_is_no_exception_path_to_apply():
                     if a.dest == "command").choices["manifest"]
     build = next(a for a in manifest._subparsers._group_actions).choices["build"]
     options = {o for a in build._actions for o in a.option_strings}
+    # ADR-017 adds `--junit`: it names the report the test command writes so
+    # its digest is recorded with the evidence. It waives nothing: the run's
+    # status and exit code decide the gate exactly as before.
     assert options == {"-h", "--help", "--summary", "--skip-tests",
-                       "--test-timeout", "--test-command"}, options
+                       "--test-timeout", "--test-command", "--junit"}, options
 
 
 # -- 8: complete passing results ----------------------------------------------

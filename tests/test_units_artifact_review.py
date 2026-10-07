@@ -40,6 +40,16 @@ REVIEW_TYPE = "content-review"
 # --------------------------------------------------------------------------
 
 
+def review_type_for(view, gate: str) -> str:
+    """The review type `gate` accepts, read from the engine's own table
+    (GATE_REVIEW_TYPES), so the suite never restates which gate takes which
+    review. A gate that accepts any type gets the suite's generic one."""
+    consts = sdle.load_constants(
+        sdle.resolve_paths(str(view.root), str(view.skill_root)))
+    types, _ = consts.gate_review_types.get(gate, (["any"], ["any"]))
+    return REVIEW_TYPE if types == ["any"] else types[0]
+
+
 def review_for_gate(view, gate: str, result: str = "PASS", **over) -> None:
     """Record the review TP-011 requires before ``gate`` can be approved.
 
@@ -52,7 +62,7 @@ def review_for_gate(view, gate: str, result: str = "PASS", **over) -> None:
         return
     view.ok("artifact", "review",
             "--path", over.get("path", shown["artifact_path"]),
-            "--type", over.get("type", REVIEW_TYPE),
+            "--type", over.get("type", review_type_for(view, gate)),
             "--result", result,
             "--actor-type", over.get("actor_type", "test"),
             "--actor-name", over.get("actor_name", "suite"))
@@ -355,8 +365,15 @@ def test_the_artifact_shas_writer_set_is_unchanged(project):
                     and node.func.attr == "pop" \
                     and "artifact_shas" in ast.unparse(node):
                 writers.add(fn.name)
+    # ADR-017 adds `cmd_tasks_reconcile`, and it argues for itself: the one
+    # sanctioned post-approval change to an approved task list (a tick or an
+    # appended convergence section, verified structurally against the last
+    # accepted snapshot and audited) is the loop's own work, not a new
+    # decision about the plan, and `drift rebaseline` is refused for the
+    # package WorkItems whose loop it serves.
     assert writers == {"cmd_gate_approve", "cmd_gate_omit", "_approve_drift",
-                       "cmd_drift_rebaseline", "cmd_restart"}
+                       "cmd_drift_rebaseline", "cmd_restart",
+                       "cmd_tasks_reconcile"}
 
 
 def test_only_the_review_command_writes_the_review_ledger():

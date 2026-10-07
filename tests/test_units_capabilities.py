@@ -641,20 +641,21 @@ def test_a21_the_restatement_search_now_covers_the_product_agents():
 
 
 def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
-    """F-025, widened twice in the requirements-refinement work: once for its
-    own execution record, once for open-items-01-02's (a Codex review run's
+    """F-025, widened in the requirements-refinement work (once for its
+    own execution record, once for open-items-01-02's, a Codex review run's
     event stream, committed in the same session, quotes back whatever
-    vocabulary the reviewed diff discussed). All three have the same job:
+    vocabulary the reviewed diff discussed) and again for
+    requirements-package-loop. All four have the same job:
     quoting engine vocabulary — check ids, refusal codes — as evidence, not
     as documentation. The exclusion is this **enumerated, named set of
-    three** directories and nothing wider: an unlisted sibling under
+    four** directories and nothing wider: an unlisted sibling under
     `.sdle/implementation-state/`, the policies and the templates are
     product surface and stay searched. Widening the set is not a pattern
     match on `implementation-state/*` — a fourth, unnamed sibling proves
     that."""
     from conftest import MAINTENANCE_RECORDS
 
-    assert len(MAINTENANCE_RECORDS) == 3
+    assert len(MAINTENANCE_RECORDS) == 4
 
     root = tmp_path
     kept = [root / ".sdle" / "policies" / "policy.json",
@@ -782,6 +783,13 @@ ADR_013_CHECKS = (
     "architecture_gate_is_universally_required",
 )
 
+# ADR-017 adds one: the GATE_REVIEW_TYPES table names only registered gates and
+# only actor types the review ledger accepts. (Coverage of every gate is not a
+# new name: it rides on the existing `gate_registered_<gate>` checks.)
+ADR_017_CHECKS = (
+    "gate_review_types_are_well_formed",
+)
+
 
 def test_the_dry_run_index_lists_every_transcript_beside_it():
     """What replaces the byte-pin on `docs/dry-runs/README.md`.
@@ -813,7 +821,8 @@ def test_n26_every_baseline_check_is_still_present_and_passing(repo):
     report = repo.ok("lint-skill").data
     names = [c["name"] for c in report["checks"]]
 
-    expected = BASELINE_CHECKS + T10_CHECKS + T11_CHECKS + ADR_013_CHECKS
+    expected = (BASELINE_CHECKS + T10_CHECKS + T11_CHECKS + ADR_013_CHECKS
+                + ADR_017_CHECKS)
     assert sorted(names) == sorted(expected), (
         sorted(set(names) ^ set(expected)))
     assert len(names) == len(set(names)), "a check name is emitted twice"

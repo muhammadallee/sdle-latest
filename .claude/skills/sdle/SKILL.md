@@ -191,6 +191,22 @@ Each cell lists that flow's phases in registry order, **space separated and not 
 | `gate_implement` | `{workitem_runtime}/implementation-manifest.md` | substitute `workitem_runtime` |
 | `gate_security` | `{security_review_artifact}` | substitute `security_review_artifact` |
 
+### GATE_REVIEW_TYPES
+
+Which review a gate accepts as **its** review. `artifact review --type` records any type, but a gate approves only on the newest current review of a type and actor type this table names; another kind of review does not stand in for it (`review_type_mismatch`). An `any` cell means any, which is what a gate has until a review capability defines a type for it. Cells are space separated and not backticked, for the reason FLOW_PHASES says.
+
+| gate_key | review types | actor types |
+|---|---|---|
+| `gate_constitution` | any | any |
+| `gate_architecture` | architecture-placement | any |
+| `gate_spec` | any | any |
+| `gate_plan` | any | any |
+| `gate_tasks` | any | any |
+| `gate_analyze` | any | any |
+| `gate_design` | design-review | any |
+| `gate_implement` | code-review | any |
+| `gate_security` | any | any |
+
 ### PHASE_LABEL_MAP
 | phase_id | label |
 |---|---|
@@ -253,7 +269,7 @@ It is a **floor, not a ceiling.** A capability file may send you to another one 
 
 | phase | capabilities |
 |---|---|
-| `requirements_check` | modules/phase-execution.md modules/requirements-refinement.md modules/requirements-change.md |
+| `requirements_check` | modules/phase-execution.md modules/requirements-refinement.md modules/requirements-change.md modules/requirements-package.md |
 | `discovery` | modules/phase-execution.md |
 | `impact_analysis` | modules/phase-execution.md |
 | `constitution_draft` | modules/phase-execution.md guidelines/constitution.md |
@@ -422,6 +438,10 @@ A gate requires artifact content in the conversation for a human decision. That 
 
 When `governance assess` reports the requirements quality blocked, offer to help fix the requirements, and if the user accepts, load `modules/requirements-refinement.md` and follow it. It is not a phase and `resume` does not report it, because it happens before a workflow exists; the engine refuses `refinement_post_init` afterwards. It never runs unasked.
 
+## Step 6a-1: Requirements Package
+
+When the user hands you a source requirements document and wants a package made from it, asks for a Solution Architect's approval of a package, or names a package to start work from, load `modules/requirements-package.md` and follow it. It is not a phase and `resume` does not report it, because it happens before a workflow exists; it never runs unasked. The approval is the Solution Architect's, never yours.
+
 ## Step 6a-2: Requirements Changed Under a WorkItem
 
 When a command is refused `governance_stale`, or `governance show` says the assessment is not fresh, the requirements changed after they were assessed. Load `modules/requirements-change.md` and follow it: show the engine's facts, put the choice to the user (carry on, redo from an earlier phase, finish and raise a new WorkItem, reset), and do what they chose. It is not a phase and `resume` does not report it; the choice is the user's, never yours.
@@ -463,6 +483,7 @@ Construct skill names from `speckit_skill_prefix` in state (`sdle.sh preflight` 
 | Tasks | `{prefix}tasks` |
 | Analyze | `{prefix}analyze` |
 | Implement | `{prefix}implement` |
+| Converge (the implementation loop only) | `{prefix}converge` |
 | Clarify (`spec_draft` only) | `{prefix}clarify` |
 
 These names are never shown to the user (verbose mode excepted). If an invocation fails, re-run `sdle.sh preflight` to re-discover the prefix, then retry.

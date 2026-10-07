@@ -402,10 +402,9 @@ exactly one step, and it refuses `forward_jump` if you ask for anything else.
 
 Two phases in `GREENFIELD` deviate slightly from the pattern. `checklist_draft`
 records its artifact as `--optional`, because a checklist is reviewed alongside
-the tasks at Gate 5 rather than gated on its own; and `analyze` refines
-`tasks.md`, a file Gate 5 already fingerprinted, so it calls `drift rebaseline
---gate gate_tasks` to move that baseline deliberately rather than tripping the
-drift detector with a change everyone intended.
+the tasks at Gate 5 rather than gated on its own; and `analyze` reads `tasks.md`
+without changing it, so it moves no baseline: a change made during analysis is
+drift and returns to you for re-approval.
 
 The full conversational walk is
 [`dry-runs/01-happy-path.md`](../dry-runs/01-happy-path.md).

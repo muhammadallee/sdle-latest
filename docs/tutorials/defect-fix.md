@@ -411,10 +411,9 @@ conversational form in [`dry-runs/01-happy-path.md`](../dry-runs/01-happy-path.m
 
 Two flow-specific notes:
 
-**`analyze` still refines `tasks.md`.** `gate_tasks` has already fingerprinted
-that file, so the refinement would read as drift. Move the baseline
-deliberately with `drift rebaseline --gate gate_tasks` rather than letting the
-detector raise an alarm about a change everyone intended.
+**`analyze` does not change `tasks.md`.** It reads the file `gate_tasks` already
+fingerprinted, so nothing is re-baselined: a change made to it during analysis
+is drift and returns to you for re-approval.
 
 **There is no `checklist_draft`.** In `GREENFIELD` the checklist is recorded
 `--optional` and reviewed alongside the tasks at Gate 5. `DEFECT_FIX` has no

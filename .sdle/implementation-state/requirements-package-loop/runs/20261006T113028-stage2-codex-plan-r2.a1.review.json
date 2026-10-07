@@ -1,0 +1,115 @@
+{
+  "reviewed_commit": "428d8cd27181f6ffa800f276a4db53956669379f",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md eight invariants; BRIEF grounding, owner decisions and AS-01..AS-30; PLAN and LEDGER round-1 dispositions",
+      "All requested engine symbols, approval and omission paths, skip/restart/retry behavior, drift computation and rebaseline",
+      "Package import/reseal/adopt, approval history, immutable revisions, handoff and package pin design",
+      "Digest projection against actual implementation_exclusions, manifest construction and evidence validation",
+      "Loop sequencing, reconciliation snapshots, completion predicate, stop conditions and HOTFIX compatibility",
+      "Pinned-policy defaults, validation and tightening rules; release dependencies",
+      "Requested invariant/configuration/flow/hook tests; repository-wide review call-site search",
+      "Write primitive recount: 41 write_atomic, 50 save_state, 56 append_audit, 3 os.replace, 11 mkdir; 78 literal command names",
+      "run_sync_checks dispatcher and core table checks; hook FENCED/SCANNED and .gitignore; acceptance test/release mapping"
+    ],
+    "areas_not_reviewed": [
+      "Executed reproductions or test suites; review was static apart from read-only source recounts",
+      "Real Spec Kit v1.0.6 execution and AS-30 scratch transcript",
+      "Every individual test body and every documentation-check helper called by run_sync_checks",
+      "Uncommitted client SRS and external reference package contents"
+    ]
+  },
+  "findings": [
+    {
+      "id": "PR-R2-001",
+      "severity": "high",
+      "category": "defect/evidence-freshness",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 138,
+      "claim": "The round-1 digest fix excludes legitimate implementation files and misstates the current exclusion list, leaving stale evidence acceptable for those files.",
+      "evidence": "PLAN:138 calls blanket workitems/, .sdle/, requirements/, design/ and other prefixes 'the existing implementation_exclusions() list'. In fact scripts/sdle.py:15127-15149 excludes the bound runtime, selected .sdle members, feature directory, other registered WorkItems and index.md. Lines 15090-15098 explicitly reject blanket workitems/ exclusion; 15116-15121 deliberately retain config.json and policies in the implementation manifest. The proposed separate bindings cover package, bound requirements and tasks, not source code under the bound WorkItem or config/policy changes.",
+      "evidence_type": "static",
+      "suggested_fix": "Use the actual narrow Exclusions object for the digest projection. Add regressions for code under the bound WorkItem and config/policy changes after tests; explicitly bind any additional excluded review inputs.",
+      "ac_ids": ["§3.6", "AS-14", "AS-15", "AS-16", "PR-R1-001"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-002",
+      "severity": "high",
+      "category": "defect/drift-bypass",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 135,
+      "claim": "The round-1 rebaseline restriction still permits bypassing the tasks mutation policy and clearing unrelated drift during implementation.",
+      "evidence": "PLAN §3.5 permits direct drift rebaseline whenever the package-bound loop is active at implement, while claiming reconcile is the only sanctioned post-approval tasks change. scripts/sdle.py:12998-13013 accepts the current artifact SHA and writes artifact_shas without validating its delta. An active loop therefore permits rebaselining a reworded task, or another gate such as gate_spec, before reconcile's compute_drift check. PLAN §4.4's checks apply only to reconcile.",
+      "evidence_type": "static",
+      "suggested_fix": "Refuse direct drift rebaseline for package-bound WorkItems throughout the loop. Expose the internal baseline writer only through reconcile after snapshot and unrelated-drift validation, or apply identical validation to the public command.",
+      "ac_ids": ["§3.5", "§4.4", "AS-22", "PR-R1-003", "PR-R1-004"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-003",
+      "severity": "high",
+      "category": "defect/audit-integrity",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 90,
+      "claim": "Adding package_pin_precondition only inside apply_advance makes a refused skip append an orphan audit event.",
+      "evidence": "PLAN:90 places the package-pin check in apply_advance, gate_precondition_hook and _approve_drift; §1.6 treats skip as having no trace relevance. scripts/sdle.py:14105-14109 prechecks existing advance refusals, then 14114 appends the skipped audit event before 14123 calls apply_advance. Its comment at 14098-14104 explicitly explains why a refusal there strands an orphan ledger entry. A manifest-only package change can leave governance fresh but trigger the new pin refusal after that append.",
+      "evidence_type": "static",
+      "suggested_fix": "Run package_pin_precondition before skip's first irreversible write. Audit every apply_advance caller for the same ordering requirement and test that package-pin refusals leave state and audit bytes unchanged.",
+      "ac_ids": ["§1.6", "§2.3", "PR-R1-002"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-004",
+      "severity": "high",
+      "category": "defect/flow-compatibility",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 162,
+      "claim": "The reconcile baseline prerequisite prevents HOTFIX WorkItems from starting the implementation loop.",
+      "evidence": "PLAN §4.4 requires loop begin's tasks SHA to equal artifact_shas 'for both gates', otherwise tasks_drift. SKILL.md:135 declares HOTFIX with tasks_draft but neither gate_tasks nor gate_analyze. Those approval baselines therefore do not exist, although BRIEF D09 requires the same loop rules in every flow. compute_drift at scripts/sdle.py:12895-12900 likewise skips gates without decisions or baselines.",
+      "evidence_type": "static",
+      "suggested_fix": "Define snapshot authority for flows without task gates: require equality for existing baselined task gates and establish an audited initial tasks snapshot for HOTFIX. Test a complete package-bound HOTFIX loop and omitted task gates.",
+      "ac_ids": ["§1.6", "§4.4", "AS-20", "AS-22", "AS-24"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-005",
+      "severity": "medium",
+      "category": "defect/task-reconciliation",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 162,
+      "claim": "Freezing every accepted convergence section conflicts with ticking its tasks on the next iteration.",
+      "evidence": "PLAN §4.4 rejects any 'changed convergence section' when comparing against the last accepted snapshot, despite allowing checkbox ticks on existing tasks. BRIEF §5 explicitly runs subsequent implement iterations over tasks appended by the loop. Once the first convergence section is accepted, implementing those tasks changes its checkboxes and thus changes that section, satisfying the stated rejection rule.",
+      "evidence_type": "static",
+      "suggested_fix": "Apply the checkbox-only exception to task lines inside previously accepted convergence sections; freeze their other content and ordering. Test append, accept, implement, tick and reconcile across two iterations.",
+      "ac_ids": ["§4.4", "AS-21", "AS-22", "AS-25", "PR-R1-004"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-006",
+      "severity": "high",
+      "category": "defect/package-change-recovery",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 90,
+      "claim": "The prescribed post-init refine/reseal/adopt recovery sequence cannot execute through the existing refinement commands.",
+      "evidence": "PLAN:90 prescribes 'refine/reseal, SA re-approval, package adopt, re-assess' for an initialized WorkItem; §2.1 calls refinement apply the only permitted requirements editor. scripts/sdle.py:5815-5823 refuses refinement whenever state.json exists, and cmd_refinement_apply invokes that guard at 6307. Restart retains state.json. BRIEF G14 also pins refinement as pre-init, so the new package recovery route cannot simply reuse it unchanged.",
+      "evidence_type": "static",
+      "suggested_fix": "Specify an executable package-revision editing route that preserves the pre-init refinement restriction, such as validated staging plus import --replace followed by approval and adopt. Test recovery for an initialized WorkItem without resetting its audit history.",
+      "ac_ids": ["§2.1", "§2.3", "§2.4", "AS-07", "PR-R1-002", "PR-R1-009"],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R2-007",
+      "severity": "medium",
+      "category": "defect/release-dependencies",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 39,
+      "claim": "The verification blocking policy is needed in R2 but scheduled as an R3 policy addition, so R2 cannot independently deliver its promised configurable enforcement.",
+      "evidence": "PLAN:39 says WorkItems pinned before R3 lack both new keys, and risk 2 schedules policy verification at R3 start. However §3.2 already requires R2 suite-pass-unmapped to block when unmapped_verification_blocks is true in policy. The existing policy validator has a closed key set, which §1.5 acknowledges must change. BRIEF §1 requires each release to be independently mergeable.",
+      "evidence_type": "static",
+      "suggested_fix": "Ship unmapped_verification_blocks, its closed-key validation, tightening rule and old-pin fallback tests in R2. Reserve implementation_loop_max_iterations and loop-specific upgrade tests for R3.",
+      "ac_ids": ["§1.5", "§3.2", "§3.7", "AS-19", "PR-R1-007"],
+      "confidence": "high"
+    }
+  ]
+}

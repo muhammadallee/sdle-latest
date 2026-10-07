@@ -61,7 +61,7 @@ def _project_dir():
 PROJECT_DIR = _project_dir()
 
 FENCED = (".workflow", "workitems", "requirements", "guidance",
-          ".sdle/architecture")
+          ".sdle/architecture", ".sdle/package-approvals")
 SCANNED = ("requirements", "guidance", "clarifications")
 
 # Tool names, once. The role tables in the documentation and the registration
@@ -134,6 +134,13 @@ FENCE_REASONS = {
         "and no audit entry behind it. Use `architecture assess` and approve "
         "the architecture gate. Note that '.sdle/' itself is NOT fenced: "
         "config.json and policies/ are meant to be edited."
+    ),
+    ".sdle/package-approvals": (
+        "'.sdle/package-approvals/' holds the Solution Architect approvals of "
+        "requirements packages: an append-only, hash-chained ledger and the "
+        "approved revisions, written only by scripts/sdle.py. A hand-edit "
+        "would forge or erase an approval with no record behind it. Use "
+        "`package approve`."
     ),
 }
 

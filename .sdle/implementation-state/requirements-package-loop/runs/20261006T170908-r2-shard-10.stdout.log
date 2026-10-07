@@ -1,0 +1,31 @@
+........................................................................ [ 23%]
+......................................................................F. [ 47%]
+........................................................................ [ 70%]
+........................................................................ [ 94%]
+.................                                                        [100%]
+================================== FAILURES ===================================
+_________ test_n26_every_baseline_check_is_still_present_and_passing __________
+
+repo = <conftest.Project object at 0x000001B9E297EF90>
+
+    def test_n26_every_baseline_check_is_still_present_and_passing(repo):
+        """N26/A19/F4. `lint-skill` got wider, not weaker. Exact equality against
+        the written-out union, so a check that silently stopped being emitted fails
+        here instead of disappearing quietly."""
+        report = repo.ok("lint-skill").data
+        names = [c["name"] for c in report["checks"]]
+    
+        expected = BASELINE_CHECKS + T10_CHECKS + T11_CHECKS + ADR_013_CHECKS
+>       assert sorted(names) == sorted(expected), (
+            sorted(set(names) ^ set(expected)))
+E       AssertionError: ['gate_review_types_are_well_formed']
+E       assert ['architectur...ne_flow', ...] == ['architectur...ne_flow', ...]
+E         
+E         At index 32 diff: 'gate_review_types_are_well_formed' != 'next_phase_chains_sequence'
+E         Left contains one more item: 'version_string_consistent'
+E         Use -v to get more diff
+
+tests\test_units_capabilities.py:818: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_capabilities.py::test_n26_every_baseline_check_is_still_present_and_passing
+1 failed, 304 passed in 468.88s (0:07:48)

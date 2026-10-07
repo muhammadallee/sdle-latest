@@ -1,0 +1,41 @@
+{
+  "run_id": "20261006T210352-final-03",
+  "result": "PASS",
+  "label": "final-03",
+  "task_ids": [],
+  "ac_ids": [],
+  "argv": [
+    "C:\\Users\\Ali\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_units_gate_policy.py",
+    "tests/test_units_install_contract.py",
+    "tests/test_units_refinement_lint.py",
+    "tests/test_units_refinement_normal_form.py"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "df773c0941f1136a1d6a3be3422424d0c3311489",
+  "content_fingerprint": "ea7dfa59cb2860221b9169aed8fd60c0526a7a852bb9386bada0d62381a859b6",
+  "manifest_paths": 116,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-10-06T21:03:52Z",
+  "runner_pid": 32484,
+  "stdout": "20261006T210352-final-03.stdout.log",
+  "stderr": "20261006T210352-final-03.stderr.log",
+  "note": "",
+  "memory_samples": "20261006T210352-final-03.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 474
+  },
+  "finished_utc": "2026-10-06T21:07:50Z",
+  "fingerprint_unchanged_during_run": false
+}

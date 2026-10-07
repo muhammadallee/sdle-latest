@@ -926,9 +926,7 @@ def prepare(project: Project, phase: str, feature_dir: str) -> None:
     elif phase == "tasks_draft":
         project.write_artifact(f"{feature_dir}/tasks.md")
     elif phase == "analyze":
-        project.write_artifact(f"{feature_dir}/tasks.md",
-                               "# Tasks (refined by analysis)\n\n" + "T001. " * 40)
-        project.ok("drift", "rebaseline", "--gate", "gate_tasks")
+        pass  # read-only: analyze changes nothing, so nothing is re-baselined
     elif phase == "design_generation":
         project.write_artifact("design/app/app-design.md")
         project.write_artifact("design/db/db-design.md")
@@ -1725,6 +1723,13 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
     assert sdle.SDLE_OWNED_PREFIXES == (
         ".workflow/", ".sdle/baseline.json",
         ".sdle/implementation-state/", ".sdle/architecture/",
+        # ADR-016 adds two: the approval ledger the engine writes at
+        # `package approve`, and the staging directory a package is drafted
+        # in. A package in staging is not user work in progress, and an
+        # approval is an engine record; both would otherwise trip the
+        # dirty-tree guard for a developer who did nothing but handle a
+        # package.
+        ".sdle/package-approvals/", "package-staging/",
         "workitems/", ".specify/", "design/",
         "reviews/", "clarifications/", "guidance/", "requirements/")
     assert ".sdle/" not in sdle.SDLE_OWNED_PREFIXES
@@ -1766,7 +1771,8 @@ def test_the_two_guard_surfaces_were_adopted_by_t11():
         encoding="utf-8")
     assert 'FENCED = (".workflow", "workitems", "requirements", "guidance",'\
         in hooks
-    assert '".sdle/architecture")' in hooks
+    # ADR-016 adds the approval ledger as a second fenced `.sdle/` member.
+    assert '".sdle/architecture", ".sdle/package-approvals")' in hooks
     assert 'FENCED = (".sdle"' not in hooks
     assert list(sdle.GREENFIELD_V1_PHASES) == GREENFIELD_GOLDEN
 
@@ -1818,9 +1824,12 @@ def test_n18_no_prefix_other_than_sdle_was_added_to_the_guard():
     # guard owns exactly the three members the engine writes during a
     # lifecycle - so the added set is narrower than what it replaced, and
     # `config.json` and `policies/` are visible to the guard once more.
+    # ADR-016 adds the package approval ledger and the package staging
+    # directory, both engine-owned.
     assert set(after) - set(before) == {
         ".sdle/baseline.json", ".sdle/implementation-state/",
-        ".sdle/architecture/"}
+        ".sdle/architecture/", ".sdle/package-approvals/",
+        "package-staging/"}
     assert set(before) - set(after) == set()
     assert ".sdle/" not in after
-    assert len(after) == len(before) + 3
+    assert len(after) == len(before) + 5

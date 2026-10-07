@@ -1,0 +1,108 @@
+{
+  "reviewed_commit": "422b634c67aa8fb10eb1fb251c11928291f06480",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; PLAN sections 1–3, BRIEF AS-01–AS-19, LEDGER dispositions and recorded test evidence",
+      "R2 review-type filtering, actor filtering, stale/current review selection, structured findings and gate approval/omission/drift hooks",
+      "Trace scope, ID extraction, task parsing, exclusions, verification dispositions, JUnit mapping and verification record persistence",
+      "Tree digest enumeration, exclusions, symlinks, deleted files, submodules, line-ending handling, evidence shape and gate enforcement",
+      "Policy key validation and live/pinned fallback; package rebaseline refusal and artifact SHA writers",
+      "R1 round-2 snapshot/import/swap, containment, OS locks, deterministic grammar, adoption reassessment marker and ID history fixes",
+      "New trace, tree digest, review-type and package hardening tests; trace fixtures and pinned-list changes",
+      "Prompt modules and agents, ADR-016/017, DR-24, troubleshooting and GETTING-STARTED section 11f",
+      "Executed read-only, in-memory probes for verification record validation, stale failed mappings and directory omission from tree digests"
+    ],
+    "areas_not_reviewed": [
+      "Full pytest execution: its fixtures write files, which this read-only review prohibits",
+      "Actual Windows/POSIX lock contention, directory crash recovery and real submodule integration execution",
+      "Live Claude Code and Spec Kit behavior"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R2R1-001",
+      "severity": "high",
+      "category": "defect/verification-integrity",
+      "path": "scripts/sdle.py",
+      "line": 15326,
+      "claim": "Verification records can be edited into approved exclusions without approval metadata, and the reader accepts them.",
+      "evidence": "read_verification at lines 15326–15331 validates only the envelope, id and disposition; it verifies no self-digest or chain and no disposition-specific fields. An executed in-memory probe supplied {'id':'AC-001','disposition':'excluded-approved'} and read_verification returned it successfully. trace_report at lines 15478–15480 then treats that disposition as an exclusion, bypassing missing specification/task coverage. The integrity test changes only workitem, so it misses edits to records.",
+      "evidence_type": "executed",
+      "suggested_fix": "Use the engine-written self-digest or hash-chain pattern required by PLAN section 1.2, and validate disposition-specific fields on read, including exclusion reason, approver and wording. Add tests for modified, removed and fabricated records.",
+      "ac_ids": [
+        "PLAN §1.2",
+        "PLAN §3.2",
+        "AS-10",
+        "AS-18"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2R1-002",
+      "severity": "high",
+      "category": "defect/tree-digest",
+      "path": "scripts/sdle.py",
+      "line": 17727,
+      "claim": "Submodule implementation content is completely absent from the tree digest, allowing edits after a passing run to retain valid evidence.",
+      "evidence": "tree_digest uses git ls-files without recursive submodule enumeration, then records only links or regular files at lines 17727–17730. A gitlink is returned as a directory and contributes no entry, including no checked-out commit identity. An executed probe returning a real directory as the Git-listed entry produced entries: {}. Consequently a submodule checkout change or dirty source edit cannot change this digest.",
+      "evidence_type": "executed",
+      "suggested_fix": "Handle gitlinks explicitly: include their checked-out revision and recursively digest their working contents, or refuse tree-bound evidence when unsupported submodules are present. Cover checkout changes and dirty submodule edits.",
+      "ac_ids": [
+        "PLAN §3.6",
+        "AS-14",
+        "AS-15"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2R1-003",
+      "severity": "high",
+      "category": "defect/junit-evidence-binding",
+      "path": "scripts/sdle.py",
+      "line": 15767,
+      "claim": "An old or unrelated JUnit report can be mapped onto the current implementation evidence and presented as current verified criteria.",
+      "evidence": "cmd_verification_map at lines 15761–15771 accepts any repository file supplied through --junit once a manifest names an evidence document. Lines 15787–15791 hash that report and attach the current evidence executionId without checking that the recorded run produced it. manifest build does not record a JUnit report path or digest. PLAN section 3.2 explicitly requires parsing a path the manifest build recorded. Reports in the excluded evidence directory can persist across builds, so remapping an old passing report bypasses unmapped_verification_blocks.",
+      "evidence_type": "static",
+      "suggested_fix": "Have manifest build capture the JUnit report associated with its test invocation and record its path and content digest in implementation evidence. Permit mapping only that captured report, with matching digest and current evidence identity.",
+      "ac_ids": [
+        "PLAN §3.2",
+        "PLAN §3.6",
+        "AS-19"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2R1-004",
+      "severity": "medium",
+      "category": "defect/verification-staleness",
+      "path": "scripts/sdle.py",
+      "line": 15422,
+      "claim": "Failed derived JUnit mappings remain blocking after their underlying implementation evidence is replaced.",
+      "evidence": "cmd_verification_map records both blocked and verified-mapped rows with evidenceId at lines 15785–15791, but effective_dispositions at lines 15422–15426 expires only verified-mapped rows. An executed probe with a blocked row bound to executionId 'old' and current passing evidence 'new' still returned blocked. This preserves a failure from an obsolete run even when the current run has no mapped failure.",
+      "evidence_type": "executed",
+      "suggested_fix": "Expire every run-derived disposition when its evidenceId differs from current evidence, while preserving explicitly recorded manual blocked dispositions. Test failed mapping followed by a rebuilt passing suite.",
+      "ac_ids": [
+        "PLAN §3.2",
+        "AS-19"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2R1-005",
+      "severity": "medium",
+      "category": "defect/verification-concurrency",
+      "path": "scripts/sdle.py",
+      "line": 15673,
+      "claim": "Concurrent verification commands can lose append-only records and overwrite audit/state updates.",
+      "evidence": "_append_verification at lines 15673–15684 reads the existing array, replaces the complete file, then appends audit entries using the caller's previously read state. Neither verification handler holds a mutex, and main at line 20023 invokes handlers directly. save_state refreshes a session lock after writing; it does not serialize commands. Two commands reading the same records can each publish their own addition, with the second erasing the first.",
+      "evidence_type": "static",
+      "suggested_fix": "Serialize verification mutations with an OS-held WorkItem mutex covering the fresh state/record read, record append, audit append and state save. Add a concurrent append test that verifies both records survive and the audit chain remains valid.",
+      "ac_ids": [
+        "PLAN §1.2",
+        "PLAN §3.2",
+        "CLAUDE invariant 6"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "run_id": "20261006T215645-final-16",
+  "result": "FAIL",
+  "label": "final-16",
+  "task_ids": [],
+  "ac_ids": [],
+  "argv": [
+    "C:\\Users\\Ali\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_units_implementation_evidence.py"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "df773c0941f1136a1d6a3be3422424d0c3311489",
+  "content_fingerprint": "98b3690220fff46b65897b7207d8aa529371de4db91b9532fec2221132bcaabf",
+  "manifest_paths": 178,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-10-06T21:56:45Z",
+  "runner_pid": 15452,
+  "stdout": "20261006T215645-final-16.stdout.log",
+  "stderr": "20261006T215645-final-16.stderr.log",
+  "note": "",
+  "memory_samples": "20261006T215645-final-16.mem.csv",
+  "exit_code": 1,
+  "expected_exit_code": 0,
+  "counts": {
+    "failed": 1,
+    "passed": 17
+  },
+  "finished_utc": "2026-10-06T21:59:23Z",
+  "fingerprint_unchanged_during_run": false
+}

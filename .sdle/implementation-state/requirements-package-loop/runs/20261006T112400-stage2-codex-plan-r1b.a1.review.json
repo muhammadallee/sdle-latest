@@ -1,0 +1,193 @@
+{
+  "reviewed_commit": "9458a0477cd216045771a4415263473f7bb4ed79",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants and cross-file rules; BRIEF.md decisions, release requirements and AS-01 through AS-30; PLAN.md and LEDGER.md",
+      "Current approval, omission, drift, skip, restart and retry implementations and their proposed trace enforcement",
+      "Requirements binding, init handoff placement, governance freshness and pinned policy storage",
+      "Review freshness and selection, implementation evidence validation, manifest writes and implementation exclusions",
+      "Package contract, approval history, staging location, hooks FENCED/SCANNED and .gitignore",
+      "Named invariant, repository configuration, flow and hook tests; repository-wide searches for review and manifest callers",
+      "Command parser enumeration: 78 distinct add_parser names; runtime-free routing, constant loading and sync-check structure",
+      "Loop record design, reconciliation, completion predicate, stop conditions and engine/runtime/convention boundary"
+    ],
+    "areas_not_reviewed": [
+      "No tests or mutation-based reproductions were executed because this review remained read-only; findings are static",
+      "External Spec Kit v1.0.6 implementation and AS-30 behavior were not independently inspected or executed",
+      "All 3,846 baseline tests and all documentation files were not read individually; relevant call sites and named test surfaces were searched and sampled",
+      "The complete run_sync_checks implementation and every policy-related test assertion were not inspected"
+    ]
+  },
+  "findings": [
+    {
+      "id": "PR-R1-001",
+      "severity": "high",
+      "category": "defect/evidence-freshness",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 131,
+      "claim": "The proposed whole-tree digest becomes stale through SDLE's own normal writes, preventing an otherwise successful implementation from reaching approval.",
+      "evidence": "PLAN.md:131-132 specifies git add -A/write-tree before and after tests and recomputation at the gate, without exclusions. scripts/sdle.py:15373-15425 reserves evidence, writes the manifest and evidence, and saves state after tests. CLAUDE.md states WorkItem runtime records are versioned; .gitignore ignores only their lock. Artifact review and loop records introduce further versioned writes before approval. Existing implementation_exclusions at scripts/sdle.py:15127-15149 already demonstrates why runtime and concurrent WorkItem files require exclusion.",
+      "evidence_type": "static",
+      "suggested_fix": "Define one explicit digest projection used at test start, test end, resume and approval. Exclude engine-generated runtime/manifest/evidence bookkeeping while separately binding package, requirements and governed inputs. Test an unchanged implementation through manifest build, review, loop recording, advance and gate approval, including concurrent WorkItem writes.",
+      "ac_ids": [
+        "§3.6",
+        "§4.1",
+        "AS-14",
+        "AS-15",
+        "AS-16",
+        "AS-25",
+        "AS-29"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-002",
+      "severity": "high",
+      "category": "defect/package-handoff",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 86,
+      "claim": "Governance freshness does not protect the whole approved package after init, and reassessment can permit continued work against a stale SA approval.",
+      "evidence": "PLAN.md:79 binds only the work item's requirements.md and shared files it cites; PLAN.md:86 relies on governance_stale for subsequent package changes. scripts/sdle.py:11949-11972 compares governance freshness of the bound sources and explicitly directs reassessment. A package.json readiness/scope/exclusion change or an unbound package-file change need not alter those sources; reassessment of changed bound sources also restores governance freshness without checking the package ledger.",
+      "evidence_type": "static",
+      "suggested_fix": "Pin package identity, work-item identity and approved digest in an engine-written binding record. Revalidate that digest and approval at progression and approval choke points, including drift approval, and explicitly define how requirements-change adopts a newly approved package revision. Add tests for manifest-only changes, unbound package changes and reassessment without SA reapproval.",
+      "ac_ids": [
+        "§2.2",
+        "§2.4",
+        "§3.1",
+        "AS-05",
+        "AS-07",
+        "AS-10"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-003",
+      "severity": "high",
+      "category": "defect/drift-bypass",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 128,
+      "claim": "An optional caller-supplied --expect-sha does not make the G04 protection an engine guarantee; the unrestricted rebaseline bypass remains.",
+      "evidence": "PLAN.md:128 leaves the flag optional and captures the digest immediately before analyze. scripts/sdle.py:12993-13013 accepts any current artifact content for any baselined gate except architecture and overwrites artifact_shas without review or coverage checks. compute_drift is called by cmd_drift_check at scripts/sdle.py:12926-12929, so an edit before the captured digest is silently accepted if the prompt-driven drift check is omitted. A caller can also omit the new flag.",
+      "evidence_type": "static",
+      "suggested_fix": "For package-bound WorkItems, remove unrestricted rebaseline or constrain it to an engine-recorded operation and approved baseline. Since analyze is read-only, remove its rebaseline entirely and compare against the existing approved baseline. Route allowed implementation task mutations exclusively through reconcile. Test omitted checks, omitted flags and an already-edited file supplied as the expected SHA.",
+      "ac_ids": [
+        "§1.6",
+        "§3.5",
+        "§4.4",
+        "§9"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-004",
+      "severity": "medium",
+      "category": "defect/reconciliation",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 153,
+      "claim": "The stated reason that task reconciliation must bypass reapproval is false: reapproval succeeds after a current review is recorded.",
+      "evidence": "PLAN.md:153 says review_stale means reconciliation 'must' rebaseline directly. scripts/sdle.py:12542-12544 resolves current content and calls review_precondition; scripts/sdle.py:11637-11647 selects a review matching the current SHA. scripts/sdle.py:11748-11752 explicitly instructs the caller to re-review current content. The recorded reproduction establishes only that an old review is stale.",
+      "evidence_type": "static",
+      "suggested_fix": "Justify audited direct reconciliation as the deliberate D08 exception, rather than as a technical necessity. Specify the authoritative pre-mutation snapshot, exact permitted delta and treatment of existing drift queues, and test that unrelated drift cannot be erased by reconciliation.",
+      "ac_ids": [
+        "§4.4",
+        "AS-22",
+        "AS-28"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-005",
+      "severity": "high",
+      "category": "defect/loop-enforcement",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 143,
+      "claim": "The recorder can enforce recorded step order, but the plan overstates its ability to prevent a second actual converge invocation or duplicate convergence tasks.",
+      "evidence": "PLAN.md:143 promises that a step cannot run twice and associates this with AS-21; PLAN.md:144 and 156 put actual implement/converge execution in the orchestrator's Skill invocation. BRIEF.md AS-21 requires that a second converge without implement is refused and no duplicate tasks result. An engine command that runs after an external Skill invocation cannot refuse that invocation before it mutates tasks.md.",
+      "evidence_type": "static",
+      "suggested_fix": "Describe the guarantee as recorded sequence and accepted-output enforcement. Define before/after step authorization and output snapshots, integrate engine-owned manifest/review/reconcile commands with the active step, and refuse duplicate or unauthorized outputs. Explicitly classify actual external invocation order as convention unless a runtime hook enforces it; align AS-21 and AS-25 tests with that boundary.",
+      "ac_ids": [
+        "§4.1",
+        "§4.5",
+        "§9",
+        "AS-21",
+        "AS-25"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-006",
+      "severity": "high",
+      "category": "defect/package-history",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 83,
+      "claim": "The plan promises revision diffs and immutable ID history without storing the prior package content needed to enforce either.",
+      "evidence": "PLAN.md:76 allows import --replace to overwrite the package; PLAN.md:78 and 83 promise a diff against the last approved revision. The ledger described at PLAN.md:82 stores digests and approval metadata, not package snapshots or a retrievable Git revision. PLAN.md:67 requires IDs never be reused and splits/moves retire IDs, but the validation rules at line 77 only inspect current-package structure. Versioning alone does not ensure an approval or import was committed.",
+      "evidence_type": "static",
+      "suggested_fix": "Preserve immutable content-addressed package revisions or explicitly record and require a retrievable committed revision at approval. Validate replacement manifests against prior approved identity/assignment history, including supersedes existence, retirement and cycles. Test uncommitted approval followed by replacement, ID reuse and moving an approved ID without retirement.",
+      "ac_ids": [
+        "§2.1",
+        "§2.2",
+        "§2.3",
+        "AS-01",
+        "AS-05",
+        "AS-07"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-007",
+      "severity": "medium",
+      "category": "defect/pinned-policy",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 39,
+      "claim": "The plan does not define values for new policy keys in existing pinned WorkItems, and its account of the pin as merely a document SHA is incorrect.",
+      "evidence": "PLAN.md:39 says in-flight WorkItems remain valid because the pin stores the policy document SHA, then PLAN.md:142 copies limit from that policy. scripts/sdle.py:7620-7626 explicitly stores the full merged policy document and preserves it verbatim on reassessment. Existing documents therefore lack both new keys; built-in policy use even has sha256 None at scripts/sdle.py:4531-4535.",
+      "evidence_type": "static",
+      "suggested_fix": "Specify backward-compatible reads for absent keys in historical pinned policy documents, without rewriting their pins. Decide whether those WorkItems can start a loop and what immutable default applies. Add tests for built-in and overridden policies pinned before the change, reassessment, and loop begin after upgrade.",
+      "ac_ids": [
+        "§1.5",
+        "§4.1",
+        "AS-24"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-008",
+      "severity": "medium",
+      "category": "defect/legacy-compatibility",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 132,
+      "claim": "Newly built legacy evidence opts into treeDigest enforcement, contradicting the stated unchanged legacy-suite boundary beyond review-type fallout.",
+      "evidence": "PLAN.md:131 adds treeDigest to manifest build generally; line 132 enforces it whenever evidence names the field, including non-package WorkItems. PLAN.md:169 permits legacy test changes only for pins and review types. Legacy manifest producers include tests/test_integration_01_happy_path.py:126, test_integration_06_to_09.py:158, test_units_flow_model.py:939, test_units_speckit_binding.py:161, test_units_implementation_evidence.py:51 and test_units_manifest_changes.py:50. This is a second universal behavior change, independent of the explicitly acknowledged review table.",
+      "evidence_type": "static",
+      "suggested_fix": "Choose and document the compatibility contract explicitly: scope tree enforcement to package bindings, or acknowledge universal enforcement for newly produced evidence and enumerate its regression surface and permitted test changes. Include legacy lifecycle and existing evidence reuse tests in the R2 plan.",
+      "ac_ids": [
+        "§1.1",
+        "§3.6",
+        "§7",
+        "AS-14",
+        "AS-15"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-009",
+      "severity": "medium",
+      "category": "defect/package-integrity",
+      "path": ".sdle/implementation-state/requirements-package-loop/PLAN.md",
+      "line": 87,
+      "claim": "Refinement of an imported package makes its manifest file hashes inconsistent, but the plan omits the operation that restores a valid package for reapproval.",
+      "evidence": "PLAN.md:66 includes files[].sha256 and line 87 allows refinement apply to edit an approved package file. Line 94 classifies a corrupt package.json digest as an integrity error, while line 78 requires validation before approval. No command is specified to regenerate file hashes and traceability after refinement; intake also promises to reuse existing commands unchanged.",
+      "evidence_type": "static",
+      "suggested_fix": "Define a transactional package-aware refinement/import path that updates derived hashes and traceability while preserving approval history and marking the revision stale. Distinguish ordinary permitted content edits from manifest corruption. Extend AS-07 to complete refinement, successful validation, SA reapproval and init.",
+      "ac_ids": [
+        "§2.1",
+        "§2.2",
+        "§2.4",
+        "§2.6",
+        "AS-07"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

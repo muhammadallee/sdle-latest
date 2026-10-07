@@ -1,0 +1,31 @@
+........................................................................ [ 32%]
+.......................................F................................ [ 65%]
+........................................................................ [ 98%]
+...                                                                      [100%]
+================================== FAILURES ===================================
+_____ test_n5_no_string_constant_in_the_engine_names_a_speckit_owned_file _____
+
+    def test_n5_no_string_constant_in_the_engine_names_a_speckit_owned_file():
+        """SDLE writes no `spec.md`, `plan.md`, `tasks.md` or `.specify/feature.json`.
+    
+        Proved structurally rather than by grep: no string *constant* anywhere in
+        the engine ends with one of those names, so no code path can build such a
+        path out of a literal. (`tasks.md` appears once in a comment; a comment is
+        not a constant and cannot become a path.)
+        """
+        tree = ast.parse(SDLE_PY.read_text(encoding="utf-8"))
+        offenders = sorted({
+            node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and node.value.endswith(SPECKIT_OWNED_FILENAMES)
+        })
+>       assert offenders == []
+E       AssertionError: assert ['spec.md', 'tasks.md'] == []
+E         
+E         Left contains 2 more items, first extra item: 'spec.md'
+E         Use -v to get more diff
+
+tests\test_units_speckit_binding.py:485: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_speckit_binding.py::test_n5_no_string_constant_in_the_engine_names_a_speckit_owned_file
+1 failed, 218 passed in 360.17s (0:06:00)

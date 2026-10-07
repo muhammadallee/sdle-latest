@@ -89,6 +89,8 @@ Architecture decision records: what was decided, what was rejected, and why.
 | [ADR-012](architecture/ADR-012-requirements-source-binding.md) | A WorkItem declares the requirement documents it is about, instead of inheriting a directory |
 | [ADR-013](architecture/ADR-013-project-architecture-memory.md) | Repository-level architecture memory, and the placement phase and gate that read and write it |
 | [ADR-014](architecture/ADR-014-constitution-guidelines-and-precedence.md) | The constitution as the engineering profile, advisory guidelines, and the decision precedence chain |
+| [ADR-017](architecture/ADR-017-traceability-evidence-and-the-implementation-loop.md) | Obligations traced from a package to the end, per-criterion verification dispositions, evidence bound to the tree it came from, the gate's own kind of review, and the bounded implementation loop |
+| [ADR-016](architecture/ADR-016-requirements-package-and-handoff.md) | A requirements package approved at an exact digest, one package work item per WorkItem, the handoff check at `init`, the revision pin, and the enforcement split |
 | [ADR-015](architecture/ADR-015-requirements-refinement.md) | Fixing blocked requirements before the workflow starts: the loop, one verdict per content, the advisory lint, and the shared-document default |
 
 The frozen contracts ADR-013 was built against — catalog and proposal schemas, command surface, refusal reasons, revision and replay semantics — are in [`architecture/architecture-memory-contracts.md`](architecture/architecture-memory-contracts.md).
@@ -100,6 +102,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | Record | Holds |
 |---|---|
 | [DELIVERY.md](enhancements/architecture-memory/DELIVERY.md) | The delivery report: decisions realized, tests, limitations, verification output |
+| [DELIVERY.md](enhancements/requirements-package/DELIVERY.md) | Requirements package, traceability and the implementation loop: what shipped, what deviated, what is not done |
 | [PROGRESS.md](enhancements/architecture-memory/PROGRESS.md) | The resumability log: as-is map, checkpoints, deviations, decisions taken |
 | [REVIEW-ROUND-1.md](enhancements/architecture-memory/REVIEW-ROUND-1.md) | The first independent review, verbatim, with dispositions |
 | [REVIEW-ROUND-2.md](enhancements/architecture-memory/REVIEW-ROUND-2.md) | The second independent review, verbatim, with dispositions |

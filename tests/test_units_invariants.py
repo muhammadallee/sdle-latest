@@ -100,17 +100,38 @@ STATE_FIELDS = (
 # state when a post-init acknowledgement is also given, and
 # `record_scan_acknowledgement_audit` replays a pre-init acknowledgement into
 # the ledger at the first advance, mirroring `record_governance_audit`.
+# One more (52 -> 53): the tagged-test snapshot `loop begin` stores.
+#
+# ADR-017 (the loop) adds write_atomic 50 -> 52, save_state 52 -> 54 and
+# append_audit 59 -> 61: the loop record and the task-list snapshot, the
+# state saves of `loop begin` and `tasks reconcile`, and the audit entries
+# for an established snapshot and a reconciliation.
+#
+# ADR-017 adds one of each, all in `_append_verification`: the verification
+# record, the audit entry per recorded disposition, and the state save
+# (write_atomic 49 -> 50, save_state 51 -> 52, append_audit 58 -> 59).
+#
+# write_atomic 41 -> 48, save_state 50 -> 51, append_audit 56 -> 58 (ADR-016,
+# requirements packages, counted from the engine): the package copy, the
+# approval ledger, the three manifest writes `package reseal` makes (write,
+# and the restore on each of its two refusals), the pin written by `init` and
+# by `package adopt`; `package adopt` saves state and audits once, and `init`
+# audits the pin. Then 48 -> 49 for the private snapshot an import writes and
+# validates before publishing it, and os.replace 3 -> 7: one to publish an
+# approved revision whole, three for the two-step directory swap that
+# replaces an imported package (new beside old, never edited in place).
+#
 # write_atomic 34 -> 41 (counted from the engine, not predicted): the refinement
 # record writer, the document write and the baseline, lint, apply, cancel and
 # dispute evidence files.
 WRITE_PRIMITIVE_COUNTS = {
-    'write_atomic': 41,
-    'save_state': 50,
-    'append_audit': 56,
+    'write_atomic': 53,
+    'save_state': 54,
+    'append_audit': 61,
     'record_audit': 0,
     '.write_text(': 0,
     '.write_bytes(': 0,
-    'os.replace': 3,
+    'os.replace': 7,
     # 7 -> 8: `requirements bind` creates the WorkItem's runtime directory
     # if it is not there yet, exactly as `governance assess` does — both
     # write into the runtime before `init` exists.
@@ -130,6 +151,10 @@ COMMANDS = (
     'accept-content',
     'accept-state',
     'acquire',
+    # ADR-016: `package import|validate|approve|show|reseal|adopt|intake`.
+    # `import`, `reseal`, `adopt` and `intake` are new names; `approve`,
+    # `show` and `validate` already existed.
+    'adopt',
     'advance',
     'append',
     # ADR-013: `architecture apply` / `architecture realize`. Normally reached
@@ -168,18 +193,28 @@ COMMANDS = (
     'guidance',
     'header',
     'implement',
+    'import',
     'init',
+    'intake',
     'limit',
     'lint-skill',
     'list',
     'lock',
+    # ADR-017: `loop begin|step|record|stop|show` and `tasks reconcile`.
+    # `begin`, `record` and `show` already existed as names.
+    'loop',
     'manifest',
+    # ADR-017: `trace check`, `verification show|record|map`. `show`,
+    # `record` and `check` already existed as names.
+    'map',
     'omit',
+    'package',
     'path',
     'policy',
     'preflight',
     'realize',
     'rebaseline',
+    'reconcile',
     'record',
     # `refinement propose|decide|apply|dispute|cancel|show`. The first four
     # subcommands are registered in a loop, so only the group is a literal.
@@ -191,6 +226,7 @@ COMMANDS = (
     # ADR-012: `requirements bind` / `requirements show`. A WorkItem declares
     # the documents it is about; every consumer reads that binding.
     'requirements',
+    'reseal',
     'reset',
     'resolve',
     'restart',
@@ -207,8 +243,13 @@ COMMANDS = (
     'show',
     'skip',
     'state',
+    'step',
+    'stop',
+    'tasks',
+    'trace',
     'use',
     'validate',
+    'verification',
     'verify',
     'workitem',
 )

@@ -89,3 +89,7 @@ Examples (adjust to actual stack):
 ```
 
 **If git is unavailable:** Skip the diff sections, state "Git not available — diff analysis skipped." Still produce the OWASP relevance mapping, tool recommendations, and artifact-derived observations.
+
+### Requirements package
+
+When the WorkItem was started from a requirements package, read the package's security and non-functional requirements for this work item (`sdle.sh package show`, `sdle.sh trace check`) and give them to the reviewer with the diff. A security requirement that the implementation does not carry is a finding, and each finding cites the obligation ids it concerns.

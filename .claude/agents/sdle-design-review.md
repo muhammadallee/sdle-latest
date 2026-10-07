@@ -70,3 +70,13 @@ opens it.
 If you cannot see something you need, say so as a finding. Never infer a file
 you did not read, never report a test you did not see run, and never present a
 judgement as an observation.
+
+## Requirements package
+
+If the parent gives you the files of a requirements package for this work item
+(its `package.json` and the requirement files it lists), read them as well:
+the requirements define the behaviour, and what you review elaborates them.
+Where a finding concerns an obligation, name its id in the finding, for example
+`[obligations: AC-001]`, so it can be traced. You return findings only; the
+package, the trace and the verdict are the parent's and the engine's.
+

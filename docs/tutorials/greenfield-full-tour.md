@@ -901,20 +901,15 @@ would list any other queued gate still owed, and `resumed_phase` returns the
 workflow to where it was interrupted rather than to the gate it just approved.
 A drift re-approval is a repair, not a step forward.
 
-### The deliberate exception
+### There is no longer an exception
 
-Not every change to an approved artifact is drift. `analyze` refines `tasks.md`
-— the file `gate_tasks` already fingerprinted — and that is the intended
-behaviour of the phase, not a violation:
-
-```
-$ sdle.sh drift rebaseline --gate gate_tasks
-```
-
-`rebaseline` moves the gate's baseline to the current content **without a
-re-approval**, and exists only for this shape: the same file deliberately
-refined between two gates that both own it. Using it to make an unwanted change
-go away would be defeating the mechanism rather than using it. The full
+`analyze` reads `tasks.md` — the file `gate_tasks` already fingerprinted — and
+does not change it, so it no longer moves that baseline: a change made to the
+file during analysis is drift like any other and goes back to you for
+re-approval. `drift rebaseline` still exists, moves a gate's baseline to the
+current content **without a re-approval**, and is refused for a WorkItem
+started from a requirements package. Using it to make an unwanted change go
+away would be defeating the mechanism rather than using it. The full
 conversational treatment is
 [`dry-runs/04-artifact-drift-reapproval.md`](../dry-runs/04-artifact-drift-reapproval.md).
 

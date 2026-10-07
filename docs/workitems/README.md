@@ -105,6 +105,10 @@ completion with independent ledgers is covered by the suite.
 
 ---
 
+One package work item is one WorkItem: `package intake` creates a WorkItem per package work item and binds it to that work
+item's own `requirements.md` plus the shared files it cites (ADR-016). A started WorkItem carries `package-binding.json`,
+the engine-written pin of the package revision it began under.
+
 ## 2. On-disk layout
 
 ```

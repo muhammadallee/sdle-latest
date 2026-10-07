@@ -1,0 +1,55 @@
+{
+  "run_id": "20261006T202540-stage2-codex-impl-r3-2b",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "impl-r3-2b",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "d1f06a0309c1b2127dac9d1914d904953d976e1b",
+  "timeout_seconds": 3000,
+  "prompt": "impl-r3-round2.prompt.md",
+  "prompt_sha256": "ec0b9ed6d696676ff8e4166d5933568dd5b97bc1516a36ef00a1f22fc23d8a59",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T20:25:40Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T202540-stage2-codex-impl-r3-2b.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T20:25:40Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-06T20:29:49Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261006T202540-stage2-codex-impl-r3-2b.a1.events.jsonl",
+        "stderr": "20261006T202540-stage2-codex-impl-r3-2b.a1.stderr.log",
+        "review": "20261006T202540-stage2-codex-impl-r3-2b.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T20:29:49Z",
+  "findings": 3,
+  "coverage_not_reviewed": [
+    "Full pytest execution and real Spec Kit execution",
+    "Live multiprocess contention and physical crash testing on Windows and POSIX",
+    "Every existing legacy test body and unrelated engine code"
+  ],
+  "review_output": "20261006T202540-stage2-codex-impl-r3-2b.a1.review.json"
+}

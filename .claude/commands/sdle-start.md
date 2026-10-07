@@ -97,7 +97,12 @@ argument-hint: "[--verbose]"
    re-assess. On exit 1 `requirements_quality_blocked`, print `message`,
    then offer — in plain words, once — to help fix the requirements: if the
    user accepts, load `modules/requirements-refinement.md` and follow it; if
-   not, they edit the documents and re-assess. Do not start it unasked. On
+   not, they edit the documents and re-assess. Do not start it unasked. If
+   the user brings a source requirements document to turn into a package, or
+   names a package to start from (or `init` is refused `package_approval_missing`,
+   `package_approval_stale`, `package_workitem_not_ready` or
+   `package_revision_changed`), load `modules/requirements-package.md` and
+   follow it; the approval is the Solution Architect's, never yours. On
    any other exit 1, print `message` and stop.
 5. Then run
    `sdle.sh --workitem <id> --session <8-hex token for this conversation> init`,

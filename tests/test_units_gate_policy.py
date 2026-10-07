@@ -1397,7 +1397,8 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
     assert modules == ["architecture-placement.md", "code-review.md",
                        "design-review.md", "gate-protocol.md",
                        "phase-execution.md", "requirements-change.md",
-                       "requirements-refinement.md", "security-review.md"], modules
+                       "requirements-package.md", "requirements-refinement.md",
+                       "security-review.md"], modules
     # ADR-014 adds a second capability home beside `modules/`. Same shape
     # of assertion: exact equality against a written-out set, so a
     # seventh guideline appearing without a plan fails here too.

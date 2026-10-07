@@ -1,0 +1,140 @@
+{
+  "reviewed_commit": "8b1d4b8b421e86b7fc1ef965813175863314a61d",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; PLAN.md R1 sections; BRIEF.md AS-01 through AS-09; ADR-016; LEDGER.md round-1 dispositions",
+      "R1 engine diff and round-1 fix diff: package validation, import, approval ledger, revision publication, reseal, intake, binding, handoff and adoption",
+      "Package pin placement in init, governance progression, drift approval, rejection, remediation, skip, restart and retry",
+      "Package tests and fixture helpers, including adversarial-test assertions and acceptance-scenario coverage",
+      "Paths, runtime-free commands, runtime members, dirty-tree exclusions, hook declarations, gitignore and pinned-list edits",
+      "Requirements package module, start command, requirements reviewer, Getting Started and troubleshooting documentation",
+      "Read-only probes of regex complexity, repeated adoption, retired-ID collision and malformed manifest handling"
+    ],
+    "areas_not_reviewed": [
+      "Full pytest suite and lint-skill execution on the final tree",
+      "Real Claude Code hook enforcement and Spec Kit integration",
+      "Filesystem mutation reproductions, including actual junction escapes and crash recovery",
+      "Actual concurrent-process scheduling; concurrency findings are static",
+      "R2 review-type and structured-findings functionality except its intersection with R1"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R2-001",
+      "severity": "high",
+      "category": "defect/handoff",
+      "path": "scripts/sdle.py",
+      "line": 15010,
+      "claim": "Running package adopt twice clears the required reassessment marker, leaving IR-R1-006 incompletely fixed.",
+      "evidence": "At lines 15010–15016, `reassess = None` is changed only `if moved`, and the pin is then rewritten unconditionally. After the first adoption, a second adoption has moved=False and drops reassessAfter. An executed in-memory probe of cmd_package_adopt produced `first adopt marker: old-assessment` and `second adopt marker: None`. package_pin_precondition checks reassessment only when that marker exists (14951–14963). A manifest-only or unbound-file revision can therefore progress with the old, otherwise fresh governance assessment.",
+      "evidence_type": "executed",
+      "suggested_fix": "Preserve an existing reassessAfter marker on same-revision adoption, or make same-revision adoption a true no-op. Add a test that adopts twice without reassessing and still refuses progression.",
+      "ac_ids": ["PLAN §2.3", "ADR-016 §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-002",
+      "severity": "high",
+      "category": "defect/validation",
+      "path": "scripts/sdle.py",
+      "line": 13995,
+      "claim": "The restricted ID-pattern language still permits severe backtracking; IR-R1-009 remains open.",
+      "evidence": "The token parser at 13995–14016 permits arbitrary adjacent bounded repetitions. An executed probe showed `_id_pattern_problem(r'\\d{0,99}' * 10 + 'X')` returns None; matching that accepted 81-character pattern against only 60 digits exceeded a two-second subprocess timeout. package_findings uses these patterns in fullmatch and traceability finditer (14112 and 14255–14259). The four-million-byte text cap does not prevent this.",
+      "evidence_type": "executed",
+      "suggested_fix": "Use a grammar matcher with bounded computational cost, or restrict patterns to provably unambiguous forms and reject overlapping adjacent repetitions. Add timeout-isolated adversarial tests using accepted patterns, rather than only rejecting unsupported syntax.",
+      "ac_ids": ["PLAN §2.1", "AS-01", "CLAUDE invariant 5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-003",
+      "severity": "high",
+      "category": "defect/concurrency",
+      "path": "scripts/sdle.py",
+      "line": 14645,
+      "claim": "The modified IR-R1-010 fix still allows a paused approval writer to overwrite another approval.",
+      "evidence": "exclusive_file_lock breaks any lock older than its stale limit without establishing that its owner has died (8830–8833). The added ledger-length and digest check at 14645–14646 is separate from the write at 14660. Writer A can pass this check, pause past 600 seconds, and let writer B break the lock and append an approval; A then resumes and replaces the ledger using its old records. The hardening test injects the other write before this check, so it does not exercise the remaining interval.",
+      "evidence_type": "static",
+      "suggested_fix": "Do not revoke a live writer's mutex based solely on age. Use an OS-held lock or establish owner death before stale recovery, and retain ownership through publication. Test a pause after the final check and before ledger replacement.",
+      "ac_ids": ["PLAN §2.3", "ADR-016 §4", "CLAUDE invariant 6"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-004",
+      "severity": "high",
+      "category": "defect/containment",
+      "path": "scripts/sdle.py",
+      "line": 14584,
+      "claim": "Replacement import can write outside the package through an existing target-directory link; IR-R1-001 is incompletely fixed.",
+      "evidence": "_import_locked checks containment of the package root at 14544, but validates links only in staging. It calls `_copy_package_tree(staging, target)` at 14584 without checking links inside target. That helper writes `target / rel` (14506–14509), and write_atomic creates temporary files in path.parent (1223–1231). A pre-existing junction or symlink at target/work-items can therefore redirect requirements.md writes outside the repository. package_files_on_disk omits linked directories, so the resulting digest can also omit those copied files.",
+      "evidence_type": "static",
+      "suggested_fix": "Reject internal target links before any replacement write and verify destination ancestors. Prefer constructing and validating a complete replacement in a fresh contained directory before publishing it. Add a test with a target directory link corresponding to a staging file's parent.",
+      "ac_ids": ["PLAN §2.2", "AS-09", "CLAUDE invariant 5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-005",
+      "severity": "high",
+      "category": "defect/containment",
+      "path": "scripts/sdle.py",
+      "line": 14382,
+      "claim": "Approval storage is not protected by the new containment checks, permitting ledger and revision writes outside the repository.",
+      "evidence": "package_ledger_lock passes paths.package_lock_file directly to exclusive_file_lock at 14382–14385; that helper creates its parent and opens the file. _publish_revision similarly uses paths.package_revisions_dir at 14416 and copies into it, while approval writes the ledger at 14660. None checks containment or linked ancestors in `.sdle/package-approvals/`. The `_require_contained` call in approve at 14619 checks only requirements/packages/<id>. A junction at `.sdle/package-approvals/<id>` redirects all three writes.",
+      "evidence_type": "static",
+      "suggested_fix": "Validate containment and reject linked components of approval storage before acquiring its lock, reading its ledger or publishing revisions. Apply equivalent checks to stored revision trees and add junction/symlink tests for approval storage.",
+      "ac_ids": ["PLAN §2.3", "ADR-016 §3", "CLAUDE invariant 6"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-006",
+      "severity": "medium",
+      "category": "defect/validation",
+      "path": "scripts/sdle.py",
+      "line": 14120,
+      "claim": "Retired IDs can remain active as work-item or open-issue IDs, and duplicate retired IDs are accepted.",
+      "evidence": "Active requirements, work items and issues pass through claim(), but retired entries do not. At 14122–14123, retirement overlap is checked only against requirements; converting retired entries to a set also hides duplicates. An executed in-memory package_findings probe using the package fixture and adding withdrawn WI-001 to retired returned `[]`, although WI-001 remained an active READY work item with assigned requirements. Hash and source checks were disabled for this isolated probe; the ID checks ran unchanged.",
+      "evidence_type": "executed",
+      "suggested_fix": "Check retired IDs for duplicates and collisions against every active ID family. Extend history checks accordingly and test active work-item and issue collisions plus duplicate retirements.",
+      "ac_ids": ["PLAN §2.1", "AS-01", "ADR-016 §2"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-007",
+      "severity": "medium",
+      "category": "defect/validation",
+      "path": "scripts/sdle.py",
+      "line": 13957,
+      "claim": "The new manifest-path checks crash on malformed field types instead of returning the promised structured refusal.",
+      "evidence": "rows() records invalid list types, but 13957 subsequently executes `enumerate(doc.get(key) or [])` on the original value, and 13961 executes list() on unchecked sharedFiles. An executed probe calling _package_structure with the valid fixture except `files=5` raised `TypeError: 'int' object is not iterable`. Integer sources and sharedFiles have equivalent unchecked paths. This defect was introduced by the IR-R1-002 path-validation fix.",
+      "evidence_type": "executed",
+      "suggested_fix": "Run path checks only on type-validated rows and string lists, while retaining accumulated shape findings. Add malformed-type cases asserting package_invalid and its offender list.",
+      "ac_ids": ["PLAN §2.2", "AS-01", "CLAUDE exit-code contract"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-008",
+      "severity": "medium",
+      "category": "defect/pinning",
+      "path": "scripts/sdle.py",
+      "line": 15707,
+      "claim": "The initial skip command writes state before checking the package pin.",
+      "evidence": "When status is failed, cmd_skip sets pending_confirm_action and calls save_state at 15707–15708. governance_precondition, which contains the pin check, is reached only on the confirmed path at 15732. Thus a changed package permits an irreversible state write on `skip`. The package approval test at tests/test_units_package_approval.py:365 exercises skip while the WorkItem is not failed and accepts not_failed, so it never tests this write path.",
+      "evidence_type": "static",
+      "suggested_fix": "Check package_pin_precondition before the pending-confirmation save. Add a failed-state test with a changed package asserting package_revision_changed and byte-identical state and audit files.",
+      "ac_ids": ["PLAN §2.3", "PLAN §11 PR-R2-003", "ADR-016 §5"],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R2-009",
+      "severity": "high",
+      "category": "defect/import",
+      "path": "scripts/sdle.py",
+      "line": 14584,
+      "claim": "Import does not establish that the published bytes are the bytes scanned and validated.",
+      "evidence": "_import_locked scans staging at 14551 and validates it at 14553, then _copy_package_tree rereads each staging file at 14584. It enumerates staging again for deletion at 14585 and computes only the resulting target digest at 14589; it neither compares against a validated snapshot nor scans or validates the target. A concurrent edit to unfenced staging after validation can therefore publish invalid hashes, undeclared content or injected instructions while import returns success. Approval's revision copy has a digest verification, but import does not.",
+      "evidence_type": "static",
+      "suggested_fix": "Copy staging into a private contained snapshot, scan and validate that snapshot, then publish those exact bytes. Verify its digest during publication and avoid deleting target files based on a fresh staging enumeration. Add a controlled staging-mutation test between validation and copying.",
+      "ac_ids": ["PLAN §2.2", "ADR-016 §3", "CLAUDE invariant 5"],
+      "confidence": "high"
+    }
+  ]
+}

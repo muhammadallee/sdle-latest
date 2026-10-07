@@ -1,0 +1,69 @@
+{
+  "reviewed_commit": "58b96b9aa4e2135b334991912bc32bc93cc3db04",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; scoped diff d1f06a0..HEAD for scripts/sdle.py, tests/test_units_loop.py and docs",
+      "Producer wrappers, mutation-lock ordering and reentrancy, bounded lock waits, production-marker persistence and recovery",
+      "Cross-run convergence precondition and completion-predicate integration",
+      "Complete JUnit inventory limit, exception handling, and refusal recovery",
+      "Added regression tests and troubleshooting changes against PLAN.md §4, BRIEF.md §5 and AS-20..AS-29",
+      "Executed a read-only, in-memory probe confirming that a pending manifest marker refuses rebuilding and leaves manifest as the only permitted recorder step"
+    ],
+    "areas_not_reviewed": [
+      "Implementation outside the specified diff, except as context for changed behavior",
+      "Full test suite and filesystem-mutating integration tests, prohibited by the read-only review constraints",
+      "Live multiprocess OS-lock experiments"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R3R3-001",
+      "severity": "high",
+      "category": "defect/loop-recovery",
+      "path": "scripts/sdle.py",
+      "line": 16395,
+      "claim": "The production marker wedges an iteration when its first manifest cannot be accepted, preventing the rebuild required by the refusal.",
+      "evidence": "scripts/sdle.py:18962-18965 records manifestProduced after building, including invalid evidence. At :16395-16402, an existing marker raises loop_step_duplicate while the last step is reconcile or stale. cmd_loop_step rejects changed-during-run evidence, post-build tree drift, and oversized inventories before appending the manifest step (:16655-16677). Its manifest path skips _check_tree_unmoved (:16631-16633); marker clearing at :16582-16583 therefore cannot recover this situation. The added oversized-report test ends at the refusal without testing the documented narrower-suite retry. An executed in-memory probe returned 'rebuild: loop_step_duplicate' and 'allowed recorder steps: [manifest]' for the pending-marker state.",
+      "evidence_type": "executed",
+      "suggested_fix": "Provide a locked recovery transition for rejected pending evidence that invalidates its production marker and authorizes replacement without abandoning the run. Apply it to invalid, stale and oversized pending manifests, and test successful rebuild and continuation after each refusal.",
+      "ac_ids": [
+        "PLAN §4.1",
+        "AS-25",
+        "BRIEF §5 Resume"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R3-002",
+      "severity": "medium",
+      "category": "defect/concurrency",
+      "path": "scripts/sdle.py",
+      "line": 18957,
+      "claim": "Checking whether a loop is active before acquiring the mutation lock leaves an unlocked producer path that can overlap loop creation and bypass the new output checks.",
+      "evidence": "scripts/sdle.py:18957-18958 directly invokes _cmd_manifest_build when the initial read finds no active run; the helper no longer calls loop_output_precondition. A long-running build can therefore overlap locked loop begin, implement and reconcile commands, then publish evidence and save its previously read state without recording manifestProduced. The analogous artifact-review branch at :12033-12044 also selects its unlocked path using a pre-lock loop read. workitem_mutation_lock's stated requirement at :14597-14600 is that state be read inside the lock.",
+      "evidence_type": "static",
+      "suggested_fix": "Acquire the WorkItem mutation lock before deciding whether loop rules apply for manifest production and manifest code reviews, and keep it across production and recording even when the initial loop state is inactive. Re-read state and loop status inside that lock.",
+      "ac_ids": [
+        "PLAN §4.1",
+        "AS-25"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "IR-R3R3-003",
+      "severity": "medium",
+      "category": "defect/crash-recovery",
+      "path": "scripts/sdle.py",
+      "line": 18961,
+      "claim": "The new production recording still permits duplicate outputs after a crash between output publication and marker persistence.",
+      "evidence": "scripts/sdle.py:18961 completes _cmd_manifest_build before :18965 writes the production marker. The helper has already written the manifest and evidence (:19079-19108), saved state (:19120), and emitted success before returning. Likewise :12040 completes the review writer before :12041-12042 records reviewProduced. Killing the process or failing the subsequent loop-record write leaves the output present but no marker; loop_output_precondition permits another production because it checks only the marker. The added crash-window test exercises a successfully returned build, not interruption between these writes.",
+      "evidence_type": "static",
+      "suggested_fix": "Persist a recoverable production intent with a reserved output identity before publishing the output, then finalize it after publication. On retry, reconcile that intent with existing evidence or review records instead of generating another output. Add fault-injection coverage between publication and marker finalization.",
+      "ac_ids": [
+        "PLAN §4.1",
+        "AS-25"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

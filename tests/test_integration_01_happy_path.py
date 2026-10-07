@@ -101,10 +101,8 @@ def run_happy_path(project) -> list[str]:
     project.ok("gate", "approve", "--gate", "gate_tasks")
     note()  # analyze
 
-    # Phase 13 -> Gate 6 (same tasks.md, refined)
-    project.write_artifact(f"{feature_dir}/tasks.md",
-                           "# Tasks (refined by analysis)\n\n" + "T001. " * 40)
-    project.ok("drift", "rebaseline", "--gate", "gate_tasks")
+    # Phase 13 -> Gate 6. The analyze step reads tasks.md and does not change
+    # it, so there is nothing to re-baseline (ADR-017).
     project.ok("advance", "--to", "gate_analyze")
     note()
     review_for_gate(project, "gate_analyze")

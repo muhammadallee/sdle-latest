@@ -6,7 +6,7 @@ pin says a file did not change; it cannot say the file is *right*, and by this
 iteration they were not: Spec Kit paths under `.specify/specs/`, uppercase
 fingerprints the engine never prints, no WorkItem or governance step, and a
 Gate 7 with no test requirement. The byte pins were released deliberately and
-replaced by what this module asserts, for all twenty-two transcripts alike:
+replaced by what this module asserts, for all twenty-five transcripts alike:
 
 * **structure** — the ten parts the stabilization plan requires (scenario id,
   flow, defect ids, runtime, starting conditions, setup, transcript,
@@ -38,7 +38,7 @@ from conftest import DRY_RUN_SUBSTITUTIONS, REPO_ROOT, sdle
 
 DRY_RUNS = REPO_ROOT / "docs" / "dry-runs"
 TRANSCRIPTS = sorted(p for p in DRY_RUNS.glob("*.md") if p.name[:2].isdigit())
-SCENARIO_COUNT = 22
+SCENARIO_COUNT = 25
 
 CONSTS = sdle.load_constants(sdle.resolve_paths(
     str(REPO_ROOT), str(REPO_ROOT / ".claude" / "skills" / "sdle")))
@@ -60,7 +60,7 @@ REFUSED = re.compile(r"Refused: `?([a-z_]+)`?")
 NODE = re.compile(r"`(tests/[\w/]+\.py)(?:::([\w\[\]\-. ]+))?`")
 
 
-def test_there_are_twenty_two_transcripts_and_they_are_numbered_densely():
+def test_there_are_twenty_five_transcripts_and_they_are_numbered_densely():
     assert [p.name[:2] for p in TRANSCRIPTS] == [
         f"{n:02d}" for n in range(1, SCENARIO_COUNT + 1)], [
             p.name for p in TRANSCRIPTS]

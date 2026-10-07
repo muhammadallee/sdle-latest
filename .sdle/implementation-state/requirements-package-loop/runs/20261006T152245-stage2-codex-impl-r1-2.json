@@ -1,0 +1,57 @@
+{
+  "run_id": "20261006T152245-stage2-codex-impl-r1-2",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "impl-r1-2",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "8b1d4b8b421e86b7fc1ef965813175863314a61d",
+  "timeout_seconds": 3000,
+  "prompt": "impl-r1-round2.prompt.md",
+  "prompt_sha256": "f175b7cc0fcb3bcae289efb55d7bc0fa0410a1bbc70a9225068ee9269dffab50",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T15:22:45Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T152245-stage2-codex-impl-r1-2.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T15:22:45Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-06T15:28:20Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261006T152245-stage2-codex-impl-r1-2.a1.events.jsonl",
+        "stderr": "20261006T152245-stage2-codex-impl-r1-2.a1.stderr.log",
+        "review": "20261006T152245-stage2-codex-impl-r1-2.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T15:28:20Z",
+  "findings": 9,
+  "coverage_not_reviewed": [
+    "Full pytest suite and lint-skill execution on the final tree",
+    "Real Claude Code hook enforcement and Spec Kit integration",
+    "Filesystem mutation reproductions, including actual junction escapes and crash recovery",
+    "Actual concurrent-process scheduling; concurrency findings are static",
+    "R2 review-type and structured-findings functionality except its intersection with R1"
+  ],
+  "review_output": "20261006T152245-stage2-codex-impl-r1-2.a1.review.json"
+}

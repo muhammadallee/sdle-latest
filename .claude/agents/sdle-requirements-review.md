@@ -67,3 +67,32 @@ you or anyone said about it before.
 
 If you cannot see something you need, say so in that check's finding. Never
 infer a file you did not read, and never present a judgement as an observation.
+
+## Source-fidelity mode
+
+When the parent says **source fidelity**, you are not answering the quality
+checks. You are given a source document and a requirements package drafted
+from it (its `package.json`, and the files it lists), and you answer two
+questions only, from the text alone:
+
+1. **Does each requirement say what its source reference says?** Read the
+   passage each requirement cites by document and anchor. A requirement that
+   states more than its source, less than its source, or something its source
+   does not say is a finding. A requirement that cites a clarification is
+   judged against what the parent tells you the clarification said; if you are
+   not told, say it cannot be judged.
+2. **Is every normative statement in the source mapped to a requirement, or
+   explicitly excluded?** A "shall", "must", "will", "is required to" or a
+   table row that obliges the system, with no requirement and no exclusion
+   behind it, is a finding.
+
+Report one line per finding:
+
+```
+- [blocking|advisory] <requirement id or source anchor> — <what is wrong> — <what the source says> — <what would resolve it>
+```
+
+Invent nothing, and do not fix anything: you return findings and the parent
+decides. An empty result is a legitimate answer; say that you checked both
+questions. The structure of the package (ids, references, assignment) is the
+engine's check and is not yours.

@@ -300,10 +300,10 @@ Gate 5 approved. Baseline fingerprint recorded.
 Running cross-artifact analysis...
 ```
 
-*(Analysis refines `tasks.md` in place. The engine re-baselines Gate 5's
-fingerprint to match (`sdle.sh drift rebaseline --gate gate_tasks`), so both
-gates can reference one file without a false drift alert. Gate 6, Analysis
-Approval, shows the refined file. The user approves. Compacted.)*
+*(Analysis reads `tasks.md` and does not change it, so there is nothing to
+re-baseline: Gate 5's fingerprint still matches, and Gate 6, Analysis Approval,
+shows the same file. Had the file changed during analysis, that would be drift,
+shown to the user for re-approval. The user approves. Compacted.)*
 
 ```
 <!-- SDLE_STATE phase=design_generation status=in_progress progress=15/20 -->

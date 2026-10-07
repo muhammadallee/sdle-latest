@@ -1,0 +1,78 @@
+........................................................................ [ 25%]
+..................F..F.................................................. [ 51%]
+........................................................................ [ 77%]
+...............................................................          [100%]
+================================== FAILURES ===================================
+____________ test_runtime_free_commands_is_a_closed_enumerated_set ____________
+
+    def test_runtime_free_commands_is_a_closed_enumerated_set():
+>       assert sdle.RUNTIME_FREE_COMMANDS == frozenset({
+            "lint-skill", "sha", "constants", "workitem",
+            "validate",
+            # T05: repository-level configuration is owned by the repository, so
+            # contract §11 requires it to resolve with no WorkItem bound.
+            "config",
+            # T06: `governance policy` reads a repository-scoped policy, so the
+            # group resolves with no WorkItem bound. Its WorkItem-scoped members
+            # bind explicitly through `bind_workitem`.
+            "governance",
+            # T08: `discovery schema` publishes the closed contract §14 vocabulary
+            # and is what the prompt layer reads instead of restating it, so it
+            # must be answerable before any workflow exists. `assess` and `show`
+            # bind explicitly through `bind_for_discovery`.
+            "discovery",
+            # T08: the repository baseline is a property of the *repository* —
+            # that is what §14's convergence invariant is about — so binding a
+            # WorkItem to read it would be wrong in kind, and would refuse
+            # `workitem_ambiguous` in any repository with two of them.
+            "baseline",
+            # ADR-013: the architecture catalog is repository knowledge, so
+            # `architecture schema` and `architecture show` answer with no
+            # WorkItem bound. `assess`, `apply` and `realize` bind explicitly
+            # through `bind_for_architecture`.
+            "architecture",
+        })
+E       AssertionError: assert frozenset({'a...rnance', ...}) == frozenset({'a...rnance', ...})
+E         
+E         Extra items in the left set:
+E         'package'
+E         Use -v to get more diff
+
+tests\test_units_workitem_resolution.py:1371: AssertionError
+_________ test_workitem_rebinding_happens_only_at_the_declared_sites __________
+
+    def test_workitem_rebinding_happens_only_at_the_declared_sites():
+        """`dataclass_replace(paths, workitem=...)` is the act of binding. It must
+        stay inside the ladder, its evidence helpers, `validate`'s read-only scan
+        and `migrate-workflow`'s explicit binding."""
+        source = ast.parse(Path(SDLE_PY).read_text(encoding="utf-8"))
+        sites = set()
+        for fn in ast.walk(source):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            for node in ast.walk(fn):
+                if (isinstance(node, ast.Call)
+                        and getattr(node.func, "id", None) == "dataclass_replace"
+                        and any(k.arg == "workitem" for k in node.keywords)):
+                    sites.add(fn.name)
+>       assert sites == {
+            "bind_workitem",
+            "branch_candidates",
+            "candidate_evidence",
+            "collect_validation_findings",
+            "_validate_runtime_state",
+            # Reads ANOTHER WorkItem's binding and state, read-only, to say who
+            # shares a requirements document. It binds nothing and writes nothing.
+            "refinement_sharer_report",
+        }
+E       AssertionError: assert {'_validate_r...indings', ...} == {'_validate_r...harer_report'}
+E         
+E         Extra items in the left set:
+E         'cmd_package_intake'
+E         Use -v to get more diff
+
+tests\test_units_workitem_resolution.py:1463: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_workitem_resolution.py::test_runtime_free_commands_is_a_closed_enumerated_set
+FAILED tests/test_units_workitem_resolution.py::test_workitem_rebinding_happens_only_at_the_declared_sites
+2 failed, 277 passed in 292.11s (0:04:52)

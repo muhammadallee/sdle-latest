@@ -1,0 +1,27 @@
+...............F..                                                       [100%]
+================================== FAILURES ===================================
+_______________ test_d02_7_there_is_no_exception_path_to_apply ________________
+
+    def test_d02_7_there_is_no_exception_path_to_apply():
+        """The plan's case 7 is conditional on an exception contract existing.
+        None does, and this pins that absence so one cannot arrive silently: the
+        manifest builder exposes no waiver option, and the only non-runner option
+        is `--skip-tests`, which case 5 shows is refused."""
+        parser = sdle.build_parser()
+        manifest = next(a for a in parser._subparsers._group_actions
+                        if a.dest == "command").choices["manifest"]
+        build = next(a for a in manifest._subparsers._group_actions).choices["build"]
+        options = {o for a in build._actions for o in a.option_strings}
+>       assert options == {"-h", "--help", "--summary", "--skip-tests",
+                           "--test-timeout", "--test-command"}, options
+E       AssertionError: {'--help', '--junit', '--skip-tests', '--summary', '--test-command', '--test-timeout', ...}
+E       assert {'--help', '-...timeout', ...} == {'--help', '-...imeout', '-h'}
+E         
+E         Extra items in the left set:
+E         '--junit'
+E         Use -v to get more diff
+
+tests\test_units_implementation_evidence.py:241: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_implementation_evidence.py::test_d02_7_there_is_no_exception_path_to_apply
+1 failed, 17 passed in 155.67s (0:02:35)

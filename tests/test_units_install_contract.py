@@ -246,6 +246,7 @@ EXPECTED_SKILL_FILES = {
     "SKILL.md", "modules/architecture-placement.md", "modules/code-review.md",
     "modules/design-review.md", "modules/gate-protocol.md",
     "modules/phase-execution.md", "modules/requirements-change.md",
+    "modules/requirements-package.md",
     "modules/requirements-refinement.md", "modules/security-review.md",
     "guidelines/architecture-placement.md", "guidelines/constitution.md",
     "guidelines/implementation.md", "guidelines/service-design.md",

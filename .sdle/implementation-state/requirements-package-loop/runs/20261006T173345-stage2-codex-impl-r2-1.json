@@ -1,0 +1,55 @@
+{
+  "run_id": "20261006T173345-stage2-codex-impl-r2-1",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "impl-r2-1",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "422b634c67aa8fb10eb1fb251c11928291f06480",
+  "timeout_seconds": 3000,
+  "prompt": "impl-r2-round1.prompt.md",
+  "prompt_sha256": "233c17f859bbab9fc793c9d15630bcd2fd2ee4485bf40ebfe669b5890086767f",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T17:33:45Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T173345-stage2-codex-impl-r2-1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T17:33:45Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-06T17:37:36Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261006T173345-stage2-codex-impl-r2-1.a1.events.jsonl",
+        "stderr": "20261006T173345-stage2-codex-impl-r2-1.a1.stderr.log",
+        "review": "20261006T173345-stage2-codex-impl-r2-1.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T17:37:36Z",
+  "findings": 5,
+  "coverage_not_reviewed": [
+    "Full pytest execution: its fixtures write files, which this read-only review prohibits",
+    "Actual Windows/POSIX lock contention, directory crash recovery and real submodule integration execution",
+    "Live Claude Code and Spec Kit behavior"
+  ],
+  "review_output": "20261006T173345-stage2-codex-impl-r2-1.a1.review.json"
+}

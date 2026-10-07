@@ -658,6 +658,9 @@ MAINTENANCE_RECORDS = (
     # prompt discussed, exactly like repository-cleanup's own runs/ — CI
     # caught this the first time the full suite actually ran over it.
     Path(".sdle") / "implementation-state" / "open-items-01-02",
+    # The requirements-package / implementation-loop enhancement: its
+    # `runctl.py` and Codex run logs quote result words such as UNKNOWN.
+    Path(".sdle") / "implementation-state" / "requirements-package-loop",
 )
 """Execution records of a maintenance or enhancement run: ledgers, run logs
 and recorders whose whole job is to quote engine vocabulary (test names,

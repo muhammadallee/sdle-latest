@@ -1,0 +1,25 @@
+........................................................................ [ 38%]
+........................................................................ [ 77%]
+.................................F.......                                [100%]
+================================== FAILURES ===================================
+_______ test_resolved_blocking_and_advisory_findings_do_not_stop_a_pass _______
+
+project = <conftest.Project object at 0x0000023647079470>
+
+    def test_resolved_blocking_and_advisory_findings_do_not_stop_a_pass(project):
+        at_gate(project, "gate_spec")
+        name = findings_file(project, [
+            finding("F1", disposition="resolved"),
+            finding("F2", severity="advisory", obligations=())])
+        assert record_review(project, "gate_spec", "content-review",
+                             findings=name).exit_code == 0
+        evidence = sorted((project.runtime / "evidence").glob("review-*.json"))[-1]
+        stored = json.loads(evidence.read_text(encoding="utf-8"))
+>       assert [f["id"] for f in stored["findings"]] == ["F1", "F2"]
+                                 ^^^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not iterable
+
+tests\test_units_review_types.py:204: TypeError
+=========================== short test summary info ===========================
+FAILED tests/test_units_review_types.py::test_resolved_blocking_and_advisory_findings_do_not_stop_a_pass
+1 failed, 184 passed in 427.68s (0:07:07)

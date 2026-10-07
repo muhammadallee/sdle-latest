@@ -151,6 +151,28 @@ way past. A **refused** command leaves `audit.md` byte-identical.
 hook is a tripwire in front of that rule; the engine's refusal at the choke
 point is the guarantee.
 
+## 5b. Before the lifecycle: a requirements package
+
+A flow starts from bound requirements. For a large source document those requirements can be a **requirements
+package** that a Solution Architect approved at an exact digest (ADR-016). It adds no phase and no gate: `init`
+refuses a package work item that is unapproved, stale or NOT READY, and pins the WorkItem to the revision it began
+under; `package_revision_changed` then stops a WorkItem whose package moved. A binding that names no package file is
+unaffected. See `docs/GETTING-STARTED.md` section 11e and `docs/architecture/ADR-016-requirements-package-and-handoff.md`.
+
+## 5c. Traceability and evidence
+
+For a package WorkItem, `gate_spec`, `gate_tasks` and `gate_implement` also check that the package's obligations are
+carried through and that each acceptance criterion ends with a verification disposition (ADR-017). The implementation
+evidence is bound to the working tree it was taken from, and a gate takes only its own kind of review
+(`GATE_REVIEW_TYPES`). The last two apply to every WorkItem. See `docs/GETTING-STARTED.md` section 11f.
+
+## 5d. The implementation loop
+
+`implement` can run a bounded loop (ADR-017 section 6) that records and referees implement, reconcile, manifest, review,
+converge and trace, and ends with a stop reason; it adds no phase and no gate, and never approves one.
+`gate_implement`'s preconditions are one function, `implementation_ready`, which `gate approve` and `loop record` both
+call. See `docs/GETTING-STARTED.md` section 11g.
+
 ## 6. When the requirements change mid-flight
 
 What SDLE does, what you can do, and what each choice costs, scenario by scenario: [requirements-change-midflight.md](requirements-change-midflight.md).

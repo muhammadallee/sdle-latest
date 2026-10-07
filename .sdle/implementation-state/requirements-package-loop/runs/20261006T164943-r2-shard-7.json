@@ -1,0 +1,44 @@
+{
+  "run_id": "20261006T164943-r2-shard-7",
+  "result": "PASS",
+  "label": "r2-shard-7",
+  "task_ids": [],
+  "ac_ids": [],
+  "argv": [
+    "C:\\Users\\Ali\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_hooks.py",
+    "tests/test_units_package_hardening.py",
+    "tests/test_units_workitem.py",
+    "tests/test_units_implementation_evidence.py",
+    "tests/test_units_requirements_change.py",
+    "tests/test_units_retired_names.py"
+  ],
+  "cwd": "D:\\Learning\\AI\\sdle-git-repo\\sdle-latest",
+  "head": "8009a120a3ae605d19a8dd7f0de0606ec4c9e250",
+  "content_fingerprint": "c1fa1d1cc05e7c3a178505384935d75b9687c8a66c3540f5f500d9d445b45958",
+  "manifest_paths": 59,
+  "env": {
+    "python": "3.13.0",
+    "platform": "win32",
+    "git": "git version 2.46.2.windows.1"
+  },
+  "started_utc": "2026-10-06T16:49:44Z",
+  "runner_pid": 29100,
+  "stdout": "20261006T164943-r2-shard-7.stdout.log",
+  "stderr": "20261006T164943-r2-shard-7.stderr.log",
+  "note": "",
+  "memory_samples": "20261006T164943-r2-shard-7.mem.csv",
+  "exit_code": 0,
+  "expected_exit_code": 0,
+  "counts": {
+    "passed": 453,
+    "skipped": 2
+  },
+  "finished_utc": "2026-10-06T16:58:37Z",
+  "fingerprint_unchanged_during_run": false
+}

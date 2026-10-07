@@ -1,0 +1,56 @@
+{
+  "run_id": "20261006T112400-stage2-codex-plan-r1b",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "plan-r1b",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+  "candidate_sha": "9458a0477cd216045771a4415263473f7bb4ed79",
+  "timeout_seconds": 2400,
+  "prompt": "plan-round1.prompt.md",
+  "prompt_sha256": "0d0e1fcc0eab547a82ab384e9c00be5957e98d0add2b7522503400c415e3a987",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-06T11:24:01Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-git-repo/_frozen-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        "codex\\review.schema.json",
+        "--output-last-message",
+        "runs\\20261006T112400-stage2-codex-plan-r1b.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-06T11:24:01Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-06T11:27:28Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261006T112400-stage2-codex-plan-r1b.a1.events.jsonl",
+        "stderr": "20261006T112400-stage2-codex-plan-r1b.a1.stderr.log",
+        "review": "20261006T112400-stage2-codex-plan-r1b.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-06T11:27:28Z",
+  "findings": 9,
+  "coverage_not_reviewed": [
+    "No tests or mutation-based reproductions were executed because this review remained read-only; findings are static",
+    "External Spec Kit v1.0.6 implementation and AS-30 behavior were not independently inspected or executed",
+    "All 3,846 baseline tests and all documentation files were not read individually; relevant call sites and named test surfaces were searched and sampled",
+    "The complete run_sync_checks implementation and every policy-related test assertion were not inspected"
+  ],
+  "review_output": "20261006T112400-stage2-codex-plan-r1b.a1.review.json"
+}

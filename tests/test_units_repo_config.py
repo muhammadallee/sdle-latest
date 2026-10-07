@@ -707,6 +707,17 @@ def test_the_runtime_member_names_are_derived_from_paths():
         # The requirements-refinement record: what the loop did to this
         # WorkItem's bound requirements. Engine-written, WorkItem-owned.
         "refinement.json",
+        # ADR-016: the package revision this WorkItem started under.
+        # WorkItem-owned: it is this WorkItem's fact about a package, and the
+        # repository-level approval ledger it points at outlives it.
+        "package-binding.json",
+        # ADR-017: the per-criterion verification dispositions. WorkItem-owned
+        # like the review ledger beside it: what was established about this
+        # WorkItem's work.
+        "verification.json",
+        # ADR-017: the implementation loop's record, engine-written and
+        # self-digested.
+        "implementation-loop.json",
     }
     assert set(CONFIG_MEMBER_NAMES) == {
         "config.json", "policies", "baseline.json",

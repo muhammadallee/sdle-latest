@@ -319,7 +319,7 @@ Optional inputs, when you want them:
 
 ## 7. The layout before you launch Claude Code
 
-Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, eight files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
+Every **required** path in this table exists at this point; the optional rows exist only if you made them, and `workitems/` does not exist yet: it is created by `start workflow`, never by hand. The three install directories are copied whole. In the current SDLE source that is nine command files, five `sdle-*` agent files, and in the skill `SKILL.md`, nine files under `modules/`, six under `guidelines/` and `templates/state.json`; `tests/test_units_install_contract.py` fails if a tracked file under `.claude/` or a launcher is not covered by this table, and pins those counts.
 
 | Path | Purpose | Status | Created by | Check |
 |---|---|---|---|---|
@@ -551,6 +551,85 @@ requirements is an ordinary edit followed by `governance assess`, as in section 
 
 A lint runs over each document and its findings are recorded as **hints**. They never refuse anything and never
 override an assessment. See `docs/architecture/ADR-015-requirements-refinement.md`.
+
+## 11e. Starting from a requirements package
+
+For a large source document (an SRS, say) a single WorkItem is the wrong unit. Instead SDLE turns the source into a
+**requirements package**, a Solution Architect approves it, and each **package work item** becomes one WorkItem. (In
+this guide "package work item" means a unit of requirements such as `WI-001`; "WorkItem" always means the SDLE
+runtime unit.) Nothing here runs unasked, and it all happens before `start workflow`.
+
+1. **Draft.** You give SDLE the source. It scans it, drafts the package in `package-staging/<id>/` (the one place it
+   may write a package) and never invents content: a detail the source does not support becomes an open issue, and a
+   work item that depends on a blocking one is marked NOT READY. The source document is never modified.
+2. **Validate and import.** `sdle.sh package validate --package <id> --staging` names *every* structural problem in
+   one refusal. `sdle.sh package import --package <id>` scans the files, validates them and copies them into
+   `requirements/packages/<id>/`. SDLE also offers a source-fidelity review: does each requirement say what its
+   source says? That judgement is a reviewer's, shown to you in the conversation; the engine checks only structure.
+3. **Approve.** The Solution Architect reads the overview, each work item's requirements, the open issues and the
+   readiness verdicts in the conversation, and approves in their own words:
+   `sdle.sh package approve --package <id> --approver <name> --role <role> --wording "<words>"`. The approval is a
+   record bound to the package's exact digest. The name is **recorded, not verified**: protect
+   `requirements/packages/` and `.sdle/package-approvals/` with CODEOWNERS and branch protection if you need the Git
+   host to supply the identity.
+4. **Start work.** `sdle.sh package intake --package <id>` creates one WorkItem per package work item, bound to its
+   own `requirements.md` and the shared files it cites. Assess each as usual (section 11d if it blocks), then
+   `start workflow`. `init` refuses a package that is not approved at its **current** revision, and a work item that is
+   NOT READY. You copy nothing: `sdle.sh package show` and `sdle.sh requirements show` name the revision and its
+   approval.
+
+If the package changes after a WorkItem started, the engine stops that WorkItem (`package_revision_changed`) until the
+new revision is approved and adopted (`sdle.sh package adopt`) and the requirements are assessed again; section 11c
+covers what to do with work already done. A valid package proves structure, not that the work item satisfies anything:
+satisfaction is a review, never a link.
+
+## 11f. Tracing the requirements to the end
+
+For a WorkItem started from a package (section 11e) the engine also checks, at the gates, that nothing the
+package asked for goes missing on the way to the code. It checks that the **links exist**, never that what they link
+satisfies anything: satisfaction is a review.
+
+- **The specification** must carry every in-scope requirement id of the work item (or an approved exclusion), and
+  must not cite an id the package does not define (`gate_spec`).
+- **The tasks** must give every acceptance criterion a task whose text says it tests it; a purely engineering task
+  may cite a constitution principle, an architecture decision or a plan decision id instead of a business id. A task
+  that cites nothing is listed, not refused (`gate_tasks`, and again at `gate_implement`, so an omitted tasks gate
+  cannot let a criterion through).
+- **The tests**: each acceptance criterion ends with a disposition. Have the project's runner write JUnit XML under
+  `workitems/<id>/.sdle/evidence/` (or to an ignored path), name each test after the criterion it checks, and run
+  `sdle.sh verification map --junit <file>`. A criterion no test names is **`suite-pass-unmapped`**: shown apart from
+  the verified ones, never as verified, and blocking only if the repository policy says so
+  (`unmapped_verification_blocks`).
+- **The evidence** records a digest of the working tree before and after the test run, and the implementation gate
+  recomputes it: a file edited after the passing run, or a test run that changes the tree, no longer carries the gate
+  (`test_evidence_stale`). This applies to every WorkItem. Have the test command leave no untracked, un-ignored files
+  behind.
+- **Reviews** are of a kind: the design gate takes a `design-review`, the implementation gate a `code-review`, the
+  architecture gate an `architecture-placement` review (`review_type_mismatch` otherwise). A review can carry
+  structured findings (`artifact review --findings`), and a `PASS` is refused while a blocking one is open.
+
+`analyze` no longer re-baselines the tasks gate: it reads `tasks.md` and does not change it, so a change made during
+it is drift and returns to you for re-approval.
+
+## 11g. The implementation loop
+
+Inside the implement phase you can ask SDLE to repair the implementation until it is ready for the gate. It is a
+bounded loop (three iterations by default, and a repository policy can only lower that) of: implement, reconcile the
+task list, build tree-bound evidence, an **independent** code review of the diff and the raw test evidence, converge
+(Spec Kit compares the specification, plan and tasks with the code and may append tasks), trace, then record. The
+engine does not run Spec Kit or an agent; Claude performs each step and the engine refuses a step that is out of order,
+that repeats an earlier output, or that rests on a tree that has since changed.
+
+The loop stops with a reason and a next action: `ready_for_gate`, `limit_exhausted`, `no_progress` (the same failures,
+findings and uncovered obligations again; appended tasks are not progress), `environment_blocker` (never a pass),
+`ambiguity` (go to the requirements-change process), `test_expectation_change` (a test was deleted or its mapping
+disappeared: a person decides), `tasks_drift` (the task list changed in a way the loop does not accept: only ticks
+and appended convergence sections are) and `interrupted`. **`ready_for_gate` means ready for your review. The loop
+never approves, omits or skips a gate**; you still read the artifact and approve in the conversation, and the engine
+shows you what the gate will be shown (`loop show --gate-summary`).
+
+After an interruption, `sdle.sh loop show` names the last completed step. A rejection at the implementation gate
+follows the ordinary remediation path with its own counter, and a new `loop begin` opens a new run with its own limit.
 
 ## 12. What exists after the first start
 

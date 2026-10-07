@@ -1,0 +1,45 @@
+...........F............................                                 [100%]
+================================== FAILURES ===================================
+_______________ test_the_artifact_shas_writer_set_is_unchanged ________________
+
+project = <conftest.Project object at 0x000001F468B197C0>
+
+    def test_the_artifact_shas_writer_set_is_unchanged(project):
+        """Invariant 7: T06 adds a *second fact*, not a second writer of the
+        existing one. A new name here means the approval baseline grew a writer,
+        and each one has to argue for itself.
+    
+        T09 added `cmd_gate_omit`, and it argues for itself on the ground that
+        made the set worth pinning: an omission is a decision about specific
+        content, so it fingerprints that content exactly as an approval does.
+        Leaving it out would have been the silent regression §15's preserve list
+        names first — an omitted gate whose artifact could then change with no
+        drift raised, because nothing had ever baselined it.
+        """
+        tree = sdle_ast()
+        writers = set()
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Subscript) and \
+                                "artifact_shas" in ast.unparse(target):
+                            writers.add(fn.name)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                        and node.func.attr == "pop" \
+                        and "artifact_shas" in ast.unparse(node):
+                    writers.add(fn.name)
+>       assert writers == {"cmd_gate_approve", "cmd_gate_omit", "_approve_drift",
+                           "cmd_drift_rebaseline", "cmd_restart"}
+E       AssertionError: assert {'_approve_dr...ks_reconcile'} == {'_approve_dr...'cmd_restart'}
+E         
+E         Extra items in the left set:
+E         'cmd_tasks_reconcile'
+E         Use -v to get more diff
+
+tests\test_units_artifact_review.py:368: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_artifact_review.py::test_the_artifact_shas_writer_set_is_unchanged
+1 failed, 39 passed in 58.95s

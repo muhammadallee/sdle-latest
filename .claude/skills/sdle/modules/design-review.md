@@ -8,13 +8,15 @@ One question: **does the design satisfy the specification and the plan, and can 
 
 - `sdle.sh artifact path --gate <gate_key>` resolves the artifact under review. Never construct that path yourself.
 - Read the specification, the plan and the design documents themselves, plus any project ground rules the constitution records.
+- Read the approved architecture placement (`sdle.sh architecture show`, and the WorkItem's placement rendering). **A design that conflicts with an approved architecture decision is a `blocking` finding**: the placement decided where this capability lives and who owns its data, and a design cannot quietly decide otherwise.
+- When the WorkItem was started from a requirements package, read the package's files for this work item (`sdle.sh package show`) and run `sdle.sh trace check`. Requirements define behaviour; the design elaborates them. A conflict is resolved, never silently overwritten: say which document is wrong.
 - `sdle.sh drift check` tells you whether something already approved has moved underneath you. A design reviewed against a moved plan is a review of a document nobody has.
 
 ### 2. Delegate the analysis, or do it here
 
 Design review is high-context independent analysis: it reads a great deal and decides nothing. That is what a product subagent is for. Hand it to **`sdle-design-review`** and give it, in the delegation message:
 
-- the exact file paths to read — it has no shell and cannot resolve a path;
+- the exact file paths to read — it has no shell and cannot resolve a path — including, for a package WorkItem, the package files and the trace report;
 - what the design is supposed to satisfy, in your words;
 - the finding shape below.
 
@@ -52,6 +54,7 @@ sdle.sh artifact review --path <artifact> --type design-review \
   --evidence <pointer> --comments "<one-line summary>"
 ```
 
+- Where a finding is about an obligation, cite its id, and give the engine the findings as structured data: `--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`. The engine records them with the review and refuses a `PASS` while a blocking one is open; it checks the shape, never whether a finding is right.
 - `--result FAIL` when any finding is `blocking`. Recording `PASS` over a blocking finding is recording something you did not conclude.
 - `--actor-type agent --actor-name sdle-design-review` when the subagent produced the findings; name whoever actually did if it was not.
 - `--actor-name` is a string you supply. The engine records it faithfully and **cannot verify it** — it is an attribution, not an attestation.
