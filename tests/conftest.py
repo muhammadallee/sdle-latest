@@ -661,6 +661,9 @@ MAINTENANCE_RECORDS = (
     # The requirements-package / implementation-loop enhancement: its
     # `runctl.py` and Codex run logs quote result words such as UNKNOWN.
     Path(".sdle") / "implementation-state" / "requirements-package-loop",
+    # The UI-quality enhancement: its ledger, phase plans and Codex run
+    # records quote engine vocabulary (refusal codes, check ids) as evidence.
+    Path(".sdle") / "implementation-state" / "ui-quality",
 )
 """Execution records of a maintenance or enhancement run: ledgers, run logs
 and recorders whose whole job is to quote engine vocabulary (test names,

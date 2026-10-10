@@ -645,17 +645,18 @@ def test_the_restatement_search_skips_only_the_maintenance_records(tmp_path):
     own execution record, once for open-items-01-02's, a Codex review run's
     event stream, committed in the same session, quotes back whatever
     vocabulary the reviewed diff discussed) and again for
-    requirements-package-loop. All four have the same job:
+    requirements-package-loop and again for ui-quality. All five have the same
+    job:
     quoting engine vocabulary — check ids, refusal codes — as evidence, not
     as documentation. The exclusion is this **enumerated, named set of
-    four** directories and nothing wider: an unlisted sibling under
+    five** directories and nothing wider: an unlisted sibling under
     `.sdle/implementation-state/`, the policies and the templates are
     product surface and stay searched. Widening the set is not a pattern
-    match on `implementation-state/*` — a fourth, unnamed sibling proves
+    match on `implementation-state/*` — a sixth, unnamed sibling proves
     that."""
     from conftest import MAINTENANCE_RECORDS
 
-    assert len(MAINTENANCE_RECORDS) == 4
+    assert len(MAINTENANCE_RECORDS) == 5
 
     root = tmp_path
     kept = [root / ".sdle" / "policies" / "policy.json",

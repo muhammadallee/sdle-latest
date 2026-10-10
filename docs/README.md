@@ -109,6 +109,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | [REVIEW-ROUND-3.md](enhancements/architecture-memory/REVIEW-ROUND-3.md) | The third independent review, of the Stage 0 restoration, verbatim, with dispositions |
 | [FUTURE.md](enhancements/requirements-refinement/FUTURE.md) | Requirements refinement: the known gaps recorded for future enhancement runs, with their reasoning and triggers |
 | [REVIEW-ROUND-3-CODEX.md](enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md) | The second reviewer of round 3, a Codex pass over the same patch, with dispositions |
+| [PROGRESS.md](enhancements/ui-quality/PROGRESS.md) | UI quality enhancement: phase status, checkpoints, the owner-attention table and the open decisions |
 
 ## Specification — not documentation
 
