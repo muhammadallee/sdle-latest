@@ -9,7 +9,7 @@ authority for a checkpoint**, never a tag.
 
 | Phase | Status | Checkpoint SHA | Notes |
 |---|---|---|---|
-| A-build | awaiting owner | `d915eb6` (last implementation commit; the record commit that adds this row is its descendant) | built, unmeasured. Open: OA-1..OA-4; **not pushed** |
+| A-build | awaiting owner | `d915eb6` (last implementation commit; the record commit that adds this row is its descendant) | built, unmeasured. Open: OA-1, OA-2 (both concern A-measure) and OA-3; OA-4 resolved by the owner |
 | A-measure | not started | — | needs decision D4 (pilot app) |
 | B, M, C, D, E | not started | — | each starts only at the owner's request |
 
@@ -21,7 +21,7 @@ Open rows make a phase `awaiting owner`, never `complete`.
 |---|---|---|---|---|---|---|
 | OA-1 | Codex PR-R1-002 | The isolated experiments do not run the guideline files or the native design phase, so they cannot attribute a rating difference to Phase A as shipped | the experiment applies only appended arguments | (a) a harness that loads each arm's capability files and builds `app-design.md`; (b) narrow the claim and rely on the one full run for the design changes | (a) | no (A-build); yes for any visual claim |
 | OA-2 | Codex PR-R1-003, PR-R2-001 | A-measure inputs (model/settings, order, pairing, failure handling, aggregation, clarification policy, run deadline) are undeclared | plan text leaves them open | commit an input manifest before running | declare before the first run | no (A-build) |
-| OA-4 | Codex run `20261010T142651-stage2-codex-A-impl-r2` | Implementation review round 2 is recorded BLOCKED although both attempts returned zero findings | the runner treats an empty findings list with non-empty `areas_not_reviewed` as incomplete, and the read-only sandbox cannot run the suite or Spec Kit, so that list is never empty | (a) accept the zero-finding substance as the round-2 result, with the unreviewed areas listed; (b) authorize a third run with a prompt that lists those areas as out of scope; (c) authorize another reviewer, labelled "not Codex" | (a): the fix is a three-bullet reorder that both attempts verified | no, if (a) |
+| OA-4 | **RESOLVED 10 Oct 2026: owner chose (a)**, accept the zero-finding result with the unreviewed areas listed. Codex run `20261010T142651-stage2-codex-A-impl-r2` | Implementation review round 2 is recorded BLOCKED although both attempts returned zero findings | the runner treats an empty findings list with non-empty `areas_not_reviewed` as incomplete, and the read-only sandbox cannot run the suite or Spec Kit, so that list is never empty | (a) accept the zero-finding substance as the round-2 result, with the unreviewed areas listed; (b) authorize a third run with a prompt that lists those areas as out of scope; (c) authorize another reviewer, labelled "not Codex" | (a): the fix is a three-bullet reorder that both attempts verified | no, if (a) |
 | OA-3 | process | The full suite was run in sharded calls (10-minute foreground cap) and shards 7-17 were deferred to step 4 | cap and a memory reap | none needed once step 4 runs all 18 | — | no |
 
 ## Open decisions
@@ -37,7 +37,7 @@ Open rows make a phase `awaiting owner`, never `complete`.
 
 | Phase | Implementation SHA (the checkpoint) | Record commit | Status | Pushed |
 |---|---|---|---|---|
-| A-build | `d915eb6` | the commit that last touched this file | awaiting owner (OA-4) | no |
+| A-build | `d915eb6` | the commit that last touched this file | awaiting owner (OA-1, OA-2: A-measure decisions) | yes |
 
 **Test evidence.** Full suite in 18 shards (4215 collected): all passed except one tracked-files-count failure caused by the new file being untracked at the time; `test_units_install_contract.py` then 36 passed. After the last fix: capabilities, lint_skill, shipped_surface, documented_commands, install_contract, dry_run_contracts 1672 passed. `lint-skill` ok. Records in `.sdle/implementation-state/ui-quality/runs/`. Sharded because of the foreground limit; the final whole-suite shard run was before the IR-R1-001 reorder, which touched one prompt file.
 

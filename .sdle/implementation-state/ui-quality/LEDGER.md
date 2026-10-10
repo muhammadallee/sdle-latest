@@ -65,3 +65,5 @@ Run `20261010T142651-stage2-codex-A-impl-r2` (codex-cli 0.160.1, reviewed `9c879
 Substance of both attempts (`runs/*A-impl-r2.a1.review.json`, `.a2.review.json`): **zero findings**; IR-R1-001 verified fixed in all three blocks, and each condition judged evaluable at its point; no engine or hook change in the diff. Areas Codex did not reach: live Spec Kit generation, pilot rendering, an independent run of the suite and lint, historical records and remote state, later-phase designs.
 
 Disposition: **not substituted and not retried a third time** (PLAN §5.1: no round 3; the brief: a run that fails twice is recorded and stopped for the owner). Raised as **OA-4**.
+
+**OA-4 resolved (owner, 10 Oct 2026): option (a).** The zero-finding substance of the two round-2 attempts is accepted as the round-2 result; the run stays recorded BLOCKED by the runner's rule, with the unreviewed areas above. No third run.
