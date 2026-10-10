@@ -35,3 +35,10 @@ Run `20261010T125932-stage2-codex-A-plan-r1` (codex-cli 0.160.1, reviewed `85d6d
 | PR-R1-006 | medium | accepted: PLAN amendment, two-commit checkpoint |
 
 Round 2 is triggered (accepted defects).
+
+## Codex plan review, A round 2
+Run `20261010T130330-stage2-codex-A-plan-r2` (reviewed `76dc220`, read-only frozen worktree, privacy check clean). PASS; 1 finding. Codex verified all six round-1 fixes, executed `lint-skill`, reproduced probes R4-R7 and read the Spec Kit v1.0.6 templates. **Not reviewed:** the full suite, historical R1-R3 results and remote state, live Spec Kit generation, phases B/C/D/E/M designs, pilot rendering.
+
+| Id | Sev | Disposition |
+|---|---|---|
+| PR-R2-001 | medium | accepted: PLAN amendment (clarification policy and run deadline in the input manifest); folded into **OA-2**. No round 3 is run |

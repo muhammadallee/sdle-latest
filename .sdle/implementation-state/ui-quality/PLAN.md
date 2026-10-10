@@ -665,3 +665,11 @@ v2.2's text above is left as written; where an amendment conflicts with it, **th
 | PR-R1-004 | §6 A row 6, §8 | The claim "no drift is caused" is true only for **gate-artifact drift**. The implementation evidence's tree digest covers every tracked, non-ignored file outside the engine's exclusion list, which does not exclude `.claude/`. A target project that tracks its installed skill files and updates them **after** `manifest build` and before the gate sees `test_evidence_stale` and must rebuild the manifest and tests. Guidance: update the installed SDLE files between WorkItems, or before implementation evidence is built |
 | PR-R1-005 | §5.2 | The coverage-gap rule applies to **every** round, not only round 2. A runner `PASS` means schema-valid output, not complete coverage or approval. A round whose `areas_not_reviewed` names an area the phase depends on is either covered by the remaining round or recorded in the Owner-attention table |
 | PR-R1-006 | §5.1 step 8, §10 | A file cannot contain the SHA of the commit that contains it. The checkpoint is two commits: the reviewed implementation commit, then a record commit that updates `PROGRESS.md`. **`PROGRESS.md` records the implementation commit's SHA, and that SHA is the checkpoint**; the record commit is its descendant, and the resume runbook's ancestor test is run against the implementation SHA. The push is of both |
+
+### Round 2 (Codex run `20261010T130330-stage2-codex-A-plan-r2`, reviewed `76dc220`)
+
+All six round-1 fixes verified; one new finding, accepted.
+
+| Id | Amends | Rule |
+|---|---|---|
+| PR-R2-001 | §7.2, and PR-R1-003's manifest | The input manifest also declares a **clarification policy** and a **run deadline**, identical for both arms: a clarification request either ends the attempt (counted as an attempted run with the declared failure outcome) or receives a predetermined answer written in the manifest. Every intervention is recorded. "Unattended" means no improvised human input, not that Spec Kit cannot ask |
