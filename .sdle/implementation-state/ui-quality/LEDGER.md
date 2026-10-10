@@ -42,3 +42,19 @@ Run `20261010T130330-stage2-codex-A-plan-r2` (reviewed `76dc220`, read-only froz
 | Id | Sev | Disposition |
 |---|---|---|
 | PR-R2-001 | medium | accepted: PLAN amendment (clarification policy and run deadline in the input manifest); folded into **OA-2**. No round 3 is run |
+
+## Test runs, step 4 (implementation)
+| # | Command | Result |
+|---|---|---|
+| T4 | `lint-skill` on the implementation | ok, 0 failed |
+| T5 | full suite, 18 shards, 4215 collected (`runs/a-s4-full-*.json`) | 4214 passed + 3 skipped across 18 shards; one failure `test_the_install_directories_hold_exactly_the_expected_files`, which counts git-tracked files and failed only because `ui-design.md` was untracked. After `git add`, `test_units_install_contract.py` 36 passed |
+| T6 | after IR-R1-001 fix: capabilities, lint_skill, shipped_surface, documented_commands, install_contract, dry_run_contracts (`runs/a-s5-fix1.json`) | 1672 passed |
+
+## Codex implementation review, A round 1
+Run `*-stage2-codex-A-impl-r1` (reviewed `540f175`, diff `a1feffa..HEAD`, read-only, privacy check clean). PASS; 1 finding, confirmed by reading `phase-execution.md` and **accepted**. Not reviewed: live Spec Kit generation, pilot rendering, an independent rerun of the full suite.
+
+| Id | Sev | Disposition |
+|---|---|---|
+| IR-R1-001 | medium | accepted: the spec/plan/tasks UI-append bullets sat after the Spec Kit invocation bullet, so following the block in order skipped them. Moved ahead of the invocation in all three blocks and reworded "append to the `speckit-<x>` arguments in the next step". T6 re-run |
+
+Round 2 is triggered (accepted defect).
