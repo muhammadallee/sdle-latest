@@ -251,7 +251,7 @@ EXPECTED_SKILL_FILES = {
     "guidelines/architecture-placement.md", "guidelines/constitution.md",
     "guidelines/implementation.md", "guidelines/service-design.md",
     "guidelines/service-planning.md", "guidelines/task-generation.md",
-    "templates/state.json"}
+    "guidelines/ui-design.md", "templates/state.json"}
 EXPECTED_HOOK_FILES = {"hooks.py", "run-hook.sh"}
 
 

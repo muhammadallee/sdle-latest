@@ -38,7 +38,8 @@ What a design review looks for:
 - an interface, a data shape or an ownership boundary that two documents describe differently;
 - state that has no clear owner, or a change of shape with no stated path from the old shape to the new one;
 - an operational property the plan claims and the design does not provide — how it fails, what it does under load, what happens when a dependency is unavailable;
-- a decision recorded nowhere, which the next person will have to guess at.
+- a decision recorded nowhere, which the next person will have to guess at;
+- for user-visible work, a plan User Interface section whose screens, states or reuse the design does not carry through, or a design that introduces a component the interface conventions already cover (`guidelines/ui-design.md`).
 
 Say **what you observed and where**. If something is a judgement rather than an observation, say so in the same line. A finding that cannot be located in a file is not a finding.
 

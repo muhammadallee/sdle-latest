@@ -1400,15 +1400,17 @@ def test_t10_ships_exactly_the_declared_agents_skills_and_modules():
                        "requirements-package.md", "requirements-refinement.md",
                        "security-review.md"], modules
     # ADR-014 adds a second capability home beside `modules/`. Same shape
-    # of assertion: exact equality against a written-out set, so a
-    # seventh guideline appearing without a plan fails here too.
+    # of assertion: exact equality against a written-out set, so an
+    # eighth guideline appearing without a plan fails here too (the seventh,
+    # `ui-design.md`, is the UI-quality enhancement's Phase A).
     guidelines = sorted(p.name for p in
                         (REPO_ROOT / ".claude" / "skills" / "sdle"
                          / "guidelines").glob("*.md"))
     assert guidelines == ["architecture-placement.md", "constitution.md",
                           "implementation.md", "service-design.md",
                           "service-planning.md",
-                          "task-generation.md"], guidelines
+                          "task-generation.md",
+                          "ui-design.md"], guidelines
 
 
 def test_t11_the_legacy_rung_is_gone():

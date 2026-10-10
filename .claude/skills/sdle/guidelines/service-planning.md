@@ -35,6 +35,10 @@ Whatever the outcome, say something concrete about each of these — including "
 
 A plan that covers only (2) is the most common way an extraction goes wrong.
 
+### User-visible work
+
+Where the work changes something a person sees or operates, the plan also carries a User Interface section; `guidelines/ui-design.md` says what it holds.
+
 ### Cross-service work
 
 Where work spans services, plan it as service-local work plus an explicit integration step. A plan that treats two services as one codebase produces tasks nobody can sequence or verify independently.

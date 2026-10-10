@@ -276,18 +276,18 @@ It is a **floor, not a ceiling.** A capability file may send you to another one 
 | `gate_constitution` | modules/gate-protocol.md |
 | `architecture_placement` | modules/architecture-placement.md guidelines/architecture-placement.md |
 | `gate_architecture` | modules/gate-protocol.md modules/architecture-placement.md |
-| `spec_draft` | modules/phase-execution.md |
+| `spec_draft` | modules/phase-execution.md guidelines/ui-design.md |
 | `gate_spec` | modules/gate-protocol.md |
-| `plan_draft` | modules/phase-execution.md guidelines/service-planning.md |
+| `plan_draft` | modules/phase-execution.md guidelines/service-planning.md guidelines/ui-design.md |
 | `gate_plan` | modules/gate-protocol.md |
 | `checklist_draft` | modules/phase-execution.md |
-| `tasks_draft` | modules/phase-execution.md guidelines/task-generation.md |
+| `tasks_draft` | modules/phase-execution.md guidelines/task-generation.md guidelines/ui-design.md |
 | `gate_tasks` | modules/gate-protocol.md |
 | `analyze` | modules/phase-execution.md |
 | `gate_analyze` | modules/gate-protocol.md |
-| `design_generation` | modules/phase-execution.md modules/design-review.md guidelines/service-design.md |
+| `design_generation` | modules/phase-execution.md modules/design-review.md guidelines/service-design.md guidelines/ui-design.md |
 | `gate_design` | modules/gate-protocol.md modules/design-review.md |
-| `implement` | modules/phase-execution.md modules/code-review.md guidelines/implementation.md |
+| `implement` | modules/phase-execution.md modules/code-review.md guidelines/implementation.md guidelines/ui-design.md |
 | `gate_implement` | modules/gate-protocol.md modules/code-review.md |
 | `security_review` | modules/phase-execution.md modules/security-review.md |
 | `gate_security` | modules/gate-protocol.md modules/security-review.md |

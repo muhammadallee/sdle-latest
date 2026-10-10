@@ -48,6 +48,8 @@ They are ordinary capability files: `lint-skill` requires each to exist, to be i
 
 Project-level `guidance/architecture-placement.md` remains optional and **untrusted**: it flows through the existing Guidance File Map, is scanned before use, and is data rather than instruction. **Two levels, never merged.** A project cannot edit SDLE's heuristics, and SDLE's heuristics cannot silently absorb a project's.
 
+**Amendment (UI-quality enhancement, Phase A).** A seventh guideline, `ui-design.md`, is mapped to `spec_draft`, `plan_draft`, `tasks_draft`, `design_generation` and `implement`. It is advisory like the others, and for user-visible work only.
+
 The set is kept small on purpose. Dozens of tiny guideline files would reintroduce, in the prompt layer, exactly the "which file decides this?" problem `CAPABILITY_MAP` was built to remove.
 
 ### 3. The precedence chain

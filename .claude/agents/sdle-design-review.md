@@ -28,6 +28,9 @@ plan, and any project ground rules. Read all of them before writing anything.
   how it fails, what it does under load, what happens when a dependency is
   unavailable.
 - A decision recorded nowhere, which the next person will have to guess at.
+- For user-visible work: a screen, state or reused component the plan's User
+  Interface section lists that the design does not carry through, or a new
+  component where an existing one is named.
 
 Architectural taste is not a finding unless you can name the consequence.
 
