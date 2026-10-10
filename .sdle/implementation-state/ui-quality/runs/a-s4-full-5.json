@@ -1,0 +1,9 @@
+{
+ "label": "a-s4-full-5",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_repo_config.py tests/test_units_workitem_runtime.py tests/test_units_documented_commands.py tests/test_units_infra.py tests/test_units_midflight_changes.py",
+ "exit_code": 0,
+ "summary": "1271 passed in 218.95s (0:03:38)",
+ "seconds": 226.1,
+ "finished": "2026-10-10T13:36:15Z",
+ "result": "PASS"
+}

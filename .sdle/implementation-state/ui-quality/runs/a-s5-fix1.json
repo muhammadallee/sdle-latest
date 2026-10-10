@@ -1,0 +1,9 @@
+{
+ "label": "a-s5-fix1",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_capabilities.py tests/test_lint_skill.py tests/test_units_shipped_surface.py tests/test_units_documented_commands.py tests/test_units_install_contract.py tests/test_dry_run_contracts.py",
+ "exit_code": 0,
+ "summary": "1672 passed in 179.39s (0:02:59)",
+ "seconds": 182.2,
+ "finished": "2026-10-10T14:26:22Z",
+ "result": "PASS"
+}

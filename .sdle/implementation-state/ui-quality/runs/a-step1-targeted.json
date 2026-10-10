@@ -1,0 +1,9 @@
+{
+ "label": "a-step1-targeted",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_capabilities.py tests/test_units_doc_links.py tests/test_units_install_contract.py tests/test_lint_skill.py",
+ "exit_code": 0,
+ "summary": "284 passed in 182.91s (0:03:02)",
+ "seconds": 284.5,
+ "finished": "2026-10-10T12:16:04Z",
+ "result": "PASS"
+}

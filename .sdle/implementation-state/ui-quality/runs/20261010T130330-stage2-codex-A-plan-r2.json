@@ -1,0 +1,57 @@
+{
+  "run_id": "20261010T130330-stage2-codex-A-plan-r2",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "A-plan-r2",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-frozen-A-plan-r2",
+  "candidate_sha": "76dc220c961385fc835e8095c412cecab15a52d7",
+  "timeout_seconds": 1500,
+  "prompt": "A-plan-round2.prompt.md",
+  "prompt_sha256": "878a56efd40ec63efa82cd70fb99de786b0e13aa945e76b473a8e6ca1911b9de",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-10T13:03:30Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-frozen-A-plan-r2",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\requirements-package-loop\\codex\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\ui-quality\\runs\\20261010T130330-stage2-codex-A-plan-r2.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-10T13:03:30Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-10T13:05:45Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261010T130330-stage2-codex-A-plan-r2.a1.events.jsonl",
+        "stderr": "20261010T130330-stage2-codex-A-plan-r2.a1.stderr.log",
+        "review": "20261010T130330-stage2-codex-A-plan-r2.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-10T13:05:45Z",
+  "findings": 1,
+  "coverage_not_reviewed": [
+    "Full pytest suite: its fixtures require filesystem writes prohibited by this read-only review.",
+    "Historical R1\u2013R3 execution results, remote-branch state and baseline suite counts were not reproduced.",
+    "Live Spec Kit generation, installed Claude Code behavior and experiment harness execution.",
+    "Detailed implementation designs for phases B, C, D, E and M.",
+    "Pilot rendering, blind ratings, browser behavior and Windows harness invocation."
+  ],
+  "review_output": "20261010T130330-stage2-codex-A-plan-r2.a1.review.json"
+}

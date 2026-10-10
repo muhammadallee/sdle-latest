@@ -58,3 +58,10 @@ Run `*-stage2-codex-A-impl-r1` (reviewed `540f175`, diff `a1feffa..HEAD`, read-o
 | IR-R1-001 | medium | accepted: the spec/plan/tasks UI-append bullets sat after the Spec Kit invocation bullet, so following the block in order skipped them. Moved ahead of the invocation in all three blocks and reworded "append to the `speckit-<x>` arguments in the next step". T6 re-run |
 
 Round 2 is triggered (accepted defect).
+
+## Codex implementation review, A round 2 — BLOCKED
+Run `20261010T142651-stage2-codex-A-impl-r2` (codex-cli 0.160.1, reviewed `9c8797d`, read-only frozen worktree, privacy check clean). Result **BLOCKED**: two attempts, both exit 0 with schema-shaped output, both rejected by the runner's own rule "empty findings with unreviewed areas: the review is incomplete".
+
+Substance of both attempts (`runs/*A-impl-r2.a1.review.json`, `.a2.review.json`): **zero findings**; IR-R1-001 verified fixed in all three blocks, and each condition judged evaluable at its point; no engine or hook change in the diff. Areas Codex did not reach: live Spec Kit generation, pilot rendering, an independent run of the suite and lint, historical records and remote state, later-phase designs.
+
+Disposition: **not substituted and not retried a third time** (PLAN §5.1: no round 3; the brief: a run that fails twice is recorded and stopped for the owner). Raised as **OA-4**.

@@ -1,0 +1,9 @@
+{
+ "label": "a-s4-full-2",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_gate_policy.py tests/test_units_install_contract.py tests/test_units_refinement_lint.py tests/test_units_refinement_normal_form.py",
+ "exit_code": 1,
+ "summary": "1 failed, 473 passed in 266.92s (0:04:26)",
+ "seconds": 290.3,
+ "finished": "2026-10-10T13:24:01Z",
+ "result": "FAIL"
+}

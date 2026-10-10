@@ -1,0 +1,9 @@
+{
+ "label": "a-s1-full-7",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_loop.py",
+ "exit_code": 1,
+ "summary": "31 failed, 18 passed in 248.21s (0:04:08)",
+ "seconds": 256.2,
+ "finished": "2026-10-10T12:52:39Z",
+ "result": "FAIL"
+}

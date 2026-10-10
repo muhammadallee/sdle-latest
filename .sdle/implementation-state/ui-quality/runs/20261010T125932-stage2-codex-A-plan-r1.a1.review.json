@@ -1,0 +1,128 @@
+{
+  "reviewed_commit": "85d6d4b632ac823a44e96d141724388e44decd39",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants 1–8",
+      "PLAN.md §§2–5, §6 Phase A, §7 measurement protocol, §§8–10",
+      "A-PLAN.md reference inventory, deliverables, invariant claims and verification",
+      "Current phase-execution argument construction, guidance scanning and native design generation",
+      "Capability-map linter, guideline enumeration, install/count pins and restatement-search coverage",
+      "Artifact drift, implementation tree fingerprints and evidence-staleness checks",
+      "Review runner, review schema, retry/result handling and checkpoint protocol",
+      "Reference/count searches across tests, docs, README.md, CLAUDE.md, .claude and scripts",
+      "Executed current-checkout lint-skill and validate; both returned success"
+    ],
+    "areas_not_reviewed": [
+      "Phase B, C, D, E and M implementation designs beyond cross-cutting dependencies and Phase A compatibility",
+      "Historical executed probes and full-suite baseline were inspected as claims, not reproduced",
+      "External Spec Kit execution and model-driven UI experiments were not run",
+      "Full pytest suite was not executed"
+    ]
+  },
+  "findings": [
+    {
+      "id": "PR-R1-001",
+      "severity": "medium",
+      "category": "defect/references",
+      "path": ".sdle/implementation-state/ui-quality/phases/A-PLAN.md",
+      "line": 29,
+      "claim": "The reference re-verification incorrectly reports the maintenance-record prerequisite as still outstanding at the reviewed commit.",
+      "evidence": "A-PLAN.md:29–30 says 'four entries' and 'assert len(MAINTENANCE_RECORDS) == 4', both marked holds. Current tests/conftest.py:664–666 already includes ui-quality, and tests/test_units_capabilities.py:648–659 says five directories and asserts == 5. PLAN.md:189 still instructs changing 4 to 5.",
+      "evidence_type": "static",
+      "suggested_fix": "Reverify against the frozen review commit, record this prerequisite as already completed, and replace the stale count and line references rather than treating them as pending changes.",
+      "ac_ids": [
+        "PLAN §2.1 R17",
+        "PLAN §5.3",
+        "PLAN §6 Phase A row 3b",
+        "A-PLAN §1"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-002",
+      "severity": "high",
+      "category": "defect/measurement",
+      "path": ".sdle/implementation-state/ui-quality/PLAN.md",
+      "line": 328,
+      "claim": "The isolated experiment does not reproduce either SDLE arm, so its primary metric cannot establish the effect of the shipped Phase A changes.",
+      "evidence": "PLAN.md:328 defines experiments as direct specify → plan → tasks → implement commands with appended arguments. Current SKILL.md:281,284,288,290 loads planning, task, design and implementation guidelines separately from arguments. phase-execution.md:177–192 creates app-design.md in an SDLE-native phase, and :205 passes that design to implementation. Phase A explicitly changes this native design and its review (PLAN.md:224–226; A-PLAN.md:46–49), but neither exists in the experimental sequence.",
+      "evidence_type": "static",
+      "suggested_fix": "Define an experiment harness that loads each arm's actual capability files and reproduces its native design-generation inputs and output before implementation. Alternatively narrow the measured claim to appended instructions and separately evaluate the omitted Phase A changes.",
+      "ac_ids": [
+        "PLAN §6 Phase A rows 2–4",
+        "PLAN §7.1",
+        "A-PLAN §2"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-003",
+      "severity": "medium",
+      "category": "defect/measurement",
+      "path": ".sdle/implementation-state/ui-quality/PLAN.md",
+      "line": 337,
+      "claim": "The protocol leaves material experimental inputs and unsuccessful outputs undefined, allowing apparent visual gains through unequal runs or selective capture.",
+      "evidence": "PLAN.md:337 requires three runs per arm and :339 randomizes screenshot presentation, but does not prescribe run-order randomization, model/version/settings, independent reset commits or treatment of failed renders. PLAN.md:234 uses '2 of 3 paired runs' without defining pairing. The fixed requirement and equal screenshot data at :328,338 do not control these generation inputs or specify that every attempted run contributes to the result.",
+      "evidence_type": "static",
+      "suggested_fix": "Predeclare arm input manifests, model/settings, fresh-copy reset commit, randomized execution order and pairing. Count every attempted run, assign a declared failure outcome to non-rendering results, and define the rating aggregation before viewing results.",
+      "ac_ids": [
+        "PLAN §6 Phase A rows 4 and 9",
+        "PLAN §7.2",
+        "PLAN §9 T"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-004",
+      "severity": "medium",
+      "category": "defect/compatibility",
+      "path": ".sdle/implementation-state/ui-quality/PLAN.md",
+      "line": 231,
+      "claim": "The unconditional in-flight compatibility claim overlooks that installed prompt files can be part of the implementation evidence fingerprint.",
+      "evidence": "PLAN.md:231 says in-flight WorkItems pick up guidance and 'no drift is caused'. compute_drift at scripts/sdle.py:13203–13224 hashes gate artifacts, but tree_digest at :18824–18846 hashes every tracked and nonignored file except implementation_exclusions. That exclusion list at :18642–18653 does not exclude .claude prompt files. At :17157–17164, a changed tree causes test_evidence_stale. Thus updating tracked installed skills after manifest build can invalidate an in-flight implementation's evidence.",
+      "evidence_type": "static",
+      "suggested_fix": "Distinguish gate-artifact drift from implementation evidence staleness. Document that updating installed prompts during an implementation may require rebuilding the manifest and tests, and recommend updating between WorkItems or before implementation evidence is captured.",
+      "ac_ids": [
+        "PLAN §6 Phase A row 6",
+        "PLAN §8 Compatibility",
+        "A-PLAN §5"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-005",
+      "severity": "medium",
+      "category": "defect/review-protocol",
+      "path": ".sdle/implementation-state/ui-quality/PLAN.md",
+      "line": 174,
+      "claim": "Coverage gaps in round 1 can escape the unresolved-items rule when round 2 is not triggered.",
+      "evidence": "PLAN.md:162 triggers round 2 only for an accepted defect or a rejection. Its unresolved rule at :174 names coverage gaps 'in round 2' only. The reused runner at codexrun_stage2.py:65–66 rejects incomplete coverage only when findings is empty; :126–129 records PASS for schema-valid output containing findings and unreviewed areas. A round containing only accepted improvements and a coverage gap can therefore skip round 2 and leave no required Owner-attention row.",
+      "evidence_type": "static",
+      "suggested_fix": "Apply the coverage-gap rule to every review round and explicitly state that runner PASS means valid review output, not complete coverage or approval. Require the gap to be reviewed in the remaining round or escalated to the owner.",
+      "ac_ids": [
+        "PLAN §5.1",
+        "PLAN §5.2",
+        "PLAN §5.3",
+        "PLAN §10"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "PR-R1-006",
+      "severity": "medium",
+      "category": "defect/checkpoint",
+      "path": ".sdle/implementation-state/ui-quality/PLAN.md",
+      "line": 425,
+      "claim": "The checkpoint procedure asks a committed file to contain its own commit SHA, leaving the authoritative checkpoint ambiguous.",
+      "evidence": "PLAN.md:425 requires PROGRESS.md to record 'the commit SHA of the checkpoint'; :434 then says 'Commit it ... and push'. Section 5.1:166 likewise says update PROGRESS.md with the commit SHA and then commit. The SHA of that resulting commit cannot be known before its contents are committed; inserting it afterwards produces another commit. The resume checks at :443–445 accept any ancestor, so recording the preceding implementation commit silently omits the status-record commit from the purported checkpoint.",
+      "evidence_type": "static",
+      "suggested_fix": "Define a two-commit checkpoint: first commit the reviewed implementation, then commit PROGRESS.md referencing that implementation SHA and separately record or verify the pushed record commit. State which SHA is authoritative for review, resume and durability.",
+      "ac_ids": [
+        "PLAN §5.1 step 8",
+        "PLAN §6 Phase A rows 7–8",
+        "PLAN §10"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

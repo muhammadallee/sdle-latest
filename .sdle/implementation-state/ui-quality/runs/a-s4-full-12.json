@@ -1,0 +1,9 @@
+{
+ "label": "a-s4-full-12",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_refinement_commands.py",
+ "exit_code": 0,
+ "summary": "89 passed in 122.38s (0:02:02)",
+ "seconds": 132.6,
+ "finished": "2026-10-10T14:04:51Z",
+ "result": "PASS"
+}

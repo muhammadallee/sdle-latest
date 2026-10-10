@@ -1,0 +1,33 @@
+{
+  "reviewed_commit": "540f17564f902a5397407bda90e8312e233d09da",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants and complete git diff a1feffa..HEAD",
+      "Phase A contract, A-PLAN, PLAN amendments, LEDGER and PROGRESS",
+      "Guideline ownership, applicability, preview safety and conventions",
+      "Edited phase prompts, design-review instructions and flow dependencies",
+      "Capability mapping, documentation synchronization and changed test pins",
+      "Executed lint-skill successfully"
+    ],
+    "areas_not_reviewed": [
+      "Live SpecKit generation to verify appended instructions survive into generated artifacts",
+      "Pilot rendering and A-measure outcomes",
+      "Independent rerun of the full pytest suite; author-provided evidence was used"
+    ]
+  },
+  "findings": [
+    {
+      "id": "IR-R1-001",
+      "severity": "medium",
+      "category": "defect/prompt-order",
+      "path": ".claude/skills/sdle/modules/phase-execution.md",
+      "line": 104,
+      "claim": "The specification UI arguments are appended after the specification invocation has already completed, so following the phase instructions in order omits Phase A's UI instruction from that invocation.",
+      "evidence": "The ordered bullets first say \"Invoke `speckit-specify` using the Skill tool\", then \"Feature-Directory Resolution (MANDATORY after spec runs)\", and only afterwards say \"User-visible work: ... also append\". PLAN.md §6 row 3a requires the UI-scenario instruction \"next to the source-id instruction\", which is inside the invocation bullet.",
+      "evidence_type": "static",
+      "suggested_fix": "Move the conditional UI append instruction into the specification invocation bullet, alongside the guidance and source-requirement arguments, before feature resolution.",
+      "ac_ids": [],
+      "confidence": "high"
+    }
+  ]
+}

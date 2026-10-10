@@ -1,0 +1,9 @@
+{
+ "label": "a-s1-full-3",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_workitem_resolution.py tests/test_units_startup_contract.py tests/test_dry_run_contracts.py tests/test_units_stage4_fixes.py tests/test_units_refinement_lock.py",
+ "exit_code": 0,
+ "summary": "380 passed in 179.72s (0:02:59)",
+ "seconds": 194.3,
+ "finished": "2026-10-10T12:34:13Z",
+ "result": "PASS"
+}
