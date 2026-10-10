@@ -21,3 +21,17 @@ Phase A-build: step 1 (phase plan, record-directory pin, PROGRESS.md) in progres
 ## Codex runs and dispositions
 | Run | Kind | Reviewed commit | Result | Findings |
 |---|---|---|---|---|
+
+## Codex plan review, A round 1
+Run `20261010T125932-stage2-codex-A-plan-r1` (codex-cli 0.160.1, reviewed `85d6d4b`, read-only frozen worktree, privacy check clean). Result PASS; 6 findings, all confirmed against the source and **accepted**; none rejected. Not reviewed by Codex: phases B/C/D/E/M designs, reproduction of historical probes and the baseline, external Spec Kit runs, the full suite.
+
+| Id | Sev | Disposition |
+|---|---|---|
+| PR-R1-001 | medium | accepted: A-PLAN §1 now says which values are `3cd3b19` state and that the pins landed in `7c21840` |
+| PR-R1-002 | high | accepted: PLAN amendment. Experiments do not reproduce the guideline or native design phase. **Owner attention OA-1** (choice at A-measure) |
+| PR-R1-003 | medium | accepted: PLAN amendment, manifest of inputs before A-measure. **Owner attention OA-2** |
+| PR-R1-004 | medium | accepted, verified in source (`implementation_exclusions` at `sdle.py:18642-18651` omits `.claude/`; `test_evidence_stale` at `:17157`): PLAN amendment; documentation states it |
+| PR-R1-005 | medium | accepted: PLAN amendment |
+| PR-R1-006 | medium | accepted: PLAN amendment, two-commit checkpoint |
+
+Round 2 is triggered (accepted defects).

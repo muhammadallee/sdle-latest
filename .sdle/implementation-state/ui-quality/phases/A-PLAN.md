@@ -7,6 +7,8 @@
 
 ## 1. Reference re-verification against HEAD `3cd3b19`
 
+The "found" column is the state **at `3cd3b19`**. Items marked as pins (`MAINTENANCE_RECORDS`, `test_units_capabilities.py`) were changed by commit `7c21840`, which precedes the review, so at the reviewed commit they read five, not four (PR-R1-001).
+
 Every Phase A reference in PLAN.md §6 was opened and read at HEAD. All hold; function names and headings are the anchors.
 
 | PLAN.md reference | Found at HEAD | Result |
@@ -65,6 +67,10 @@ PLAN.md marks the change optional. The agent's contract is "answer every check y
 ## 4. Verification
 
 `python scripts/sdle.py lint-skill`; targeted: `tests/test_units_capabilities.py`, `test_units_install_contract.py`, `test_units_gate_policy.py`, `test_lint_skill.py`, `test_units_doc_links.py`; then the **full suite in the foreground**. The baseline is R2 of PLAN.md (4190 passed, 24 skipped, ~9.5 min on Linux); this machine is Windows and the repository notes ~38 minutes, so counts are compared on counts, not duration.
+
+## 4a. Review amendments
+
+PLAN.md's "Amendments from the A-build plan review, round 1" section governs. The one that touches this phase's text: guidance is advisory prompt content, and updating installed prompt files during an implementation can make test evidence stale (PR-R1-004), so Phase A's documentation states that rather than "no drift".
 
 ## 5. Rollback
 

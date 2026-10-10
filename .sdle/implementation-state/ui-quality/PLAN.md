@@ -651,3 +651,17 @@ Rules:
 
 - Spec Kit v1.0.6 [specify command](https://raw.githubusercontent.com/github/spec-kit/v1.0.6/templates/commands/specify.md) · [spec template](https://raw.githubusercontent.com/github/spec-kit/v1.0.6/templates/spec-template.md) · [plan template](https://raw.githubusercontent.com/github/spec-kit/v1.0.6/templates/plan-template.md)
 - [Playwright — visual comparisons](https://playwright.dev/docs/test-snapshots) · [Playwright — ARIA snapshots](https://playwright.dev/docs/aria-snapshots)
+
+---
+
+## Amendments from the A-build plan review, round 1 (10 Oct 2026)
+
+v2.2's text above is left as written; where an amendment conflicts with it, **the amendment governs**. Source: Codex run `20261010T125932-stage2-codex-A-plan-r1` on commit `85d6d4b`; dispositions in `LEDGER.md`.
+
+| Id | Amends | Rule |
+|---|---|---|
+| PR-R1-002 | §7.1, §6 A row 4 | An isolated experiment as defined in §7.1 reproduces only the **appended arguments** of the Spec Kit commands. It does not load `CAPABILITY_MAP` guidelines and does not run the SDLE-native `design_generation` phase, whose changes Phase A also makes. So the experiment measures the effect of the appended UI instructions, not of "SDLE + A". A-measure must therefore either (a) use a harness that loads each arm's actual capability files and produces `app-design.md` before `implement`, or (b) state the narrower claim and evaluate the native-design changes separately (the one full SDLE run covers them, reported separately). The owner chooses at A-measure; until then no visual claim is made for the guideline or design-section changes |
+| PR-R1-003 | §7.2, §6 A row 9 | Before any A-measure run, a manifest is written and committed: model and settings, the fresh-copy reset commit per run, the **randomised** run order, what "paired run" means (run *k* of each arm, same screen), every attempted run counted, a declared outcome for a run that does not render (rated 1 on every criterion, and listed), and the rating aggregation (per-rater mean, then mean of raters, rater disagreement reported) |
+| PR-R1-004 | §6 A row 6, §8 | The claim "no drift is caused" is true only for **gate-artifact drift**. The implementation evidence's tree digest covers every tracked, non-ignored file outside the engine's exclusion list, which does not exclude `.claude/`. A target project that tracks its installed skill files and updates them **after** `manifest build` and before the gate sees `test_evidence_stale` and must rebuild the manifest and tests. Guidance: update the installed SDLE files between WorkItems, or before implementation evidence is built |
+| PR-R1-005 | §5.2 | The coverage-gap rule applies to **every** round, not only round 2. A runner `PASS` means schema-valid output, not complete coverage or approval. A round whose `areas_not_reviewed` names an area the phase depends on is either covered by the remaining round or recorded in the Owner-attention table |
+| PR-R1-006 | §5.1 step 8, §10 | A file cannot contain the SHA of the commit that contains it. The checkpoint is two commits: the reviewed implementation commit, then a record commit that updates `PROGRESS.md`. **`PROGRESS.md` records the implementation commit's SHA, and that SHA is the checkpoint**; the record commit is its descendant, and the resume runbook's ancestor test is run against the implementation SHA. The push is of both |

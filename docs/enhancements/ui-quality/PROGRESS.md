@@ -19,7 +19,9 @@ Open rows make a phase `awaiting owner`, never `complete`.
 
 | Id | Source | What is unresolved | Why | Options | Recommendation | Blocks merge? |
 |---|---|---|---|---|---|---|
-| — | — | none recorded yet | — | — | — | — |
+| OA-1 | Codex PR-R1-002 | The isolated experiments do not run the guideline files or the native design phase, so they cannot attribute a rating difference to Phase A as shipped | the experiment applies only appended arguments | (a) a harness that loads each arm's capability files and builds `app-design.md`; (b) narrow the claim and rely on the one full run for the design changes | (a) | no (A-build); yes for any visual claim |
+| OA-2 | Codex PR-R1-003 | A-measure inputs (model/settings, order, pairing, failure handling, aggregation) are undeclared | plan text leaves them open | commit an input manifest before running | declare before the first run | no (A-build) |
+| OA-3 | process | The full suite was run in sharded calls (10-minute foreground cap) and shards 7-17 were deferred to step 4 | cap and a memory reap | none needed once step 4 runs all 18 | — | no |
 
 ## Open decisions
 
