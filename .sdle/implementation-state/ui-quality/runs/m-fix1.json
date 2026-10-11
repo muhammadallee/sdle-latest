@@ -1,0 +1,9 @@
+{
+ "label": "m-fix1",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_loop.py -k m1 or m2",
+ "exit_code": 0,
+ "summary": "8 passed, 49 deselected in 91.64s (0:01:31)",
+ "seconds": 96.0,
+ "finished": "2026-10-11T20:24:03Z",
+ "result": "PASS"
+}

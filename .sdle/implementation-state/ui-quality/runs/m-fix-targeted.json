@@ -1,0 +1,9 @@
+{
+ "label": "m-fix-targeted",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_loop.py tests/test_units_artifact_review.py tests/test_units_review_types.py tests/test_units_invariants.py tests/test_dry_run_contracts.py tests/test_lint_skill.py tests/test_units_gate_policy.py",
+ "exit_code": 0,
+ "summary": "802 passed, 1 skipped in 1037.89s (0:17:17)",
+ "seconds": 1040.5,
+ "finished": "2026-10-11T20:41:34Z",
+ "result": "PASS"
+}
