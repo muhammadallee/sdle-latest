@@ -43,3 +43,26 @@ The R7 probe re-run shows the blocker counted after a later non-code-review reco
 ## 6. Rollback
 
 `git revert` of the phase range. An in-flight loop's next review step must add `--findings` (documented in troubleshooting). Reviews recorded earlier remain valid as history.
+
+## 7. Review round 1 (Codex `MP-R1-001..003`, run `20261011T182531-stage2-codex-M-plan-r1`, reviewed `7571ef6`): all accepted
+
+Where this section conflicts with §1–§6, **this section governs**.
+
+### M1 amended — the helper must not fail open (MP-R1-001)
+`_blocking_finding_fingerprints` returns `[]` on a missing or unreadable evidence file, so deleting or corrupting that file erases every blocker from the progress digest. The type filter alone does not repair that. The helper now:
+1. selects the newest **`code-review`** record of the path (as M1);
+2. reads its evidence and **refuses** `review_evidence_invalid` (integrity failure) when the file is missing, is not JSON, or does not correspond to the ledger record: the embedded record's path, sha, review type and result, and the findings counts, must equal the ledger's;
+3. never returns an empty set as a stand-in for "could not read".
+Its callers are `_loop_progress` and the loop's gate summary (`loop show`); both inherit the refusal. **Stated boundary:** the evidence file is not hash-chained, so an edit that leaves it valid and consistent with the ledger is not detected by this change; that is the existing limit of review evidence and is documented, not claimed fixed.
+
+### M2 amended — iterations already past an unstructured review (MP-R1-002)
+The step-time refusal protects only iterations that reach the review step after the change. An iteration whose review step was already recorded without findings would otherwise close. So:
+1. `loop step --step review` refuses `loop_review_unstructured` (as M2);
+2. `loop record` refuses `loop_review_unstructured` when the open iteration's recorded review step carries no findings summary;
+3. the engine-supported recovery is `loop stop` followed by `loop begin`; no hand edit of a runtime record is prescribed. An empty `--findings` list is structured and passes.
+
+### M3 amended — one rule for the waiver (MP-R1-003)
+The plan's own contract (PLAN Appendix C: a waiver requires a review recorded with `--actor-type human`) is the rule. `cmd_artifact_review` refuses `review_waiver_requires_human` when **any actor type other than `human`** records a finding that is `blocking` and `accepted`, in **any review type**, with **either result**, and does so **before** `reserve_evidence` creates the placeholder. The self-declaration limit (ADR-007 §3) is stated in the refusal text, the troubleshooting entry and the ADR note: it stops silent waivers by every non-human actor type; `--actor-type human` is a convention, not proof.
+
+### Tests added by the amendments
+Evidence missing; evidence malformed; evidence inconsistent with the ledger; a later non-code-review record does not hide the blocker; an iteration already past an unstructured review cannot be recorded and `loop stop` then `loop begin` works; all five actor types x PASS and FAIL for the waiver; the refusal writes nothing (no placeholder evidence file, no ledger change).

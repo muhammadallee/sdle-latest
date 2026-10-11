@@ -77,3 +77,14 @@ Built on `863bcfb` before its plan review (OA-7). One combined Codex review plus
 
 ## Phase B narrow measurement (11 Oct 2026)
 Two screens, seven seeded defects, checks written from the requirements. First pass 2 of 5 valid mutations detected (two mutations did not compile); checks then repaired three times against the same mutations (shell-level overflow, URL assertion, empty-state pattern, shell width bound) to 7 of 7, with 6 of 6 clean runs green. Reported as optimistic. Scaffolding in `ui-quality-pilot/support/b-measure` (outside the repository). Not done: accessibility and overlap classes; harness through a full SDLE run.
+
+## Phase M (11 Oct 2026)
+Phase plan `phases/M-PLAN.md` at `4d7d1ea`. Codex plan review round 1 (`20261011T182531-stage2-codex-M-plan-r1`, reviewed `7571ef6`, read-only, privacy check clean): PASS, 3 findings, all accepted and folded into M-PLAN section 7 as design amendments.
+
+| Id | Sev | Disposition |
+|---|---|---|
+| MP-R1-001 | medium | accepted: `_blocking_finding_fingerprints` must not return `[]` on unreadable or inconsistent evidence; refuse `review_evidence_invalid`; the unhashed-evidence boundary is documented |
+| MP-R1-002 | medium | accepted: `loop record` also refuses an iteration whose review step is unstructured; recovery is `loop stop` then `loop begin` |
+| MP-R1-003 | medium | accepted: one rule, every actor type except `human`, any review type, either result, before `reserve_evidence` |
+
+Round 2 is triggered (accepted defects).
