@@ -91,3 +91,8 @@ Round 2 is triggered (accepted defects).
 
 ### Codex plan review, M round 2: BLOCKED (11 Oct 2026)
 Run `*-stage2-codex-M-plan-r2` (codex-cli 0.160.1, reviewed `f67cf93`, read-only, privacy check clean). Two attempts, both exit 0 with schema-shaped output, both refused by the runner's rule "empty findings with unreviewed areas: the review is incomplete". Substance of both attempts: **zero findings**. Not reached by Codex: running tests and lint, any implementation (none exists), unrelated subsystems. No third run and no substitute reviewer. Raised as **OA-9**; the engine implementation waits for the owner's answer.
+
+### Phase M implementation (11 Oct 2026)
+Engine change in `scripts/sdle.py` (the first of this enhancement), tests, prompts, docs. Tests: full suite 18 shards **4236 passed, 3 skipped** (`m-full-*`); after round 1: 802 passed, 1 skipped over the loop, artifact-review, review-types, invariants, dry-run, lint and gate-policy files (`m-fix-targeted`).
+- Codex implementation round 1 (reviewed `5edc8f9`): PASS, 1 finding **MI-R1-001** (malformed finding fields with unchanged counts raised an unhandled `TypeError` out of `_blocking_finding_fingerprints`): accepted, fixed in `9c044ec` with two tests.
+- Codex implementation round 2 (reviewed `cd53e31`): **BLOCKED**, both attempts zero findings, refused by the runner's coverage rule (running tests, command-level no-write tests, unrelated engine behaviour not reached). Not retried, no substitute. Raised as **OA-10**.

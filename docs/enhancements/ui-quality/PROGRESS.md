@@ -12,7 +12,8 @@ authority for a checkpoint**, never a tag.
 | A-build | awaiting owner | `d915eb6` (last implementation commit; the record commit that adds this row is its descendant) | built, unmeasured. Open: OA-1, OA-2 (both concern A-measure) and OA-3; OA-4 resolved by the owner |
 | A-measure | not started | — | needs decision D4 (pilot app) |
 | B | built, unmeasured; awaiting owner | see Checkpoints | prompt, guideline, example and test pins; no engine change; narrow seeded-defect measurement done (see Phase B measurement); full-run acceptance not done (OA-7, OA-8) |
-| M, C, D, E | not started | — | each starts only at the owner's request |
+| M | built and tested; awaiting owner (OA-10) | see Checkpoints | engine change: progress digest reads only code reviews and refuses bad evidence; loop needs structured findings; a waiver needs a human actor type |
+| C, D, E | not started | — | each starts only at the owner's request |
 
 ## Owner attention
 
@@ -27,7 +28,8 @@ Open rows make a phase `awaiting owner`, never `complete`.
 | OA-6 | A-measure ratings | Both rating sets were produced by a model (Codex) given the rubric, not by two human blind raters, and they are near-identical (mean packet disagreement 0.01, max 0.25); S3 got the same 3.75 in all six packets | same model and prompt, so not independent; S3 shows no discrimination | add a human rater, or treat the result as one AI judgement | add a human rater | no |
 | OA-7 | Phase B protocol | B was built before its phase plan and Codex plan review (PLAN §5.1 order); the plan and the implementation review were merged into one round | built on the owner's "go ahead" without the plan step | accept; or ask for a second, independent plan review of B-PLAN.md | accept: the combined round found five defects, all fixed | no |
 | OA-8 | Phase B acceptance | PLAN row 4 partly done: narrow measurement on two screens (below). Not done: an accessibility and an overlap defect class, and the harness inside a full SDLE run through `manifest build` and the gate | the pilot's implementations have no browser checks written; a full run needs the owner at the gates | write checks for the 18 pilot implementations and inject the defects; or accept B as an example plus pins | decide with the owner whether the measurement is worth its cost | no |
-| OA-9 | Codex run `*-M-plan-r2` | Phase M plan review round 2 is recorded BLOCKED although both attempts returned zero findings | same runner rule as OA-4: an empty findings list with non-empty `areas_not_reviewed` is rejected, and a read-only sandbox can never run the suite | (a) accept the zero-finding result with the unreviewed areas listed, as for OA-4; (b) a third run with those areas declared out of scope; (c) another reviewer, labelled "not Codex" | (a), and a standing rule that a zero-finding, coverage-gap-only result counts as completed with the gaps listed | blocks starting the engine change for Phase M |
+| OA-9 | **RESOLVED 11 Oct 2026: owner chose (a)** for this run. Codex run `*-M-plan-r2` | Phase M plan review round 2 is recorded BLOCKED although both attempts returned zero findings | same runner rule as OA-4: an empty findings list with non-empty `areas_not_reviewed` is rejected, and a read-only sandbox can never run the suite | (a) accept the zero-finding result with the unreviewed areas listed, as for OA-4; (b) a third run with those areas declared out of scope; (c) another reviewer, labelled "not Codex" | (a), and a standing rule that a zero-finding, coverage-gap-only result counts as completed with the gaps listed | blocks starting the engine change for Phase M |
+| OA-10 | Codex run `*-M-impl-r2` | Phase M implementation review round 2 recorded BLOCKED with zero findings, for the third time (OA-4, OA-9) | the runner rejects an empty findings list with non-empty `areas_not_reviewed`, and a read-only sandbox can never run the suite | (a) accept it for this run; (b) a standing rule: a zero-finding result that fails only that coverage rule counts as completed with its gaps listed; (c) change the runner to treat declared gaps as a pass | (b), recorded in the ledger so each case is still visible | no, if (a) or (b) |
 | OA-3 | process | The full suite was run in sharded calls (10-minute foreground cap) and shards 7-17 were deferred to step 4 | cap and a memory reap | none needed once step 4 runs all 18 | — | no |
 
 ## Open decisions
@@ -132,3 +134,13 @@ Scope: two generated screens from the A-measure runs (S1 `enhanced-S1-6` overvie
 **Read this carefully.** The 7 of 7 is **optimistic**: the checks were corrected after seeing which mutations they missed, on the same mutations. The honest figure for checks written from requirements is the first pass, and what it shows is that browser checks catch a defect only if the check measures the right thing: the failures were all in the checks, not in the harness. Not covered: an accessibility defect class, overlap (PLAN named five classes; seven mutations over four), the harness inside a full SDLE run through `manifest build` and the gate. One app, one stack, Windows. The checks were written by me, not by the generator.
 
 PLAN §6 Phase B row 9 target (at least 4 of 5 seeded defect classes detected, no flaky reruns, fits the timeout): numerically met on the repaired checks (4 classes, 0 flaky of 6 clean runs, within the timeout), with the caveat above; **not** a claim that SDLE-generated tests would catch them.
+
+### Phase M checkpoint (11 Oct 2026)
+
+Base `4d7d1ea`. Implementation commits: `b51a6c7` (engine, tests, prompts, docs) and `9c044ec` (review round 1 fix); **`9c044ec` is the checkpoint**. `scripts/sdle.py` changed in three places and nowhere else: `_blocking_finding_fingerprints` (code reviews only; unreadable, inconsistent or malformed evidence is `review_evidence_invalid`, exit 3), `loop step --step review` and `loop record` (`loop_review_unstructured`), `artifact review` (`review_waiver_requires_human`, before anything is written). Hooks unchanged.
+
+Tests: 4236 passed, 3 skipped over the full suite before the round 1 fix; 802 passed, 1 skipped over the affected files after it. Codex: plan review round 1 three findings (all accepted, design amended), plan round 2 BLOCKED zero findings (OA-9); implementation round 1 one finding fixed, round 2 BLOCKED zero findings (OA-10).
+
+Stated limit: the review evidence file is not hash-chained, so an edit that leaves it valid and consistent with the ledger is not detected; the actor type of a waiver is self-declared, so the rule stops silent waivers and does not prove who decided.
+
+**Prerequisite for Phase C:** A, B and M released (this is the third). C also needs its own task-0 experiment (can the read-only reviewer see a PNG) and the owner's decision.
