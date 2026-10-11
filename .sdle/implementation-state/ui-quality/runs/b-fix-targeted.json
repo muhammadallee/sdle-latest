@@ -1,0 +1,9 @@
+{
+ "label": "b-fix-targeted",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_capabilities.py tests/test_lint_skill.py tests/test_units_shipped_surface.py tests/test_units_documented_commands.py tests/test_units_install_contract.py tests/test_dry_run_contracts.py tests/test_units_doc_links.py tests/test_units_tree_digest.py tests/test_units_implementation_evidence.py tests/test_units_gate_policy.py",
+ "exit_code": 0,
+ "summary": "2091 passed in 763.70s (0:12:43)",
+ "seconds": 766.9,
+ "finished": "2026-10-11T16:31:03Z",
+ "result": "PASS"
+}
