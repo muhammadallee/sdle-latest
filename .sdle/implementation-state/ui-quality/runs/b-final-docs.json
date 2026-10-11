@@ -1,0 +1,9 @@
+{
+ "label": "b-final-docs",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_doc_links.py tests/test_units_documented_commands.py tests/test_units_install_contract.py",
+ "exit_code": 0,
+ "summary": "1168 passed in 31.37s",
+ "seconds": 49.9,
+ "finished": "2026-10-11T16:35:34Z",
+ "result": "PASS"
+}

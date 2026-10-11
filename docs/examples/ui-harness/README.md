@@ -20,7 +20,7 @@ SDLE runs one test command at the manifest build and records its exit code and a
 | All checks pass | exit 0; one merged JUnit report at `junitPath`; screenshots under `outputDir/artifacts` |
 | A check or the unit command fails | exit 1, with the failing case in the merged report |
 
-The report from an earlier run is deleted first, so it can never stand in for the current one. `unitCommand` (an array: program and arguments) and `unitJunitPath` in the config are optional: when set, the unit suite runs first, both always run, and the two reports are merged into one.
+The report from an earlier run is deleted first, so it can never stand in for the current one. `unitCommand` (an array: program and arguments) is optional; when set, `unitJunitPath` is required. The unit suite runs first, both suites always run, and the two reports are merged into one. A suite that writes no report with test cases is itself a failure: the merged report gets an errored case named `harness completeness` and the exit is 1.
 
 The engine records 78 as a failed run with that exit code and the gate refuses it; telling an environment failure from a defect is the orchestrator's convention, not an engine classification.
 

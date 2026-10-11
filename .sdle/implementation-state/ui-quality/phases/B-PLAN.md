@@ -45,3 +45,8 @@ The go/no-go (PLAN row 9: at least 4 of 5 seeded defect classes detected, no fla
 
 ## 5. Rollback
 `git revert` of the phase range. Nothing persisted in a new format; the example is a folder.
+
+## 4b. Review round 2 (Codex, reviewed `f0326a1`; `BR-R2-001`, `BR-R2-002`, both accepted and fixed)
+- **BR-R2-001** a unit command that exited 0 without a report was silently dropped from the merge: a suite with no report containing test cases is now an errored `harness completeness` case and exit 1; `unitJunitPath` is required with `unitCommand`.
+- **BR-R2-002** the browser report was not deleted at start, so a failed browser run could leak old cases: it is deleted at start and a missing or empty browser report is an error case.
+- Verified by executed re-runs on the pilot (pass 0 with 3 cases; no unit report 1; unitCommand without path 1; stale browser report not leaked, exit 1), **not** by a third Codex round (none is allowed). No remaining open finding.

@@ -67,3 +67,10 @@ Substance of both attempts (`runs/*A-impl-r2.a1.review.json`, `.a2.review.json`)
 Disposition: **not substituted and not retried a third time** (PLAN §5.1: no round 3; the brief: a run that fails twice is recorded and stopped for the owner). Raised as **OA-4**.
 
 **OA-4 resolved (owner, 10 Oct 2026): option (a).** The zero-finding substance of the two round-2 attempts is accepted as the round-2 result; the run stays recorded BLOCKED by the runner's rule, with the unreviewed areas above. No third run.
+
+## Phase B (11 Oct 2026)
+Built on `863bcfb` before its plan review (OA-7). One combined Codex review plus round 2 (codex-cli 0.160.1, read-only frozen worktrees, privacy check clean each time).
+- Round 1 (`8e9bf83`): PASS, 5 findings BR-R1-001..005, all accepted and fixed in `8135b29`.
+- Round 2 (`f0326a1`): PASS, 2 findings BR-R2-001..002 (example harness completeness and stale report), both accepted; fixed and verified by executed runs. No round 3.
+- Tests: full suite 4218 passed, 3 skipped (`b-full-*`); after round 1 fixes 2091 passed over 10 affected files (`b-fix-targeted`); the three pin groups `-k test_b` 5 passed.
+- Not done (OA-8): seeded-defect detection, five clean reruns, harness inside a full SDLE run.

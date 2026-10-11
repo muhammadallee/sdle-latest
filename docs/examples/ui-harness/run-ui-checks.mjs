@@ -26,9 +26,12 @@ const {
 
 const escapeXml = (text) => String(text).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
 const report = resolve(junitPath);
+const browserReport = resolve(outputDir, 'browser-junit.xml');
 mkdirSync(dirname(report), { recursive: true });
 mkdirSync(resolve(outputDir), { recursive: true });
+// nothing from an earlier run may stand in for this one
 rmSync(report, { force: true });
+rmSync(browserReport, { force: true });
 if (unitJunitPath) rmSync(resolve(unitJunitPath), { force: true });
 
 function notReady(reason) {
@@ -60,12 +63,21 @@ try {
 
 // 2. the project's unit command, if any, then the browser checks. Both always run, so one report shows both.
 let failed = false;
+const harnessErrors = [];
+const hasCases = (file) => Boolean(file) && existsSync(file) && /<testcase[\s>]/.test(readFileSync(file, 'utf8'));
+if (unitCommand && !unitJunitPath) {
+  harnessErrors.push('unitCommand is configured without unitJunitPath, so its result could not be reported');
+  failed = true;
+}
 if (unitCommand) {
   const [program, ...args] = unitCommand;
   const unit = spawnSync(program, args, { stdio: 'inherit', timeout: timeoutMs });
   if (unit.status !== 0) failed = true;
+  if (unitJunitPath && !hasCases(resolve(unitJunitPath))) {
+    harnessErrors.push('the unit command wrote no report with test cases');
+    failed = true;
+  }
 }
-const browserReport = resolve(outputDir, 'browser-junit.xml');
 const cli = require.resolve('@playwright/test/cli');
 const run = spawnSync(process.execPath,
   [cli, 'test', specDir, '--reporter=junit', `--output=${resolve(outputDir, 'artifacts')}`, `--browser=${browser}`], {
@@ -75,6 +87,10 @@ const run = spawnSync(process.execPath,
            UI_ARTIFACT_DIR: resolve(outputDir, 'artifacts') },
   });
 if (run.status !== 0) failed = true;
+if (!hasCases(browserReport)) {
+  harnessErrors.push('the browser run wrote no report with test cases');
+  failed = true;
+}
 
 // 3. one merged report: every <testsuite> from each source, kept as it was written.
 const suites = [];
@@ -82,6 +98,10 @@ for (const source of [unitJunitPath && resolve(unitJunitPath), browserReport]) {
   if (source && existsSync(source)) {
     suites.push(...(readFileSync(source, 'utf8').match(/<testsuite[\s>][\s\S]*?<\/testsuite>/g) ?? []));
   }
+}
+for (const reason of harnessErrors) {
+  suites.push('<testsuite name="ui-harness" tests="1" errors="1"><testcase name="harness completeness" ' +
+    `classname="ui-harness"><error message="${escapeXml(reason)}"/></testcase></testsuite>`);
 }
 if (suites.length === 0) failed = true;
 writeFileSync(report,
