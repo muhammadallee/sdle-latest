@@ -1,0 +1,8 @@
+{
+  "baseUrl": "http://localhost:4200",
+  "specDir": "ui-checks",
+  "junitPath": "ui-test-output/junit.xml",
+  "outputDir": "ui-test-output/artifacts",
+  "browser": "chromium",
+  "timeoutMs": 120000
+}

@@ -237,3 +237,64 @@ def test_an_edit_inside_a_nested_repository_moves_the_digest(git_project):
     assert any(name.startswith("vendor-lib/") for name in base["entries"])
     (sub / "lib.py").write_text("x = 2\n", encoding="utf-8")
     assert digest_of(git_project)["digest"] != base["digest"]
+
+
+# ---- UI browser checks (ui-quality Phase B): existing behaviour, pinned -----
+#
+# A project's browser harness is just a `--test-command` that writes a JUnit
+# report and some screenshots. Nothing in the engine is UI-specific; these
+# three tests pin the properties the harness contract in
+# `guidelines/ui-design.md` relies on, with a Python stand-in for the harness.
+
+STAND_IN_SCRIPT = (
+    "import pathlib\n"
+    "pathlib.Path('ui-out').mkdir(exist_ok=True)\n"
+    "pathlib.Path('test-results').mkdir(exist_ok=True)\n"
+    "pathlib.Path('test-results/shot.png').write_bytes(b'fake png')\n"
+    "pathlib.Path('ui-out/junit.xml').write_text('<testsuite tests=\"1\"><testcase name=\"UI-HOME-1 desktop loaded\"/></testsuite>', encoding='utf-8')\n")
+STAND_IN_WRITES_REPORT_AND_SCREENSHOT = _command_line(
+    [sys.executable, "ui_stand_in.py"])
+
+
+def test_b1_a_harness_that_writes_into_ignored_paths_gives_valid_evidence(
+        git_project):
+    """The harness contract: reports and screenshots go to ignored paths."""
+    ready(git_project, **{"app.py": "print('v1')\n",
+                          "ui_stand_in.py": STAND_IN_SCRIPT})
+    (git_project.root / ".gitignore").write_text(
+        ".sdle/\nui-out/\ntest-results/\n", encoding="utf-8")
+    built = to_gate(git_project, "--test-command",
+                    STAND_IN_WRITES_REPORT_AND_SCREENSHOT,
+                    "--junit", "ui-out/junit.xml")
+    evidence = evidence_of(git_project, built)
+    assert evidence["evidenceStatus"] == "valid"
+    assert (git_project.root / "test-results" / "shot.png").is_file()
+    assert approve(git_project).exit_code == EXIT_OK
+
+
+def test_b2_an_environment_failure_exit_code_is_recorded_and_refused(
+        git_project):
+    """Exit 78 is a convention for the orchestrator, not an engine class:
+    the engine records FAILED with the code, and the gate refuses it."""
+    ready(git_project, **{"app.py": "print('v1')\n"})
+    built = to_gate(git_project, "--test-command", _command_line(
+        [sys.executable, "-c", "raise SystemExit(78)"]))
+    assert built.data["tests"]["status"] == "FAILED"
+    assert built.data["tests"]["exit_code"] == 78
+    result = approve(git_project)
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "tests_not_passed"
+    assert result.data["exit_code"] == 78
+
+
+def test_b3_screenshots_in_an_unignored_folder_invalidate_the_evidence(
+        git_project):
+    """Why the contract says to ignore test output: a report left in the
+    working tree is a change to the tree the evidence was taken from."""
+    ready(git_project, **{"app.py": "print('v1')\n",
+                          "ui_stand_in.py": STAND_IN_SCRIPT})
+    built = to_gate(git_project, "--test-command",
+                    STAND_IN_WRITES_REPORT_AND_SCREENSHOT)
+    assert evidence_of(git_project, built)["evidenceStatus"] == (
+        "invalid_changed_during_run")
+    assert approve(git_project).exit_code == EXIT_REFUSED
