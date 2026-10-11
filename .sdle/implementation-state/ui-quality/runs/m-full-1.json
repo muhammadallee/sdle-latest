@@ -1,0 +1,9 @@
+{
+ "label": "m-full-1",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_flow_model.py tests/test_units_state.py tests/test_units_gate_artifacts.py tests/test_units_rollback_completed.py tests/test_units_policy_midflight.py",
+ "exit_code": 0,
+ "summary": "174 passed in 468.78s (0:07:48)",
+ "seconds": 486.5,
+ "finished": "2026-10-11T19:15:44Z",
+ "result": "PASS"
+}

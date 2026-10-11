@@ -1,0 +1,9 @@
+{
+ "label": "m-full-16",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_integration_01_happy_path.py",
+ "exit_code": 0,
+ "summary": "8 passed in 81.29s (0:01:21)",
+ "seconds": 83.7,
+ "finished": "2026-10-11T20:11:11Z",
+ "result": "PASS"
+}

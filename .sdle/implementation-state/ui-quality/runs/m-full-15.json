@@ -1,0 +1,9 @@
+{
+ "label": "m-full-15",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_implementation_evidence.py",
+ "exit_code": 0,
+ "summary": "18 passed in 156.46s (0:02:36)",
+ "seconds": 161.9,
+ "finished": "2026-10-11T20:09:47Z",
+ "result": "PASS"
+}

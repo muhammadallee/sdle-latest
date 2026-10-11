@@ -1,0 +1,9 @@
+{
+ "label": "m-full-9",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_hardening.py tests/test_units_package_approval.py tests/test_integration_10_to_13.py tests/test_units_package_validate.py tests/test_units_refinement_record.py",
+ "exit_code": 0,
+ "summary": "178 passed in 186.04s (0:03:06)",
+ "seconds": 192.7,
+ "finished": "2026-10-11T19:51:02Z",
+ "result": "PASS"
+}

@@ -1,0 +1,9 @@
+{
+ "label": "m-full-17",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_speckit_binding.py tests/test_lint_skill.py tests/test_units_trace.py tests/test_units_tree_digest.py tests/test_units_review_types.py",
+ "exit_code": 0,
+ "summary": "190 passed in 475.14s (0:07:55)",
+ "seconds": 483.9,
+ "finished": "2026-10-11T20:19:16Z",
+ "result": "PASS"
+}
