@@ -22,6 +22,8 @@ Open rows make a phase `awaiting owner`, never `complete`.
 | OA-1 | Codex PR-R1-002 | The isolated experiments do not run the guideline files or the native design phase, so they cannot attribute a rating difference to Phase A as shipped | the experiment applies only appended arguments | (a) a harness that loads each arm's capability files and builds `app-design.md`; (b) narrow the claim and rely on the one full run for the design changes | (a) | no (A-build); yes for any visual claim |
 | OA-2 | Codex PR-R1-003, PR-R2-001 | A-measure inputs (model/settings, order, pairing, failure handling, aggregation, clarification policy, run deadline) are undeclared | plan text leaves them open | commit an input manifest before running | declare before the first run | no (A-build) |
 | OA-4 | **RESOLVED 10 Oct 2026: owner chose (a)**, accept the zero-finding result with the unreviewed areas listed. Codex run `20261010T142651-stage2-codex-A-impl-r2` | Implementation review round 2 is recorded BLOCKED although both attempts returned zero findings | the runner treats an empty findings list with non-empty `areas_not_reviewed` as incomplete, and the read-only sandbox cannot run the suite or Spec Kit, so that list is never empty | (a) accept the zero-finding substance as the round-2 result, with the unreviewed areas listed; (b) authorize a third run with a prompt that lists those areas as out of scope; (c) authorize another reviewer, labelled "not Codex" | (a): the fix is a three-bullet reorder that both attempts verified | no, if (a) |
+| OA-5 | A-measure result | Phase A showed **no rendered-UI gain** against its target (S1 mean diff -0.92 under the manifest failure rule; +0.04 if the one non-rendering enhanced run is excluded; target was +0.5 and 2 of 3 wins) | n=3 per cell, one pilot app, raters not independent (OA-6) | (a) keep A only if Phase B goes ahead, as PLAN §6 row 9 says; (b) revert A; (c) re-measure with human raters and a re-run of the two failed runs | (a), and re-rate with at least one human before any claim either way | no |
+| OA-6 | A-measure ratings | Both rating sets were produced by a model (Codex) given the rubric, not by two human blind raters, and they are near-identical (mean packet disagreement 0.01, max 0.25); S3 got the same 3.75 in all six packets | same model and prompt, so not independent; S3 shows no discrimination | add a human rater, or treat the result as one AI judgement | add a human rater | no |
 | OA-3 | process | The full suite was run in sharded calls (10-minute foreground cap) and shards 7-17 were deferred to step 4 | cap and a memory reap | none needed once step 4 runs all 18 | — | no |
 
 ## Open decisions
@@ -61,3 +63,19 @@ Status: **generation complete, ratings pending**. No visual claim is made.
 | Rendered-UI rating | **pending**: two blind raters not yet named. Rating set: 18 packets, 108 screenshots, two random orders, arm map kept apart |
 | Order caveat | the seeded shuffle placed the three enhanced S1 runs before the baseline S1 runs |
 | Not done | the one full SDLE run of the enhanced arm on S1 through `gate_implement`; intent-completeness scoring (needs a blind rater) |
+
+### A-measure result (ratings received 11 Oct 2026; rater = model, see OA-6)
+
+Rule applied, fixed in the manifest before any run: a run that does not render the declared screen is rated 1 on every criterion and listed. Two of 18 did not: `enhanced-S1-3` (stopped after the analysis step; no `/overview` route) and `baseline-S2-1` (no `/register` route). The raters had scored the redirected Systems page; the rule replaced those two packets.
+
+| Screen | Baseline mean | Enhanced mean | Diff | Enhanced wins (pairs) |
+|---|---|---|---|---|
+| S1 overview (demanding) | 3.83 | 2.92 | -0.92 | 1 of 3 |
+| S2 register | 2.50 | 3.29 | +0.79 | 2 of 3 |
+| S3 hierarchy (brownfield) | 3.75 | 3.75 | 0.00 | 0 of 3 |
+
+Sensitivity only (the two non-rendering runs removed, not the pre-registered rule): S1 +0.04, S2 +0.04, S3 0.00. By criterion the only recurring signal is polish, +0.67 on S2 and -0.67 on S1, which are the two screens with a failed run.
+
+Against PLAN §6 Phase A row 9: (a) demanding screen +0.5 and 2 of 3 wins: **not met**; (b) no other screen drops by more than 0.3: met; (c) completeness: not scored; (d) cost and time +27% / +42%: exceeded, reported; (e) full SDLE run: not done.
+
+**Reading.** The guidance reliably changes the artifacts (every enhanced plan has the section) but no rendered-UI improvement is demonstrated, and the enhanced arm had one more non-rendering run. This is one pilot app, n=3 per cell, with ratings from a model: preliminary, and no visual claim is made either way. Many defects the raters named were shared by both arms (generic error toasts, cut-off tablet columns), which neither arm's guidance addresses and which is what Phase B's browser checks would catch.
