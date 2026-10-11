@@ -1,0 +1,9 @@
+{
+ "label": "b-fix-pins",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_tree_digest.py -k test_b",
+ "exit_code": 0,
+ "summary": "5 passed, 15 deselected in 46.61s",
+ "seconds": 52.1,
+ "finished": "2026-10-11T16:17:42Z",
+ "result": "PASS"
+}

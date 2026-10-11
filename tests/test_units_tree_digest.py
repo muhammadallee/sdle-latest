@@ -243,42 +243,72 @@ def test_an_edit_inside_a_nested_repository_moves_the_digest(git_project):
 #
 # A project's browser harness is just a `--test-command` that writes a JUnit
 # report and some screenshots. Nothing in the engine is UI-specific; these
-# three tests pin the properties the harness contract in
-# `guidelines/ui-design.md` relies on, with a Python stand-in for the harness.
+# tests pin the properties the harness contract in `guidelines/ui-design.md`
+# relies on, with a Python stand-in for the harness. The stand-in takes the
+# report path, and a mode: "run" (checks pass) or "preflight" (environment not
+# ready: it still writes a report holding one errored case, then exits 78).
 
-STAND_IN_SCRIPT = (
-    "import pathlib\n"
-    "pathlib.Path('ui-out').mkdir(exist_ok=True)\n"
-    "pathlib.Path('test-results').mkdir(exist_ok=True)\n"
-    "pathlib.Path('test-results/shot.png').write_bytes(b'fake png')\n"
-    "pathlib.Path('ui-out/junit.xml').write_text('<testsuite tests=\"1\"><testcase name=\"UI-HOME-1 desktop loaded\"/></testsuite>', encoding='utf-8')\n")
-STAND_IN_WRITES_REPORT_AND_SCREENSHOT = _command_line(
-    [sys.executable, "ui_stand_in.py"])
+STAND_IN_SCRIPT = """import pathlib, sys
+report = pathlib.Path(sys.argv[1])
+mode = sys.argv[2] if len(sys.argv) > 2 else "run"
+report.parent.mkdir(parents=True, exist_ok=True)
+if mode == "preflight":
+    report.write_text(
+        '<testsuites><testsuite><testcase name="environment preflight">'
+        '<error message="app not reachable"/></testcase></testsuite></testsuites>',
+        encoding="utf-8")
+    raise SystemExit(78)
+pathlib.Path("test-results").mkdir(exist_ok=True)
+pathlib.Path("test-results/shot.png").write_bytes(b"fake png")
+report.write_text(
+    '<testsuite tests="1"><testcase name="UI-HOME-1 desktop loaded"/></testsuite>',
+    encoding="utf-8")
+"""
 
 
-def test_b1_a_harness_that_writes_into_ignored_paths_gives_valid_evidence(
-        git_project):
-    """The harness contract: reports and screenshots go to ignored paths."""
-    ready(git_project, **{"app.py": "print('v1')\n",
-                          "ui_stand_in.py": STAND_IN_SCRIPT})
-    (git_project.root / ".gitignore").write_text(
-        ".sdle/\nui-out/\ntest-results/\n", encoding="utf-8")
-    built = to_gate(git_project, "--test-command",
-                    STAND_IN_WRITES_REPORT_AND_SCREENSHOT,
-                    "--junit", "ui-out/junit.xml")
-    evidence = evidence_of(git_project, built)
-    assert evidence["evidenceStatus"] == "valid"
+def stand_in(report: str, mode: str = "run") -> str:
+    return _command_line([sys.executable, "ui_stand_in.py", report, mode])
+
+
+def harness_project(project, gitignore: str) -> None:
+    ready(project, **{"app.py": "print('v1')\n",
+                      "ui_stand_in.py": STAND_IN_SCRIPT})
+    (project.root / ".gitignore").write_text(gitignore, encoding="utf-8")
+
+
+def evidence_report_path(project) -> str:
+    return (project.runtime / "evidence" / "ui-junit.xml").relative_to(
+        project.root).as_posix()
+
+
+import pytest  # noqa: E402  (kept beside the tests that use it)
+
+
+@pytest.mark.parametrize("where", ["ignored_folder", "evidence_directory"])
+def test_b1_a_harness_that_writes_into_allowed_places_gives_valid_evidence(
+        git_project, where):
+    """The contract: the report goes to an ignored path or to the WorkItem's
+    evidence directory, and screenshots go to an ignored path."""
+    harness_project(git_project, ".sdle/\nui-out/\ntest-results/\n")
+    report = ("ui-out/junit.xml" if where == "ignored_folder"
+              else evidence_report_path(git_project))
+    built = to_gate(git_project, "--test-command", stand_in(report),
+                    "--junit", report)
+    assert evidence_of(git_project, built)["evidenceStatus"] == "valid"
     assert (git_project.root / "test-results" / "shot.png").is_file()
     assert approve(git_project).exit_code == EXIT_OK
 
 
-def test_b2_an_environment_failure_exit_code_is_recorded_and_refused(
+def test_b2_a_preflight_failure_that_still_writes_a_report_is_recorded_and_refused(
         git_project):
-    """Exit 78 is a convention for the orchestrator, not an engine class:
-    the engine records FAILED with the code, and the gate refuses it."""
-    ready(git_project, **{"app.py": "print('v1')\n"})
-    built = to_gate(git_project, "--test-command", _command_line(
-        [sys.executable, "-c", "raise SystemExit(78)"]))
+    """Exit 78 is a convention for the orchestrator, not an engine class: with
+    a report present the manifest build records FAILED with the code, and the
+    gate refuses it. (Without a report the build itself refuses, which is why
+    the harness writes one even when it ran nothing.)"""
+    harness_project(git_project, ".sdle/\nui-out/\ntest-results/\n")
+    built = to_gate(git_project, "--test-command",
+                    stand_in("ui-out/junit.xml", "preflight"),
+                    "--junit", "ui-out/junit.xml")
     assert built.data["tests"]["status"] == "FAILED"
     assert built.data["tests"]["exit_code"] == 78
     result = approve(git_project)
@@ -287,14 +317,26 @@ def test_b2_an_environment_failure_exit_code_is_recorded_and_refused(
     assert result.data["exit_code"] == 78
 
 
+def test_b2_a_report_the_command_never_wrote_stops_the_build(git_project):
+    harness_project(git_project, ".sdle/\nui-out/\ntest-results/\n")
+    result = git_project.run(
+        "manifest", "build", "--test-command", _command_line(
+            [sys.executable, "-c", "raise SystemExit(78)"]),
+        "--junit", "ui-out/junit.xml")
+    assert result.exit_code == EXIT_REFUSED
+    assert result.reason == "manifest_junit_missing"
+
+
 def test_b3_screenshots_in_an_unignored_folder_invalidate_the_evidence(
         git_project):
-    """Why the contract says to ignore test output: a report left in the
-    working tree is a change to the tree the evidence was taken from."""
-    ready(git_project, **{"app.py": "print('v1')\n",
-                          "ui_stand_in.py": STAND_IN_SCRIPT})
-    built = to_gate(git_project, "--test-command",
-                    STAND_IN_WRITES_REPORT_AND_SCREENSHOT)
+    """Why the contract says to ignore test output: a screenshot left in the
+    working tree is a change to the tree the evidence was taken from. The
+    report folder is ignored here, so the screenshot alone is the cause."""
+    harness_project(git_project, ".sdle/\nui-out/\n")
+    built = to_gate(git_project, "--test-command", stand_in("ui-out/junit.xml"),
+                    "--junit", "ui-out/junit.xml")
     assert evidence_of(git_project, built)["evidenceStatus"] == (
         "invalid_changed_during_run")
+    assert "test-results/shot.png" in built.data["changed_during_run"]
+    assert "ui-out/junit.xml" not in built.data["changed_during_run"]
     assert approve(git_project).exit_code == EXIT_REFUSED

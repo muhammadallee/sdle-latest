@@ -36,5 +36,12 @@ The go/no-go (PLAN row 9: at least 4 of 5 seeded defect classes detected, no fla
 ## 4. Verification
 `lint-skill` ok. Full suite, 18 shards, **4218 passed, 3 skipped, 0 failed** (`runs/b-full-*.json`). Pins: `-k test_b` 3 passed.
 
+## 4a. Review round 1 (Codex `BR-R1-001..005`, all accepted and fixed)
+- **BR-R1-001** a preflight that exited 78 before writing a report made the build refuse with `manifest_junit_missing`: the harness now always writes a report (one errored case) and deletes any earlier one; pins `test_b2` (with report) and `test_b2_a_report_the_command_never_wrote...`.
+- **BR-R1-002** `test_b3` now ignores the report folder so the screenshot alone is the cause and is asserted in `changed_during_run`; `test_b1` is parametrized over an ignored folder and the WorkItem evidence directory.
+- **BR-R1-003** the example now runs an optional unit command and merges both reports.
+- **BR-R1-004** screenshots use `testInfo.outputPath`, under the configured output directory.
+- **BR-R1-005** deviation and B status recorded in `PROGRESS.md`.
+
 ## 5. Rollback
 `git revert` of the phase range. Nothing persisted in a new format; the example is a folder.

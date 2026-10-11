@@ -55,10 +55,10 @@ Written tests of a screen are only evidence if a browser actually runs them. The
 
 | Rule | Why |
 |---|---|
-| **One command** runs the unit and the browser checks and is passed to the manifest build as the test command | the engine runs one command, without a shell, and records its exit code |
+| **One command** runs the project's unit suite and the browser checks, and is passed to the manifest build as the test command | the engine runs one command, without a shell, and records its exit code |
 | **One merged JUnit report**, named with `--junit`, written to an ignored path or to the WorkItem's evidence directory | one report per build is hashed and parsed; a report left in the tracked tree changes the tree the evidence was taken from |
 | **Case names cite the screen id and the criterion** (for example `UI-HOME-1 desktop loaded`) | that is what lets a case be mapped back to a screen and a requirement |
-| **A preflight exits 78 without running any check** when the environment is not ready (no browser, app not serving, port in use) | otherwise an environment failure is indistinguishable from a defect and burns an iteration |
+| **A preflight exits 78 without running any check** when the environment is not ready (no browser, app not serving, port in use), and **still writes the report**, holding one errored case, after deleting any report from an earlier run | otherwise an environment failure is indistinguishable from a defect and burns an iteration; and a build that names a report the command never wrote refuses before it records anything |
 | **No conditional skip** on a check that covers a plan scenario; limit browsers through the runner's own configuration | a skipped check reads as a pass, or as an unmapped criterion |
 | **Screenshots, traces, reports and sign-in state go to ignored paths.** Traces, HTML reports and stored sign-in state are never committed | they can carry cookies and tokens, and unignored output invalidates the evidence |
 | **Test, report and build output folders are in `.gitignore`** | the same reason: files that appear during the run |

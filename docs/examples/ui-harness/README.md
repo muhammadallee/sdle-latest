@@ -16,9 +16,11 @@ SDLE runs one test command at the manifest build and records its exit code and a
 
 | Situation | Result |
 |---|---|
-| App not serving, or browser not installed | exit **78**, nothing run |
-| All checks pass | exit 0; a JUnit report at `junitPath`; screenshots under `outputDir` |
-| A check fails | exit 1, with the failing case in the report |
+| App not serving, or browser not installed | exit **78**, no check run; a report is still written, holding one errored case named `environment preflight` |
+| All checks pass | exit 0; one merged JUnit report at `junitPath`; screenshots under `outputDir/artifacts` |
+| A check or the unit command fails | exit 1, with the failing case in the merged report |
+
+The report from an earlier run is deleted first, so it can never stand in for the current one. `unitCommand` (an array: program and arguments) and `unitJunitPath` in the config are optional: when set, the unit suite runs first, both always run, and the two reports are merged into one.
 
 The engine records 78 as a failed run with that exit code and the gate refuses it; telling an environment failure from a defect is the orchestrator's convention, not an engine classification.
 
