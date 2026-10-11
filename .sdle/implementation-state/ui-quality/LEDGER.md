@@ -74,3 +74,6 @@ Built on `863bcfb` before its plan review (OA-7). One combined Codex review plus
 - Round 2 (`f0326a1`): PASS, 2 findings BR-R2-001..002 (example harness completeness and stale report), both accepted; fixed and verified by executed runs. No round 3.
 - Tests: full suite 4218 passed, 3 skipped (`b-full-*`); after round 1 fixes 2091 passed over 10 affected files (`b-fix-targeted`); the three pin groups `-k test_b` 5 passed.
 - Not done (OA-8): seeded-defect detection, five clean reruns, harness inside a full SDLE run.
+
+## Phase B narrow measurement (11 Oct 2026)
+Two screens, seven seeded defects, checks written from the requirements. First pass 2 of 5 valid mutations detected (two mutations did not compile); checks then repaired three times against the same mutations (shell-level overflow, URL assertion, empty-state pattern, shell width bound) to 7 of 7, with 6 of 6 clean runs green. Reported as optimistic. Scaffolding in `ui-quality-pilot/support/b-measure` (outside the repository). Not done: accessibility and overlap classes; harness through a full SDLE run.

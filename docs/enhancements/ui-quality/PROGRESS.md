@@ -11,7 +11,7 @@ authority for a checkpoint**, never a tag.
 |---|---|---|---|
 | A-build | awaiting owner | `d915eb6` (last implementation commit; the record commit that adds this row is its descendant) | built, unmeasured. Open: OA-1, OA-2 (both concern A-measure) and OA-3; OA-4 resolved by the owner |
 | A-measure | not started | — | needs decision D4 (pilot app) |
-| B | built, unmeasured; awaiting owner | see Checkpoints | prompt, guideline, example and test pins; no engine change; seeded-defect measurement not done (OA-7, OA-8) |
+| B | built, unmeasured; awaiting owner | see Checkpoints | prompt, guideline, example and test pins; no engine change; narrow seeded-defect measurement done (see Phase B measurement); full-run acceptance not done (OA-7, OA-8) |
 | M, C, D, E | not started | — | each starts only at the owner's request |
 
 ## Owner attention
@@ -26,7 +26,7 @@ Open rows make a phase `awaiting owner`, never `complete`.
 | OA-5 | **RESOLVED 11 Oct 2026: owner chose (a), keep Phase A, make no visual claim, proceed to B.** A-measure result | Phase A showed **no rendered-UI gain** against its target (S1 mean diff -0.92 under the manifest failure rule; +0.04 if the one non-rendering enhanced run is excluded; target was +0.5 and 2 of 3 wins) | n=3 per cell, one pilot app, raters not independent (OA-6) | (a) keep A only if Phase B goes ahead, as PLAN §6 row 9 says; (b) revert A; (c) re-measure with human raters and a re-run of the two failed runs | (a), and re-rate with at least one human before any claim either way | no |
 | OA-6 | A-measure ratings | Both rating sets were produced by a model (Codex) given the rubric, not by two human blind raters, and they are near-identical (mean packet disagreement 0.01, max 0.25); S3 got the same 3.75 in all six packets | same model and prompt, so not independent; S3 shows no discrimination | add a human rater, or treat the result as one AI judgement | add a human rater | no |
 | OA-7 | Phase B protocol | B was built before its phase plan and Codex plan review (PLAN §5.1 order); the plan and the implementation review were merged into one round | built on the owner's "go ahead" without the plan step | accept; or ask for a second, independent plan review of B-PLAN.md | accept: the combined round found five defects, all fixed | no |
-| OA-8 | Phase B acceptance | PLAN row 4 not done: seeded objective defects (5 classes), five clean reruns and suite wall-clock, and the harness inside a full SDLE run. Verified once only: preflight 78, pass 0, failing check 1 on the pilot app | the pilot's implementations have no browser checks written; a full run needs the owner at the gates | write checks for the 18 pilot implementations and inject the defects; or accept B as an example plus pins | decide with the owner whether the measurement is worth its cost | no |
+| OA-8 | Phase B acceptance | PLAN row 4 partly done: narrow measurement on two screens (below). Not done: an accessibility and an overlap defect class, and the harness inside a full SDLE run through `manifest build` and the gate | the pilot's implementations have no browser checks written; a full run needs the owner at the gates | write checks for the 18 pilot implementations and inject the defects; or accept B as an example plus pins | decide with the owner whether the measurement is worth its cost | no |
 | OA-3 | process | The full suite was run in sharded calls (10-minute foreground cap) and shards 7-17 were deferred to step 4 | cap and a memory reap | none needed once step 4 runs all 18 | — | no |
 
 ## Open decisions
@@ -117,3 +117,17 @@ Conclusion for A-build: **no rendered-UI gain demonstrated** against the PLAN §
 ### Phase B checkpoint (11 Oct 2026)
 
 Built on base `863bcfb`: the harness contract in `guidelines/ui-design.md`, one bullet in the `implement` block, `docs/examples/ui-harness/` and pins in `tests/test_units_tree_digest.py`. **No change to `scripts/sdle.py` or `.claude/hooks/`.** Combined plan and implementation review: Codex round 1 on `8e9bf83`, 5 findings, all accepted and fixed (preflight report, pin non-vacuity, unit-plus-browser merge, artifact path, records); round 2 on `f0326a1`, 2 findings in the example harness (report completeness, stale report), both accepted and fixed and verified by executed re-runs; no round 3. Tests: full suite 4218 passed, 3 skipped; 2091 passed after the round 1 fixes. Status: `built, unmeasured`; go/no-go (4 of 5 seeded defect classes, no flaky reruns) **not evaluated**.
+
+### Phase B measurement, narrow version (11 Oct 2026; pilot app, one stack, owner-approved reduction)
+
+Scope: two generated screens from the A-measure runs (S1 `enhanced-S1-6` overview, S2 `enhanced-S2-3` register), requirement-level browser checks written from the requirement documents, the example harness run as the one test command against the app's dev server and the mock API, seven seeded defects injected one at a time into a scratch copy and reverted. Scaffolding is outside this repository (`ui-quality-pilot/support/b-measure`).
+
+| Item | Result |
+|---|---|
+| Clean reruns | 3 of 3 pass on each screen, with the final checks; suite about 20-30 s |
+| Seeded defects, checks **as first written** | 2 of 5 valid mutations detected (2 mutations did not compile and were replaced); the overflow checks and one journey check were blind |
+| After repairing the checks (document-level overflow missed an app shell that scrolls its own content area; a loose URL assertion; a loose empty-state pattern) | 7 of 7 detected: overflow 2, error state missing 2, empty state missing 1, broken journey 2 |
+
+**Read this carefully.** The 7 of 7 is **optimistic**: the checks were corrected after seeing which mutations they missed, on the same mutations. The honest figure for checks written from requirements is the first pass, and what it shows is that browser checks catch a defect only if the check measures the right thing: the failures were all in the checks, not in the harness. Not covered: an accessibility defect class, overlap (PLAN named five classes; seven mutations over four), the harness inside a full SDLE run through `manifest build` and the gate. One app, one stack, Windows. The checks were written by me, not by the generator.
+
+PLAN §6 Phase B row 9 target (at least 4 of 5 seeded defect classes detected, no flaky reruns, fits the timeout): numerically met on the repaired checks (4 classes, 0 flaky of 6 clean runs, within the timeout), with the caveat above; **not** a claim that SDLE-generated tests would catch them.
