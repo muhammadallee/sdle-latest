@@ -1,0 +1,9 @@
+{
+ "label": "b-full-8",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_workitem.py tests/test_units_doc_links.py tests/test_units_refinement_citations.py",
+ "exit_code": 0,
+ "summary": "87 passed in 31.74s",
+ "seconds": 40.1,
+ "finished": "2026-10-11T15:40:45Z",
+ "result": "PASS"
+}

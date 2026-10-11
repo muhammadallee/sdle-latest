@@ -1,0 +1,9 @@
+{
+ "label": "b-step3-pins5",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_tree_digest.py -k test_b",
+ "exit_code": 1,
+ "summary": "2 failed, 1 passed, 15 deselected in 27.17s",
+ "seconds": 28.4,
+ "finished": "2026-10-11T14:56:04Z",
+ "result": "FAIL"
+}

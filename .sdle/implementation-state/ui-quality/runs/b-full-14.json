@@ -1,0 +1,9 @@
+{
+ "label": "b-full-14",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_manifest_changes.py",
+ "exit_code": 0,
+ "summary": "22 passed in 204.47s (0:03:24)",
+ "seconds": 212.5,
+ "finished": "2026-10-11T16:00:05Z",
+ "result": "PASS"
+}

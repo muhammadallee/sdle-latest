@@ -1,0 +1,9 @@
+{
+ "label": "b-full-0",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_governance.py",
+ "exit_code": 0,
+ "summary": "245 passed in 188.37s (0:03:08)",
+ "seconds": 190.0,
+ "finished": "2026-10-11T15:02:31Z",
+ "result": "PASS"
+}

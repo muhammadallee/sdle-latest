@@ -1,0 +1,9 @@
+{
+ "label": "b-full-13",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_artifact_review.py",
+ "exit_code": 0,
+ "summary": "40 passed in 60.49s (0:01:00)",
+ "seconds": 71.7,
+ "finished": "2026-10-11T15:56:32Z",
+ "result": "PASS"
+}
