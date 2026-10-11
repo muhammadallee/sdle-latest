@@ -93,3 +93,20 @@ Raters: the owner (human, unblinded afterwards) and the model's second set (`rat
 Agreement between the owner and the model set is nil (mean packet difference 0.53, correlation -0.05). The owner's comments: all three baseline S1 runs used green chart bars that do not match the app's theme; no enhanced S1 run did. The owner rated the two rendered enhanced S1 runs 4.0 against 3.12 for each baseline S1 run (+0.88, 2 of 2). One enhanced S1 run (1 of 3) never built the screen, which the failure rule counts as 1.
 
 Reading: the PLAN row 9 target (S1 +0.5 and 2 of 3 wins) is **not met** under the pre-registered rule; there is a human-observed S1 effect where the screen exists (theme-consistent colour), at a cost of one run that built nothing, n=2. No claim is made beyond that.
+
+### A-measure extension, S1 (11 Oct 2026; exploratory, harness v2, rated by the owner)
+
+Cause of the one non-rendering enhanced run in the first batch (`enhanced-S1-3`): the model ended its turn at the `analyze` block's HALT, which is identical in both arms; not caused by the guidance. Extension: S1 only, 3 runs per arm, ids 4-6, same model, capture and rubric, with the prompt telling the model that HALT is a human wait that does not apply. All six built and rendered the screen; `enhanced-S1-4` ended on the session limit after the screen, build and notes were complete and is counted, flagged.
+
+| | Baseline | Enhanced | Diff | Pairs won |
+|---|---|---|---|---|
+| Extension S1 (owner) | 3.91 | 4.00 | +0.10 | 1 of 3 |
+| First-batch S1 (owner; baseline all 3.12, enhanced 4.0, 4.0 and the non-rendering run) | 3.12 | 3.71 as scored | +0.58 | 2 of 3 |
+| Combined 6 v 6, failure rule | 3.52 | 3.50 | -0.01 | |
+| Combined, rendered runs only (6 v 5; not the pre-registered rule) | 3.52 | 4.00 | +0.49 | |
+
+Mean cost +10%, time flat (extension). By criterion (extension): hierarchy +0.25, consistency 0.00, usability +0.08, polish +0.05.
+
+The first batch's colour pattern did **not** replicate: the owner flagged green-and-blue mixing on one baseline run (`baseline-S1-6`) and one enhanced run (`enhanced-S1-5`), and baseline scores rose from 3.12 to 3.75-4.06 between sessions, so ratings across the two batches are not on a common anchor.
+
+Conclusion for A-build: **no rendered-UI gain demonstrated** against the PLAN §6 row 9 target in either batch or the combined view; the first-batch +0.88 on rendered S1 runs shrank to +0.10 on re-test (regression toward the mean is the simplest reading). Phase A's mechanical effect (a UI section in every enhanced plan) is real. n is small, one app, one human rater. Recorded under OA-5.
