@@ -51,7 +51,7 @@ sdle.sh artifact review --path <artifact> --type code-review \
   --evidence <pointer> --comments "<one-line summary>"
 ```
 
-Findings can be given to the engine as structured data (`--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`); a `PASS` is refused while a blocking one is open. The same three rules apply as for any governed review: `FAIL` when a finding is `blocking`; `--actor-name` is an attribution and not an attestation; the record binds to the current fingerprint and goes stale the moment the content changes.
+Findings can be given to the engine as structured data (`--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`); a `PASS` is refused while a blocking one is open. Inside an implementation loop they are required: a review recorded without them is refused at the loop's review step, and an empty list is how a review that found nothing says so. A blocking finding marked `accepted` is a waiver, and a review made with anything other than `--actor-type human` cannot record one; that is a declaration the engine records, not proof of who decided. The same three rules apply as for any governed review: `FAIL` when a finding is `blocking`; `--actor-name` is an attribution and not an attestation; the record binds to the current fingerprint and goes stale the moment the content changes.
 
 ## The rule that does not bend
 

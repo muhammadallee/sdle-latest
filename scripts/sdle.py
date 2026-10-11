@@ -12080,6 +12080,23 @@ def cmd_artifact_review(args, paths: Paths) -> int:
         loop_output_precondition(paths, "review")
     sha = sha256_file(full)
     findings = read_review_findings(paths, getattr(args, "findings", None))
+    waived = [row["id"] for row in findings or []
+              if row["severity"] == "blocking"
+              and row["disposition"] == "accepted"]
+    if waived and args.actor_type != "human":
+        # Ahead of `reserve_evidence`, so a refusal leaves nothing behind.
+        # The actor type is self-declared (ADR-007 section 3): this stops a
+        # waiver being recorded silently by any non-human actor type; it does
+        # not prove that a person made the decision.
+        raise Refused(
+            "review_waiver_requires_human",
+            f"Blocking finding(s) {', '.join(waived)} are marked accepted, "
+            f"which is a waiver, and a {args.actor_type} review cannot "
+            "record one. A waiver is recorded in a review made with "
+            "`--actor-type human`. That is a declaration, not proof of who "
+            "decided; it stops a waiver being recorded silently.",
+            {"path": key, "waived": waived,
+             "actor_type": args.actor_type})
     blocking_open = [row["id"] for row in findings or []
                      if row["severity"] == "blocking"
                      and row["disposition"] == "open"]
@@ -16214,17 +16231,58 @@ def _fingerprint(*parts) -> str:
 
 
 def _blocking_finding_fingerprints(paths: Paths, key: str) -> list[str]:
-    """Fingerprints of the open blocking findings of the newest code review of
-    this artifact. Same finding, same fingerprint, however it is reworded."""
-    records = [r for r in read_reviews(paths) if r.get("path") == key]
+    """Fingerprints of the open blocking findings of the newest `code-review`
+    of this artifact. Same finding, same fingerprint, however it is reworded.
+
+    Only a `code-review` counts: a later review of another type must not hide
+    an open code-review blocker. And an evidence file that is missing, is not
+    JSON, or disagrees with the ledger is **refused**, never read as "no
+    findings": returning an empty set there would let deleting a file make a
+    blocker disappear. The evidence file is not hash-chained, so an edit that
+    leaves it valid and consistent with the ledger is not detected here."""
+    records = [r for r in read_reviews(paths) if r.get("path") == key
+               and r.get("reviewType") == "code-review"]
     if not records:
         return []
-    evidence = paths.project_root / records[-1].get("evidenceId", "")
+    record = records[-1]
+    evidence_id = record.get("evidenceId", "")
+
+    def invalid(why: str):
+        raise IntegrityError(
+            "review_evidence_invalid",
+            f"The evidence of the code review of {key} ({evidence_id}) {why}. "
+            "SDLE will not read an unreadable or inconsistent review as one "
+            "with no findings. Record the review again.",
+            {"path": key, "evidence": evidence_id})
+
     try:
-        findings = json.loads(evidence.read_text(encoding="utf-8")).get(
-            "findings") or []
+        document = json.loads((paths.project_root / evidence_id).read_text(
+            encoding="utf-8"))
     except (OSError, ValueError):
+        invalid("is missing or is not readable JSON")
+    embedded = document.get("record") if isinstance(document, dict) else None
+    if not isinstance(embedded, dict) or any(
+            embedded.get(field) != record.get(field)
+            for field in ("path", "sha256", "reviewType", "result")):
+        invalid("does not match the review ledger")
+    findings = document.get("findings")
+    summary = record.get("findings")
+    if summary is None:
+        if findings is not None:
+            invalid("holds findings the ledger does not record")
         return []
+    if not isinstance(findings, list) or not all(
+            isinstance(f, dict) for f in findings):
+        invalid("holds no findings list, though the ledger records one")
+    counted = {
+        "total": len(findings),
+        "blocking": sum(1 for f in findings
+                        if f.get("severity") == "blocking"),
+        "open": sum(1 for f in findings if f.get("disposition") == "open"),
+    }
+    if counted != summary:
+        invalid("holds findings that do not match the counts the ledger "
+                "recorded")
     return sorted(_fingerprint(f.get("location"), sorted(f.get("obligations")
                                                         or []))
                   for f in findings if f.get("severity") == "blocking"
@@ -16656,6 +16714,15 @@ def cmd_loop_step(args, paths: Paths) -> int:
                 "a fresh review of fresh evidence is needed.",
                 {"reviewIndex": indices[-1]})
         review = records[indices[-1]]
+        if review.get("findings") is None:
+            raise Refused(
+                "loop_review_unstructured",
+                "The code review of the current manifest carries no "
+                "structured findings, so the loop cannot tell whether a "
+                "blocking finding is open. Record the review again with "
+                "`artifact review --findings <file>`; an empty list is a "
+                "review that found nothing.", {"path": key,
+                                                "reviewIndex": indices[-1]})
         detail = {"reviewIndex": indices[-1], "result": review["result"],
                   "findings": review.get("findings")}
     elif step == "converge":
@@ -16767,6 +16834,20 @@ def cmd_loop_record(args, paths: Paths) -> int:
     iteration = _open_iteration(run)
     if iteration is None or _last_step(iteration) != "trace":
         raise _refuse_order("record", iteration)
+    review_step = next((e for e in reversed(iteration["steps"])
+                        if e["step"] == "review"), None)
+    if review_step is not None and (
+            review_step.get("detail") or {}).get("findings") is None:
+        # An iteration whose review was recorded without findings before this
+        # rule existed: it cannot close, and cannot re-record the review (the
+        # step is past). The way out is the engine's own: stop, begin again.
+        raise Refused(
+            "loop_review_unstructured",
+            "This iteration's code review was recorded without structured "
+            "findings, so its blocking findings were never counted. End the "
+            "run with `loop stop` and start a new one with `loop begin`; "
+            "give the review `--findings` this time.",
+            {"iteration": iteration.get("n")})
     classification = args.classification or "implementation_defect"
     if classification not in LOOP_CLASSES:
         raise UsageError("loop_class_invalid",

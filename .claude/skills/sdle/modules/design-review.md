@@ -55,7 +55,7 @@ sdle.sh artifact review --path <artifact> --type design-review \
   --evidence <pointer> --comments "<one-line summary>"
 ```
 
-- Where a finding is about an obligation, cite its id, and give the engine the findings as structured data: `--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`. The engine records them with the review and refuses a `PASS` while a blocking one is open; it checks the shape, never whether a finding is right.
+- Where a finding is about an obligation, cite its id, and give the engine the findings as structured data: `--findings <file>`, a JSON list of `{id, severity, location, obligations[], disposition}`. The engine records them with the review and refuses a `PASS` while a blocking one is open; it checks the shape, never whether a finding is right. A blocking finding marked `accepted` is a waiver, and only a review made with `--actor-type human` can record one.
 - `--result FAIL` when any finding is `blocking`. Recording `PASS` over a blocking finding is recording something you did not conclude.
 - `--actor-type agent --actor-name sdle-design-review` when the subagent produced the findings; name whoever actually did if it was not.
 - `--actor-name` is a string you supply. The engine records it faithfully and **cannot verify it** — it is an attribution, not an attestation.

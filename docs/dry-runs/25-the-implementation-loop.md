@@ -137,6 +137,9 @@ Each comes with a next action.)*
 | A task list changed beyond ticks and convergence sections | `Refused: tasks_drift`, the run is stopped |
 | Reconciling while another artifact has drifted | `Refused: reconcile_unrelated_drift` |
 | `loop begin` outside implement, or with no pinned base | `Refused: loop_wrong_phase`, `Refused: loop_no_base` |
+| A code review given to the loop with no structured findings (an empty list passes) | `Refused: loop_review_unstructured` |
+| A blocking finding marked accepted by a non-human actor | `Refused: review_waiver_requires_human` |
+| The code review's evidence missing or disagreeing with the ledger | exit 3 `review_evidence_invalid` |
 | A loop record the engine did not write | exit 3 `loop_record_invalid` |
 | `gate approve` while the last converge appended tasks | `Refused: loop_converge_pending` |
 
@@ -164,5 +167,12 @@ Delete the disposable repository.
 | A rejection follows the existing remediation path | `tests/test_units_loop.py::test_as28_a_human_rejection_follows_the_existing_remediation_path` |
 | The loop never approves | `tests/test_units_loop.py::test_as29_the_loop_never_approves_and_ready_means_ready_for_a_human` |
 | Nothing the loop runs can reach an approval | `tests/test_units_loop.py::test_no_loop_function_can_reach_an_approval` |
+| A review with no structured findings is refused at the step; an empty list passes | `tests/test_units_loop.py::test_m2_a_review_without_structured_findings_is_refused_at_the_step` |
+| An iteration past an unstructured review cannot close; stop then begin works | `tests/test_units_loop.py::test_m2_an_iteration_already_past_an_unstructured_review_cannot_close` |
+| A later review of another type does not hide a blocker | `tests/test_units_loop.py::test_m1_a_later_review_of_another_type_does_not_hide_a_blocker` |
+| Missing or malformed review evidence is refused, never empty | `tests/test_units_loop.py::test_m1_missing_or_malformed_review_evidence_is_refused_not_empty` |
+| Evidence that disagrees with the ledger is refused | `tests/test_units_loop.py::test_m1_evidence_that_disagrees_with_the_ledger_is_refused` |
+| A non-human actor cannot record a waiver, and the refusal writes nothing | `tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding` |
+| A human review can record it | `tests/test_units_artifact_review.py::test_m3_a_human_review_can_record_the_waiver` |
 
 Result: **PASS**.

@@ -45,9 +45,19 @@ def tasks_path(view):
     return view.root / view.feature_dir("001-todo-api") / "tasks.md"
 
 
+def no_findings(view) -> str:
+    """An empty findings list under the WorkItem evidence directory (excluded
+    from the tree digest): a structured review that found nothing."""
+    path = view.runtime / "evidence" / "no-findings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[]", encoding="utf-8")
+    return path.relative_to(view.root).as_posix()
+
+
 def code_review(view, result="PASS"):
     return record_review(view, "gate_implement", "code-review",
-                         result=result, actor="agent")
+                         result=result, actor="agent",
+                         findings=no_findings(view))
 
 
 def run_iteration(view, *, tick=False, append=None, tests=build, review="PASS",
@@ -869,3 +879,176 @@ def test_a_report_too_large_to_track_completely_is_refused_not_truncated(
     refused = view.run("loop", "step", "--step", "manifest")
     assert refused.reason == "loop_inventory_too_large"
     assert refused.data["cases"] == count
+
+
+# ---- Phase M (ui-quality): loop and review integrity -------------------------
+
+
+def findings_file(view, rows, name="findings.json"):
+    """A findings document under the WorkItem evidence directory (excluded
+    from the tree digest), named relative to the repository root."""
+    path = view.runtime / "evidence" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return path.relative_to(view.root).as_posix()
+
+
+BLOCKER = {"id": "F1", "severity": "blocking", "location": "src/app.py:10",
+           "obligations": ["AC-001"], "disposition": "open"}
+
+
+def at_the_review_step(view):
+    view.ok("loop", "begin")
+    view.ok("loop", "step", "--step", "implement")
+    view.ok("tasks", "reconcile")
+    build(view)
+    view.ok("loop", "step", "--step", "manifest")
+
+
+def manifest_key(view) -> str:
+    paths = sdle.dataclass_replace(
+        sdle.resolve_paths(str(view.root), str(view.skill_root)),
+        workitem=view.workitem)
+    return paths.manifest_file.relative_to(paths.project_root).as_posix()
+
+
+def fingerprints(view) -> list[str]:
+    paths = sdle.dataclass_replace(
+        sdle.resolve_paths(str(view.root), str(view.skill_root)),
+        workitem=view.workitem)
+    return sdle._blocking_finding_fingerprints(paths, manifest_key(view))
+
+
+def test_m2_a_review_without_structured_findings_is_refused_at_the_step(
+        bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(view, "gate_implement", "code-review",
+                         actor="agent").exit_code == 0
+    refused = view.run("loop", "step", "--step", "review")
+    assert refused.exit_code == EXIT_REFUSED
+    assert refused.reason == "loop_review_unstructured"
+    # an empty list is a structured review that found nothing, and passes
+    assert record_review(view, "gate_implement", "code-review", actor="agent",
+                         findings=findings_file(view, [])).exit_code == 0
+    assert view.run("loop", "step", "--step", "review").exit_code == 0
+
+
+def test_m2_an_iteration_already_past_an_unstructured_review_cannot_close(
+        bare_project):
+    """An iteration recorded before the rule existed: simulated by removing
+    the findings summary from the recorded review step. It cannot be closed,
+    and the engine's own way out (stop, then begin) works."""
+    view = loop_view(bare_project)
+    view.ok("loop", "begin")
+    for step in ("implement",):
+        view.ok("loop", "step", "--step", step)
+    view.ok("tasks", "reconcile")
+    build(view)
+    view.ok("loop", "step", "--step", "manifest")
+    assert code_review(view).exit_code == 0
+    view.ok("loop", "step", "--step", "review")
+    view.ok("loop", "step", "--step", "converge")
+    view.ok("loop", "step", "--step", "trace")
+    # simulate what an earlier engine would have recorded, through the
+    # engine's own reader and sealed writer (a hand edit is refused)
+    paths = sdle.dataclass_replace(
+        sdle.resolve_paths(str(view.root), str(view.skill_root)),
+        workitem=view.workitem)
+    document = sdle.read_loop_record(paths)
+    for run in document["runs"]:
+        for iteration in run["iterations"]:
+            for step in iteration["steps"]:
+                if step["step"] == "review":
+                    step["detail"]["findings"] = None
+    sdle.write_loop_record(paths, document)
+
+    refused = view.run("loop", "record")
+    assert refused.exit_code == EXIT_REFUSED
+    assert refused.reason == "loop_review_unstructured"
+    assert view.run("loop", "stop", "--reason", "interrupted").exit_code == 0
+    assert view.run("loop", "begin").exit_code == 0
+
+
+def test_m1_a_later_review_of_another_type_does_not_hide_a_blocker(
+        bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER])).exit_code == 0
+    assert len(fingerprints(view)) == 1
+    # a later review of the same manifest, of another type, with no findings
+    assert record_review(view, "gate_implement", "security-review",
+                         actor="agent").exit_code == 0
+    assert len(fingerprints(view)) == 1, "the code-review blocker still counts"
+
+
+def test_m1_two_blockers_are_counted_and_a_resolved_one_is_not(bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    second = dict(BLOCKER, id="F2", location="src/app.py:40")
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER, second])).exit_code == 0
+    assert len(fingerprints(view)) == 2
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(
+            view, [dict(BLOCKER, disposition="resolved"), second],
+            "findings-2.json")).exit_code == 0
+    assert len(fingerprints(view)) == 1
+
+
+def newest_code_review_evidence(view) -> Path:
+    ledger = json.loads((view.runtime / "reviews.json").read_text("utf-8"))
+    record = [r for r in ledger["reviews"]
+              if r["reviewType"] == "code-review"][-1]
+    return view.root / record["evidenceId"]
+
+
+def test_m1_missing_or_malformed_review_evidence_is_refused_not_empty(
+        bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER])).exit_code == 0
+    evidence = newest_code_review_evidence(view)
+    original = evidence.read_text(encoding="utf-8")
+
+    evidence.write_text("{ not json", encoding="utf-8")
+    try:
+        fingerprints(view)
+    except sdle.IntegrityError as exc:
+        assert exc.reason == "review_evidence_invalid"
+    else:
+        raise AssertionError("malformed evidence was read as no findings")
+
+    evidence.unlink()
+    try:
+        fingerprints(view)
+    except sdle.IntegrityError as exc:
+        assert exc.reason == "review_evidence_invalid"
+    else:
+        raise AssertionError("missing evidence was read as no findings")
+    evidence.write_text(original, encoding="utf-8")
+    assert len(fingerprints(view)) == 1
+
+
+def test_m1_evidence_that_disagrees_with_the_ledger_is_refused(bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER])).exit_code == 0
+    evidence = newest_code_review_evidence(view)
+    document = json.loads(evidence.read_text(encoding="utf-8"))
+    document["findings"] = []          # the blocker "removed" from the file
+    evidence.write_text(json.dumps(document), encoding="utf-8")
+    try:
+        fingerprints(view)
+    except sdle.IntegrityError as exc:
+        assert exc.reason == "review_evidence_invalid"
+    else:
+        raise AssertionError("an inconsistent file was trusted")

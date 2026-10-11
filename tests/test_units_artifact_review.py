@@ -695,3 +695,67 @@ def test_an_unreadable_review_ledger_is_not_treated_as_no_reviews(project):
     assert result.exit_code == EXIT_REFUSED, result
     assert result.reason == "reviews_malformed", result
     assert frozen(project) == before
+
+
+# ---- Phase M (ui-quality): a waiver is not recorded silently ------------------
+
+
+WAIVED_BLOCKER = [{"id": "F1", "severity": "blocking",
+                   "location": "constitution.md:3", "obligations": [],
+                   "disposition": "accepted"}]
+
+
+def waiver_file(project, rows=WAIVED_BLOCKER):
+    path = project.runtime / "evidence" / "waiver-findings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return path.relative_to(project.root).as_posix()
+
+
+def evidence_files(project) -> set[str]:
+    folder = project.runtime / "evidence"
+    return {p.name for p in folder.iterdir()} if folder.is_dir() else set()
+
+
+@pytest.mark.parametrize("result", ["PASS", "FAIL"])
+@pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+        project, actor_type, result):
+    at_gate_constitution(project)
+    findings = waiver_file(project)
+    before = evidence_files(project)
+    ledger = project.runtime / "reviews.json"
+    existed = ledger.exists()
+    refused = project.run(
+        "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+        "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+        "--findings", findings)
+    assert refused.exit_code == EXIT_REFUSED, refused
+    assert refused.reason == "review_waiver_requires_human"
+    assert refused.data["waived"] == ["F1"]
+    assert evidence_files(project) == before, "the refusal left no placeholder"
+    assert ledger.exists() == existed
+    assert "declaration" in refused.stderr
+
+
+def test_m3_a_human_review_can_record_the_waiver(project):
+    at_gate_constitution(project)
+    project.ok("artifact", "review", "--path", CONSTITUTION, "--type",
+               REVIEW_TYPE, "--result", "PASS", "--actor-type", "human",
+               "--actor-name", "Ada", "--findings", waiver_file(project))
+    record = reviews_of(project)["reviews"][-1]
+    assert record["actor"] == {"type": "human", "name": "Ada"}
+    assert record["findings"]["blocking"] == 1
+
+
+def test_m3_other_dispositions_are_not_waivers(project):
+    """Only a blocking finding marked accepted is a waiver: an advisory one
+    accepted, and a blocking one resolved, are recorded by any actor."""
+    at_gate_constitution(project)
+    rows = [{"id": "A1", "severity": "advisory", "location": "c.md:1",
+             "obligations": [], "disposition": "accepted"},
+            {"id": "B1", "severity": "blocking", "location": "c.md:2",
+             "obligations": [], "disposition": "resolved"}]
+    project.ok("artifact", "review", "--path", CONSTITUTION, "--type",
+               REVIEW_TYPE, "--result", "PASS", "--actor-type", "agent",
+               "--actor-name", "x", "--findings", waiver_file(project, rows))

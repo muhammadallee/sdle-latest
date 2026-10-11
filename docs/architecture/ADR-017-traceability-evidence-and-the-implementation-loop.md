@@ -64,3 +64,11 @@ Per iteration the engine enforces the order **implement, reconcile, manifest, re
 **The Claude Code runtime guarantees, not SDLE:** that a reviewer subagent's `tools:` grant and `PreToolUse` fence are honoured.
 
 **Convention only:** that the orchestrator performs the loop's steps in the order it records them, and does not invoke `converge` outside the recorder; that the reviewer was actually delegated to and its findings reported faithfully; that `--actor-name` names the real producer; that a test whose name cites an id actually tests it; that the specification's text says what the requirement says. The engine checks that ids are present and well-formed, never that they are meant.
+
+## Amendment: review integrity inside the loop (UI-quality enhancement, Phase M)
+
+Three defects in how the loop used code-review findings are closed. They are general; none is specific to user interfaces.
+
+1. **The progress digest reads only a `code-review`.** A later review of another type on the same manifest no longer hides an open code-review blocker, and evidence that is missing, not JSON, or inconsistent with the review ledger is refused (`review_evidence_invalid`, exit 3) rather than read as "no findings". The evidence file is not hash-chained: an edit that leaves it valid and consistent with the ledger is not detected, and that limit is unchanged.
+2. **The loop needs structured findings.** `loop step --step review` and `loop record` refuse a code review recorded without `--findings` (`loop_review_unstructured`); an empty list is a review that found nothing. An iteration already past its review step is recovered with `loop stop` and `loop begin`.
+3. **A waiver is not recorded silently.** A finding that is `blocking` and `accepted` is refused (`review_waiver_requires_human`) in any review type, with either result, from every `--actor-type` except `human`, before anything is written. The actor type is **self-declared** (ADR-007 section 3): this stops a waiver being recorded silently by a non-human actor type, and it does not prove that a person made the decision.
