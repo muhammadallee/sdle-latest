@@ -79,3 +79,17 @@ Sensitivity only (the two non-rendering runs removed, not the pre-registered rul
 Against PLAN §6 Phase A row 9: (a) demanding screen +0.5 and 2 of 3 wins: **not met**; (b) no other screen drops by more than 0.3: met; (c) completeness: not scored; (d) cost and time +27% / +42%: exceeded, reported; (e) full SDLE run: not done.
 
 **Reading.** The guidance reliably changes the artifacts (every enhanced plan has the section) but no rendered-UI improvement is demonstrated, and the enhanced arm had one more non-rendering run. This is one pilot app, n=3 per cell, with ratings from a model: preliminary, and no visual claim is made either way. Many defects the raters named were shared by both arms (generic error toasts, cut-off tablet columns), which neither arm's guidance addresses and which is what Phase B's browser checks would catch.
+
+### A-measure, with the owner's own ratings (11 Oct 2026)
+
+Raters: the owner (human, unblinded afterwards) and the model's second set (`rater2`). The owner scored holistically (the four criteria equal in 13 of 18 packets, decimals used, one polish cell blank on `P15`, taken as the mean of the three given). The owner did not apply the failure rule: the two non-rendering runs were scored as the Systems page they showed.
+
+| Basis | S1 diff (enh - base) | S2 diff | S3 diff |
+|---|---|---|---|
+| Owner alone, failure rule applied (primary) | -0.12 (2 of 3 wins) | +0.58 | +0.17 |
+| Owner alone, as scored | +0.58 | -0.33 | +0.17 |
+| Owner + model, failure rule applied | -0.52 | +0.71 | +0.08 |
+
+Agreement between the owner and the model set is nil (mean packet difference 0.53, correlation -0.05). The owner's comments: all three baseline S1 runs used green chart bars that do not match the app's theme; no enhanced S1 run did. The owner rated the two rendered enhanced S1 runs 4.0 against 3.12 for each baseline S1 run (+0.88, 2 of 2). One enhanced S1 run (1 of 3) never built the screen, which the failure rule counts as 1.
+
+Reading: the PLAN row 9 target (S1 +0.5 and 2 of 3 wins) is **not met** under the pre-registered rule; there is a human-observed S1 effect where the screen exists (theme-consistent colour), at a cost of one run that built nothing, n=2. No claim is made beyond that.
