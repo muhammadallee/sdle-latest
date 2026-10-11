@@ -1052,3 +1052,55 @@ def test_m1_evidence_that_disagrees_with_the_ledger_is_refused(bare_project):
         assert exc.reason == "review_evidence_invalid"
     else:
         raise AssertionError("an inconsistent file was trusted")
+
+
+def test_m1_a_malformed_finding_in_the_evidence_is_a_structured_refusal(
+        bare_project):
+    """The counts still match, so only the shape check can catch it: it must
+    be the engine's integrity refusal, never an unhandled exception, and
+    nothing in the loop record may move."""
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER])).exit_code == 0
+    evidence = newest_code_review_evidence(view)
+    document = json.loads(evidence.read_text(encoding="utf-8"))
+    document["findings"][0]["obligations"] = 42   # counts are unchanged
+    evidence.write_text(json.dumps(document), encoding="utf-8")
+    loop_file = view.runtime / "implementation-loop.json"
+    before = loop_file.read_bytes()
+    try:
+        fingerprints(view)
+    except sdle.IntegrityError as exc:
+        assert exc.reason == "review_evidence_invalid"
+    else:
+        raise AssertionError("a malformed finding was fingerprinted")
+    shown = view.run("loop", "show")
+    assert shown.exit_code in (0, 3), shown
+    if shown.exit_code == 3:
+        assert shown.reason == "review_evidence_invalid"
+    assert loop_file.read_bytes() == before
+
+
+def test_m1_loop_record_refuses_malformed_review_evidence_and_moves_nothing(
+        bare_project):
+    view = loop_view(bare_project)
+    at_the_review_step(view)
+    assert record_review(
+        view, "gate_implement", "code-review", result="FAIL", actor="agent",
+        findings=findings_file(view, [BLOCKER])).exit_code == 0
+    view.ok("loop", "step", "--step", "review")
+    view.ok("loop", "step", "--step", "converge")
+    view.ok("loop", "step", "--step", "trace")
+    evidence = newest_code_review_evidence(view)
+    document = json.loads(evidence.read_text(encoding="utf-8"))
+    document["findings"][0]["obligations"] = 42   # the counts are unchanged
+    evidence.write_text(json.dumps(document), encoding="utf-8")
+    loop_file = view.runtime / "implementation-loop.json"
+    before = loop_file.read_bytes()
+    refused = view.run("loop", "record")
+    assert refused.exit_code == 3, refused
+    assert refused.reason == "review_evidence_invalid"
+    assert loop_file.read_bytes() == before
+

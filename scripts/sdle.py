@@ -16274,6 +16274,19 @@ def _blocking_finding_fingerprints(paths: Paths, key: str) -> list[str]:
     if not isinstance(findings, list) or not all(
             isinstance(f, dict) for f in findings):
         invalid("holds no findings list, though the ledger records one")
+    for row in findings:
+        # the shape `read_review_findings` enforced when the review was recorded
+        obligations = row.get("obligations")
+        if not (isinstance(row.get("id"), str) and row["id"].strip()
+                and row.get("severity") in REVIEW_FINDING_SEVERITIES
+                and row.get("disposition") in REVIEW_FINDING_DISPOSITIONS
+                and isinstance(row.get("location"), str)
+                and row["location"].strip()
+                and isinstance(obligations, list)
+                and all(isinstance(o, str) and o.strip()
+                        for o in obligations)):
+            invalid("holds a finding that is not in the shape the engine "
+                    "records")
     counted = {
         "total": len(findings),
         "blocking": sum(1 for f in findings
