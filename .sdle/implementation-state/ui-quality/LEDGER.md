@@ -88,3 +88,6 @@ Phase plan `phases/M-PLAN.md` at `4d7d1ea`. Codex plan review round 1 (`20261011
 | MP-R1-003 | medium | accepted: one rule, every actor type except `human`, any review type, either result, before `reserve_evidence` |
 
 Round 2 is triggered (accepted defects).
+
+### Codex plan review, M round 2: BLOCKED (11 Oct 2026)
+Run `*-stage2-codex-M-plan-r2` (codex-cli 0.160.1, reviewed `f67cf93`, read-only, privacy check clean). Two attempts, both exit 0 with schema-shaped output, both refused by the runner's rule "empty findings with unreviewed areas: the review is incomplete". Substance of both attempts: **zero findings**. Not reached by Codex: running tests and lint, any implementation (none exists), unrelated subsystems. No third run and no substitute reviewer. Raised as **OA-9**; the engine implementation waits for the owner's answer.
