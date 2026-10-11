@@ -44,3 +44,20 @@ Open rows make a phase `awaiting owner`, never `complete`.
 **Prerequisites for A-measure.** D4 (pilot app and stack, with the start and test commands, versions and the two raters); the input manifest of OA-2 (including clarification policy and deadline); the choice at OA-1; Spec Kit v1.0.6 via `uv`; Playwright with Chromium.
 
 **Stopping here.** Safe: prompt-only, no runtime dependency, no claim of visual improvement until A-measure.
+
+## A-measure (pilot app: Angular RDMS frontend, scratch copy; data outside this repository)
+
+Status: **generation complete, ratings pending**. No visual claim is made.
+
+| Item | Record |
+|---|---|
+| Subject | Angular app (Material), baseline commit `8c2947a` of a scratch copy; mock RDMS API (7 Systems, 19 Groups, 86 Services); fake credentials |
+| Arms | baseline = SDLE `3cd3b19`; enhanced = SDLE `d915eb6`; each arm's real capability files and Spec Kit v1.0.6; no gates, no reviews (isolated experiment, not a full SDLE run) |
+| Screens | S1 overview dashboard (new), S2 register table (new), S3 hierarchy filters (brownfield) |
+| Runs | 18 counted (3 per arm per screen), seeded order (seed 20261010), model `claude-sonnet-5-5`. All 18 completed, built and were captured |
+| Excluded | 1 harness dry run (`enhanced-S2-0`); 7 runs lost to API/session-limit failures and re-executed under the same ids (kept as `runs-invalid/`), logged in the final manifest |
+| Mechanical effect | every enhanced plan has the User Interface section, no baseline plan does |
+| Cost / time (supporting, mean per run) | baseline $2.27, 537 s; enhanced $2.89, 764 s: **+27% cost, +42% time**, above the 25% target in PLAN §6 row 9(d); reported, not a rejection. n=9 per arm, large variance |
+| Rendered-UI rating | **pending**: two blind raters not yet named. Rating set: 18 packets, 108 screenshots, two random orders, arm map kept apart |
+| Order caveat | the seeded shuffle placed the three enhanced S1 runs before the baseline S1 runs |
+| Not done | the one full SDLE run of the enhanced arm on S1 through `gate_implement`; intent-completeness scoring (needs a blind rater) |
