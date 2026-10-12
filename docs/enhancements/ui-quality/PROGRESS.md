@@ -144,3 +144,17 @@ Tests: 4236 passed, 3 skipped over the full suite before the round 1 fix; 802 pa
 Stated limit: the review evidence file is not hash-chained, so an edit that leaves it valid and consistent with the ledger is not detected; the actor type of a waiver is self-declared, so the rule stops silent waivers and does not prove who decided.
 
 **Prerequisite for Phase C:** A, B and M released (this is the third). C also needs its own task-0 experiment (can the read-only reviewer see a PNG) and the owner's decision.
+
+### Phase C task 0: can the read-only reviewer perceive a screenshot? (12 Oct 2026)
+
+Question (PLAN F5 / U1): can `sdle-code-review`, as configured (`Read, Grep, Glob`), perceive pixels through `Read`? Setup: seven PNGs with neutral names, from the pilot screenshots; four with one seeded pixel-only defect each (overlap, clipping, misalignment, low contrast, made by editing the image) and three unmodified; the subagent was told to view each, state what it saw, quote two strings of text, and list defects, and not to assume any exists. One run, one reviewer.
+
+| Result | |
+|---|---|
+| Perceives images | **yes**, 7 of 7: correct description of every screen and exact quoted text |
+| Seeded defects found | **4 of 4** (overlap, clipping, misalignment, low contrast), each with a correct location |
+| Extra categories on seeded images | misalignment image also reported as overlap and clipping (the shifted strip does produce those); the low-contrast image also reported text wrapping |
+| Unmodified controls | all 3 were given at least one finding (toast stacking over the footer; faint legend sample text; tree cut at the bottom of a full-page capture). These controls are real screenshots with real quirks, not defect-free, so these are not scored as false positives; they do show the reviewer reports minor things on a clean screen |
+
+What this settles: the premise of Phase C holds, and C ships its full variant (screenshots to the reviewer), not the fallback (listed for the human, "visual judgment unverified"). What it does **not** settle: the seeded defects are large and crude, so detection of subtle defects is untested; finding stability across repeated reviews is untested; a false-positive rate needs controls that are actually defect-free; and an AI visual judge was not aligned with the owner's own ratings in A-measure (OA-6), which argues for keeping visual findings advisory unless the owner decides otherwise. U1 is resolved.
+
