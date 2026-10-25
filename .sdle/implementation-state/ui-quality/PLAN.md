@@ -673,3 +673,7 @@ All six round-1 fixes verified; one new finding, accepted.
 | Id | Amends | Rule |
 |---|---|---|
 | PR-R2-001 | §7.2, and PR-R1-003's manifest | The input manifest also declares a **clarification policy** and a **run deadline**, identical for both arms: a clarification request either ends the attempt (counted as an attempted run with the declared failure outcome) or receives a predetermined answer written in the manifest. Every intervention is recorded. "Unattended" means no improvised human input, not that Spec Kit cannot ask |
+
+### Process amendment (25 Oct 2026, owner): review runner v2
+
+Amends §5.3 and §5.2. Reviews from this date use `ui-quality/codex/codexrun_v2.py` and `review.v2.schema.json` in place of the reused `requirements-package-loop` runner and schema. A review is incomplete when a file in its computed scope is unread or when it lists part of the asked scope as not reviewed; limits of the read-only sandbox are recorded as `out_of_scope` and do not block. §5.2's rule that coverage gaps go to the Owner-attention table applies to `not_reviewed`, not to `out_of_scope`. Reason: under the v1 rule a clean review could not pass (OA-4, OA-9, OA-10, OA-11).
