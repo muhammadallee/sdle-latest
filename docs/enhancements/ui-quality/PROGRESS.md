@@ -158,3 +158,24 @@ Question (PLAN F5 / U1): can `sdle-code-review`, as configured (`Read, Grep, Glo
 
 What this settles: the premise of Phase C holds, and C ships its full variant (screenshots to the reviewer), not the fallback (listed for the human, "visual judgment unverified"). What it does **not** settle: the seeded defects are large and crude, so detection of subtle defects is untested; finding stability across repeated reviews is untested; a false-positive rate needs controls that are actually defect-free; and an AI visual judge was not aligned with the owner's own ratings in A-measure (OA-6), which argues for keeping visual findings advisory unless the owner decides otherwise. U1 is resolved.
 
+### Theme experiment (24-25 Oct 2026; pilot app, S1, design fixed before any run)
+
+**Question.** Does a project design-system document, plus a four-line guideline rule to use it, make the generated screen follow the app's colour roles? The pilot app's token set includes a green `--color-success`; the green chart bars the owner flagged in A-measure were that **status** colour used for **data**. The design-system document (written from the app's own `_theme.scss`) states that status colours are never data-series colours and that charts use the primary indigo family. This is a test of whether the generator **follows a stated theme**, not proof that themes make UI better in general.
+
+Arms: control = enhanced SDLE (`d915eb6`); themed = the same plus `design-system.md` at the project root and the rule appended to `guidelines/ui-design.md`. Three runs each, harness v2, seeded order. Metrics computed by script.
+
+| Run | Green share of saturated content pixels | Indigo/blue share | Status colour in chart styles | `Theme:` line in plan |
+|---|---|---|---|---|
+| control 7 | 0.744 | 0.131 | 2 | no |
+| control 8 (flagged: session limit after the screen was built) | 0.002 | 0.911 | 0 | no |
+| control 9 | 0.767 | 0.146 | 2 | no |
+| themed 7 | 0.000 | 0.920 | 0 | yes |
+| themed 8 (re-run; re-captured after the mock API stopped) | 0.000 | 0.861 | 0 | yes |
+| themed 9 | 0.000 | 0.933 | 0 | yes |
+
+**Result.** With the theme, 3 of 3 runs kept data in the indigo family and named the theme in the plan; without it, 2 of 3 drew data in status green. Literal colour values: one per run in both arms (no difference). Mean cost: control $1.93 (one run cut short), themed $2.47. Checked by eye on two screenshots: the metric measures the chart colours it claims to.
+
+**Not measured, seen in passing.** `themed-S1-8` shows every record as active (inactive 0), i.e. it did not fetch inactive records, which the requirement asks for; control runs did. One run; a correctness defect unrelated to the theme, and exactly what Phase B's browser checks would catch.
+
+**Limits.** n = 3 per arm, one screen, one app, one colour rule. Two runs hit the session limit (one re-run, one counted and flagged) and one capture was repeated after the mock API stopped; all are in `experiment/THEME-EXPERIMENT.md`.
+
