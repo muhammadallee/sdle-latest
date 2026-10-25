@@ -1,0 +1,9 @@
+{
+ "label": "t-full-7",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_loop.py",
+ "exit_code": 0,
+ "summary": "56 passed, 1 skipped in 640.52s (0:10:40)",
+ "seconds": 643.2,
+ "finished": "2026-10-25T09:15:11Z",
+ "result": "PASS"
+}

@@ -1,0 +1,9 @@
+{
+ "label": "t-full-11",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_baseline.py tests/test_units_discovery.py tests/test_integration_02_to_05.py tests/test_units_invariants.py tests/test_units_execution_identity.py tests/test_units_refinement_policy.py",
+ "exit_code": 0,
+ "summary": "180 passed in 275.19s (0:04:35)",
+ "seconds": 283.4,
+ "finished": "2026-10-25T08:45:45Z",
+ "result": "PASS"
+}

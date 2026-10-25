@@ -1,0 +1,9 @@
+{
+ "label": "t-full-6",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_hooks.py",
+ "exit_code": 0,
+ "summary": "217 passed in 253.92s (0:04:13)",
+ "seconds": 261.8,
+ "finished": "2026-10-25T08:33:28Z",
+ "result": "PASS"
+}
