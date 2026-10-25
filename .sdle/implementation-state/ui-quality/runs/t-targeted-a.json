@@ -1,0 +1,9 @@
+{
+ "label": "t-targeted-a",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_doc_links.py tests/test_units_documented_commands.py tests/test_units_install_contract.py",
+ "exit_code": 0,
+ "summary": "1170 passed in 31.99s",
+ "seconds": 42.2,
+ "finished": "2026-10-25T07:56:24Z",
+ "result": "PASS"
+}

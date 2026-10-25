@@ -1,0 +1,9 @@
+{
+ "label": "t-targeted-b",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_capabilities.py tests/test_units_shipped_surface.py",
+ "exit_code": 0,
+ "summary": "220 passed in 136.32s (0:02:16)",
+ "seconds": 157.3,
+ "finished": "2026-10-25T07:59:07Z",
+ "result": "PASS"
+}

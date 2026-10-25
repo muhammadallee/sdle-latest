@@ -1,0 +1,19 @@
+{
+  "run_id": "20261025T034619-stage2-codex-T-plan-r2",
+  "result": "INTERRUPTED",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "T-plan-r2",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-frozen-T-plan2",
+  "candidate_sha": "a2d418f3e6f903db6b7df17703fb8110048f1f83",
+  "timeout_seconds": 1800,
+  "prompt": "T-plan-round2.prompt.md",
+  "prompt_sha256": "7952319d7865f72b77c15c3e47592bb0fffeea9240b4d0873da3d6f3011f5a22",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-25T03:46:19Z",
+  "attempts": [],
+  "note": "killed by Claude Code for low system memory; not counted"
+}

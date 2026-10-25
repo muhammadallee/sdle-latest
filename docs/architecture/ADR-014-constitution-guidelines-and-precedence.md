@@ -90,3 +90,7 @@ Position 6 exists because pretending it does not is how unattributed judgement g
 **We accept** six more prompt files to maintain, and the lint rules that keep them reachable.
 
 **We gain** one home for engineering rules, a stated order among the inputs to every judgement phase, and a distinction — available versus selected — that stops a constitution from reading as a shopping list.
+
+## Amendment: a project design system (UI-quality enhancement, Phase T)
+
+A project may keep its design system in a file (by default `design-system.md` at the repository root), which the plan names on a `Theme:` line. It is **project content referenced by the approved plan**: it ranks below the approved requirements, the constitution and approved architecture decisions, and above SDLE guidelines and agent judgement; a conflict with a higher source is raised to the user, never settled silently. SDLE ships no theme that it loads, and the design document cites the file rather than copying its values, so the project's file stays the only source of them. It is read as data (scanned before use). Its content is **not** protected by drift detection after the plan gate: the orchestrator re-checks its git blob hash before design, implementation and remediation and asks the user if it changed. This rests on a small pilot (three runs per arm, one screen): with the file and the rule, generated charts kept the theme's colour roles in 3 of 3 runs, against 1 of 3 without.

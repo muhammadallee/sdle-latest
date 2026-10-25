@@ -110,6 +110,7 @@ How the architecture-memory enhancement was delivered: what changed, how it was 
 | [FUTURE.md](enhancements/requirements-refinement/FUTURE.md) | Requirements refinement: the known gaps recorded for future enhancement runs, with their reasoning and triggers |
 | [REVIEW-ROUND-3-CODEX.md](enhancements/architecture-memory/REVIEW-ROUND-3-CODEX.md) | The second reviewer of round 3, a Codex pass over the same patch, with dispositions |
 | [PROGRESS.md](enhancements/ui-quality/PROGRESS.md) | UI quality enhancement: phase status, checkpoints, the owner-attention table and the open decisions |
+| [README.md](examples/themes/README.md) | An example structure for a project design system (`design-system.md`) that SDLE reads but never ships or loads |
 | [README.md](examples/ui-harness/README.md) | An example browser-check harness for the implementation manifest (verified once on a pilot; not exercised by CI) |
 
 ## Specification — not documentation
