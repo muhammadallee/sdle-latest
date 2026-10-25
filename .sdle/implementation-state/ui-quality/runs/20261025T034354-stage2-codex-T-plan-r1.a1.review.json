@@ -1,0 +1,72 @@
+{
+  "reviewed_commit": "425a95739f0e13131030d2ff76b4b95a8e565a22",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants and plan",
+      "Theme experiment evidence and claim limits",
+      "Current UI guideline, phase-execution module and SKILL.md",
+      "Scan command, write fence, guidance map, gate drift and implementation tree digest",
+      "ADR-014 precedence and existing UI conventions",
+      "Flow tables and documentation/install test contracts"
+    ],
+    "areas_not_reviewed": [
+      "External experiment harness, raw run artifacts and screenshots",
+      "Execution of tests and lint commands",
+      "Future implementation wording and behavior; no implementation exists"
+    ]
+  },
+  "findings": [
+    {
+      "id": "TP-R1-001",
+      "severity": "high",
+      "category": "defect/trust-boundary",
+      "path": ".sdle/implementation-state/ui-quality/phases/T-PLAN.md",
+      "line": 13,
+      "claim": "Choosing a theme path at the plan gate does not bind the theme content, and the plan omits how later changes are handled.",
+      "evidence": "The plan says 'Chosen at the plan gate' and implementation 'points at the bound theme'. However, scripts/sdle.py compute_drift hashes only resolve_artifact_path for each baselined gate; it does not traverse references in plan.md. SKILL.md says the write fence covers 'workitems/, .workflow/, requirements/, guidance/ and .sdle/architecture/', excluding root design-system.md. tree_digest includes 'every file git would track ... plus untracked files that are not ignored', so a normal root theme moves implementation evidence, but this does not detect a theme edit between plan approval and the first build. The scan command exists and scans arbitrary safe repository paths, but establishes no approval binding.",
+      "evidence_type": "static",
+      "suggested_fix": "Describe the actual protection boundaries and define a prompt procedure for rereading, rescanning and surfacing changed theme content after selection. Explicitly state that theme content has no mechanical plan-gate drift protection under the unchanged engine; avoid calling it bound without qualifying that limitation.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "TP-R1-002",
+      "severity": "medium",
+      "category": "defect/precedence",
+      "path": ".sdle/implementation-state/ui-quality/phases/T-PLAN.md",
+      "line": 26,
+      "claim": "The proposed ADR amendment does not place the project design system in the precedence chain or resolve conflicts with existing approved conventions.",
+      "evidence": "The amendment is limited to 'the guideline points at a project-owned design system; SDLE ships none'. ADR-014 orders 'approved requirements', 'the constitution', 'approved architecture decisions', 'the approved spec / design of this WorkItem', 'SDLE guidelines', and 'agent judgement', and says 'A guideline never overrides an approved artifact.' Meanwhile the plan says 'Where the theme assigns a meaning ... the work keeps it', without specifying what happens when that meaning contradicts the constitution or approved design. ui-design.md already requires reading and extending the existing User Interface Conventions section.",
+      "evidence_type": "static",
+      "suggested_fix": "Define the theme's authority and conflict procedure in ADR-014 and reference that decision from the guideline. Explain how app-design.md records references and usage without becoming a competing source for theme values, and how conflicting approved conventions are resolved.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "TP-R1-003",
+      "severity": "medium",
+      "category": "defect/flows",
+      "path": ".sdle/implementation-state/ui-quality/phases/T-PLAN.md",
+      "line": 13,
+      "claim": "The theme-selection procedure depends on a gate that HOTFIX never runs.",
+      "evidence": "The plan says 'Chosen at the plan gate' and 'The user sees it in the gate content and changes it there'. SKILL.md's HOTFIX row contains 'spec_draft gate_spec plan_draft tasks_draft implement gate_implement' with no gate_plan. DEFECT_FIX does contain gate_plan, although its approval may be omittable under governance. Naming existing systems in impact_analysis does not specify how a custom theme path or 'none' is selected when the promised gate interaction does not occur.",
+      "evidence_type": "static",
+      "suggested_fix": "Specify theme selection during plan_draft for every flow, with an explicit fallback and presentation procedure when gate_plan is absent or omitted. Preserve HOTFIX's existing lifecycle without inventing an implicit approval gate.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "TP-R1-004",
+      "severity": "medium",
+      "category": "defect/enforcement",
+      "path": ".sdle/implementation-state/ui-quality/phases/T-PLAN.md",
+      "line": 14,
+      "claim": "The redesign restriction is stated as an absolute guarantee without identifying that it is advisory under this implementation scope.",
+      "evidence": "The plan says 'Changing an existing app’s theme is a redesign the requirements must ask for, never a side effect' while declaring 'Engine and hooks: unchanged'. ui-design.md begins 'Advisory', and no planned engine check compares theme changes against requirements. A tree digest can invalidate stale test evidence but cannot establish that a theme change was requested.",
+      "evidence_type": "static",
+      "suggested_fix": "Label this as a prompt-level restriction and define how the orchestrator handles an apparent redesign, including surfacing the conflict and obtaining requirements clarification. State that the engine does not mechanically enforce semantic redesign authorization.",
+      "ac_ids": [],
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+................................F....................................... [ 91%]
+..........................................                               [100%]
+================================== FAILURES ===================================
+________ test_the_install_directories_hold_exactly_the_expected_files _________
+
+    def test_the_install_directories_hold_exactly_the_expected_files():
+        assert tracked_names(".claude/commands") == EXPECTED_COMMANDS
+        assert tracked_names(".claude/agents") == EXPECTED_AGENTS
+>       assert tracked_names(".claude/skills/sdle") == EXPECTED_SKILL_FILES
+E       AssertionError: assert {'SKILL.md', ...ning.md', ...} == {'SKILL.md', ...ning.md', ...}
+E         
+E         Extra items in the right set:
+E         'guidelines/ui-design.md'
+E         Use -v to get more diff
+
+tests\test_units_install_contract.py:265: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_install_contract.py::test_the_install_directories_hold_exactly_the_expected_files
+1 failed, 473 passed in 266.92s (0:04:26)
+
+--- stderr ---

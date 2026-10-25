@@ -1,0 +1,78 @@
+{
+  "reviewed_commit": "25b1395f24ed6cb21b746cea8a08766ab7f0889f",
+  "coverage": {
+    "areas_reviewed": [
+      "Scope enforcement checks self-reported filenames, not actual reading. Copying the scope list or relabeling gaps as out_of_scope passes; review output and event logs permit owner inspection, but no automatic detection exists.",
+      "Windows separators and leading ./ work; dot-directory normalization collides with other paths.",
+      "Empty scope passes. Deleted files require examining historical content; renamed files require examining the diff and destination. The suffix does not explain these cases.",
+      "Executed --self-test successfully. It covers its six explicit assertions, but not dot-directories, empty scope, rename/delete scope generation, Git failures or same-prefix commit mismatches.",
+      "Read-only, ephemeral, one retry and Codex --output-schema invocation are preserved. Model reporting is lost.",
+      "Prompt suffix matches the schema and the owner's coverage distinction."
+    ],
+    "files_reviewed": [
+      ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      ".sdle/implementation-state/ui-quality/codex/review.v2.schema.json",
+      ".sdle/implementation-state/requirements-package-loop/codex/codexrun_stage2.py",
+      ".sdle/implementation-state/ui-quality/PLAN.md",
+      "docs/enhancements/ui-quality/PROGRESS.md"
+    ],
+    "not_reviewed": [],
+    "out_of_scope": [
+      "Launching a complete runner review, which writes run records and output files; validation probes ran in memory without writes."
+    ]
+  },
+  "findings": [
+    {
+      "id": "RV-001",
+      "severity": "high",
+      "category": "defect/scope",
+      "path": ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      "line": 103,
+      "claim": "A failed scope command silently becomes an empty scope, allowing PASS without reviewing changed files.",
+      "evidence": "The runner consumes subprocess.run(...).stdout.splitlines() for 'git diff --name-only' without checking returncode or stderr. An invalid BASE produces no filenames; validate() accepts required_files=[] with files_reviewed=[], confirmed by an in-memory probe. The record retains base and the empty list but not the Git failure.",
+      "evidence_type": "executed",
+      "suggested_fix": "Check both Git command results before launching Codex and record failures as BLOCKED. Distinguish a successful empty diff from scope computation failure.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "RV-002",
+      "severity": "medium",
+      "category": "defect/path-normalization",
+      "path": ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      "line": 34,
+      "claim": "Normalization removes meaningful leading dots and accepts unrelated files as scope coverage.",
+      "evidence": "The implementation uses '.lstrip(\"./\")', which removes every leading dot or slash. Executed probes returned '.sdle/x' -> 'sdle/x', '.claude/x' -> 'claude/x', and '../a' -> 'a'. validate() accepted files_reviewed=['sdle/x','claude/x'] for required_files=['.sdle/x','.claude/x'].",
+      "evidence_type": "executed",
+      "suggested_fix": "Convert separators and remove only explicit leading './' components; preserve dot-directory names and reject absolute paths and parent traversal. Add collision regression cases.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "RV-003",
+      "severity": "medium",
+      "category": "defect/commit-validation",
+      "path": ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      "line": 44,
+      "claim": "The commit check accepts an incorrect full commit or arbitrary suffix sharing seven characters.",
+      "evidence": "The check is 'str(doc[\"reviewed_commit\"]).startswith(expected_commit[:7])'. An executed probe accepted reviewed_commit='abcdef1WRONG' against expected_commit='abcdef123456789'. This weakness is inherited from v1; the self-test only tests a different prefix.",
+      "evidence_type": "executed",
+      "suggested_fix": "Require equality with the full candidate SHA, or resolve a syntactically valid abbreviated SHA unambiguously and compare the resolved commit.",
+      "ac_ids": [],
+      "confidence": "high"
+    },
+    {
+      "id": "RV-004",
+      "severity": "low",
+      "category": "defect/run-record-parity",
+      "path": ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      "line": 144,
+      "claim": "V2 drops the per-attempt reported model despite claiming run-record parity.",
+      "evidence": "V1 parses the event stream and writes 'info[\"model_reported\"] = model' at line 114. V2 moves directly from 'info[\"finished_utc\"] = utc()' to validation and never records that field. PROGRESS.md states 'the invocation, the single retry and the run record are unchanged.' Raw events remain available, but the structured model audit field is lost.",
+      "evidence_type": "static",
+      "suggested_fix": "Restore extraction and recording of model_reported for each attempt, including null when unavailable.",
+      "ac_ids": [],
+      "confidence": "high"
+    }
+  ]
+}

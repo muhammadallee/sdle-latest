@@ -1,0 +1,33 @@
+{
+  "reviewed_commit": "a2d418f3e6f903db6b7df17703fb8110048f1f83",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md and invariant 7",
+      "All four section 8 amendments against current prompt files",
+      "Executed git hash-object; checked Git prerequisite and prompt linter restrictions",
+      "Phase generation, gate presentation, remediation, HOTFIX and omitted-plan paths",
+      "ADR-014 precedence chain and UI convention ownership"
+    ],
+    "areas_not_reviewed": [
+      "Live SpecKit execution",
+      "Linux/macOS execution",
+      "Full test suite",
+      "Future implementation, which does not yet exist"
+    ]
+  },
+  "findings": [
+    {
+      "id": "TP-R2-001",
+      "severity": "medium",
+      "category": "defect/remediation",
+      "path": ".sdle/implementation-state/ui-quality/phases/T-PLAN.md",
+      "line": 46,
+      "claim": "The new theme hash check misses implementation remediation after gate rejection.",
+      "evidence": "The amendment places recomputation \"at design_generation and again at the start of implement\". However, modules/gate-protocol.md:176–178 handles SpecKit remediation by \"Re-invoke the relevant SpecKit skill via the Skill tool\", without re-executing the implement phase block. A theme edited while gate_implement is rejected can therefore reach regenerated code without the promised rescan and user decision. The section 3 change list also omits gate-protocol.md.",
+      "evidence_type": "static",
+      "suggested_fix": "Extend the plan to require the same theme verification and implementation UI arguments before SpecKit implementation remediation in gate-protocol.md, referencing one canonical procedure rather than duplicating its rules.",
+      "ac_ids": [],
+      "confidence": "high"
+    }
+  ]
+}

@@ -30,8 +30,15 @@ FINDING_KEYS = ("id", "severity", "category", "path", "line", "claim", "evidence
                 "evidence_type", "suggested_fix", "ac_ids", "confidence")
 
 
-def _norm(path: str) -> str:
-    return path.strip().replace("\\", "/").lstrip("./")
+def _norm(path: str) -> str | None:
+    """A repository-relative path in one spelling, or None if it is not one (absolute, or `..`).
+    Only an explicit leading `./` is removed: `.sdle/` and `.claude/` keep their dot."""
+    p = path.strip().replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    if not p or p.startswith("/") or (len(p) > 1 and p[1] == ":") or ".." in p.split("/"):
+        return None
+    return p
 
 
 def validate(doc, expected_commit: str, required_files: list[str]) -> list[str]:
@@ -41,7 +48,9 @@ def validate(doc, expected_commit: str, required_files: list[str]) -> list[str]:
     problems = [f"missing {k}" for k in ("reviewed_commit", "coverage", "findings") if k not in doc]
     if problems:
         return problems
-    if not str(doc["reviewed_commit"]).startswith(expected_commit[:7]):
+    reported = str(doc["reviewed_commit"]).strip().lower()
+    if not (len(reported) >= 7 and all(c in "0123456789abcdef" for c in reported)
+            and expected_commit.lower().startswith(reported)):
         problems.append(f"reviewed_commit {doc['reviewed_commit']!r} is not the candidate")
     cov = doc["coverage"]
     keys = ("areas_reviewed", "files_reviewed", "not_reviewed", "out_of_scope")
@@ -55,7 +64,7 @@ def validate(doc, expected_commit: str, required_files: list[str]) -> list[str]:
             problems.append(f"finding {i} bad severity")
         if f.get("evidence_type") not in ("executed", "static"):
             problems.append(f"finding {i} bad evidence_type")
-    read = {_norm(p) for p in cov["files_reviewed"]}
+    read = {_norm(p) for p in cov["files_reviewed"]} - {None}
     unread = sorted(p for p in required_files if _norm(p) not in read)
     if unread:
         problems.append("files in scope not reviewed: " + ", ".join(unread))
@@ -65,20 +74,34 @@ def validate(doc, expected_commit: str, required_files: list[str]) -> list[str]:
 
 
 def self_test() -> None:
+    dotdirs = {"reviewed_commit": "abcdef1", "findings": [],
+               "coverage": {"areas_reviewed": ["x"], "files_reviewed": ["sdle/x", "claude/x"],
+                            "not_reviewed": [], "out_of_scope": []}}
+    assert any("not reviewed" in p for p in validate(dotdirs, "abcdef1234", [".sdle/x", ".claude/x"])), \
+        "a dot-directory keeps its dot (RV-002)"
+    parent = json.loads(json.dumps(dotdirs)); parent["coverage"]["files_reviewed"] = ["../a"]
+    assert any("not reviewed: a" in p for p in validate(parent, "abcdef1234", ["a"])), "`..` never matches"
+    suffix = json.loads(json.dumps(dotdirs)); suffix["reviewed_commit"] = "abcdef1WRONG"
+    suffix["coverage"]["files_reviewed"] = []
+    assert any("not the candidate" in p for p in validate(suffix, "abcdef123456789", [])), \
+        "a shared prefix plus a wrong suffix is not the candidate (RV-003)"
+    full = json.loads(json.dumps(suffix)); full["reviewed_commit"] = "ABCDEF123456789"
+    assert validate(full, "abcdef123456789", []) == [], "the full SHA, any case, is accepted"
     base = {"reviewed_commit": "abcdef1234", "findings": [],
             "coverage": {"areas_reviewed": ["all"], "files_reviewed": ["a.md", "b/c.py"],
                          "not_reviewed": [], "out_of_scope": ["could not run pytest"]}}
-    assert validate(base, "abcdef1", ["a.md", "b/c.py"]) == [], "a clean, covered review passes"
+    head = "abcdef1234ffff"
+    assert validate(base, head, ["a.md", "b/c.py"]) == [], "a clean, covered review passes"
     unread = json.loads(json.dumps(base)); unread["coverage"]["files_reviewed"] = ["a.md"]
-    assert any("not reviewed: b/c.py" in p for p in validate(unread, "abcdef1", ["a.md", "b/c.py"]))
+    assert any("not reviewed: b/c.py" in p for p in validate(unread, head, ["a.md", "b/c.py"]))
     gap = json.loads(json.dumps(base)); gap["coverage"]["not_reviewed"] = ["the docs"]
-    assert any("scope not reviewed" in p for p in validate(gap, "abcdef1", ["a.md"]))
+    assert any("scope not reviewed" in p for p in validate(gap, head, ["a.md"]))
     wrong = json.loads(json.dumps(base)); wrong["reviewed_commit"] = "0000000"
-    assert any("not the candidate" in p for p in validate(wrong, "abcdef1", []))
+    assert any("not the candidate" in p for p in validate(wrong, head, []))
     windows = json.loads(json.dumps(base)); windows["coverage"]["files_reviewed"] = [".\\a.md", "b\\c.py"]
-    assert validate(windows, "abcdef1", ["a.md", "b/c.py"]) == [], "path spelling is normalised"
+    assert validate(windows, head, ["a.md", "b/c.py"]) == [], "path spelling is normalised"
     bad = json.loads(json.dumps(base)); bad["findings"] = [{"id": "X", "severity": "huge"}]
-    assert any("bad severity" in p for p in validate(bad, "abcdef1", ["a.md", "b/c.py"]))
+    assert any("bad severity" in p for p in validate(bad, head, ["a.md", "b/c.py"]))
     print("self-test ok")
 
 
@@ -98,11 +121,17 @@ def main(argv: list[str]) -> None:
         return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     version = subprocess.run([codex, "--version"], capture_output=True, text=True).stdout.strip()
-    candidate = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True,
-                               text=True).stdout.strip()
-    required = [l for l in subprocess.run(
-        ["git", "diff", "--name-only", f"{base}..HEAD", "--", *pathspec], cwd=worktree,
-        capture_output=True, text=True).stdout.splitlines() if l.strip()]
+    head_cmd = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, text=True)
+    candidate = head_cmd.stdout.strip()
+    diff = subprocess.run(["git", "diff", "--name-only", f"{base}..HEAD", "--", *pathspec], cwd=worktree,
+                          capture_output=True, text=True)
+    scope_error = None
+    if head_cmd.returncode != 0 or not candidate:
+        scope_error = f"git rev-parse HEAD failed: {head_cmd.stderr.strip()}"
+    elif diff.returncode != 0:
+        # an unknown BASE must not become an empty scope that any review passes (RV-001)
+        scope_error = f"git diff {base}..HEAD failed: {diff.stderr.strip()}"
+    required = [l for l in diff.stdout.splitlines() if l.strip()] if scope_error is None else []
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_id = f"{stamp}-codex-v2-{area}"
     record = {
@@ -117,6 +146,12 @@ def main(argv: list[str]) -> None:
 
     def save():
         record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+    if scope_error:
+        record.update({"result": "BLOCKED", "scope_error": scope_error, "finished_utc": utc()})
+        save()
+        print(json.dumps({k: record.get(k) for k in ("run_id", "result", "scope_error")}))
+        return
 
     # The prompt is sent with the list of files the review must cover, so the requirement is explicit.
     files_note = ("\n\n## Files in scope (the runner checks `files_reviewed` against this list)\n"
@@ -142,6 +177,19 @@ def main(argv: list[str]) -> None:
             info["exit_code"] = None
             info["timed_out"] = True
         info["finished_utc"] = utc()
+        model = None
+        if events.exists():
+            for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if '"model"' in json.dumps(d):
+                    model = (d.get("model") or (d.get("item") or {}).get("model")
+                             or (d.get("msg") or {}).get("model") or model)
+                    if model:
+                        break
+        info["model_reported"] = model   # kept from v1 (RV-004)
         problems = ["nonzero exit / timeout"] if info.get("exit_code") != 0 else []
         doc = None
         if not problems:

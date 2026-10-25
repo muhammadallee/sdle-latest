@@ -1,0 +1,38 @@
+{
+  "reviewed_commit": "5edc8f952cfd852a0286ac6e3f0d93ae73b3ef92",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants; M-PLAN.md including §7; PLAN.md F7/F8 and Phase M",
+      "M1 selection, stale-SHA behavior, absent summaries, evidence correspondence and counts; _loop_progress and loop show callers",
+      "M2 step-time and record-time refusals, write ordering, and loop stop/begin recovery",
+      "M3 all actor types, review types and results; evidence reservation, ledger and audit ordering",
+      "Review findings/disposition consumers: read_review_findings and cmd_artifact_review validate input; _blocking_finding_fingerprints reads evidence; _loop_progress and cmd_loop_show consume fingerprints; cmd_loop_step and cmd_loop_record consume summaries",
+      "Other review-record consumers: read_reviews, review_status, impact_analysis_precondition, review_precondition through gate approval and drift approval, and cmd_artifact_reviews; these consume metadata/results rather than finding dispositions. cmd_artifact_review is the sole review-ledger writer",
+      "Changed tests, helper adjustment, test non-vacuity and platform assumptions; author-run targeted evidence",
+      "Changed troubleshooting, dry run 25, verification matrix, ADR-017 and review/execution prompts"
+    ],
+    "areas_not_reviewed": [
+      "Full suite and targeted pytest tests were not independently rerun because their fixtures write files",
+      "Author-run full-suite shard results were not independently reproduced",
+      "Claude Code runtime enforcement and actual model-driven review/repair behavior"
+    ]
+  },
+  "findings": [
+    {
+      "id": "MI-R1-001",
+      "severity": "medium",
+      "category": "defect/review-evidence-integrity",
+      "path": "scripts/sdle.py",
+      "line": 16286,
+      "claim": "Malformed finding fields can escape the new evidence integrity check and crash both loop consumers instead of producing the structured integrity refusal.",
+      "evidence": "The helper validates only 'isinstance(f, dict)' and aggregate counts before evaluating 'sorted(f.get(\"obligations\") or [])'. An executed, read-only in-memory probe supplied matching embedded metadata and counts with one open blocking finding whose obligations was 42; the helper raised \"TypeError: 'int' object is not iterable\". The CLI catches 'except SdleError as exc', so this exception bypasses review_evidence_invalid and the exit-3 JSON contract. Such evidence is malformed, outside the documented allowance for edits that remain valid and consistent.",
+      "evidence_type": "executed",
+      "suggested_fix": "Validate evidence finding fields against the findings schema before fingerprinting and convert invalid shapes to review_evidence_invalid. Add coverage through loop record and loop show for malformed fields with unchanged counts, asserting structured exit 3 and unchanged runtime files.",
+      "ac_ids": [
+        "M1",
+        "MP-R1-001"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

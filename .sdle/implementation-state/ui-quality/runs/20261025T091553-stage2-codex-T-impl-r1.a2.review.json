@@ -1,0 +1,35 @@
+{
+  "reviewed_commit": "10b8ec38d87deabe0693ca98113465879dcc2d9d",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants and Phase T plan, including sections 8 and 9",
+      "Complete .claude and docs diff; absence of engine and hook changes",
+      "Theme-check call sites, remediation, flow coverage and gate presentation",
+      "Scan implementation, root-level path support and command portability",
+      "Precedence, brownfield safeguards, value duplication and opacity",
+      "Pilot claims, documentation reachability, install pins and restatement-search scope",
+      "Author-run targeted test evidence"
+    ],
+    "areas_not_reviewed": [
+      "Original pilot guideline and generated screenshots, which are not present in the checkout",
+      "Independent execution of tests or pilot runs"
+    ]
+  },
+  "findings": [
+    {
+      "id": "TI-R1-001",
+      "severity": "low",
+      "category": "defect/validation",
+      "path": ".claude/skills/sdle/guidelines/ui-design.md",
+      "line": 34,
+      "claim": "The required comparison against the experiment's actual rule is missing, leaving the phase's acceptance criterion unverified.",
+      "evidence": "T-PLAN.md section 6 requires: \"The rule as built is the rule the experiment tested (wording diff recorded).\" PROGRESS.md says the experiment used \"the rule appended to guidelines/ui-design.md\", but does not quote that four-line rule. The implementation adds \"A project design system\" without recording the original wording or its comparison with the shipped rule.",
+      "evidence_type": "static",
+      "suggested_fix": "Record the original four-line pilot rule and a wording comparison in the implementation evidence, identifying the additions required by plan sections 8 and 9.",
+      "ac_ids": [
+        "T-PLAN §6"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

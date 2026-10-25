@@ -1,0 +1,1229 @@
+..............FFFFFFFFFFFFFFFFFF.FFF..F.FFFFFFFFF                        [100%]
+================================== FAILURES ===================================
+____________ test_reconcile_moves_the_task_baselines_and_audits_it ____________
+
+bare_project = <conftest.Project object at 0x00000228A06C7E70>
+
+    def test_reconcile_moves_the_task_baselines_and_audits_it(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A06C7A80>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+____________ test_reconcile_never_hides_drift_in_another_artifact _____________
+
+bare_project = <conftest.Project object at 0x00000228A0993690>
+
+    def test_reconcile_never_hides_drift_in_another_artifact(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:317: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8D390>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+______ test_as23_the_same_failures_twice_stop_the_loop_with_no_progress _______
+
+bare_project = <conftest.Project object at 0x00000228A0E8FA10>
+
+    def test_as23_the_same_failures_twice_stop_the_loop_with_no_progress(
+            bare_project):
+        view = loop_view(bare_project)
+        block_unmapped(view)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:334: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A05E06E0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_ test_as24_the_iteration_limit_stops_the_loop_with_a_reason_and_a_next_action _
+
+bare_project = <conftest.Project object at 0x00000228A066F3F0>
+
+    def test_as24_the_iteration_limit_stops_the_loop_with_a_reason_and_a_next_action(
+            bare_project):
+        bare_project.init_git()
+        view = package_view(bare_project)
+        walk(view, "implement")
+        view.ok("implement", "preflight", "--bypass")
+        block_unmapped(view, limit=1)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:352: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8F700>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_ test_as25_resuming_after_an_interruption_neither_duplicates_nor_trusts_a_stale_snapshot _
+
+bare_project = <conftest.Project object at 0x00000228A0E8E040>
+
+    def test_as25_resuming_after_an_interruption_neither_duplicates_nor_trusts_a_stale_snapshot(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:366: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8D5C0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+__________ test_evidence_is_never_recorded_twice_for_two_iterations ___________
+
+bare_project = <conftest.Project object at 0x00000228A09939A0>
+
+    def test_evidence_is_never_recorded_twice_for_two_iterations(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:395: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0993BD0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_________ test_as26_an_unavailable_runner_stops_the_loop_never_a_pass _________
+
+bare_project = <conftest.Project object at 0x00000228A05E24A0>
+
+    def test_as26_an_unavailable_runner_stops_the_loop_never_a_pass(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:408: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8C4B0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_______________ test_a_stated_environment_blocker_ends_the_run ________________
+
+bare_project = <conftest.Project object at 0x00000228A06C6120>
+
+    def test_a_stated_environment_blocker_ends_the_run(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:419: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8EB30>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_______ test_a_requirement_ambiguity_routes_to_the_requirements_process _______
+
+bare_project = <conftest.Project object at 0x00000228A09939A0>
+
+    def test_a_requirement_ambiguity_routes_to_the_requirements_process(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:427: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8F7E0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+__________ test_as27_a_deleted_test_file_stops_the_loop_for_a_human ___________
+
+bare_project = <conftest.Project object at 0x00000228A05E24A0>
+
+    def test_as27_a_deleted_test_file_stops_the_loop_for_a_human(bare_project):
+        bare_project.init_git()
+        (bare_project.root / "tests").mkdir()
+        (bare_project.root / "tests" / "test_app.py").write_text(
+            "def test_it():\n    assert True\n", encoding="utf-8")
+>       subprocess.run(["git", "add", "-A"], cwd=bare_project.root, check=True,
+                       capture_output=True)
+
+tests\test_units_loop.py:438: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['git', 'add', '-A'],)
+kwargs = {'cwd': WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_as27_a_deleted_test_file_0/target'), 'stderr': -1, 'stdout': -1}
+process = <Popen: returncode: 3221225794 args: ['git', 'add', '-A']>
+stdout = b'', stderr = b'', retcode = 3221225794
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 3221225794.
+
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\subprocess.py:577: CalledProcessError
+_______________ test_a_test_case_that_disappears_stops_the_loop _______________
+
+bare_project = <conftest.Project object at 0x00000228A06C5FD0>
+
+    def test_a_test_case_that_disappears_stops_the_loop(bare_project):
+        """Any test case present in an earlier iteration and gone now, mapped to a
+        criterion or not, is a person's decision."""
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:469: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E5C830>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+____________ test_the_sole_mapped_test_disappearing_is_caught_too _____________
+
+bare_project = <conftest.Project object at 0x00000228A0993850>
+
+    def test_the_sole_mapped_test_disappearing_is_caught_too(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:480: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0E8FEE0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____________ test_repairing_different_failing_tests_is_progress ______________
+
+bare_project = <conftest.Project object at 0x00000228A06C5240>
+
+    def test_repairing_different_failing_tests_is_progress(bare_project):
+        """Two runs that both fail are not the same failure if different tests
+        fail: the failing set is in the digest, not the exit code."""
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:491: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B2900>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_________ test_weakening_an_acceptance_tests_assertion_stops_the_loop _________
+
+bare_project = <conftest.Project object at 0x00000228A09B3E00>
+
+    def test_weakening_an_acceptance_tests_assertion_stops_the_loop(bare_project):
+>       view = with_tagged_test(bare_project)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_units_loop.py:526: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_units_loop.py:515: in with_tagged_test
+    subprocess.run(["git", "add", "-A"], cwd=project.root, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['git', 'add', '-A'],)
+kwargs = {'cwd': WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_weakening_an_acceptance_t0/target'), 'stderr': -1, 'stdout': -1}
+process = <Popen: returncode: 3221225794 args: ['git', 'add', '-A']>
+stdout = b'', stderr = b'', retcode = 3221225794
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 3221225794.
+
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\subprocess.py:577: CalledProcessError
+________ test_adding_tests_to_an_acceptance_test_file_is_not_weakening ________
+
+bare_project = <conftest.Project object at 0x00000228A09B0130>
+
+    def test_adding_tests_to_an_acceptance_test_file_is_not_weakening(
+            bare_project):
+>       view = with_tagged_test(bare_project)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_units_loop.py:540: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_units_loop.py:515: in with_tagged_test
+    subprocess.run(["git", "add", "-A"], cwd=project.root, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['git', 'add', '-A'],)
+kwargs = {'cwd': WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_adding_tests_to_an_accept0/target'), 'stderr': -1, 'stdout': -1}
+process = <Popen: returncode: 3221225794 args: ['git', 'add', '-A']>
+stdout = b'', stderr = b'', retcode = 3221225794
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 3221225794.
+
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\subprocess.py:577: CalledProcessError
+________________ test_a_tagged_test_losing_its_tag_is_a_change ________________
+
+bare_project = <conftest.Project object at 0x00000228A09B02F0>
+
+    def test_a_tagged_test_losing_its_tag_is_a_change(bare_project):
+>       view = with_tagged_test(bare_project)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_units_loop.py:549: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_units_loop.py:515: in with_tagged_test
+    subprocess.run(["git", "add", "-A"], cwd=project.root, check=True,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['git', 'add', '-A'],)
+kwargs = {'cwd': WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_a_tagged_test_losing_its_0/target'), 'stderr': -1, 'stdout': -1}
+process = <Popen: returncode: 3221225794 args: ['git', 'add', '-A']>
+stdout = b'', stderr = b'', retcode = 3221225794
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'add', '-A']' returned non-zero exit status 3221225794.
+
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\subprocess.py:577: CalledProcessError
+______ test_as28_a_human_rejection_follows_the_existing_remediation_path ______
+
+bare_project = <conftest.Project object at 0x00000228A09B29E0>
+
+    def test_as28_a_human_rejection_follows_the_existing_remediation_path(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:562: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B3380>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____ test_as29_the_loop_never_approves_and_ready_means_ready_for_a_human _____
+
+bare_project = <conftest.Project object at 0x00000228A0993850>
+
+    def test_as29_the_loop_never_approves_and_ready_means_ready_for_a_human(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:581: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0A950F0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____________ test_loop_show_gives_the_gate_what_it_will_be_shown _____________
+
+bare_project = <conftest.Project object at 0x00000228A05E29E0>
+
+    def test_loop_show_gives_the_gate_what_it_will_be_shown(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:615: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0A959B0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____ test_a_loop_record_the_engine_did_not_write_is_an_integrity_failure _____
+
+bare_project = <conftest.Project object at 0x00000228A05E24A0>
+
+    def test_a_loop_record_the_engine_did_not_write_is_an_integrity_failure(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:628: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0A95BE0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____ test_a_stopped_run_can_be_followed_by_a_new_one_with_its_own_limit ______
+
+bare_project = <conftest.Project object at 0x00000228A0A96510>
+
+    def test_a_stopped_run_can_be_followed_by_a_new_one_with_its_own_limit(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:641: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B0AD0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+__ test_drift_re_approval_of_the_implementation_gate_uses_the_same_predicate __
+
+bare_project = <conftest.Project object at 0x00000228A05E2EB0>
+
+    def test_drift_re_approval_of_the_implementation_gate_uses_the_same_predicate(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:670: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0A96DD0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+______________ test_unticking_through_the_command_stops_the_run _______________
+
+bare_project = <conftest.Project object at 0x00000228A09B2430>
+
+    def test_unticking_through_the_command_stops_the_run(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:694: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B1A20>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+____________ test_a_crash_after_the_baselines_moved_is_recoverable ____________
+
+bare_project = <conftest.Project object at 0x00000228A09B1240>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000228A09B3770>
+
+    def test_a_crash_after_the_baselines_moved_is_recoverable(bare_project,
+                                                              monkeypatch):
+        import pytest
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:710: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A0A952B0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+______________ test_the_outputs_are_not_producible_out_of_order _______________
+
+bare_project = <conftest.Project object at 0x00000228A0A95780>
+
+    def test_the_outputs_are_not_producible_out_of_order(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:734: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B0EC0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+________ test_a_symlink_inside_a_nested_repository_is_part_of_the_tree ________
+
+git_project = <conftest.Project object at 0x00000228A0A95DA0>
+
+    def test_a_symlink_inside_a_nested_repository_is_part_of_the_tree(
+            git_project):
+        import os
+        import pytest
+        from test_units_tree_digest import digest_of, ready
+        ready(git_project)
+        sub = git_project.root / "vendor-lib"
+        sub.mkdir()
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"],
+                     ["config", "user.name", "t"]):
+>           subprocess.run(["git", *args], cwd=sub, check=True)
+
+tests\test_units_loop.py:762: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['git', 'init', '-q'],)
+kwargs = {'cwd': WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_a_symlink_inside_a_nested0/target/vendor-lib')}
+process = <Popen: returncode: 3221225794 args: ['git', 'init', '-q']>
+stdout = None, stderr = None, retcode = 3221225794
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['git', 'init', '-q']' returned non-zero exit status 3221225794.
+
+C:\Users\Ali\AppData\Local\Programs\Python\Python313\Lib\subprocess.py:577: CalledProcessError
+_ test_a_pending_convergence_survives_stopping_the_run_and_beginning_another __
+
+bare_project = <conftest.Project object at 0x00000228A0A959B0>
+
+    def test_a_pending_convergence_survives_stopping_the_run_and_beginning_another(
+            bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:785: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B1B00>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+________ test_a_retry_before_recording_records_the_latest_output_once _________
+
+bare_project = <conftest.Project object at 0x00000228A09B11D0>
+
+    def test_a_retry_before_recording_records_the_latest_output_once(
+            bare_project):
+        """The crash window: the evidence exists but `loop step manifest` has not
+        run. The guarantee is on what the loop records: the latest evidence, used
+        once. An extra output made in the window is history, never deleted, and
+        never recorded."""
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:803: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A09B2900>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+____ test_a_manifest_the_loop_refuses_can_be_rebuilt_and_the_run_continues ____
+
+bare_project = <conftest.Project object at 0x00000228A09B3540>
+
+    def test_a_manifest_the_loop_refuses_can_be_rebuilt_and_the_run_continues(
+            bare_project):
+        """Nothing wedges: a refused manifest step leaves the way forward open."""
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:824: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A06F8AD0>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+________________ test_a_stale_rebuild_may_produce_a_new_output ________________
+
+bare_project = <conftest.Project object at 0x00000228A06FB7E0>
+
+    def test_a_stale_rebuild_may_produce_a_new_output(bare_project):
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:837: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A06FBA10>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+____ test_a_report_too_large_to_track_completely_is_refused_not_truncated _____
+
+bare_project = <conftest.Project object at 0x00000228A09B0750>
+tmp_path = WindowsPath('C:/Users/Ali/AppData/Local/Temp/pytest-of-Ali/pytest-1277/test_a_report_too_large_to_tra0')
+
+    def test_a_report_too_large_to_track_completely_is_refused_not_truncated(
+            bare_project, tmp_path):
+        import sys
+        from conftest import _command_line
+        view = loop_view(bare_project)
+>       view.ok("loop", "begin")
+
+tests\test_units_loop.py:855: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x00000228A06FB930>, session = None
+args = ('loop', 'begin')
+result = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>
+E         loop_no_base: The implementation base is not pinned. Run `implement preflight` first, so the loop measures from a fixed point.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='loop_no_base' data={'workitem': 'orders-wi-001-orders'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_loop.py::test_reconcile_moves_the_task_baselines_and_audits_it
+FAILED tests/test_units_loop.py::test_reconcile_never_hides_drift_in_another_artifact
+FAILED tests/test_units_loop.py::test_as23_the_same_failures_twice_stop_the_loop_with_no_progress
+FAILED tests/test_units_loop.py::test_as24_the_iteration_limit_stops_the_loop_with_a_reason_and_a_next_action
+FAILED tests/test_units_loop.py::test_as25_resuming_after_an_interruption_neither_duplicates_nor_trusts_a_stale_snapshot
+FAILED tests/test_units_loop.py::test_evidence_is_never_recorded_twice_for_two_iterations
+FAILED tests/test_units_loop.py::test_as26_an_unavailable_runner_stops_the_loop_never_a_pass
+FAILED tests/test_units_loop.py::test_a_stated_environment_blocker_ends_the_run
+FAILED tests/test_units_loop.py::test_a_requirement_ambiguity_routes_to_the_requirements_process
+FAILED tests/test_units_loop.py::test_as27_a_deleted_test_file_stops_the_loop_for_a_human
+FAILED tests/test_units_loop.py::test_a_test_case_that_disappears_stops_the_loop
+FAILED tests/test_units_loop.py::test_the_sole_mapped_test_disappearing_is_caught_too
+FAILED tests/test_units_loop.py::test_repairing_different_failing_tests_is_progress
+FAILED tests/test_units_loop.py::test_weakening_an_acceptance_tests_assertion_stops_the_loop
+FAILED tests/test_units_loop.py::test_adding_tests_to_an_acceptance_test_file_is_not_weakening
+FAILED tests/test_units_loop.py::test_a_tagged_test_losing_its_tag_is_a_change
+FAILED tests/test_units_loop.py::test_as28_a_human_rejection_follows_the_existing_remediation_path
+FAILED tests/test_units_loop.py::test_as29_the_loop_never_approves_and_ready_means_ready_for_a_human
+FAILED tests/test_units_loop.py::test_loop_show_gives_the_gate_what_it_will_be_shown
+FAILED tests/test_units_loop.py::test_a_loop_record_the_engine_did_not_write_is_an_integrity_failure
+FAILED tests/test_units_loop.py::test_a_stopped_run_can_be_followed_by_a_new_one_with_its_own_limit
+FAILED tests/test_units_loop.py::test_drift_re_approval_of_the_implementation_gate_uses_the_same_predicate
+FAILED tests/test_units_loop.py::test_unticking_through_the_command_stops_the_run
+FAILED tests/test_units_loop.py::test_a_crash_after_the_baselines_moved_is_recoverable
+FAILED tests/test_units_loop.py::test_the_outputs_are_not_producible_out_of_order
+FAILED tests/test_units_loop.py::test_a_symlink_inside_a_nested_repository_is_part_of_the_tree
+FAILED tests/test_units_loop.py::test_a_pending_convergence_survives_stopping_the_run_and_beginning_another
+FAILED tests/test_units_loop.py::test_a_retry_before_recording_records_the_latest_output_once
+FAILED tests/test_units_loop.py::test_a_manifest_the_loop_refuses_can_be_rebuilt_and_the_run_continues
+FAILED tests/test_units_loop.py::test_a_stale_rebuild_may_produce_a_new_output
+FAILED tests/test_units_loop.py::test_a_report_too_large_to_track_completely_is_refused_not_truncated
+31 failed, 18 passed in 248.21s (0:04:08)
+
+--- stderr ---

@@ -1,0 +1,275 @@
+...........................................s......F..................... [ 56%]
+.......................FFFFFFFF........................                  [100%]
+================================== FAILURES ===================================
+____ test_m2_an_iteration_already_past_an_unstructured_review_cannot_close ____
+
+bare_project = <conftest.Project object at 0x00000210106BB1C0>
+
+    def test_m2_an_iteration_already_past_an_unstructured_review_cannot_close(
+            bare_project):
+        """An iteration recorded before the rule existed: simulated by removing
+        the findings summary from the recorded review step. It cannot be closed,
+        and the engine's own way out (stop, then begin) works."""
+        view = loop_view(bare_project)
+        view.ok("loop", "begin")
+        for step in ("implement",):
+            view.ok("loop", "step", "--step", step)
+        view.ok("tasks", "reconcile")
+        build(view)
+        view.ok("loop", "step", "--step", "manifest")
+        assert code_review(view).exit_code == 0
+        view.ok("loop", "step", "--step", "review")
+        view.ok("loop", "step", "--step", "converge")
+        view.ok("loop", "step", "--step", "trace")
+        record_path = view.runtime / "implementation-loop.json"
+        document = json.loads(record_path.read_text(encoding="utf-8"))
+        for run in document["runs"]:
+            for iteration in run["iterations"]:
+                for step in iteration["steps"]:
+                    if step["step"] == "review":
+                        step["detail"]["findings"] = None
+        record_path.write_text(json.dumps(document), encoding="utf-8")
+    
+        refused = view.run("loop", "record")
+>       assert refused.exit_code == EXIT_REFUSED
+E       AssertionError: assert 3 == 1
+E        +  where 3 = <Result exit=3 ok=False reason='loop_record_invalid' data={'path': 'workitems/orders-wi-001-orders/.sdle/implementation-loop.json'}>.exit_code
+
+tests\test_units_loop.py:963: AssertionError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[agent-PASS] _
+
+project = <conftest.Project object at 0x0000021010635080>, actor_type = 'agent'
+result = 'PASS'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[agent-FAIL] _
+
+project = <conftest.Project object at 0x0000021010B94BB0>, actor_type = 'agent'
+result = 'FAIL'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[tool-PASS] _
+
+project = <conftest.Project object at 0x0000021010BF6A50>, actor_type = 'tool'
+result = 'PASS'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[tool-FAIL] _
+
+project = <conftest.Project object at 0x0000021010D6A900>, actor_type = 'tool'
+result = 'FAIL'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[test-PASS] _
+
+project = <conftest.Project object at 0x0000021010683BD0>, actor_type = 'test'
+result = 'PASS'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[test-FAIL] _
+
+project = <conftest.Project object at 0x0000021010B97310>, actor_type = 'test'
+result = 'FAIL'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[system-PASS] _
+
+project = <conftest.Project object at 0x0000021010BF6F20>, actor_type = 'system'
+result = 'PASS'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+_ test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[system-FAIL] _
+
+project = <conftest.Project object at 0x0000021010BF6660>, actor_type = 'system'
+result = 'FAIL'
+
+    @pytest.mark.parametrize("result", ["PASS", "FAIL"])
+    @pytest.mark.parametrize("actor_type", ["agent", "tool", "test", "system"])
+    def test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding(
+            project, actor_type, result):
+        at_gate_constitution(project)
+        findings = waiver_file(project)
+        before = evidence_files(project)
+        ledger = project.runtime / "reviews.json"
+        existed = ledger.exists()
+        refused = project.run(
+            "artifact", "review", "--path", CONSTITUTION, "--type", REVIEW_TYPE,
+            "--result", result, "--actor-type", actor_type, "--actor-name", "x",
+            "--findings", findings)
+        assert refused.exit_code == EXIT_REFUSED, refused
+        assert refused.reason == "review_waiver_requires_human"
+        assert refused.data["waived"] == ["F1"]
+        assert evidence_files(project) == before, "the refusal left no placeholder"
+        assert ledger.exists() == existed
+>       assert "not proof" in refused.message or "declaration" in refused.message
+                              ^^^^^^^^^^^^^^^
+E       AttributeError: 'Result' object has no attribute 'message'
+
+tests\test_units_artifact_review.py:738: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_units_loop.py::test_m2_an_iteration_already_past_an_unstructured_review_cannot_close
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[agent-PASS]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[agent-FAIL]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[tool-PASS]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[tool-FAIL]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[test-PASS]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[test-FAIL]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[system-PASS]
+FAILED tests/test_units_artifact_review.py::test_m3_a_non_human_actor_cannot_record_an_accepted_blocking_finding[system-FAIL]
+9 failed, 117 passed, 1 skipped in 917.16s (0:15:17)
+
+--- stderr ---

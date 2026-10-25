@@ -1,0 +1,56 @@
+{
+  "run_id": "20261011T161316-stage2-codex-B-r1",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "B-r1",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-frozen-B-r1",
+  "candidate_sha": "8e9bf83904f767e59f17ee6199ed895bb0d49784",
+  "timeout_seconds": 1800,
+  "prompt": "B-review-round1.prompt.md",
+  "prompt_sha256": "482499a56843354ef18743b556353bbcb333bcfcbf29240e211c33512ab8cc6e",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-11T16:13:17Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\active\\nodejs\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-frozen-B-r1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\requirements-package-loop\\codex\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\ui-quality\\runs\\20261011T161316-stage2-codex-B-r1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-11T16:13:17Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-11T16:14:59Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261011T161316-stage2-codex-B-r1.a1.events.jsonl",
+        "stderr": "20261011T161316-stage2-codex-B-r1.a1.stderr.log",
+        "review": "20261011T161316-stage2-codex-B-r1.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-11T16:14:59Z",
+  "findings": 5,
+  "coverage_not_reviewed": [
+    "Independent execution of pytest and lint-skill: read-only sandbox",
+    "Pilot application harness execution and claimed browser results: pilot absent from checkout",
+    "Seeded-defect detection, five clean reruns and full SDLE harness demonstration: not performed according to B-PLAN.md",
+    "Live Windows Node and Playwright process behavior"
+  ],
+  "review_output": "20261011T161316-stage2-codex-B-r1.a1.review.json"
+}

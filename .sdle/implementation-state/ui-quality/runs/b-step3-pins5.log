@@ -1,0 +1,64 @@
+F.F                                                                      [100%]
+================================== FAILURES ===================================
+____ test_b1_a_harness_that_writes_into_ignored_paths_gives_valid_evidence ____
+
+git_project = <conftest.Project object at 0x000001BEDBF2EF90>
+
+    def test_b1_a_harness_that_writes_into_ignored_paths_gives_valid_evidence(
+            git_project):
+        """The harness contract: reports and screenshots go to ignored paths."""
+        ready(git_project, **{"app.py": "print('v1')\n"})
+        (git_project.root / ".gitignore").write_text(
+            ".sdle/\nui-out/\ntest-results/\n", encoding="utf-8")
+>       built = to_gate(git_project, "--test-command",
+                        STAND_IN_WRITES_REPORT_AND_SCREENSHOT,
+                        "--junit", "ui-out/junit.xml")
+
+tests\test_units_tree_digest.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_units_implementation_evidence.py:51: in to_gate
+    built = project.ok("manifest", "build", *build_args)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <conftest.Project object at 0x000001BEDBF2EF90>, session = None
+args = ('manifest', 'build', '--test-command', 'C:\\Users\\Ali\\AppData\\Local\\Programs\\Python\\Python313\\python.exe ui_stand_in.py', '--junit', 'ui-out/junit.xml')
+result = <Result exit=1 ok=False reason='manifest_junit_missing' data={'path': 'ui-out/junit.xml'}>
+@py_assert1 = 1
+
+    def ok(self, *args: str, session: str | None = None) -> Result:
+        """Run and assert success � keeps happy-path setup terse."""
+        result = self.run(*args, session=session)
+>       assert result.exit_code == 0, f"expected success, got {result}\n{result.stderr}"
+E       AssertionError: expected success, got <Result exit=1 ok=False reason='manifest_junit_missing' data={'path': 'ui-out/junit.xml'}>
+E         manifest_junit_missing: --junit names ui-out/junit.xml, which the test command did not write. Nothing was recorded.
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result exit=1 ok=False reason='manifest_junit_missing' data={'path': 'ui-out/junit.xml'}>.exit_code
+
+tests\conftest.py:144: AssertionError
+_____ test_b3_screenshots_in_an_unignored_folder_invalidate_the_evidence ______
+
+git_project = <conftest.Project object at 0x000001BEDC041950>
+
+    def test_b3_screenshots_in_an_unignored_folder_invalidate_the_evidence(
+            git_project):
+        """Why the contract says to ignore test output: a report left in the
+        working tree is a change to the tree the evidence was taken from."""
+        ready(git_project, **{"app.py": "print('v1')\n"})
+        built = to_gate(git_project, "--test-command",
+                        STAND_IN_WRITES_REPORT_AND_SCREENSHOT)
+>       assert evidence_of(git_project, built)["evidenceStatus"] == (
+            "invalid_changed_during_run")
+E       AssertionError: assert 'valid' == 'invalid_changed_during_run'
+E         
+E         - invalid_changed_during_run
+E         + valid
+
+tests\test_units_tree_digest.py:296: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_units_tree_digest.py::test_b1_a_harness_that_writes_into_ignored_paths_gives_valid_evidence
+FAILED tests/test_units_tree_digest.py::test_b3_screenshots_in_an_unignored_folder_invalidate_the_evidence
+2 failed, 1 passed, 15 deselected in 27.17s
+
+--- stderr ---

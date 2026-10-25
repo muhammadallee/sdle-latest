@@ -1,0 +1,86 @@
+{
+  "reviewed_commit": "8e9bf83904f767e59f17ee6199ed895bb0d49784",
+  "coverage": {
+    "areas_reviewed": [
+      "CLAUDE.md invariants and Phase B diff scope",
+      "PLAN.md Phase B and amendments; B-PLAN.md; PROGRESS.md",
+      "Harness guideline and implement prompt against run_tests, cmd_manifest_build and tree_digest",
+      "Example harness, configuration, sample check and README",
+      "Static non-vacuity and platform handling of test_b1, test_b2 and test_b3",
+      "Documentation link and maintenance-record pins"
+    ],
+    "areas_not_reviewed": [
+      "Independent execution of pytest and lint-skill: read-only sandbox",
+      "Pilot application harness execution and claimed browser results: pilot absent from checkout",
+      "Seeded-defect detection, five clean reruns and full SDLE harness demonstration: not performed according to B-PLAN.md",
+      "Live Windows Node and Playwright process behavior"
+    ]
+  },
+  "findings": [
+    {
+      "id": "BR-R1-001",
+      "severity": "medium",
+      "category": "defect/harness-evidence",
+      "path": "docs/examples/ui-harness/run-ui-checks.mjs",
+      "line": 19,
+      "claim": "A fresh preflight failure cannot produce the recorded exit-78 evidence promised by the prescribed manifest invocation.",
+      "evidence": "The example prescribes '--test-command ... --junit <junitPath>', but notReady calls 'process.exit(EX_CONFIG)' before report creation. cmd_manifest_build checks the supplied report and raises 'manifest_junit_missing' with 'Nothing was recorded.' before writing implementation evidence. test_b2 omits --junit and therefore does not cover this integration.",
+      "evidence_type": "static",
+      "suggested_fix": "Define a compatible preflight reporting protocol that produces a fresh report without claiming checks ran, and pin the fresh-directory exit-78 invocation with --junit. Ensure previous reports cannot substitute for the current run.",
+      "ac_ids": ["H2", "H4"],
+      "confidence": "high"
+    },
+    {
+      "id": "BR-R1-002",
+      "severity": "medium",
+      "category": "defect/test-pins",
+      "path": "tests/test_units_tree_digest.py",
+      "line": 290,
+      "claim": "test_b3 does not independently pin unignored screenshot invalidation, and test_b1 omits the planned evidence-directory report coverage.",
+      "evidence": "STAND_IN_SCRIPT writes both 'test-results/shot.png' and 'ui-out/junit.xml'. test_b3 ignores neither and only asserts 'invalid_changed_during_run', so it still passes if screenshot files stop affecting the digest. PLAN Phase B row 3a specifies 'JUnit into the evidence directory'; test_b1 instead uses '--junit', 'ui-out/junit.xml'.",
+      "evidence_type": "static",
+      "suggested_fix": "Ignore the report directory in test_b3 and assert the screenshot appears in changedDuringRun. Add or adapt a passing pin whose report is in the bound WorkItem evidence directory.",
+      "ac_ids": ["B-3a", "H2", "H7"],
+      "confidence": "high"
+    },
+    {
+      "id": "BR-R1-003",
+      "severity": "medium",
+      "category": "defect/example-contract",
+      "path": "docs/examples/ui-harness/run-ui-checks.mjs",
+      "line": 45,
+      "claim": "The example executes only Playwright checks, although the harness contract requires the one command to run unit and browser checks together.",
+      "evidence": "The guideline requires 'One command runs the unit and the browser checks'. The example's sole execution is '[cli, test, specDir, --reporter=junit, ...]' through @playwright/test/cli; no unit command or report merge exists. The implement bullet instructs the orchestrator to 'pass the harness as the one --test-command', which can replace the project's unit suite.",
+      "evidence_type": "static",
+      "suggested_fix": "Provide orchestration for both suites and merge their reports, preserving failure from either suite, or explicitly require a project wrapper that does this before presenting the example as the manifest command.",
+      "ac_ids": ["H1", "H2"],
+      "confidence": "high"
+    },
+    {
+      "id": "BR-R1-004",
+      "severity": "low",
+      "category": "defect/example-artifacts",
+      "path": "docs/examples/ui-harness/example.spec.ts",
+      "line": 18,
+      "claim": "Screenshots do not follow the configured outputDir as the README promises.",
+      "evidence": "README says 'screenshots under outputDir', but the sample check hardcodes 'ui-test-output/artifacts/UI-HOME-1-${viewport.name}-loaded.png'. The harness passes '--output=${outputDir}', which does not rewrite an explicit page.screenshot path.",
+      "evidence_type": "static",
+      "suggested_fix": "Use Playwright testInfo.outputPath for screenshots so the configured output directory controls artifact placement.",
+      "ac_ids": ["H6", "H7"],
+      "confidence": "high"
+    },
+    {
+      "id": "BR-R1-005",
+      "severity": "low",
+      "category": "defect/progress-record",
+      "path": ".sdle/implementation-state/ui-quality/phases/B-PLAN.md",
+      "line": 7,
+      "claim": "The claimed Owner-attention record for the retrospective plan deviation is absent, and the progress status still says B has not started.",
+      "evidence": "B-PLAN.md says the deviation is 'Recorded as an Owner-attention row' and later says 'B is built, unmeasured'. PROGRESS.md instead contains '| B, M, C, D, E | not started |' and its Owner-attention table contains OA-1 through OA-6 with no Phase B retrospective-plan deviation.",
+      "evidence_type": "static",
+      "suggested_fix": "Record the deviation and outstanding B measurements in PROGRESS.md, and update B's status consistently with the plan's open-owner-row rule. Record the reviewed implementation checkpoint in its subsequent record commit.",
+      "ac_ids": ["B-7-8"],
+      "confidence": "high"
+    }
+  ]
+}

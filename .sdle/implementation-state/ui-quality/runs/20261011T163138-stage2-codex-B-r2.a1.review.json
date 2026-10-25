@@ -1,0 +1,54 @@
+{
+  "reviewed_commit": "f0326a1a206d96571cac44d6da5e6c702552e99c",
+  "coverage": {
+    "areas_reviewed": [
+      "Read CLAUDE.md first; inspected git diff 863bcfb..HEAD and checked-out commit history. HEAD is f0326a1, a review-prompt commit following 8135b29.",
+      "Verified BR-R1-001: ordinary preflight failures delete the destination report and write an errored-case report before exit 78.",
+      "Verified BR-R1-002: test_b1 covers ignored and WorkItem evidence paths; test_b2 covers preflight reports and missing reports; test_b3 isolates and asserts screenshot drift.",
+      "Verified BR-R1-003: a configured unit command runs before browser checks, and unit failure does not prevent browser execution. With unitCommand omitted, exit 0 requires only browser execution by design. No normal success path skips a configured command, but completeness of their reports is not enforced.",
+      "Verified BR-R1-004: screenshots use testInfo.outputPath under the runner's configured artifact directory.",
+      "Verified BR-R1-005: B-PLAN.md and PROGRESS.md record the protocol deviation and unmeasured acceptance status.",
+      "Reviewed harness execution and report merging, sample configuration, README, guideline contract, implementation-phase instructions, and added test pins."
+    ],
+    "areas_not_reviewed": [
+      "Did not execute pytest, lint-skill, or the harness because this review permits no filesystem writes.",
+      "Pilot-app executions and reported test totals were not independently reproduced.",
+      "Seeded-defect detection, five clean reruns, timeout measurements, and a complete SDLE lifecycle run remain unverified.",
+      "Individual historical run-record contents were not exhaustively audited."
+    ]
+  },
+  "findings": [
+    {
+      "id": "BR-R2-001",
+      "severity": "medium",
+      "category": "defect/report-completeness",
+      "path": "docs/examples/ui-harness/run-ui-checks.mjs",
+      "line": 81,
+      "claim": "A successful configured unit command can contribute no evidence while the harness exits 0 with only browser cases.",
+      "evidence": "Lines 61–65 run unitCommand and check only its status. Lines 81–86 use \"if (source && existsSync(source))\" and reject only \"if (suites.length === 0)\". Therefore a unit command returning 0 without writing unitJunitPath, or writing a report containing no matching suites, is silently omitted when browser cases exist. unitCommand can also be configured without unitJunitPath.",
+      "evidence_type": "static",
+      "suggested_fix": "Require unitJunitPath when unitCommand is configured, and require each configured suite's fresh report to exist and contain valid cases. Record a harness error and return nonzero if either report is missing or invalid.",
+      "ac_ids": [
+        "Phase B harness contract: one merged JUnit report",
+        "Phase B unit-plus-browser evidence"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "BR-R2-002",
+      "severity": "medium",
+      "category": "defect/stale-evidence",
+      "path": "docs/examples/ui-harness/run-ui-checks.mjs",
+      "line": 68,
+      "claim": "The merge can reuse a stale browser report after a browser invocation fails before producing a new report.",
+      "evidence": "Startup removes \"rmSync(report, { force: true })\" and optionally unitJunitPath, but the separate \"const browserReport = resolve(outputDir, 'browser-junit.xml')\" is never deleted. The merge subsequently reads any existing browserReport. A spawn error or timeout before reporter output therefore copies previous-run cases into the newly written merged report. The nonzero command status prevents exit 0 in that scenario, but the report still falsely attributes old cases to this run.",
+      "evidence_type": "static",
+      "suggested_fix": "Resolve and delete browserReport before starting checks. If browser execution produces no fresh valid report, include a current-run harness error instead of importing previous cases.",
+      "ac_ids": [
+        "Phase B harness contract: remove previous-run evidence",
+        "Phase B merged-report freshness"
+      ],
+      "confidence": "high"
+    }
+  ]
+}
