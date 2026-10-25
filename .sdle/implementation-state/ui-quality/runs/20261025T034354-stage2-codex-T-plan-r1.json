@@ -1,0 +1,55 @@
+{
+  "run_id": "20261025T034354-stage2-codex-T-plan-r1",
+  "result": "PASS",
+  "stage": "Stage 2 - two-level plan review, level 1",
+  "area": "T-plan-r1",
+  "codex_version": "codex-cli 0.160.1",
+  "sandbox": "read-only",
+  "ephemeral": true,
+  "worktree": "D:/Learning/AI/sdle-frozen-T-plan1",
+  "candidate_sha": "425a95739f0e13131030d2ff76b4b95a8e565a22",
+  "timeout_seconds": 1800,
+  "prompt": "T-plan-round1.prompt.md",
+  "prompt_sha256": "b89d1295f800b34b6bf1bb31e00a00702b807f8c304f70622b0ad0740aad4b7b",
+  "schema": "review.schema.json",
+  "schema_sha256": "8ed25dfa528bb99b8fea16db216dacb54f688da836f4dd5c1dc45cd02cfbae03",
+  "started_utc": "2026-10-25T03:43:54Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "argv": [
+        "D:\\Installations\\nodejs\\nvm\\v22.16.0\\codex.CMD",
+        "exec",
+        "--cd",
+        "D:/Learning/AI/sdle-frozen-T-plan1",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--json",
+        "--output-schema",
+        ".sdle\\implementation-state\\requirements-package-loop\\codex\\review.schema.json",
+        "--output-last-message",
+        ".sdle\\implementation-state\\ui-quality\\runs\\20261025T034354-stage2-codex-T-plan-r1.a1.review.json",
+        "-"
+      ],
+      "started_utc": "2026-10-25T03:43:54Z",
+      "exit_code": 0,
+      "finished_utc": "2026-10-25T03:45:10Z",
+      "model_reported": null,
+      "validation_problems": [],
+      "outputs": {
+        "events": "20261025T034354-stage2-codex-T-plan-r1.a1.events.jsonl",
+        "stderr": "20261025T034354-stage2-codex-T-plan-r1.a1.stderr.log",
+        "review": "20261025T034354-stage2-codex-T-plan-r1.a1.review.json"
+      }
+    }
+  ],
+  "finished_utc": "2026-10-25T03:45:10Z",
+  "findings": 4,
+  "coverage_not_reviewed": [
+    "External experiment harness, raw run artifacts and screenshots",
+    "Execution of tests and lint commands",
+    "Future implementation wording and behavior; no implementation exists"
+  ],
+  "review_output": "20261025T034354-stage2-codex-T-plan-r1.a1.review.json"
+}

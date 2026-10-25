@@ -96,3 +96,17 @@ Run `*-stage2-codex-M-plan-r2` (codex-cli 0.160.1, reviewed `f67cf93`, read-only
 Engine change in `scripts/sdle.py` (the first of this enhancement), tests, prompts, docs. Tests: full suite 18 shards **4236 passed, 3 skipped** (`m-full-*`); after round 1: 802 passed, 1 skipped over the loop, artifact-review, review-types, invariants, dry-run, lint and gate-policy files (`m-fix-targeted`).
 - Codex implementation round 1 (reviewed `5edc8f9`): PASS, 1 finding **MI-R1-001** (malformed finding fields with unchanged counts raised an unhandled `TypeError` out of `_blocking_finding_fingerprints`): accepted, fixed in `9c044ec` with two tests.
 - Codex implementation round 2 (reviewed `cd53e31`): **BLOCKED**, both attempts zero findings, refused by the runner's coverage rule (running tests, command-level no-write tests, unrelated engine behaviour not reached). Not retried, no substitute. Raised as **OA-10**.
+
+## Phase T, project design systems (25 Oct 2026)
+Owner decision after the theme experiment. Plan `phases/T-PLAN.md` at `9e94ec0`. The first plan-review attempt never started: the active Node version had changed (nvm 22.16 to 22.23.3) and codex-cli is installed under the old one; the runner was re-run with that directory on PATH for the command only (same codex-cli 0.160.1), the owner's global setup unchanged.
+Codex plan review round 1 (`*-T-plan-r1`, reviewed `425a957`): PASS, 4 findings, all accepted and folded into T-PLAN section 8.
+
+| Id | Sev | Disposition |
+|---|---|---|
+| TP-R1-001 | high | accepted: theme content is not protected by drift; plan line records a git blob hash, re-checked at design and implement, change shown to the user; limit stated |
+| TP-R1-002 | medium | accepted: precedence placed in the ADR-014 amendment; conflicts go to the user; app-design cites, never copies |
+| TP-R1-003 | medium | accepted: chosen at plan_draft in every flow; shown again at gate_implement where no plan gate ran |
+| TP-R1-004 | medium | accepted: the redesign rule is labelled prompt-level; ambiguity raised to the user |
+
+Round 2 triggered.
+
