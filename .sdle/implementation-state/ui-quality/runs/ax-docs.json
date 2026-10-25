@@ -1,0 +1,9 @@
+{
+ "label": "ax-docs",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_doc_links.py",
+ "exit_code": 0,
+ "summary": "16 passed in 2.83s",
+ "seconds": 20.6,
+ "finished": "2026-10-25T18:46:36Z",
+ "result": "PASS"
+}

@@ -17,6 +17,8 @@ for (const viewport of [
   test(`${SCREEN.id} ${viewport.name} loaded: no automated accessibility violations`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto(new URL(SCREEN.path, baseURL).toString(), { waitUntil: 'networkidle' });
+    // A scope that matches nothing would scan nothing and pass: make that a failure.
+    await expect(page.locator(SCREEN.element).first()).toBeVisible();
     const results = await new AxeBuilder({ page })
       .include(SCREEN.element)
       .withTags(['wcag2a', 'wcag2aa'])
