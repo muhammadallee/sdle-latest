@@ -1,0 +1,9 @@
+{
+ "label": "t-final-docs",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_doc_links.py",
+ "exit_code": 0,
+ "summary": "16 passed in 2.47s",
+ "seconds": 7.6,
+ "finished": "2026-10-25T09:21:20Z",
+ "result": "PASS"
+}

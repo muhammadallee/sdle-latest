@@ -13,7 +13,9 @@ authority for a checkpoint**, never a tag.
 | A-measure | not started | — | needs decision D4 (pilot app) |
 | B | built, unmeasured; awaiting owner | see Checkpoints | prompt, guideline, example and test pins; no engine change; narrow seeded-defect measurement done (see Phase B measurement); full-run acceptance not done (OA-7, OA-8) |
 | M | built and tested; complete (OA-10 accepted for this run) | see Checkpoints | engine change: progress digest reads only code reviews and refuses bad evidence; loop needs structured findings; a waiver needs a human actor type |
-| C, D, E | not started | — | each starts only at the owner's request |
+| T (project design systems) | built and tested; complete | see Checkpoints | added by the owner after the theme experiment; prompt, guideline, docs, example; no engine change |
+| C | task 0 done (the reviewer perceives screenshots); not built | — | waiting on the owner |
+| D, E | not started | — | each starts only at the owner's request |
 
 ## Owner attention
 
@@ -179,3 +181,8 @@ Arms: control = enhanced SDLE (`d915eb6`); themed = the same plus `design-system
 
 **Limits.** n = 3 per arm, one screen, one app, one colour rule. Two runs hit the session limit (one re-run, one counted and flagged) and one capture was repeated after the mock API stopped; all are in `experiment/THEME-EXPERIMENT.md`.
 
+### Phase T checkpoint (25 Oct 2026)
+
+Added by the owner after the theme experiment. A project may keep its design system in `design-system.md` (or a path the plan names on a `Theme:` line). SDLE reads it as data (scanned before use), ranks it below the approved requirements, the constitution and the architecture decisions, re-checks its git blob hash before design, implementation and remediation and asks the user if it changed, never copies its values, and ships no theme of its own; an example structure is in `docs/examples/themes/`. Where the plan gate does not run, the theme line is shown at the implementation gate. **No engine or hook change.**
+
+Implementation commit `deef906` is the checkpoint (later commits are records). Tests: 18-shard full suite **4242 passed, 3 skipped**. Codex: plan round 1 four findings and round 2 one, all accepted and designed in; implementation round 1 and round 2 one each, both documentation corrections, accepted. Stated limits: the theme's content is not protected by drift detection after the plan gate (prompt-level re-check only); the rule that an existing app's theme is not changed as a side effect is advisory; the precedence exception (a higher source wins over the theme) was not tested by the pilot.

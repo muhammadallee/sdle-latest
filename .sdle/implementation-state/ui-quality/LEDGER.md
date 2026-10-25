@@ -110,3 +110,8 @@ Codex plan review round 1 (`*-T-plan-r1`, reviewed `425a957`): PASS, 4 findings,
 
 Round 2 triggered.
 
+### Phase T build and implementation reviews (25 Oct 2026)
+Plan review round 2: the first attempt was killed by Claude Code for low memory (recorded INTERRUPTED, not counted); the re-run (reviewed `a2d418f`) returned one finding **TP-R2-001** (the theme check was missing from the implementation remediation path), accepted, built in.
+Tests: targeted 1170 + 220 + 300 passed; full suite 18 shards **4242 passed, 3 skipped** (`t-full-*`). One targeted run was killed for low memory before finishing and was re-run in the foreground in groups.
+- Implementation round 1 (reviewed `10b8ec3`): PASS, 1 finding **TI-R1-001** (low: the tested rule against the shipped rule was not recorded), accepted, fixed in T-PLAN section 10.
+- Implementation round 2 (reviewed `ad78e84`): PASS, 1 finding **TI-R2-001** (medium: section 10 wrongly said no addition changes what the generator does with theme values; the precedence rule does when sources conflict), accepted, sentence corrected. No round 3.
