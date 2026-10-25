@@ -11,6 +11,7 @@ SDLE runs one test command at the manifest build and records its exit code and a
 | `run-ui-checks.mjs` | The one command. Preflight, then the checks, then one JUnit report |
 | `ui-harness.config.sample.json` | Where the app is, where the specs are, where the report and artifacts go |
 | `example.spec.ts` | One sample check, with a case name that cites a screen id and a state |
+| `accessibility.spec.ts` | One sample automated accessibility scan (axe), scoped to the screen's own element; needs `@axe-core/playwright` |
 
 ## Behaviour (what was verified)
 
@@ -32,3 +33,7 @@ The engine records 78 as a failed run with that exit code and the gate refuses i
 4. Give the harness to the manifest build as the one test command, and the report as `--junit`.
 
 Everything the harness touches must be synthetic: test-only accounts, seeded data, no real personal data in a screenshot.
+
+## The accessibility scan
+
+`accessibility.spec.ts` runs axe on a screen at both viewports and fails on any WCAG 2 A or AA violation inside the screen's element. In the pilot it was run against four screens SDLE had generated: a text-contrast defect seeded into each was caught in **4 of 4**, and **3 of the 4 clean screens already failed** with real contrast violations that the generated functional checks had not noticed. It does not establish keyboard or screen-reader behaviour; those need their own checks.

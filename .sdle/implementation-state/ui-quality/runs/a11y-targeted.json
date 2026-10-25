@@ -1,0 +1,9 @@
+{
+ "label": "a11y-targeted",
+ "command": "-m pytest -q -p no:cacheprovider tests/test_units_doc_links.py tests/test_units_documented_commands.py tests/test_units_install_contract.py tests/test_units_capabilities.py tests/test_lint_skill.py",
+ "exit_code": 0,
+ "summary": "1402 passed in 176.98s (0:02:56)",
+ "seconds": 191.1,
+ "finished": "2026-10-25T15:50:05Z",
+ "result": "PASS"
+}

@@ -14,6 +14,8 @@ New screens and changes use this file. A value it does not list needs a stated r
 
 **Data visualisation.** Charts use primary, then secondary, then a neutral for "other". Status colours are never data colours. Colour is never the only signal: keep the label.
 
+**Contrast.** Every text token meets the WCAG AA contrast ratio on the surfaces it is used on (4.5:1 for body text, 3:1 for large text). A muted text colour that fails it is not used for information a user needs.
+
 ## Type, spacing, shape
 
 - Font: `<family>`; monospace `<family>` for codes.

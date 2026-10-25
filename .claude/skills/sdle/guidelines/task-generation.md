@@ -16,7 +16,7 @@ Housekeeping tasks (formatting, a dependency bump) need not carry all five. Anyt
 
 ### User-visible work: one test task per scenario
 
-When the plan has a User Interface section, each journey and each state it lists gets a test task naming the screen id, the states, the viewport classes and the criterion it proves; `guidelines/ui-design.md` has the section's shape. A scenario with no task has no stated way of being known to work.
+When the plan has a User Interface section, each journey and each state it lists gets a test task naming the screen id, the states, the viewport classes and the criterion it proves; `guidelines/ui-design.md` has the section's shape. A scenario with no task has no stated way of being known to work. Each listed screen also gets one task for an automated accessibility scan of its states.
 
 ### Cross-service work is three tasks, never one
 
