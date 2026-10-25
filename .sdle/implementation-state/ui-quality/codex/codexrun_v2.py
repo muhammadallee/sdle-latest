@@ -41,6 +41,21 @@ def _norm(path: str) -> str | None:
     return p
 
 
+def scope_files(worktree, base: str, pathspec: list[str]) -> tuple[str, list[str], str | None]:
+    """(candidate SHA, files in scope, error). NUL-separated so a name git would quote (non-ASCII, a tab,
+    a quote) comes back as its real spelling (RV-005); a failed command is an error, never an empty
+    scope (RV-001)."""
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True)
+    candidate = head.stdout.decode("utf-8", "replace").strip()
+    if head.returncode != 0 or not candidate:
+        return candidate, [], f"git rev-parse HEAD failed: {head.stderr.decode('utf-8', 'replace').strip()}"
+    diff = subprocess.run(["git", "diff", "--name-only", "-z", f"{base}..HEAD", "--", *pathspec],
+                          cwd=worktree, capture_output=True)
+    if diff.returncode != 0:
+        return candidate, [], f"git diff {base}..HEAD failed: {diff.stderr.decode('utf-8', 'replace').strip()}"
+    return candidate, [p for p in diff.stdout.decode("utf-8").split("\0") if p], None
+
+
 def validate(doc, expected_commit: str, required_files: list[str]) -> list[str]:
     """Problems that make the review output unusable or incomplete; empty means PASS."""
     if not isinstance(doc, dict):
@@ -102,6 +117,28 @@ def self_test() -> None:
     assert validate(windows, head, ["a.md", "b/c.py"]) == [], "path spelling is normalised"
     bad = json.loads(json.dumps(base)); bad["findings"] = [{"id": "X", "severity": "huge"}]
     assert any("bad severity" in p for p in validate(bad, head, ["a.md", "b/c.py"]))
+    # scope_files against a real temporary repository: names git would quote, and a bad BASE
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        git = lambda *a: subprocess.run(["git", *a], cwd=tmp, capture_output=True, check=True)
+        git("init", "-q")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "base")
+        first = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True).stdout.strip()
+        names = ["café.md", "naïve résumé.md", ".sdle/x.md"]
+        if sys.platform != "win32":   # a tab and a double quote are not valid in Windows file names
+            names += ["tab\there.md", 'quote"d.md']
+        for n in names:
+            Path(tmp, n).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, n).write_text("x", encoding="utf-8")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "files")
+        _, files, err = scope_files(tmp, first, [])
+        assert err is None and sorted(files) == sorted(names), (files, err)
+        cov = {"reviewed_commit": "x", "findings": [], "coverage": {"areas_reviewed": [], "files_reviewed": names,
+               "not_reviewed": [], "out_of_scope": []}}
+        assert not any("not reviewed" in p for p in validate(cov, "x", files)), "real spellings match (RV-005)"
+        _, files, err = scope_files(tmp, "not-a-commit", [])
+        assert err and files == [], "a bad BASE is an error, never an empty scope (RV-001)"
     print("self-test ok")
 
 
@@ -121,17 +158,7 @@ def main(argv: list[str]) -> None:
         return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     version = subprocess.run([codex, "--version"], capture_output=True, text=True).stdout.strip()
-    head_cmd = subprocess.run(["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, text=True)
-    candidate = head_cmd.stdout.strip()
-    diff = subprocess.run(["git", "diff", "--name-only", f"{base}..HEAD", "--", *pathspec], cwd=worktree,
-                          capture_output=True, text=True)
-    scope_error = None
-    if head_cmd.returncode != 0 or not candidate:
-        scope_error = f"git rev-parse HEAD failed: {head_cmd.stderr.strip()}"
-    elif diff.returncode != 0:
-        # an unknown BASE must not become an empty scope that any review passes (RV-001)
-        scope_error = f"git diff {base}..HEAD failed: {diff.stderr.strip()}"
-    required = [l for l in diff.stdout.splitlines() if l.strip()] if scope_error is None else []
+    candidate, required, scope_error = scope_files(worktree, base, pathspec)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_id = f"{stamp}-codex-v2-{area}"
     record = {

@@ -1,0 +1,43 @@
+{
+  "reviewed_commit": "b3d40463e95409ffb51ff98a2cc8661416a92dfb",
+  "coverage": {
+    "areas_reviewed": [
+      "RV-001 fixed: Git failures produce a BLOCKED record with scope_error before Codex launches.",
+      "RV-002 fixed: in-memory probes preserve dot-directories, normalize Windows separators and leading ./, and reject absolute paths and parent traversal.",
+      "RV-003 fixed: probes reject incorrect suffixes and accept valid candidate prefixes and uppercase SHAs.",
+      "RV-004 fixed: model_reported extraction and recording match v1.",
+      "Self-test executed successfully. Empty scope passes; rename destinations and deleted paths require review through Git history. Rename/delete scope generation and Git failures lack self-test coverage.",
+      "Coverage remains self-attestation: copying all required filenames and moving real gaps into out_of_scope passes. Required files, review output, out_of_scope and event logs permit owner inspection but do not prove reading.",
+      "Read-only sandbox, ephemeral execution, one retry and Codex --output-schema are preserved. Prompt suffix agrees with the schema and owner amendment.",
+      "Scope filename serialization and normalization."
+    ],
+    "files_reviewed": [
+      ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      ".sdle/implementation-state/ui-quality/codex/review.v2.schema.json",
+      ".sdle/implementation-state/requirements-package-loop/codex/codexrun_stage2.py",
+      ".sdle/implementation-state/ui-quality/PLAN.md",
+      "docs/enhancements/ui-quality/PROGRESS.md",
+      ".sdle/implementation-state/ui-quality/runs/20261025T194145-codex-v2-runner-v2.a1.review.json"
+    ],
+    "not_reviewed": [],
+    "out_of_scope": [
+      "Full runner execution writes records and launches Codex; examined statically under the read-only restriction. Validation probes and self-test executed in memory without writes.",
+      "PLAN.md examination was limited to its review-process amendment."
+    ]
+  },
+  "findings": [
+    {
+      "id": "RV-005",
+      "severity": "medium",
+      "category": "defect/scope-paths",
+      "path": ".sdle/implementation-state/ui-quality/codex/codexrun_v2.py",
+      "line": 134,
+      "claim": "Git-quoted filenames falsely block reviews that correctly report the actual paths.",
+      "evidence": "Scope uses 'git diff --name-only' without '-z', then 'diff.stdout.splitlines()'. Git quotes paths containing non-ASCII characters under default core.quotePath, and paths containing tabs or quotes. _norm() does not decode Git quoting. An in-memory probe with files_reviewed=['café.md'] and required_files=['\"caf\\\\303\\\\251.md\"'] returned 'files in scope not reviewed'. Copying the quoted spelling instead passes without identifying the actual repository path.",
+      "evidence_type": "executed",
+      "suggested_fix": "Request NUL-delimited names with git diff --name-only -z and split on NUL, preserving actual filenames. Add regression cases for Unicode, tabs and quotes.",
+      "ac_ids": [],
+      "confidence": "high"
+    }
+  ]
+}
