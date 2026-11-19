@@ -1,0 +1,2106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#062b50">
+<meta name="description" content="Agentic SDLC: a governed approach to AI-assisted software delivery, with clear requirements, review evidence and human oversight.">
+<title>Agentic SDLC — Software delivery with confidence</title>
+<style>
+:root{
+  --navy:#062b50;--navy-deep:#031d36;--gold:#b88017;
+  --gold-light:#f4d38b;--bg:#f5f7fb;--surface:#fff;
+  --text:#122c46;--muted:#56677b;--line:#dbe3ec;
+  --soft:#edf2f8;--green:#176851;--radius:18px;
+  --wire-1:#8a99ab;--wire-2:#bcc6d1;--alert:#c24135;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:110px}
+body{margin:0;background:var(--bg);color:var(--text);font:1rem/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body.dark{
+  --bg:#0b1725;--surface:#122235;--text:#eef4fb;
+  --muted:#b4c1d1;--line:#304158;--soft:#192d43;
+  --green:#87dbc0;--wire-1:#7f93aa;--wire-2:#465b73;--alert:#ef6f5e;
+  color-scheme:dark;
+}
+a{color:inherit;text-decoration:none}
+button,select{font:inherit}
+button,a,select{-webkit-tap-highlight-color:transparent}
+button{cursor:pointer}
+button:disabled{cursor:default;opacity:.45}
+:focus-visible{outline:3px solid #d79b2b;outline-offset:5px}
+h1,h2,h3,p{margin:0}
+h1,h2,h3{line-height:1.15}
+h1{font-size:clamp(2.7rem,5.3vw,4.9rem);letter-spacing:-.055em;font-weight:650}
+h2{font-size:clamp(2rem,3.4vw,3rem);letter-spacing:-.04em;font-weight:650}
+h3{font-size:1.2rem;letter-spacing:-.02em}
+p{color:var(--muted)}
+.container{width:min(1180px,calc(100% - 48px));margin:auto}
+.skip{position:fixed;top:-100px;left:20px;background:var(--surface);padding:12px;z-index:100}
+.skip:focus{top:12px}
+main > [hidden]{display:none !important}
+main:focus,main h2[tabindex="-1"]:focus{outline:none}
+
+/* Header and navigation */
+header{position:sticky;top:0;z-index:30;background:var(--navy);color:white;box-shadow:0 8px 28px #00172c20}
+/* Brand left, navigation in the true centre, utilities and logo right. */
+.header-inner{min-height:82px;display:grid;grid-template-columns:minmax(max-content,1fr) auto minmax(max-content,1fr);align-items:center;gap:28px}
+.brand{display:flex;align-items:center;gap:12px;flex-shrink:0;justify-self:start}
+.brand-logo{display:block;flex-shrink:0;height:42px;width:auto;aspect-ratio:155/63}
+.brand-text{padding-left:14px;border-left:1px solid #ffffff25}
+.brand strong{display:block;letter-spacing:.12em;font-size:1.15rem;line-height:1.2}
+nav{justify-self:center;display:flex;align-items:center;gap:6px}
+.header-end{justify-self:end;display:flex;align-items:center;gap:22px;flex-shrink:0}
+nav>a,nav summary{padding:9px 12px;font-size:.875rem;color:#d8e3ee;border-radius:8px;cursor:pointer;white-space:nowrap}
+nav>a:hover,nav summary:hover{background:#ffffff12;color:var(--gold-light)}
+nav .selected{background:#ffffff0c;color:var(--gold-light)}
+nav details{position:relative}
+nav summary{list-style:none}
+nav summary::-webkit-details-marker{display:none}
+nav summary::after{content:"";display:inline-block;width:6px;height:6px;margin-left:10px;vertical-align:middle;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;opacity:.75;transform:translateY(-3px) rotate(45deg);transition:transform .18s ease}
+nav details[open] > summary::after{transform:translateY(1px) rotate(-135deg)}
+.dropdown{position:absolute;top:48px;left:0;min-width:225px;padding:8px;background:var(--navy-deep);border:1px solid #ffffff20;border-radius:12px;box-shadow:0 16px 35px #00101f35}
+.dropdown::before{content:"";position:absolute;left:0;right:0;top:-12px;height:12px}
+.dropdown a{display:block;padding:10px 12px;border-radius:6px;font-size:.875rem}
+.dropdown a:hover{background:var(--gold);color:#fff}
+.utilities{display:flex;align-items:center;gap:5px}
+.icon-button{border:0;background:#ffffff12;color:white;border-radius:7px;min-width:34px;min-height:36px;padding:4px 8px;font-size:.875rem}
+.icon-button:hover{background:#ffffff24}
+.mobile-toggle{display:none}
+.header-logo{display:block;flex-shrink:0;height:34px;width:auto;aspect-ratio:125.7/40.55;padding-left:22px;border-left:1px solid #ffffff20;box-sizing:content-box}
+.nav-text-size{display:none}
+
+/* Overview */
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* Opening screen: tall enough that the top of the next section still peeks in. */
+.intro{position:relative;display:grid;place-items:center;min-height:max(360px,calc(100svh - var(--header-h,82px) - 120px));padding-block:32px 84px;background:var(--surface)}
+.intro-inner{text-align:center}
+.intro-title{display:flex;flex-direction:column;align-items:center;font-size:inherit;letter-spacing:normal;font-weight:inherit;line-height:1}
+.intro-wordmark{display:flex;font-size:clamp(4.5rem,min(24vw,28svh),14rem);font-weight:750;letter-spacing:.04em;line-height:.9;color:var(--text)}
+.intro-kicker{margin-bottom:clamp(6px,1vw,12px);font-size:clamp(1.1rem,2.6vw,1.9rem);font-weight:650;letter-spacing:.32em;text-transform:uppercase;padding-left:.32em;color:var(--gold)}
+.intro-rule{width:72px;height:3px;margin:clamp(22px,3vw,34px) 0;border-radius:2px;background:var(--gold)}
+.intro-name{font-size:clamp(1.25rem,2.8vw,2.1rem);font-weight:500;letter-spacing:-.01em;line-height:1.25;color:var(--muted)}
+.intro-name b{font-weight:750;color:var(--gold)}
+.intro-cue{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 14px;border:0;border-radius:10px;background:none;color:var(--muted);font-size:.8125rem;font-weight:600;letter-spacing:.02em}
+.intro-cue svg{width:22px;height:22px}
+.intro-cue:hover{color:var(--text);background:var(--soft)}
+@media(prefers-reduced-motion:no-preference){
+  .intro.is-entering .intro-wordmark span{animation:intro-rise .7s cubic-bezier(.2,.7,.2,1) both}
+  .intro.is-entering .intro-wordmark span:nth-child(2){animation-delay:.08s}
+  .intro.is-entering .intro-wordmark span:nth-child(3){animation-delay:.16s}
+  .intro.is-entering .intro-wordmark span:nth-child(4){animation-delay:.24s}
+  .intro.is-entering .intro-rule{animation:intro-grow .6s .45s cubic-bezier(.2,.7,.2,1) both}
+  .intro.is-entering .intro-kicker{animation:intro-fade .6s ease both}
+  .intro.is-entering .intro-name,.intro.is-entering .intro-cue{animation:intro-fade .6s .6s ease both}
+}
+@keyframes intro-rise{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+@keyframes intro-grow{from{transform:scaleX(0)}to{transform:none}}
+@keyframes intro-fade{from{opacity:0}to{opacity:1}}
+
+.hero{padding:64px 0 66px;border-block:1px solid var(--line);background:var(--surface)}
+.hero-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:70px;align-items:center}
+.eyebrow{font-size:.75rem;letter-spacing:.16em;text-transform:uppercase;font-weight:750;color:var(--gold);margin-bottom:22px}
+.hero-heading{font-size:clamp(2.7rem,5.3vw,4.9rem);letter-spacing:-.055em;font-weight:650}
+.hero-heading span{color:var(--gold)}
+.hero-copy{font-size:1.125rem;max-width:540px;margin-top:26px}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.button{display:inline-flex;align-items:center;justify-content:center;gap:10px;border-radius:8px;padding:12px 18px;font-weight:650;font-size:.875rem;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.button.primary{background:var(--navy);color:white;border-color:var(--navy)}
+.button.gold{background:var(--gold-light);color:#243044;border-color:var(--gold-light)}
+.button:hover{filter:brightness(.94)}
+.hero-note{display:flex;gap:9px;align-items:center;font-size:.8125rem;margin-top:22px}
+.hero-note::before{content:"";height:6px;width:6px;border-radius:50%;background:var(--gold)}
+.overview-visual{padding:30px;background:var(--navy);border-radius:24px;color:white;box-shadow:0 24px 70px #082b5020}
+.visual-top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ffffff20;padding-bottom:20px;margin-bottom:24px}
+.visual-top span{font-size:.75rem;letter-spacing:.12em;color:#bfd0e1}
+.visual-top b{font-size:.75rem;color:var(--gold-light);font-weight:500}
+.visual-row{display:grid;grid-template-columns:32px 1fr;gap:14px;position:relative;padding-bottom:24px}
+.visual-row:not(:last-of-type)::after{content:"";position:absolute;width:1px;background:#ffffff25;left:15px;top:32px;bottom:0}
+.visual-number{height:32px;width:32px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:50%;font-size:.75rem;color:var(--gold-light)}
+.visual-row h3{font-size:1rem;padding-top:4px;margin-bottom:4px}
+.visual-row p{font-size:.875rem;color:#bccddd}
+.visual-foot{border:1px solid #d7aa5670;background:#ffffff07;border-radius:8px;padding:11px 14px;font-size:.8125rem;color:var(--gold-light)}
+.principles{display:grid;grid-template-columns:repeat(3,1fr);margin-top:64px;border-top:1px solid var(--line);padding-top:25px;gap:30px}
+.principles b{font-size:.875rem;display:block}
+.principles p{font-size:.875rem;margin-top:4px}
+.section{padding:80px 0}
+.section-heading{max-width:710px;margin-bottom:35px}
+.section-heading .eyebrow{margin-bottom:14px}
+.section-heading p{margin-top:18px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.card{padding:28px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.card-index{font-size:.8125rem;color:var(--gold);font-weight:700;display:block;margin-bottom:24px}
+.card p{margin-top:13px;font-size:.9375rem}
+.card small{display:block;border-top:1px solid var(--line);margin-top:24px;padding-top:17px;font-size:.8125rem;color:var(--muted)}
+.architecture{background:var(--surface);border-block:1px solid var(--line)}
+.caption{font-size:.8125rem;margin-top:16px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:65px}
+.review-list{margin:0;padding:0;list-style:none}
+/* Side by side, the points spread to end level with the Approach panel. */
+.governance-col{display:flex;flex-direction:column}
+.governance-col .review-list{flex:1;display:flex;flex-direction:column;justify-content:space-between}
+.review-list li{padding:22px 0;border-bottom:1px solid var(--line)}
+.review-list li:first-child{padding-top:0}
+.review-list strong{display:block;margin-bottom:7px;font-size:1rem}
+.review-list p{font-size:.9375rem}
+.pilot{background:var(--navy);color:#fff;padding:40px;border-radius:20px}
+.pilot .eyebrow{color:var(--gold-light)}
+.pilot p{color:#c3d1e0;margin-top:15px}
+.pilot ol{padding-left:20px;color:#dce6f0;margin:25px 0}
+.pilot li{padding:7px 0}
+.pilot code{font-size:.875em;color:var(--gold-light)}
+.pilot .button{margin-top:25px}
+.explore{padding-bottom:70px}
+.sim-banner{display:flex;justify-content:space-between;align-items:center;gap:30px;border:1px solid var(--line);border-radius:var(--radius);padding:30px;background:var(--surface)}
+.sim-banner p{margin-top:8px}
+footer{border-top:1px solid var(--line);padding:27px 0;color:var(--muted);font-size:.8125rem}
+.footer-inner{display:flex;justify-content:space-between;gap:20px}
+
+/* Vibe coding and Agentic SDLC comparison */
+.compare{margin-top:48px}
+.compare-title{font-size:1.5rem;letter-spacing:-.03em;margin-bottom:20px}
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.compare-side{margin:0;border-radius:var(--radius);padding:28px;display:flex;flex-direction:column;gap:20px}
+.compare-vibe{background:var(--bg);border:1px dashed var(--wire-2)}
+.compare-sdle{background:var(--navy);color:#fff;box-shadow:0 24px 70px #082b5020}
+body.dark .compare-sdle{border:1px solid #ffffff18}
+.compare-side figcaption{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.compare-tag{font-size:.75rem;font-weight:650;padding:3px 11px;border-radius:999px;border:1px solid var(--wire-2);color:var(--muted)}
+.compare-sdle .compare-tag{border-color:#d7aa5680;color:var(--gold-light)}
+.compare-side figcaption strong{font-size:1.35rem;letter-spacing:-.025em;line-height:1.2}
+.compare-side svg{display:block;width:100%;height:auto}
+.compare-points{margin:0;display:grid;gap:12px}
+.compare-points div{border-top:1px solid var(--line);padding-top:12px}
+.compare-sdle .compare-points div{border-color:#ffffff20}
+.compare-points dt{font-weight:650;font-size:.9375rem}
+.compare-points dd{margin:2px 0 0;font-size:.875rem;color:var(--muted)}
+.compare-sdle .compare-points dd{color:#bccddd}
+.vibe-wire{fill:none;stroke:var(--wire-1);stroke-width:1.7;stroke-linecap:round}
+.vibe-wire.faint{stroke:var(--wire-2)}
+.vibe-wire.hot{stroke:var(--alert);opacity:.6}
+.vibe-wire.dash{stroke-dasharray:5 4}
+.vibe-arrowhead{fill:var(--wire-1)}
+.vibe-node{fill:var(--surface);stroke:var(--wire-1);stroke-dasharray:4 3}
+.vibe-start{fill:var(--surface);stroke:var(--text);stroke-width:1.2}
+.vibe-end{fill:var(--surface);stroke:var(--alert);stroke-width:1.4;stroke-dasharray:4 3}
+.vibe-label{fill:var(--muted);font-size:13px}
+.vibe-label.strong{fill:var(--text);font-weight:650}
+.vibe-alert{fill:var(--alert)}
+.vibe-alert-mark{fill:#fff;font-size:12px;font-weight:700}
+.vibe-q{fill:var(--alert);font-size:18px;font-weight:700}
+.sdle-step{fill:#ffffff0f;stroke:#ffffff40}
+.sdle-label{fill:#eef4fb;font-size:14px;font-weight:600}
+.sdle-flowline{fill:none;stroke:#ffffff70;stroke-width:1.5}
+.sdle-link{fill:none;stroke:#ffffff38;stroke-width:1.3}
+.sdle-gate{fill:#f4d38b}
+.sdle-note{fill:#bccddd;font-size:11px}
+.sdle-audit{stroke:#d7aa56;stroke-width:1.5;opacity:.6}
+.sdle-audit-label{fill:#f4d38b;font-size:11px;font-weight:600}
+.sdle-dot{fill:#f4d38b}
+.sdle-loop{fill:none;stroke:#f4d38b;stroke-width:1.3;stroke-dasharray:4 3}
+.sdle-loop-label{fill:#f4d38b;font-size:11px;font-style:italic}
+.sdle-done{fill:#f4d38b}
+.sdle-done-label{fill:#062b50;font-size:13px;font-weight:700}
+.sdle-arrowhead{fill:#ffffff90}
+.sdle-arrowhead-gold{fill:#f4d38b}
+
+/* Architecture pages and flow diagrams */
+.architecture-page{min-height:calc(100dvh - 180px)}
+.page-breadcrumb{display:flex;align-items:center;gap:10px;margin-bottom:30px;color:var(--muted);font-size:.875rem}
+.page-breadcrumb a:hover{color:var(--gold)}
+nav summary.selected{background:#ffffff0c;color:var(--gold-light)}
+.flow-panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.flow-toolbar{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.flow-toolbar strong{font-size:.9375rem}
+.flow-toolbar-note{font-size:.8125rem;color:var(--muted)}
+.flow-toolbar p{font-size:.875rem}
+.flow-diagram{padding:20px;overflow:auto;max-height:620px;background:var(--bg)}
+.flow-diagram svg{display:block;width:100%;min-width:680px;height:auto}
+.flow-diagram.is-open{max-height:none}
+.flow-diagram-wide{max-height:none}
+.flow-diagram-wide svg{max-width:1040px;min-width:900px;margin:auto}
+.diagram-gap{margin-top:24px}
+.dg-label{fill:var(--muted);font-size:11.5px}
+.dg-boundary{fill:none;stroke:var(--wire-1);stroke-width:1.3;stroke-dasharray:6 5}
+.dg-boundary.sdle{stroke:var(--gold)}
+.dg-boundary-label{fill:var(--text);font-size:12.5px;font-weight:650}
+.legend-core{width:12px;height:12px;border-radius:3px;background:#062b50}
+.legend-guard{width:12px;height:12px;border-radius:3px;border:1px solid #d8ad55;background:#fff4d9}
+.legend-external{width:12px;height:12px;border-radius:3px;border:1px dashed #8fa2b6;background:#edf2f8}
+.legend-store{width:12px;height:12px;border-radius:3px;border:1px solid #9fb0c2;border-top:3px solid #9fb0c2;background:#fff}
+.tech-summary code{font-size:.8125rem;color:var(--text)}
+.executive-panel{margin-bottom:28px}
+.flow-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:24px 0}
+.flow-tabs button{border:1px solid var(--line);border-radius:8px;padding:10px 15px;background:var(--surface);color:var(--text);font-size:.875rem;cursor:pointer}
+.flow-tabs button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:white}
+.flow-tooltip-hint{color:var(--muted);font-size:.8125rem;margin:12px 0 20px}
+.flow-legend{display:flex;flex-wrap:wrap;gap:20px;font-size:.8125rem;color:var(--muted);padding:14px 20px;border-top:1px solid var(--line)}
+.flow-legend span{display:inline-flex;align-items:center;gap:8px}
+.legend-square{width:12px;height:12px;border:1px solid #71849a;border-radius:3px;background:#fff}
+.legend-diamond{width:11px;height:11px;border:1px solid #b88017;background:#fff4d9;transform:rotate(45deg)}
+.legend-line{width:22px;border-top:2px dashed #b88017}
+.tech-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px}
+.tech-summary article{padding:22px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.tech-summary h3{font-size:1rem;margin-bottom:10px}
+.tech-summary p{font-size:.875rem}
+.technical-note{margin:20px 0;font-size:.875rem}
+.around-title{margin-top:48px}
+.around-flow{margin-top:0}
+.technical-note code{font-size:.8125rem;color:var(--text)}
+
+/* Diagram tooltips */
+.sdle-tooltip{position:fixed;z-index:1000;width:min(330px,calc(100vw - 28px));max-height:min(320px,calc(100dvh - 28px));overflow:auto;padding:17px 19px;border:1px solid #466078;border-top:3px solid #d4a544;border-radius:12px;background:#09263f;color:#edf4fb;box-shadow:0 16px 42px #00142638;font:.875rem/1.6 system-ui,sans-serif}
+.sdle-tooltip[hidden]{display:none !important}
+.sdle-tooltip strong{display:block;margin-bottom:7px;color:#f4d38b;font-size:.9375rem;line-height:1.4}
+.sdle-tooltip span{display:block}
+.sdle-tooltip-target{cursor:help}
+.sdle-tooltip-target:focus{outline:none}
+.sdle-tooltip-target:hover > rect,
+.sdle-tooltip-target:focus > rect,
+.sdle-tooltip-target:hover > polygon,
+.sdle-tooltip-target:focus > polygon{stroke:#b88017;stroke-width:2.5}
+
+/* Simulator */
+dialog{color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:20px;width:min(1140px,calc(100% - 28px));max-height:90dvh;padding:0;box-shadow:0 30px 100px #00172c66}
+dialog::backdrop{background:#00182caa;backdrop-filter:blur(4px)}
+#simulator [hidden]{display:none !important}
+.dialog-head{display:flex;justify-content:space-between;align-items:center;padding:24px 28px;border-bottom:1px solid var(--line);gap:20px}
+.dialog-head h2{font-size:1.5rem}
+.close{background:var(--soft);color:var(--text);border:0;border-radius:8px;font-size:1.4rem;width:38px;height:38px}
+.dialog-body{padding:28px}
+.sim-controls{display:flex;gap:15px;align-items:center;flex-wrap:wrap;margin-bottom:24px}
+select{max-width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text)}
+.sim-notice{font-size:.8125rem;margin-bottom:18px;padding:12px 15px;border-left:3px solid var(--gold);background:var(--soft)}
+.sim-progress{width:100%;height:7px;margin-bottom:18px;accent-color:var(--gold)}
+.sim-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:20px}
+.sim-workspace{min-width:0}
+.sim-workspace .flow-diagram{max-height:440px;padding:12px}
+.sim-mode{display:inline-flex;align-items:center;gap:9px}
+.sim-mode svg{width:18px;height:18px}
+.sim-console{margin:0;padding:22px;height:440px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#061526;color:#c8dfef;font:.8125rem/1.85 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}
+.sim-inspector{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:20px}
+.sim-inspector h3{font-size:1.2rem}
+.sim-inspector p{margin-top:12px;font-size:.875rem}
+.sim-inspector .actions{margin-top:20px;gap:8px}
+.sim-inspector .button{width:100%}
+.sim-inspector .eyebrow{margin-bottom:14px}
+.artifact{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+.artifact strong{display:block;font-size:.8125rem}
+.artifact span{font-size:.875rem;color:var(--muted)}
+.sim-status-line{font-size:.875rem;min-height:1.7em;margin-top:16px}
+
+@media(min-width:1700px){.container{width:min(1320px,calc(100% - 80px))}}
+/*
+ * Too narrow for one centred row: the navigation moves to its own centred row.
+ * .is-wrapped does the same when enlarged text no longer fits (set by script).
+ */
+@media(max-width:1140px){
+  html{scroll-padding-top:150px}
+  .header-inner{display:flex;flex-wrap:wrap;gap:15px;padding-block:15px}
+  .header-end{margin-left:auto}
+  nav{order:3;width:100%;justify-content:center}
+}
+html:has(.header-inner.is-wrapped){scroll-padding-top:150px}
+.header-inner.is-wrapped{display:flex;flex-wrap:wrap;gap:15px;padding-block:15px}
+.header-inner.is-wrapped .header-end{margin-left:auto}
+.header-inner.is-wrapped nav{order:3;width:100%;justify-content:center}
+@media(max-width:1000px){
+  .hero-grid{gap:35px}
+  .hero{padding-top:55px}
+}
+@media(max-width:800px){
+  .tech-summary,.sim-layout,.compare-grid{grid-template-columns:1fr}
+  .sim-inspector .actions{flex-direction:row}
+  .sim-inspector .button{width:auto;flex:1}
+  .sim-workspace .flow-diagram,.sim-console{max-height:340px}
+}
+@media(max-width:700px){
+  html{scroll-padding-top:90px}
+  .container{width:calc(100% - 32px)}
+  .header-inner{gap:10px}
+  .header-end{gap:12px}
+  .header-logo{height:26px;padding-left:12px}
+  .brand{gap:10px}
+  .brand-logo{height:32px}
+  .brand-text{padding-left:10px}
+  .nav-text-size{display:flex;align-items:center;gap:5px;padding:12px;margin-top:4px;border-top:1px solid #ffffff18;font-size:.875rem;color:#d8e3ee}
+  .nav-text-size span{margin-right:auto}
+  .mobile-toggle{display:block}
+  nav{display:none;align-items:stretch;flex-direction:column}
+  nav.open{display:flex}
+  nav>a,nav summary{display:block;padding:12px}
+  .dropdown{position:static;margin:5px 0;box-shadow:none}
+  .hero-grid,.cards,.split{grid-template-columns:1fr}
+  .hero{padding:45px 0}
+  .overview-visual{margin-top:5px}
+  .principles{margin-top:35px;grid-template-columns:1fr;gap:18px}
+  .section{padding:50px 0}
+  .compare-side{padding:20px}
+  .split{gap:30px}
+  .pilot{padding:28px}
+  .sim-banner,.footer-inner{align-items:flex-start;flex-direction:column}
+  .dialog-body,.dialog-head{padding:20px}
+}
+@media(max-width:430px){
+  .header-inner{gap:8px}
+  .brand strong{font-size:1rem;letter-spacing:.1em}
+  /* "Agentic" stacks above "SDLC" so the header keeps to one row. */
+  .brand-prefix{display:block;font-size:.625rem;letter-spacing:.24em;line-height:1.3;text-transform:uppercase;color:var(--gold-light)}
+  .brand-logo{height:26px}
+  .header-logo{height:22px;padding-left:10px}
+}
+@media(max-width:340px){.brand-text{display:none}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}nav summary::after{transition:none}}
+@media print{
+  header,.actions,.sim-banner,dialog,.intro-cue{display:none}
+  .intro{min-height:0;padding-block:24px}
+  .hero,.section{padding:25px 0}
+  body{background:white}
+  .card,.compare-side,.pilot{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header>
+  <div class="container header-inner">
+    <a href="#/" class="brand" aria-label="Agentic SDLC home">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 155 63" class="brand-logo" role="img" aria-label="Government of Dubai" focusable="false"><path fill="#fff" d="m4.6 34.1 1.2.9.9-1.3-1.4-.9-.5.9-1.3-.9-.9 1.3L4 35zm24.8-2 1.4 1 .9-1.3-1.4-.9zm-.6-2.3q1 0 1.5-.2.5-.1.8-.4.4-.4.5-.8.2-.5.2-1 0-.4-.2-1.2t-.5-1.4H31l-1.4 1q.4.7.6 1.2t.2.9v.1q-.1.1-.5.1H10.8q-.7 0-1.4-.1-.6-.1-1.6-.4l-.7-.2-.5 1.5q.7.2 1.1.3l.6.3q.1.1.1.3-.2.2-.7.4t-1.3.3q-.7.1-1.5.1-1 0-1.5-.2-.6-.3-.9-.7-.2-.4-.2-1v-.5q.1-.3.1-.6l-.1-.1-1.4.5q-.2.8-.2 1.5t.4 1.4q.4.6 1.3.9.9.4 2.2.4 1.5 0 2.6-.3 1.2-.3 1.8-.8.7-.6.8-1.3zm7.5-.2q.7-.2 1.1-.7t.4-1.3-.6-1.8q-.6-1.1-1.6-2.1h-.1l-1 1.4q.7.7 1.3 1.5t.7 1.4q-.2.1-.7.2h-2q-.4 0-.6-.1l-.1.1-.3 1.5q.3.1.8.1.6.1 1 .1 1 0 1.7-.3m7.5-7.9 1.3.9.9-1.2-1.4-.9-.6.8-1.2-.8-.9 1.2 1.4.9z"/><g fill="#fff"><path fill-rule="evenodd" d="M65.9 29.9q-.6 0-1.2-.2-.7-.2-1.4-.7-.3.5-.8.6-.5.2-1.2.2H47.4q-.8 0-1.3-.2t-.8-.7q-.7.2-1.3.2-.7 0-1.2-.2t-.8-.6-.3-.9.4-1.1q.3-.5 1.1-1 .7-.5 1.7-.8v-.6l1.5-.6h.1v3.9q0 .4.1.6t.4.3h15q.2-.1.3-.3.2-.2.4-.6.3-.6.6-1t.8-.7q.4-.4.9-.4.6 0 1.2.5.5.4.9 1.1.3.6.3 1.4t-.4 1.3-1.1.5m-21-3.9q-.8.2-1.3.4-.5.3-.6.6.1.2.5.4.3.1.7.1h.7zM66 28.2q0-.3-.2-.6-.1-.4-.3-.7-.3-.2-.5-.2t-.4.3q-.2.2-.5.8.4.2.7.4.4.1.7.1t.5-.1m11 1.1q-.5.3-1.1.4-.7.1-1.6.1h-2q-.3.6-.9 1.2-.5.5-1.3.8t-1.9.3l-.8-1.2.1-.2q1.2 0 2-.2.8-.3 1.2-.7-1.2 0-1.9-.5-.6-.5-.6-1.4 0-.7.2-1.3.3-.6.8-1.1.5-.4 1.1-.4t1.1.4.8 1.1.3 1.5h2.3q.8 0 1.3-.1.4-.1.5-.2-.2-.5-1-1.1-.9-.7-1.7-1.3v-.1l.3-1.8 4.6-2.3h.1l-.6 2-2.7 1.4q.7.6 1.2 1.1.6.5 1 1 .6.5.8.8.3.2.7.4.3.2.7.2.8 0 1.5-.1t1.9-.4q.5-.1.9-.2t.5-.1l-.6-.3q-.8-.4-1.3-.6-.5-.1-.9-.1h-.8q-.3.1-.7.2l-.1-.1.6-1.4q.2-.1.6-.2.3-.1.6-.1.4 0 .9.2t1.5.7q1.1.5 1.6.7.6.2 1.1.2l-.4 1.6q-.7.1-1.6.3t-1.9.6q-1.4.4-2.2.6t-1.5.2q-.6 0-1.2-.3-.5-.3-.9-.8-.2.4-.6.6m-5.8-1.2q0-.4-.1-.7-.2-.3-.4-.5t-.4-.2q-.3 0-.4.1-.2.2-.3.4t-.1.4q-.1.3.3.4.3.1.9.1z"/><path d="M2.9 40.6H4v1q-.4.1-.8.1-.7 0-1.1-.4-.3-.4-.3-1.3 0-.8.4-1.2.3-.5 1-.5t1.3.4l.4-.8q-.4-.3-.8-.4t-.9-.1q-.7 0-1.3.3t-.9.9-.3 1.5q0 1.2.6 1.9.5.7 1.8.7.5 0 1-.1.4-.1.9-.4v-2.5H3z"/><path fill-rule="evenodd" d="M10.5 38.7q.3.6.3 1.4t-.3 1.4q-.4.6-1 .9-.5.3-1.2.3-.9 0-1.4-.3-.6-.4-.9-1T5.7 40t.4-1.4q.3-.6.9-.9t1.3-.3q.8 0 1.4.3.6.4.8 1m-.8 1.4q0-.9-.4-1.3-.3-.5-1-.5t-1.1.5q-.3.4-.3 1.2 0 .9.3 1.3.4.5 1 .5.5 0 .8-.2.4-.2.5-.6.2-.4.2-.9"/></g><path fill="#fff" d="m13.5 41.5-1.3-4H11v.1l1.9 5h1.2l1.9-5v-.1h-1.2zm4.2-1.1h1.9l.1-.8h-2v-1.2H20v-.9h-3.4v5.1H20v-.9h-2.3z"/><g fill="#fff"><path fill-rule="evenodd" d="m23.6 40.6 1.3 1.9v.1h-1.2l-1.3-1.9H22v1.9h-1.1v-5.1h1.7q.7 0 1.1.2.5.2.7.6.2.3.2.8t-.2.9q-.3.4-.8.6m-.1-1.5q0-.3-.2-.5-.3-.2-.7-.2H22v1.5h.5q.5 0 .7-.2.3-.2.3-.6"/><path d="M29 40.9q0-.1-.1-.3-.1-.1-.2-.3l-.2-.2-1.7-2.6h-1.2v5.1h1.1v-3.4q.1.2.3.5.1.2.3.5l1.6 2.4h1.2v-5.1H29zm5.4-1.2q-.3.7-.4 1l-.2-.4q-.1-.3-.3-.6l-1.1-2.2h-1.2v5.1h1.1v-3.2q.1.3.4.8l.9 1.8h.8l.9-1.8q.2-.5.3-.8v3.2h1.1v-5.1h-1.1z"/></g><path fill="#fff" d="M38.9 40.4h1.9l.1-.8h-2v-1.2h2.3v-.9h-3.4v5.1h3.4v-.9h-2.3zm6.7.5q-.1-.1-.2-.3-.1-.1-.2-.3-.1-.1-.1-.2l-1.8-2.6h-1.2v5.1h1.1v-3.4q.2.2.3.5.1.2.3.5l1.6 2.4h1.2v-5.1h-1zm1.7-2.4h1.6v4.1H50v-4.1h1.6v-1h-4.3z"/><path fill="#fff" fill-rule="evenodd" d="M58.6 38.7q.2.6.2 1.4t-.3 1.4q-.4.6-.9.9-.6.3-1.3.3-.8 0-1.4-.3-.6-.4-.9-1t-.3-1.4.4-1.4.9-.9q.6-.3 1.3-.3.8 0 1.4.3.6.4.9 1m-.9 1.4q0-.9-.3-1.3-.4-.5-1.1-.5t-1 .5q-.4.4-.4 1.2 0 .9.3 1.3.4.5 1.1.5.4 0 .8-.2.3-.2.4-.6.2-.4.2-.9"/><path fill="#fff" d="M59.7 42.6h1.1v-2h1.8l.2-.9h-2v-1.3h2.3v-.9h-3.4z"/><g fill="#fff"><path fill-rule="evenodd" d="M69.3 38.1q.7.6.7 2 0 .8-.3 1.4-.4.5-1.1.8-.6.3-1.4.3h-1.6v-5.1h1.7q1.3 0 2 .6m-.4 1.9q0-.5-.2-.9-.2-.3-.5-.5-.4-.1-.9-.1h-.6v3.1h.3q.7 0 1.1-.1t.6-.5q.2-.3.2-1"/><path d="M74.2 40.5q0 .5-.3.9-.2.4-.8.4-.7 0-1-.4-.2-.4-.2-1v-2.9h-1.1v3q0 .6.2 1.1t.7.8 1.3.3q.7 0 1.2-.2.5-.3.8-.7.3-.5.3-1.3v-3h-1.1z"/><path fill-rule="evenodd" d="M80.1 40.6q.1.2.1.5 0 .7-.5 1.1t-1.4.4h-2v-5.1h1.8q.6 0 1.1.2.4.2.6.5t.2.7q0 .3-.2.6t-.6.4q.3.1.6.3.2.2.3.4m-2.7-1h.6q.8 0 .9-.6-.1-.3-.2-.5-.2-.1-.6-.1h-.7zm1.7 1.4q0-.2-.3-.4-.2-.2-.6-.2h-.8v1.3h.8q.4 0 .6-.2.3-.2.3-.5"/></g><path fill="#fff" fill-rule="evenodd" d="m83.7 37.5 1.8 5v.1h-1.2l-.4-1.2H82l-.4 1.2h-1.1v-.1l1.8-5zm-.1 3-.6-1.9-.7 1.9z"/><path fill="#fff" d="M86.2 37.5h1.1v5.1h-1.1z"/><g fill="#fff"><path fill-rule="evenodd" d="M94.9 12.3 93 7.7c0-.2 0-.4.1-.5s.3-.2.5-.1l4.7 1.5c.2.1.3.2.3.4l.2 2.1 6.3 5.8.1-.1q.5-.8 1.1-1.9c.5-.8.9-1.6 1.3-2.3q.4-.7.8-1.6l-.6.1 2.4-3.3.8-1.1.8-1.2c.1 0 1.3-1.6 2.5-2.4q.4-.2.7-.3.5-.1 1-.1h.6c.7.1 1.3.7 1.6 1.4.1.3.5.9 1.1 1.4.1 0 .3.2.8.4.3.1.6 0 .8-.1q.4-.2.5-.7t-.1-1.1l-.2-.2-.3-.3-.1-.1h-.4q-.1 0-.3-.1h-.1l.1.1c0 .3.1.5.1.5s-.3-.1-.5-.5c-.1-.3-.3-1 .3-1.5.3-.3.7-.4.8-.5h.1c.2-.2.4-.5.9-.6q.2 0 .4-.1h.6c.2 0 .5 0 .9.1.8.2 1.4.7 1.8 1.6l.1.2.1.1q.2.5.4 1.1.2.7.5 1.3c.1.3.3.7.6.8h.2c.1 0 .3 0 .5-.2.1 0 .2-.1.3-.1v-.1c.7-.5 1-1.1 1.2-1.4.2-.7.9-1.2 1.6-1.4h.6c.2 0 .5 0 1 .1q.3.1.7.3l.1.1.2.2q.1 0 .2.1t.2.1q.1.2.4.4l.2.2c.6.7 1.1 1.3 1.1 1.3l1.7 2.3 2.4 3.3-.7-.1q.5.9.8 1.6.7 1.2 1.3 2.3t1.1 1.9l.1.1 6.4-5.8.2-2.1c0-.2.1-.3.3-.4l4.7-1.5c.2 0 .3 0 .5.1.1.1.1.3 0 .5l-1.8 4.6c-.1.1-.2.2-.4.2l-2.1.1-3.7 3.4c.1 1.4.7 2.5 1.5 3.7q.3.6.7 1.2 0 .1.1.2v.1l.4.7h-.1q.7 1.4 1.1 3.1c.7 2.3 1 4.8.9 7.4-.2 4.8-1.7 9.7-4.4 14q-1.7 2.8-4 5.1v.1c-2 2.1-4.3 3.9-6.8 5.3-2.7 1.5-7.8 4.3-11.9 5.6l-.2.1-.1-.1c-4.1-1.3-9.2-4.1-11.9-5.6-2.6-1.4-4.9-3.2-6.8-5.3l-.1-.1q-2.2-2.3-4-5.1c-2.7-4.3-4.2-9.2-4.3-14-.1-2.6.2-5.1.8-7.4q.5-1.7 1.1-3.1l.4-.8q0-.1.1-.2.3-.6.7-1.2c.7-1.2 1.4-2.3 1.4-3.7l-3.6-3.4-2.1-.1c-.2 0-.3-.1-.4-.2m13.4.6c-.3.5-.7 1.3-1.3 2.4q-.6.9-1.2 1.9l-.2.4-.2.2q0 .1-.1.2t-.2.3l-.2.4h-.1q0 .1-.1.1v.1l-.1.1q-.1.1-.2.3-.4.6-.8 1.1l-.1.1v.1c.2 0 .6-.1 1-.3.2-.1.4-.2.9-.5l.2-.2q.1 0 .1-.1h.1l.3-.3.2-.2h.1q.1-.1.1-.2l.2-.2q.5-.5.9-1c2-2.4 2.8-5 3-5.8l.1-.2v.2c-.1.5-.6 1.9-1.4 3.6l-1.1 2.2-1 1.5q-.1.1-.1.2-.1.1-.1.2l-.3.3-.2.4-.1.1h.2q.2-.1.5-.2l.1-.1h.3q0-.1.1-.1h.1l.2-.2c.4-.2 1.1-.7 2-2q.5-.8 1.2-2c.5-.8 1-1.9 1.6-3.3-.5 1.6-1.2 3.4-2.3 5.3q0 .1-.1.2-.7 1.2-1.3 2.2c.6-.3 1.6-.8 2.5-1.8l.6-.8c.5-.6.8-1.3 1.1-2.1.4-1 .9-2.5 1.4-4.3q.2-.7.4-1.5-.1.7-.3 1.5-.6 3-2.1 6.3l-.2.4-.8 1.6q.1 0 .4-.1c.4-.1 1.1-.4 2-1.3.7-.9 1.1-2 1.6-3.6q.4-1.2.9-3.1c-.2.9-.5 2.4-.8 3.7q-.1.3-.3 1s-.2.6-.5 1.4c-.5 1.1-.8 1.5-.9 1.6q-.1.1-.1.2.2-.1.5-.3c.5-.3 1.3-.7 2-1.5q.3-.3.5-.7v-.1c.2-.4.5-1 .7-1.7.6-1.5 1.1-3.3 1.2-3.7q-.3 1.2-.7 2.6-.2.9-.6 1.8-.1.6-.3 1.1-.4 1-.8 1.8c.4-.1.8-.3 1.3-.7.8-.6 1.2-1.3 1.7-2.5s.6-1.9.6-1.9v-.6l-.2-.6-.3-.6-.2-.4q-.1 0-.1-.1h-.1l-.4-.2.2-.4.1-.1c-.6 0-.9-.3-.9-.4l-.4-.3.4-.2q.2-.2.3-.4-.5.2-1 .2h-.1l-.9-.1.3-.2q-.3.1-.6.1l-.6.1c-.6.5-1.3.8-2 .9l-1 .2.1-.2q-.3.3-.7.4l-.8.2-1 .1.6-.6q-.5.2-1 .3h-.2q-.7 1.5-1.2 2.4m13.2-6.6c-.4.3-1.1.5-1.6.3l-.1-.1c-.5-.1-.8-.3-.9-.4-.4-.3-.8-.7-1-1q0-.1-.1-.1 0-.1-.1-.2-.1-.3-.2-.5 0-.1-.2-.3-.3-.45-.9-.6h-.4c-.1 0-.4 0-.8.1q-.2.1-.5.2c-1.1.7-2.3 2.3-2.3 2.3l-.8 1.1-.5.6-.4.5-1.4 2q.3-.1.7-.2.3 0 .6-.2c.5-.2.8-.5 1-.8 0 0 .6-.5 1.4-1.7-1.2 2.2-1.9 3-1.9 3l.6-.2q1.05-.3 1.8-1.2c.4-.6 1.3-1.7 1.9-3q.1-.1.2-.3c-.7 1.5-1.2 2.6-1.6 3.2-.4.7-.6 1-.6 1q1.05-.3 1.8-.9.1-.1.3-.2 0-.1.1-.2l.6-.6c.2-.3.7-.8 1.3-1.4q-.4.7-1 1.6-.2.3-.5.6.3 0 .6-.1c.6-.2 1.2-.6 1.6-1q0 .1-.1.1h.1q-.2.2-.3.4h-.1q0 .1-.1.2l.1-.1-.1.1-.4.6h.1c.8 0 1.5-.3 2.1-.7v.1l-.1.1c-.2.3-.6 1-1.1 1.4 0 0 .4.3 1 .2.1 0 .1.2.1.3v.2l-.2.2q.1 0 .1.1h.4v.3q0 .1.1.2v.1q0 .1.1.2 0 .1.1.1v-.2q.1-.1.1-.2.1-.1.2-.1 0 .4.2 1 0 .2.1.3 0 .2.1.3v1q-.1.1-.1.2s0 .1-.1.3q0 .1-.1.3-.1.3-.3.7c-.2.7-.3 1.4-.4 2.1 0 .5-.1.7-.1.7q.1 0 .3-.2c.2-.1.3-.3.3-.4 0 .1-.1.4-.2.6s-.2.3-.3.4q-.1.6-.1 1.1v1l.2-.2.1-.1.1-.1.1-.1V20l.2.7.3-.5v.1l.1.1v.2l.1.2.3-.9q.1-.5.3-.8 0-.2.1-.5c.1-.1.1-.3.2-.7v-.6l.1.3v.8q.1-.1.2-.3c.2-.2.3-.4.3-.5h.1v.2q0 .1-.1.3s.7-.2 1.3.6l.1.1v.1-.1q.1 0 .2-.1c.6-.8 1.2-.6 1.2-.6-.1-.3 0-.5 0-.5q.1.1.1.2t.1.2q0 .1.1.1.1.2.2.3c0-.8.1-1.1.1-1.1s0 .3.1.6c0 .4.1.6.1.7q.1.3.2.5.1.3.3.8l.2.6v.3l.1-.2.1-.2v-.1l.1-.1.3.5.1-.7.1.1.1.1v.1l.1.1.3.2q0-.4-.1-1v-1.1l-.2-.2-.1-.1v-.1c-.2-.2-.2-.5-.3-.6q.1.1.1.2l.2.2.4.2c-.1-.1-.1-.2-.2-.7-.1-.7-.2-1.4-.4-2.1v-.1q-.1-.3-.3-.6 0-.2-.1-.4c0-.1-.1-.2-.1-.2v-.7q-.1-.1 0-.2v-.3q0-.1.1-.3 0-.1.1-.3c.1-.4.2-.8.2-1q.1 0 .1.1.1 0 .1.1v.1c.1.1.1.2.1.2q.1-.1.2-.3c.1-.2.1-.4.1-.6h.3l.1-.1q0-.1-.1-.1V10c.7.1 1-.2 1-.2-.3-.3-.5-.6-.7-.9l-.2-.2q-.1-.2-.2-.3v-.1l-.1-.1c.6.4 1.4.7 2.1.7h.2l-.1-.2-.3-.3q-.1-.2-.3-.4 0-.1-.1-.1 0-.1-.1-.3h-.1c.5.4 1 .8 1.6 1q.3.1.6.1-.2-.3-.5-.6 0-.1-.1-.2-.1-.2-.3-.4l-.2-.4q-.2-.3-.3-.6c.6.6 1 1.1 1.3 1.4.4.5.3.4.5.6l.2.2q.1.1.2.1v.1c.5.4 1.2.7 1.9.9 0 0-.2-.3-.6-1-.4-.6-.9-1.7-1.6-3.2l.2.4v.1l.1.1q.1.2.2.5.2.2.3.4.2.3.3.5.1.1.1.2h.1q0 .1.1.2.2.2.3.4.1.1.1.2l.3.3c.5.6 1.1 1 1.7 1.2q.4.1.7.2l-.1-.1v-.1h-.1V10q-.1 0-.1-.1c-.3-.5-.9-1.3-1.6-2.6l.2.4q.2.2.3.4c.5.7.8.9.8.9.2.3.6.6 1.1.8s.9.3 1.2.4l-1.4-2-.4-.5-.1-.2-.3-.4-.7-.9-.1-.2-.1-.1c-.3-.3-1.3-1.6-2.2-2.2l-.6-.2c-.3-.1-.6-.1-.8-.1h-.4c-.5.1-.9.5-1.1.9-.1.4-.5 1.2-1.4 1.8l-.3.3c-.3.1-.5.2-.9.3q-.4 0-.7-.3-.3-.2-.5-.5l-.2-.2q-.1-.2-.1-.3c-.1-.1-.1-.1-.3-.6q-.2-.3-.3-.6t-.3-.6q0-.1-.1-.1v-.1l-.1-.1s.1.1.2.1l.2.2.1.1v.1-.2c-.1-.1-.1-.1-.1-.2q-.1-.1-.1-.2l-.1-.1-.1-.1q0-.1-.1-.1-.1-.1-.1-.2v-.1q-.2-.1-.3-.3l.5.5v-.1q-.1-.1-.1-.2t-.1-.1v-.1q-.1-.1-.1-.2l-.1-.1-.1-.1-.1-.1-.1-.1q-.1-.1-.2-.1 0-.1-.1-.1-.2-.1-.4-.1-.1-.1-.3-.1h-1.2c-.4.1-.5.2-.7.3 0 0 0 .2-.1.4v-.2l-.2.1q-.1 0-.1.1-.1 0-.1.1t.1.2v.1l-.1-.1-.1-.1v-.1s-.4.1-.6.5c0 0-.1.1-.1.2 0 0 .2-.1.3 0h.1c0-.1.1-.2.3-.2h.2c.1.1.3.1.3.1h.3q-.2.1-.3.1v-.1h-.5q-.1 0-.1.1h-.1s.3 0 .4.1c0 0 .1-.1.3 0 0 0-.1 0-.1.1l.1.1q.1 0 .2.1l.1.1q.1.1.2.3h.1q0 .1.1.3t.1.5v.5q.1-.3.1-.6.1.3.1.6 0 .6-.3 1-.1.2-.3.4m-3.7 1.8h.1zm12.6-4.4q.2-.2.6-.3-.4.1-.6.3m7.6 6.9s-.2-.1-.3-.1q-.5-.1-.9-.3l.6.6-1.1-.1q-.3-.1-.7-.2t-.8-.4l.2.2-1-.2c-.7-.1-1.4-.4-2-.9l-.6-.1q-.3 0-.6-.1l.2.2-.8.1h-.2q-.5 0-1-.2l.4.4.3.2-.3.3c0 .1-.4.4-.9.4v.1l.3.4h-.1l-.3.2h-.1q-.1.1-.2.1 0 .2-.1.4l-.3.6-.2.6v.6s0 .7.6 1.9c.5 1.2.9 1.9 1.6 2.5.5.4 1 .6 1.3.7q-.3-.8-.7-1.8-.2-.5-.4-1.1l-.6-1.8q-.4-1.4-.6-2.6c.1.4.6 2.2 1.1 3.7.3.7.5 1.3.8 1.7v.1q.2.4.5.7c.7.8 1.4 1.2 1.9 1.5l.6.3q0-.1-.1-.2c-.2-.1-.5-.4-1-1.6-.3-.8-.5-1.4-.5-1.4q-.1-.7-.2-1c-.3-1.3-.6-2.8-.8-3.7q.4 1.9.8 3.1c.5 1.6 1 2.7 1.7 3.6.8 1 1.6 1.2 2 1.3q.2.1.4.1l-.8-1.6-.2-.4q-1.5-3.3-2.1-6.3-.2-.7-.3-1.5.2.8.4 1.5c.4 1.8 1 3.3 1.4 4.4.3.7.6 1.4 1.1 2q.2.4.6.8c.9 1 1.8 1.5 2.5 1.8q-.7-1-1.3-2.2l-.2-.2c-1-1.9-1.7-3.7-2.2-5.3.6 1.4 1.1 2.5 1.6 3.3q.6 1.2 1.2 2c.9 1.3 1.6 1.8 2 2l.2.2q.1 0 .2.1.1 0 .2.1h.2q.3.1.5.2h.2l-.1-.1q-.1-.2-.3-.4-.1-.1-.2-.3 0-.1-.1-.2t-.1-.2l-1-1.5q-.6-1-1.2-2.2c-.8-1.7-1.2-3.1-1.3-3.6v-.2l.1.3c.2.7.9 3.3 2.9 5.7q.5.5 1 1.1l.1.1.2.2h.1l.2.2q.1.2.3.3.1.1.2.1v.1q.1 0 .2.1c.4.3.7.5.9.5.4.2.7.3 1 .3l-.1-.1v-.1q-.5-.5-.9-1.1-.1-.2-.1-.3-.1-.1-.2-.1v-.1l-.1-.1-.2-.4q-.1-.2-.3-.3 0-.1-.1-.2 0-.1-.1-.2-.1-.2-.3-.4-.6-1-1.1-1.9c-.6-1.1-1.1-1.9-1.3-2.4q-.5-.9-1.2-2.3m10.4 11.8-10.8 11.3q.1.6.2 1.3c.7-1.6 1.1-2 1.2-2.1q.2-.2.4-.1.2 0 .3.3s.4 1-.2 2.3c-.5 1.1-1.1 1.7-1.5 1.9q.1.6.1 1.3 0 .2-.1.4c1.1-1.6 1.7-2 1.7-2q.2-.1.4 0t.3.3s.1 1.1-.7 2.3c-.6 1-1.4 1.4-1.8 1.5l-.2 1.6c1.1-1.4 1.6-1.7 1.7-1.7q.2-.1.4 0t.3.3c0 .1 0 1.1-.8 2.3-.9 1-1.7 1.4-2.1 1.4q-.2.8-.4 1.5c1.1-.9 1.6-1.1 1.7-1.1q.2-.1.4 0 .2.2.2.4c-.1.1-.2 1.1-1.3 2.1-1 .8-1.8.9-2 1q-.4.7-.9 1.5c1.6-.7 2.2-.7 2.2-.7q.3 0 .4.2t0 .4s-.4 1-1.7 1.6q-.8.4-1.6.4h-.7q0 .1-.1.1-.3.4-.7.8c1.3-.3 1.8-.3 1.9-.3q.2 0 .3.2t0 .4c0 .1-.5 1-1.9 1.4q-.5.2-1 .3h-.5q-.5 0-.7-.1-.6.6-1.3 1-.1.2-.2.3c1.7-.3 2.3-.1 2.3-.1q.2.1.3.3 0 .2-.1.4s-.7.8-2.1 1q-.6.1-1.1.1c-.7 0-1.1-.2-1.3-.4q-.6.4-1 .7c-.8.5-1.7.7-2.5.7h-.1c-.9 0-1.7-.2-2.5-.7q-.5-.3-1-.7c-.3.2-.7.4-1.4.4h-1c-1.5-.3-2.1-1.1-2.2-1.1q-.1-.2 0-.4 0-.2.3-.3s.6-.1 2.3.1q-.1-.1-.3-.2-.6-.5-1.2-1.1-.2.1-.8.1h-.5l-1-.2c-1.3-.5-1.9-1.4-1.9-1.5q-.1-.2 0-.4t.4-.2c.1 0 .6 0 1.8.3q-.3-.4-.7-.8l-.1-.1h-.7q-.7 0-1.5-.4c-1.3-.6-1.7-1.5-1.8-1.6q-.1-.2 0-.4.2-.2.4-.2c.1 0 .7.1 2.3.7q-.5-.8-.9-1.5c-.3 0-1.1-.2-2.1-1-1.1-1-1.2-2-1.2-2.1q0-.2.1-.3.2-.2.4-.1c.1 0 .6.2 1.8 1.1q-.3-.7-.5-1.5c-.3 0-1.2-.4-2-1.4-.9-1.2-.8-2.2-.8-2.3q0-.2.2-.3t.4 0c.1 0 .6.4 1.7 1.7l-.2-1.6c-.4-.1-1.1-.5-1.8-1.5-.8-1.2-.7-2.2-.6-2.3q0-.2.2-.3t.4 0c.1 0 .6.4 1.7 2v-1.7c-.3-.2-1-.7-1.5-1.9-.5-1.3-.2-2.3-.1-2.3q0-.2.3-.3.2-.1.4.1c0 .1.5.5 1.2 2.1q0-.6.2-1.2L99 22.4q-.6 1.3-1 2.8c-.6 2.2-.9 4.7-.8 7.2.2 4.7 1.6 9.4 4.3 13.6q1.7 2.7 3.9 5v.1c1.9 2 4.2 3.7 6.7 5.2 2.6 1.5 7.6 4.2 11.6 5.5 4.1-1.3 9.1-4 11.7-5.5 2.5-1.5 4.7-3.2 6.6-5.2l.1-.1c1.4-1.5 2.7-3.2 3.9-5 2.6-4.2 4.1-8.9 4.3-13.6 0-2.5-.3-5-.9-7.2q-.4-1.5-1-2.8m-48.2-2.3-.6 1.2q-.2.2-.3.5l9.1 9.5c-.3-1.1 0-2 0-2q0-.15.3-.3.2 0 .4.1c0 .1.5.6 1.3 2.4l.6-1.6c-.3-.2-.7-.8-1-2-.2-1.4.3-2.3.3-2.4h.1q.1-.2.3-.2c.1 0 .3.1.4.2 0 .1.3.6.7 2.5q.3-.6.6-1.1v-.4l-5.9-5.5-1 .2-.7.2.4-.6.2-.2c-.4.2-.6.3-.7.3q-.5.3-1.1.3l-.9.2-.6.1.4-.6c.5-.8 1-1.5 1.4-2l.1-.1v-.1l-2.3-2.1c-.1 1.3-.8 2.4-1.5 3.5m7.4.8.3-.4q-.2.1-.5.2zm2.8-.7V20q-.5.4-1.2.7h-.1l4.2 3.9v-.1c1-1.2 2.1-1.3 2.2-1.4q.2 0 .4.2.1.2.1.4c0 .1-.2.7-1.4 2.1l.6.6q1.1-1.5 2.5-2.5v-.1q.1 0 .2-.1l-.1-.1c-.1-.5 0-1 .4-1.3.1 0 .2-.1.4-.1h.1l.1-.1v-.5l.1-1v-2.1l.1-.1v-1.1q-.4.6-.9 1-.7.5-1.5.8l-.2.1-.7.2-.7.2.4-.6q-.4.3-.7.4l-.1.1c-.4.2-.8.3-1.1.4h-.5l-.7.1.1-.2q-.1.1-.2.1-.7.3-1.4.3zm10.1.9V21l-.3.5-.2-.8q-.1.7-.4 1.2l-.1.1c-.1.2-.2.3-.3.5-.2.1-.4.1-.6.2q-.1 0-.2.1v.2q.2.1.1.4v.1h.1l.1-.1v-.1q.1 0 .1-.1v-.3q.2-.1.3-.1h.1l.2-.2c.2-.2.3-.5.2-.7h.1v-.1q.1 0 .1.1 0 .5-.3.8l-.2.2q-.1 0-.1.1-.2 0-.2.1-.1 0-.1.1v.4h.2l.1.1h.1q.1 0 .1-.1v-.5l.2-.2q.1 0 .2-.1v-.1q.2-.2.2-.5h.2v.1q0 .1-.1.3t-.2.3l-.2.2q-.1.1-.1.2v.2l.1.1.1.1q0-.1.1-.1h.2v-.1q.1 0 .1-.1l-.1-.1-.1-.1-.1-.1V23q.1 0 .1-.1l.1-.1c.1-.1.2-.2.5-.3q.4-.3.8-.4h.1c-.1-.1-.2-.1-.4-.1s-.4 0-.5-.2c-.2-.2-.1-.5-.1-.7m5.4-1.5q0-.2-.2-.5c-.1-.2-.2-.4-.3-.5l.8 2.4q0 .1.1.2 0 .1.1.3h-.2c-.3 0-.4-.1-.6-.2-.1-.2-.2-.4-.3-.5l.1.2v.1l.2.6h-.4c-.2-.1-.3-.3-.4-.3 0-.1-.1-.1-.1-.3q-.1 0-.1-.1-.1-.1-.1-.2l.3 1q.3.1.7.2h.2q.1 0 .1.1V22c.3-.3.7-.1.9-.3.1-.2.1-.3.1-.5v-.1q-.1.2-.2.3-.2-.4-.3-.9-.2-.5-.4-.9m1 2.2c-.1.2-.3.2-.5.2s-.3 0-.4.1c.6.2.9.3 1.1.5h.1l.2.2v.1h.1l.1.1v.1l-.1.1-.1.1-.1.1q0 .1.1.1v.1h.2q.1 0 .1.1l.1-.1.1-.1v-.2q0-.2-.1-.2l-.2-.2q-.1-.1-.2-.3 0-.2-.1-.3v-.1h.1v-.1l.1.1q.1.3.2.5v.1q.1.1.2.1l.2.2v.5q0 .1.1.1h.1l.1-.1h.2v-.4q0-.1-.1-.2l-.2-.1h-.1l-.2-.2q-.3-.3-.3-.8 0-.1.1-.1v.1h.1c-.1.2 0 .5.2.7q.1.1.2.1l.1.1q.1 0 .3.1v.3q0 .1.1.1v.1l.1.1h.1l-.1-.1q0-.3.2-.4v-.2q-.1-.1-.2-.1c-.2-.1-.4-.1-.6-.3-.1-.1-.2-.3-.3-.4q0-.1-.1-.1-.3-.5-.4-1.2l-.2.8-.3-.5v.1c0 .2.1.5-.1.7m5.5-2.2-.7-.2-.8-.3q-.9-.3-1.6-.8c-.3-.3-.6-.6-.9-1q0 .6.1 1.1v1.2q0 .5.1 1v1.5l.1.1h.2c.1 0 .2 0 .4.1.3.3.4.8.3 1.2v.2l.2.2h.1v.1q1.3 1 2.3 2.4l.6-.6c-1.2-1.5-1.4-2.1-1.4-2.1q0-.2.1-.4.2-.2.5-.2c0 .1 1.1.2 2.1 1.4v.1l4.2-3.9h-.1q-.6-.3-1.2-.7l.1.2h-.5q-.7 0-1.3-.3-.2 0-.3-.1l.1.2-.6-.1h-.6q-.6-.1-1.2-.5-.3-.1-.6-.4zm7 1.5q-.2 0-.4-.1l-4.5 4.2.2.4v.1l4.9-4.6zm8.7.7q-.1-.3-.2-.5c-.2-.4-.5-.9-.7-1.2-.6-1.1-1.3-2.2-1.5-3.5l-2.3 2.1.1.1.1.1c.3.5.8 1.2 1.4 2l.4.6-.7-.1-.8-.2q-.6 0-1.2-.3-.15 0-.6-.3l.1.2.4.6-.7-.2-.9-.2-6 5.5q.1.2.1.4.3.5.5 1.1c.4-1.8.7-2.4.8-2.5q.1-.2.3-.2.3 0 .4.2c0 .1.6 1 .3 2.4-.2 1.1-.7 1.8-.9 2q.3.8.5 1.6c.8-1.8 1.3-2.3 1.4-2.4q.1-.1.4-.1.2.1.3.3s.3.9-.1 2zM135 41.4q0-.3.1-.5.1-.6.1-1.2h-23q0 .6.1 1.2.1.2.1.6c.2 1.8.7 3.6 1.4 5.2q.2.6.5 1.2.1.1.2.3.6 1.2 1.7 2.5 1.4 1.8 3.4 3.2l1 .8 1 .6c.4.3.7.5 1 .7v-1.3l.1-.1v-.1c.2-2.2.2-4.4.3-6.6v-.2c-.1-.3-.1-.5-.1-.7q-.1-.2-.1-.3c-1 1.6-.8 4.9-.8 5 .1.1 0 .2-.1.2q-.2.1-.3-.1c-1.2-1.5-1.2-2.8-.8-3.9-.8 1.3-1 2.7-1 2.7 0 .1-.1.2-.2.2q-.2 0-.3-.1c0-.1-1-2.6 1.1-4.5-.9.4-1.8 1-2.1 1.9q0 .1-.2.2-.2 0-.2-.2c0-.1-.2-1.1.5-2.1q.7-1.1 2.4-1.5c-.6-.1-1.7-.2-2.6.7q-.1.1-.3 0-.1-.1-.1-.2c0-.1.1-.8.9-1.3q1.1-.7 2.9-.4c-.7-.4-1.6-.8-2.6-.4-.1 0-.3 0-.3-.1q-.1-.1 0-.3c.1-.2 1.2-1.7 3.9-.3-.2-.4-.5-1.1-1.4-1.4-.1 0-.2-.1-.1-.2 0-.1 0-.2.1-.2.1-.1 1.7-.3 2.5 1.2.7-1.4 2.3-1.3 2.4-1.2q.2 0 .2.2c.1.1 0 .2-.1.2-.9.4-1.2 1-1.4 1.4 2.7-1.4 3.8.1 3.9.3q.1.2 0 .3t-.3.1c-1-.4-1.9 0-2.6.4q1.8-.3 2.9.4c.8.5.9 1.2.9 1.3q0 .1-.1.2-.2.1-.3 0c-.9-.9-2-.8-2.6-.7q1.7.4 2.4 1.5c.7 1 .5 2 .5 2.1s-.1.2-.2.2q-.2 0-.3-.2c-.2-.9-1.1-1.5-2-1.9 2.1 1.9 1.1 4.4 1.1 4.5q-.1.1-.3.1c-.1 0-.2-.1-.2-.2 0 0-.2-1.4-1-2.7.4 1.1.4 2.4-.8 3.9-.1.1-.2.2-.3.1-.1 0-.2-.1-.2-.2s.3-3.4-.7-5q-.1.1-.1.3c0 .2 0 .4-.1.7v.2c.1 2.2.1 4.4.3 6.6v.2q.1 0 .1.1V56l1-.6q.5-.4 1-.7c.2-.2.6-.4 1-.7v-.1q1.9-1.4 3.4-3.2 1.1-1.3 1.7-2.5.1-.2.2-.3.3-.6.5-1.1 1.1-2.5 1.4-5.4m-1.3 6.5q-.1.1-.2.3l-.1.2q-.2.3-.3.8v.6c-.1.7.1 1.3.2 1.6l.1-.1q.2-.2.4-.5v-.4c0-1.5-.1-2.2-.1-2.5m-2.5 6.8q.3.1.7 0 .5 0 1-.2c.9-.3 1.4-.9 1.5-1.1-.2 0-.9.1-2.4.6q-.4.4-.8.7m.1-1.4c.4-1.5.4-2.2.4-2.4-.1.1-.6.5-.8 1.2l-.2.4c-.2.9-.1 1.5-.1 1.8h.1l.4-.4zm1.6-1.3q0-.1.1-.1v-.1c-.2-.2-.4-.8-.4-1.8l-.4.6v.1c0 .1.1.7-.3 2.4q.5-.5 1-1.1m-5.2 5.5c.2 0 .5.1.9.1q.5.1 1 0c1-.2 1.6-.6 1.7-.8q-.1 0-.5-.1-.8 0-1.9.2l-.6.2zm0-.9q.3-.3.4-.6c.7-1.4.8-2 .9-2.3-.2.1-.7.4-1.1 1l-.2.4c-.4.9-.4 1.5-.4 1.8q.2-.1.4-.3m1.4-1q.6-.4 1.1-.9c-.1-.3-.2-.9 0-1.9q-.4.4-.8.7l.1.1c0 .1-.1.7-.8 2.3q.2-.1.4-.3m-2-.3q-.5.3-.9.6-.6.4-1.1.7-.7.4-1.4.4t-1.4-.4c-.3-.2-.7-.4-1.1-.7q-.4-.3-.9-.6c.4 1 .3 1.6.2 1.9q.6.3 1 .6c.7.4 1.5.7 2.2.7q1.1-.1 2.2-.7.4-.3 1-.6c-.1-.3-.2-.9.2-1.9m-4.2-9.3q.1-.1.2-.1l.2.2v.4q0 .1.1.4v.4q0 .2.1.4l.2 1.1c.1-.3.1-.4.1-.5l.1-.6q.1-.2.1-.4v-.4q.1-.2.1-.4l.1-.1h-.1v-.3l.2-.2h.1q.1 0 .1.1c1.2 1 1.4 3.4 1.4 4.8.9-1.7.2-3.2-.7-4.1v-.3l.1-.1-.1-.1.1.1q.1-.1.2 0c1.4.8 2.1 2.2 2.4 3.2 0-1.1-.3-2.7-2.6-3.8-.1 0-.1-.1-.1-.2 0-.2.1-.2.3-.2.1 0 2.3.4 3.5 1.6q-.1-.3-.4-.6-.8-1.2-2.9-1.5-.2 0-.2-.2 0-.1.1-.2c.1 0 1.4-.8 2.9-.2q0-.1-.1-.1c-.7-.5-2-.5-3.6-.1-.1.1-.2 0-.3-.1 0-.1 0-.2.1-.3 0 0 1.3-1.3 3-1.4-.6-.2-1.6-.2-3 .7q-.1.1-.3 0-.1-.1-.1-.2c0-.1.1-1 .9-1.7-.5.1-.9.5-1.2 1.4 0 .1-.1.1-.2.1s-.2 0-.2-.1c-.3-.9-.7-1.3-1.2-1.4.8.7.9 1.6.9 1.7q0 .1-.1.2-.2.1-.3 0c-1.4-.9-2.4-.9-3-.6 1.7 0 3 1.3 3 1.3.1.1.1.2.1.3-.1.1-.2.2-.3.1-1.6-.4-2.9-.4-3.6.1q-.1 0-.1.1c1.5-.6 2.8.2 2.9.2q.1.1.1.2 0 .2-.2.2-2.1.3-2.9 1.5-.3.3-.4.7c1.2-1.3 3.4-1.7 3.5-1.7.2 0 .3 0 .3.1 0 .2 0 .3-.1.3-2.3 1.1-2.6 2.7-2.6 3.8.3-1 1-2.4 2.4-3.2q.1-.1.2 0l.1-.1-.1.1.1.1v.3c-.9.9-1.6 2.4-.7 4.1 0-1.4.2-3.8 1.4-4.8m1.4 10q-.1-.4-.1-.7v-.7c-.2-1.4-.2-2.8-.3-4.4-.1.1-.3.1-.4 0-.1 1.6-.2 3-.3 4.4v.7q0 .3-.1.7v.3q.2.1.4.1h.4q.2 0 .4-.1zm-7.1-1.3q.5.5 1.1.9.2.2.4.3c-.7-1.6-.8-2.2-.8-2.3l.1-.1q-.4-.3-.8-.7c.2.8.1 1.5 0 1.9m-1.1 2.1c.1.2.7.6 1.7.8q.5.1 1 0 .6 0 .9-.1l-.6-.4-.6-.2c-1.5-.2-2.2-.2-2.4-.1m4 .1c0-.3 0-.9-.4-1.8l-.2-.4c-.4-.6-.9-.9-1.1-1 .1.2.2.9.9 2.3q.1.3.4.6.2.2.4.3m-4.9-6.2v-.1l-.4-.6c0 .9-.2 1.5-.4 1.8q.1.1.1.2.5.6 1 1.1c-.4-1.7-.3-2.3-.3-2.4m.2 3.3c-1.5-.5-2.2-.6-2.4-.6.1.2.6.8 1.5 1.1q.5.2 1 .2.4.1.7 0-.4-.3-.8-.7m1-.1.4.4c.1-.2.1-.9-.1-1.8q0-.2-.1-.4c-.3-.7-.7-1.1-.9-1.2 0 .2 0 .9.4 2.4q.1.3.3.6m-2-4.1q0-.3-.1-.6-.1-.4-.3-.8 0-.2-.1-.2-.1-.2-.1-.3c-.1.3-.2 1-.2 2.5q0 .2.1.4.1.3.3.5.1 0 .1.1c.2-.3.3-.9.3-1.6m3.9-25.5q-1.4 1.1-2.6 2.7l-.2.3q-.2.2-.3.4t-.2.3-.1.2v.1l-.1.1-.1.1q-.6 1.1-1.1 2.3 0 .3-.2.5c-.7 2-1.1 4.2-1.2 6.5V39h6.3q-.9-.7-1.5-1.6h-3q-.1 0-.1-.1-.1 0-.1-.1 0-.2.1-.2c1.4-1.4 3.1-3.1 5.1-4.7l.5-.3q.2-.2.5-.4l.1-.1.4-.3q.2-.2.4-.3l.2-2.1q0-.1.1-.2h.2l.1.1.4 1.5c2.2-1.5 4.3-2.9 6.9-4.5h.2q.1 0 .1.1.1.1.1.2-.1.1-.1.2-1.5.9-2.7 3.1c-.6 1-1 2.3-1 3.7v.6q0 .6.1 1v.3q.1.1.1.3.1.7.4 1.2l.4-.9q0-.1.2-.1h.3l4.2-.4q.1 0 .2.1t0 .2l-.4 1.1v.2c-.1.1-.2.4-.2.6-.1.4-.1 1.2-.5 1.8h5q.1-.2.1-.4 0-.3-.1-.6v-.2c0-2.3-.5-4.5-1.2-6.5q-.1-.2-.2-.5-.4-1.2-1.1-2.3v-.1l-.1-.1v-.1l-.1-.1q-.2-.3-.3-.4-.1-.2-.2-.3l-.2-.4q-1.2-1.6-2.6-2.7l-.1.1h-.1q-.2 0-.2-.1c-.2.2-.5.4-.9.4q-.2 0-.3-.1l-.1-.1v-.2q-.1.1-.2.1-.2 0-.3-.1c-.2 0-.3-.1-.3-.1-.1-.1-.2-.2-.2-.4 0 0 .1-.2.7-.3q0-.2.1-.3-1.8-.8-3.5-.8-1.8 0-3.5.8h-.1q.1.2.1.3c.5 0 .6.3.6.3.1.2 0 .3-.1.4 0 0-.1.1-.4.1q-.1.1-.2.1h-.2l-.1-.1v.2s.1.2-.3.3h-.1c-.4-.1-.6-.3-.8-.5 0 0-.1.1-.2.1s-.2 0-.2-.1m0-.6.1.1v-.6h-.1zm.7.3c0 .1.2.2.2.3q0-.1-.1-.2V24q0-.1-.1-.2h-.1q0 .1.1.2m1.5 0q-.1 0-.2-.1c-.2-.1-.3-.1-.3-.1q-.1 0-.1.1c.2.1.4.1.6.1m3.9-2.1-.1-.1q-.1 0-.2-.1-.2-.2-.3-.5 0-.1-.1-.3 0 .2-.1.3-.1.3-.3.5-.1.1-.2.1v.1q.6-.1 1.3 0m2.8 2q-.2.1-.3.1c.2 0 .4-.1.6-.2 0-.1-.2-.1-.3.1m1.3 0v-.1l-.2.2v.1q0 .1-.1.2c.1-.1.2-.2.3-.4m.6 0v-.1q.1-.2.1-.4v-.2h-.1zm4.1 2.5-.5.6q.1 0 .2.1.2.1.3.1l.4-.3c-.1-.1-.2-.3-.4-.5m.1-.7.1.2q.1 0 .1.1.2.1.3.3.2.1.3.2l.2.2q.1 0 .2.1h.1l-.1-.1v-.3q0-.1-.1-.2 0-.2-.1-.4t-.2-.3-.1-.2l-.2-.2q0-.1-.1-.2c-.7-.8-1.5-1.1-1.7-1.2.1.3.4.9 1.3 2m-16.6 9.9q.3.2.6.3.2.2.5.2.2 0 .2.1l.2.4q1.2-.1 2.3-.2l.4-4.8h-.1l-.5.3q-.2.3-.5.5l-.5.3q-1.65 1.35-3 2.7l.1.1h.1q.1.1.2.1m-.6.5q0-.2-.1-.3v-.1q-.7.6-1.3 1.1c.5 0 1.1 0 1.8-.1zm8.8-2.8v-.1c0-1.5.4-3 1-4.1q.5-.9 1-1.6c-1.9 1.2-3.4 2.2-4.8 3.2l1.6 5.6q1 .1 1.8.1-.2-.4-.4-1v-.3q0-.1-.1-.2 0-.5-.1-1.1zm-1 3.6.1.3h1.7l.1-.3zm-1 .2q0 .1-.1.2h.8l-.2-.4h-.7q.1 0 .2.2m-1.1-5.7.6 5h.9zm-1.5 7.5q0 .1.1.1t.2.1h8.2l.8-1.9h-.3l-.5.1q-.2 0-.4.1h-.5q-.4.1-.9.1-.4.1-.9.1h-.7q-.3.1-.6.1h-1.5l-.4.1h-2.1q-.4 0-.7-.1H119h.1q.5.7 1.2 1.2m1.8-2v-.2c-.5 0-.8 0-1.3.1v.2zm-.5-2.6-.4-3.2-.4 5.2h1zm-1.2 2.5v-.2c-.8.1-1.4.1-2.1.2zm-1.9.3.1.1h.9q.3 0 .7.1h.2v-.2zm-1.7-1q.2.3.3.5l.1.1h.6l-.1-.1q0-.1-.1-.2h-.2l-.1-.1q-.2 0-.3-.1-.1 0-.2-.1m.8 1.1q.7.9 1.5 1.6.1 0 .2.1h.4l-1-1q-.3-.3-.6-.7zm3.2-.2v.2c.1.1 0 .1.1.1h1.3V37zm7.3-.9.1-.3-1.3.1-.1.3zm-.6.6-.1.2q.2-.1.4-.1l.1-.1zm-1 0-.1.2h.4l.1-.2zm2.2-.1h.3v-.1h-.4v.1zm.9-.2h.1zm-.2 2.4h.1c.2-.2.5-.6.6-1.6zm.7-3 .1-.2-1.3.1-.1.3zm-15.4-9.1-.6-.6c-.1.1-.2.3-.3.4l.4.4q.1-.1.3-.2zm.7-3.3c-.3.1-1 .4-1.7 1.2l-.2.2q0 .1-.1.2l-.1.1-.2.4-.2.4v.2h-.1v.4h.1q0-.1.1-.1l.2-.2q.2-.1.3-.2l.3-.3.1-.1q.1-.2.2-.2c.9-1.1 1.2-1.8 1.3-2m-3.1 4.6q.7-.4 1.2-.7l-.4-.4-.1.1q-.1.1-.2.1-.2.4-.5.9m-.5 1-.1.3v.1c.3 0 .9-.2 1.7-.7q.1-.1.3-.2.3-.2.5-.6l.1-.1.1-.1v-.2h.1v-.1h-.1q-.1 0-.2.1h-.1l-.1.1q-.7.3-1.6.9-.3.2-.6.5m-.3.9-.4 1.2c1.2-1 1.7-1.3 1.9-1.3h.1q0-.2.1-.4c-.8.5-1.5.5-1.7.5m-.2-1.4V28c-.3-1.5-.6-2.2-.7-2.4-.1.2-.4.9-.2 1.9.1.8.4 1.3.6 1.6q.2-.3.3-.6m-.4 3.4q-.1 0-.1.1-.1.3-.2.7v.1c.3-.1.8-.4 1.4-.9l.4-.4q.3-.3.5-.7.1-.2.1-.4 0-.1.1-.1c-.3.1-.9.4-2 1.5q-.1 0-.2.1m-.4 1.4v.1q-.2.7-.3 1.4c1.1-1.2 1.6-1.5 1.7-1.6h.1q0-.4.1-.7c-.7.5-1.3.7-1.6.8m-.4 2.4q0 .4-.1.7c.3-.1.8-.4 1.3-1q.2-.2.4-.5c.2-.5.3-1 .3-1.2-.2.2-.8.6-1.7 1.7q-.1.1-.2.3m-.1-3.6q0-.3-.2-.6c-.6-1.5-1-2-1.1-2.2-.1.2-.2 1 .2 1.9q.2.6.6 1 .2.3.4.5.1-.3.1-.6m-.1 11.6q-.2-.4-.5-.7c-.9-1.2-1.5-1.7-1.6-1.8 0 .2 0 1 .7 1.8.6.8 1.2 1.1 1.5 1.2q-.1-.2-.1-.5m1.5-6.9q0-.1.1-.1v-.8c-.6.7-1.2 1-1.5 1.1v1.7c.8-1.5 1.3-1.9 1.4-1.9m-1.4 3q0 .2.1.5c.2-.2.7-.6 1.1-1.4q.1-.1.2-.3.2-.4.2-.8v-.6c-.2.1-.6.6-1.3 1.9q-.2.3-.3.7m.1 1q.1.7.2 1.5c.6-1.7 1.1-2.1 1.1-2.2h.1q-.1-.3-.1-.6c-.5.8-1.1 1.1-1.3 1.3m.4 2.5q.1.3.1.6c.3-.2.7-.7 1-1.5q.1-.2.1-.4.1-.4.1-.8t-.1-.5v-.2c-.2.2-.5.8-1.1 2.3v.2q-.1.1-.1.3m-1.7 2.3c0 .2.3.9 1 1.6.6.5 1.2.7 1.5.8l-.1-.1v-.2q-.1-.1-.1-.2l-.2-.4-.1-.1c-1.2-1-1.8-1.3-2-1.4m3.2-1.7.1-.1-.2-.8c-.4.8-.9 1.3-1.1 1.4q.2.9.5 1.8c.3-1.7.6-2.2.7-2.3m-.3 3.2.1.3q.1.2.2.3.3-.45.6-1.5v-.6c0-.7-.1-1.1-.2-1.3-.1.2-.4.9-.7 2.4zm.5 1.2.8 1.4c0-1.7.2-2.3.2-2.4h.1q-.2-.3-.3-.6v-.1c-.2.9-.6 1.4-.8 1.7m.4 2.4c-1.4-.6-2.1-.8-2.3-.8.1.2.5.9 1.5 1.3q.7.3 1.4.3h.3l-.3-.3q-.1-.1-.2-.3zm22.4-2.4c-.2-.3-.5-.8-.8-1.7v.1q-.1.3-.3.6h.1c0 .1.2.7.2 2.4q.5-.7.8-1.4m-.8 2.6q-.1.1-.2.3l-.2.3h.3q.6 0 1.4-.3c.9-.5 1.3-1.1 1.4-1.3-.2 0-.9.2-2.3.8zm1-3.2q.1-.1.2-.3l.2-.3q0-.2-.1-.4c-.3-1.5-.5-2.2-.6-2.4-.1.2-.3.6-.3 1.3v.6q.3 1.05.6 1.5m.7-1.5q.3-.9.5-1.7c-.2-.2-.7-.7-1.1-1.5l-.2.8.1.1c.1.1.4.6.7 2.3m0 1.8c.3 0 .9-.3 1.5-.8.8-.7 1-1.4 1-1.6-.2.1-.8.4-2 1.4q0 .1-.1.1l-.2.4v.2l-.1.2q-.1 0-.1.1m.7-4.1q.1-.3.1-.6V43q-.1-.1-.1-.2c-.6-1.5-.9-2.1-1.1-2.3v.2q-.1.1-.1.5t.1.8l.2.4c.2.8.6 1.3.9 1.5m.3-1.6.2-1.6c-.2-.1-.8-.4-1.3-1.2q0 .3-.1.5l.1.1c.1 0 .5.5 1.1 2.2m.3-2.1v-.4q-.1-.4-.3-.7c-.7-1.3-1.1-1.8-1.3-1.9v.6q0 .4.2.7l.2.4c.4.8.9 1.2 1.2 1.3m0-1.5V37c-.3-.2-.9-.5-1.5-1.1q0 .4.1.8c.1.1.6.4 1.4 2m0 5.5c.3-.1.9-.4 1.6-1.2.6-.8.7-1.6.7-1.8-.2.1-.8.6-1.7 1.8q-.2.3-.4.7h-.1q0 .2-.1.5m.5-12q.4-.4.6-1c.4-1 .3-1.7.2-2-.1.2-.5.8-1.1 2.2q-.2.3-.2.7 0 .3.1.6.2-.2.4-.5m-.6 3.5q-.1-.2-.2-.3c-1-1.1-1.5-1.6-1.7-1.7 0 .2.1.6.4 1.1q.1.4.4.6c.4.6.9.9 1.2 1q-.1-.4-.1-.7m-.1-.9q-.1-.8-.3-1.5c-.3-.1-.9-.3-1.6-.9l.2.8c.1.1.6.3 1.7 1.6m-.4-2v-.1l-.2-.8h-.1q-.1-.1-.1-.2c-1.2-1-1.8-1.3-2-1.4v.1q0 .2.1.3.2.4.5.8l.4.4c.6.5 1.1.7 1.4.9m.2-5.3c.2-1-.1-1.7-.2-1.9-.1.2-.3.8-.6 2.4q-.1.2-.1.5.1.3.3.6c.2-.3.5-.8.6-1.6m-1.1 2.4c-.2 0-.9-.1-1.7-.5q.1.1.2.3v.1c.2 0 .7.3 2 1.3q-.2-.6-.5-1.2m-.2-.5v-.2l-.1-.2q-.3-.3-.6-.5-.9-.6-1.5-.9-.1-.1-.2-.1-.2-.1-.3-.1l-.1-.1q0 .1.1.1v.2q.1.2.2.2v.1q.2.3.6.6.1.1.3.2c.7.5 1.3.7 1.6.7m-.6-1.4q-.2-.5-.5-.9l-.1-.1q-.1 0-.2-.1l-.4.4q.6.3 1.2.7m-9.8-9.4c-.1-.1-.1-.3-.2-.4-.2-.1-.4-.1-.5 0v.1q.2.6.5 1.2l.2.6q.1.1.1.2.1.2.2.3c.1.2.2.4.4.5h.2q-.4-1.1-.8-2.1 0-.2-.1-.4m-.8-.4q-.1 0-.2.1-.1 0-.2.1l.3 1.3c.5 1.7 1 1.5 1 1.5q-.2-.7-.5-1.5-.2-.7-.4-1.5m-.4.3q-.2.1-.3.2l-.2-.2q-.2.6-.3 1.2 0 .2-.1.5v.1q-.1.5-.2 1.1s.5-.2.6-.8q0-.1.1-.1v-.1c0-.1 0-.8.1-1.7.1.9.1 1.6.1 1.7.1 0 .1.1.1.1v.1c.1.6.6.8.6.8q-.1-.6-.2-1.1v-.1q-.1-.2-.1-.5zm-.6-.1q-.1-.1-.2-.1-.1-.1-.2-.1-.2.8-.4 1.5-.3.8-.5 1.5s.6.2 1-1.5zm-.5-.2c-.1 0-.3-.1-.5 0-.1.1-.1.3-.2.4q-.1.2-.1.4-.4 1.1-.8 2.1h.2c.2-.1.3-.3.4-.4l.2-.4q0-.1.1-.2l.2-.6q.3-.6.5-1.2zm-.8.1c-.2.2-.3.4-.4.6l-.2.4q-.1.5-.3 1-.2.4-.4.9 0-.2-.1-.3c-.1.2-.1.4 0 .5.2.3.6.1.9.4h.1q.2-.1.4-.1h.1q.2-.1.5-.1l.3-1.1q-.1.1-.1.2v.1q-.1 0-.1.1c-.1.1-.1.2-.1.2-.1.1-.2.2-.4.3s-.3.1-.4 0l.1-.5.1-.2.1-.1c-.2.3-.5.7-.9.7h-.2q0-.2.1-.4 0-.1.1-.2zm-13.7 2.5-.4.1v.1l4.7 4.3c.1-.1.1-.3.2-.4zm1.1 15.3v-.2q-.1-.4-.2-.6c-.6-1.5-1-2-1.2-2.2 0 .2-.1 1 .3 1.9.3.9.8 1.3 1 1.5v-.1q0-.2.1-.3m-.1 3.7-.3-.6c-.9-1.3-1.4-1.8-1.6-2 0 .3 0 1 .6 1.9.5.8 1.1 1.1 1.3 1.3zm29.6-4.8c.4-.9.3-1.7.2-1.9-.1.2-.5.7-1.1 2.2q-.1.2-.2.5v.7c.3-.2.7-.6 1.1-1.5m-1.1 5.4c.3-.2.9-.5 1.4-1.3.6-.8.6-1.6.6-1.8-.2.1-.7.6-1.6 1.9q-.2.2-.3.6-.1.3-.1.6m1.7-20 .2.3.2-.2-.4-.2h-.1zm14-12.5v-.1l-4 1.3-.2 2-.2.2-6.5 6.1.2.4zm-48.9 9.6L98 11.4q-.1-.1-.1-.3l-.2-2-4.1-1.3.9.9 9.9 9.1zm21.4 1.7q.1.1.1.3 0-.2-.1-.3m8.8 25.2"/><path d="M118.5 6.2c-.3-.1-.5-.3-.7-.5-.6-.6-.7-1.5-1.6-1.8q-.5-.1-.9 0c-.3.2-.7.4-1 .6.6-.4 1.3-.6 1.9-.2.3.2.6.5.9.8.3.4.8.9 1.4 1.1m1.6 1.1q-.1-.1-.2-.1 0-.1-.1-.1 0-.1-.1-.1-.2-.2-.5-.3-.2 0-.3-.1h-.5l-.4-.2c-.3-.1-.5-.3-.6-.4.1.2.3.5.5.6q.1 0 .1.1.1 0 .3.1h.2l.6.2q.3.1.5.4.2.1.2.3l.1.1v.4q0 .2-.1.3c-.1.4-.3.7-.3 1.1q0 .3.1.6v.2l.2.2v.1c.1.2.2.3.1.5v.1l.1-.1c.1-.1 0-.4-.1-.5q-.1-.3-.1-.6c-.1-.5 0-1 .1-1.3v-.1q.1-.3.3-.6c.1-.2.1-.5-.1-.7zm10.3-2.2c.2-.3.5-.6.9-.8.6-.4 1.3-.2 1.9.2-.4-.2-.7-.4-1.1-.6q-.4-.1-.9 0c-.9.3-1 1.2-1.5 1.8-.2.2-.4.4-.7.5.6-.2 1-.7 1.4-1.1m-2.8 3.6c.1.4.2.9.1 1.4l-.2.6c-.1.1-.2.4 0 .5v.1-.1c0-.2.1-.4.2-.5v-.1q.1-.1.1-.2t.1-.2q0-.3.1-.6c0-.4-.2-.7-.3-1.1q-.1-.1-.1-.3v-.5q.1-.2.2-.3.2-.3.6-.4c.3-.1.5-.2.5-.2h.2q.2-.1.3-.1l.1-.1c.3-.1.4-.4.5-.6-.1.1-.2.3-.5.4l-.4.2h-.5q-.2.1-.4.1-.2.1-.5.3l-.1.1-.1.1q-.1 0-.1.1l-.1.1c-.1.2-.1.5 0 .7q.1.3.3.6m-2.2 4.2s-.2.1-.1.8c0 0 .3-.4.1-.8m-.1-1.9s-.1.1-.2.1c-.2 0-.3-.2-.4-.3q.1.1.2.3c.1.1.2.1.2.2.1 0 .1.3-.2 1.2q.2-.2.4-.5c.4-.7.4-1.5.4-1.8 0 0 0 .6-.4.8m-.6 6.3s-.1 0-.2-.1v.6h-.1v.2l-.2.2h.1l.1-.1q.1 0 .2-.1 0-.1.1-.1v-.1q.2-.2.3-.5c.1-.3.1-.5.1-.6 0 .4-.2.6-.4.6m-.6-4.1c.5-.7.4-1.5.4-1.9 0 .2 0 .6-.2.8q-.1.1-.2.1c-.2 0-.3-.2-.3-.2q.1.2.1.4c.2.6-.1 1-.2 1.2zm.1 1.7c.1-.3 0-.4.1-.6q0-.2.1-.5l.2-.2-.2.2q-.2.1-.3.2 0 .1-.1.2c-.1.1-.1.3 0 .4.1.7-.3 1.1-.3 1.1q.2-.2.3-.4c.1 0 .2-.2.2-.4m-.2 2.4s.3-.2 0-1.2c0 0-.3.6 0 1.2m.1-7.2v.4l.1-.1q0-.3.1-.5 0-.3.1-.6 0-.2-.1-.4-.1-.1-.1-.2s-.2-.1-.1-.1q-.2.3-.2.5c0 .3.1.6.1.7.1.1.1.2.1.3m.7-5.4.1.1c.1.1.2.2.3.4V5c-.1-.2-.2-.5-.5-.5q0 .1.1.2m.1 3.3c.1.3.2.7.3 1.1v.6l.2-.2c.3-.4.3-1 .2-1.3v-.3.2c-.1.1-.1.3-.2.3s-.3-.1-.5-.4m-.6-2s0 .2.3.5v.1q.2.2.2.3c.2.3.2.4.2.4V7q0-.2-.1-.4c0-.3-.2-.5-.5-.6zm0-3h.2s-.1-.3-.4-.4c0 0 .1.1.1.2s0 .1-.2.1c0 0 .2.1.3.1m.9 13.4s.2.3.1.9c0 0 .3-.3.4-.9 0 .4.1.7.1.7s0-.7.4-1.1.4-1 .4-1c.1.2.5.1.5.1-.6-.7-.6-1.2-.6-1.3-.1.1-.1.2-.1.5 0 .6-.3 1-.3 1 0-.4-.2-.7-.2-.7s.1.4-.1 1q0 .2-.1.3v.2c-.1.3-.2.5-.5.3m.3-2.5c0 .1-.2.7-.3.7s-.2-.3-.3-.4c.1.2.1.5.1.8q-.15.6-.3.9c.2-.2.6-.6.7-1.3q.1-.4.1-.7m-2.7 2.7s.3-1.1-.5-1.4c0 0-.1.2.2.7s.3.7.3.7m-2.2-7.9q.1-.1.3-.2c.3-.1.6-.4.6-.7-.1.1-.2.6-.5.5h-.1c-.1-.1-.1-.2-.1-.3l.1-.1-.1.1q-.1 0-.2.2v.4zm-.3 1.5c0 .3.2.5.3.9q.2.2.2.3 0-.1.1-.4c.1-.3.2-.4.3-.8v-.1q.1 0 .1-.1v-.6s0 .2-.2.4v.1h-.1c0 .1-.1.1-.1.2q-.1.2-.2.3-.1-.2-.1-.4-.1-.3 0-.5v-.1q.1-.1.1-.2 0 .1-.1.1 0 .1-.1.1v.1q-.1.1-.1.2-.1.1-.1.3zm1.1 2.3q.1.3.3.7c-.1 0 0-.1 0-.2q-.1-.2-.1-.4c0-.3 0-.7-.1-1 0 0-.2.3-.1.9m.5 1.3-.1-.1-.1.1c0 .3.1.6.1.6.1-.3.1-.5.1-.6m-1-1.6q0 .2.1.2v-.7l-.1-.1q-.1.2-.1.4 0 .1.1.2m2.3 6v-.1l-.2-.2v-.1c-.1-.3 0-.5 0-.6-.1.1-.2.1-.3.1s-.3-.2-.3-.6c0 .1-.1.3 0 .6q.1.4.3.6h.1l.2.2q.1 0 .2.1h.1zm-1.7-3.6s-.1.3-.2.7c0 0-.3-.4-.2-1 0-.3-.1-.4-.1-.5h-.1c.1.1.1.6-.5 1.3 0 0 .4.1.5-.1 0 0 0 .6.3 1 .4.4.5 1.1.5 1.1v-.7c.2.6.5.9.5.9-.1-.6.1-.9.1-.9-.3.2-.4 0-.5-.3q-.1-.1-.1-.2v-.3c-.2-.6-.2-1-.2-1m1.4-1.4c-.1.2-.1.4-.2.4-.2 0-.3-.6-.4-.6q0 .2.1.6v.2c.2.6.5 1 .7 1.1-.1-.2-.2-.5-.2-.9q-.1-.1-.1-.2 0-.4.1-.6"/><path fill-rule="evenodd" d="M121.9 2.4v-.1h-.1v-.1h-.1v-.3h-.1V2q-.1 0-.1.1h-.2V2h.1v-.1h.1v-.2h.1l.1-.1h.1l.1-.1h.6q.1 0 .1.1h.2l.1.1h.2v.1h.1-.3l-.1-.1h-.2v.1l.1.1v.2q-.1 0-.1.1v.1h-.1v.1h-.2v.1h-.2l-.1-.1zm.1-.5s.2-.1.4 0c0 0-.1-.2-.2-.2-.2 0-.2.1-.2.2"/><path d="M126.2 8.3q.2.1.5.3h.1l.1.1c0-.1 0-.3-.1-.5v-.1h-.1q-.1-.2-.2-.2s.3.3 0 .4q-.2 0-.3-.1t-.1-.2q-.1-.1-.1-.2V8q.1.1.2.3m-3.6-.3c-.2.3-.4.4-.5.4q-.1 0-.1-.1c-.1-.1-.1-.4-.1-.4q0 .2-.1.3v.3c0 .2 0 .5.1.7q.1.2.2.3l.2.2q-.1-.2 0-.6c0-.4.2-.8.3-1.1m-.1-4.5q.1-.1.1-.2v-.1q0 .1-.1.2s0 .1-.1.1q-.1.1-.2 0c-.2 0-.3-.2-.3-.2q0 .1.1.3l.2.4c.1-.1.2-.3.3-.5m-.2 2.5c-.1.3-.2.4-.3.4l-.1.1q-.1.1-.1.2c.5 0 .5-.7.5-.7m3.9 5.9q-.1 0-.1-.1 0 .1-.1.3v.3q.1.2.1.4v.6q.2-.3.2-.6.1-.3 0-.7c-.1-.1-.1-.2-.1-.2m-3.1-1.1c0 .2-.1.3-.2.4h-.2c-.2-.1-.2-.3-.1-.5-.1.1-.2.2-.2.3q-.1.2 0 .3c0 .4.2.8.3.9.2-.2.4-.6.6-1.1.1-.5.1-1 0-1.2q0 .4-.2.9m.5 6.5c-.1.3.1.6.1.6.1-.5-.1-.6-.1-.6m-.3-9.9q.1.3.1.5t-.1.2q.2-.1.3-.4v-.1c.1-.3.1-.6 0-.8q-.1-.2-.1-.3t-.1-.1q.1 0 .1.1v.3q0 .2-.1.3c-.1.1-.3 0-.3 0q.1.1.2.3m3.6 2q0 .1.1.1v.5l-.2.4v-.1q-.1-.1-.1-.2l-.2-.2q-.1 0-.1-.1l-.2-.4v.2q0 .2.1.4v.2c.1.4.3.5.4.8v.4q.1-.1.2-.3c.2-.4.3-.7.3-1 .1-.2 0-.4-.1-.6q-.1 0-.1-.1l-.2-.2q.1.1.1.2m-15.8-.5c-.1 0-.2-.1 0-.4 0 0-.3.1-.4.4V9l-.1.2h.2q.1-.1.2-.1.3-.1.4-.3s-.2.1-.3.1m4.1-.8q0 .1-.1.2c-.1.2-.2.2-.2.2s.3 0 .5-.2c.1-.1.2-.3.2-.5 0 0-.2 0-.4.3M117 8v-.2s-.1.1-.2.3c0 .1-.1.2-.1.2h.1q.1 0 .2-.1.2 0 .3-.1s-.3 0-.3-.1m1.8.1c-.1.2-.4.3-.4.3h.3c.2 0 .4-.1.5-.3v-.3s-.3.2-.4.3m17.6 1q.2 0 .3.1h.2l-.1-.2q-.1 0-.1-.1c0-.3-.3-.4-.3-.4.2.3.1.4-.1.4-.1 0-.2-.1-.2-.1q.1.2.3.3m-4.3-.8c.2.2.5.2.5.2s-.1 0-.3-.2q0-.1-.1-.2c-.2-.3-.3-.3-.3-.3 0 .2.1.4.2.5m-1.6-.1q.1.1.2.1s0-.1-.1-.2c0-.2-.2-.3-.2-.3q.1.1.1.2c0 .1-.3.1-.3.1q.1.1.3.1m-1.9-.1c0-.1-.3-.3-.3-.3v.3c.1.2.3.3.5.3h.3s-.4-.1-.5-.3m-19.7 6.3v-.1s-.3.3-.3.4c0 .2-.3.6-.3.6l.2-.2c.2-.1.5-.3.4-.7m-.6 4.4h-.1c-.1 0-.2-.2 0-.4l-.1.1c-.1 0-.2.2-.2.3-.1.2-.2.3-.2.4 0 0 .4-.1.7-.3q.1 0 .2-.1zm5.1-.8c-.1 0-.2.1-.3.2l-.4.4s.4-.1.6-.3q.1-.1.1-.3m2.2-.4c-.1 0-.2 0-.1-.3v-.1l-.1.2q-.1.1-.1.3c0 .2 0 .3-.1.3 0 0 .5-.2.7-.5h-.1q-.1.1-.2.1m23.4-2.5.2.2s-.3-.4-.3-.6c-.1-.1-.3-.4-.3-.4v.1c-.1.4.1.6.4.7m.1 3.8c.3.2.7.3.7.3-.1-.1-.1-.2-.2-.4 0-.1-.1-.3-.2-.3l-.2-.2c.2.3.2.5.1.5h-.4q0 .1.2.1m-4.3-.3h-.1c0-.1-.2-.2-.3-.4-.2-.1-.2-.2-.3-.2h-.1q0 .2.2.3c.2.2.6.3.6.3m-2.6-.6s0-.1-.1-.3q0-.2-.1-.3v-.2.1c0 .3-.1.3-.2.3q-.1 0-.2-.1c.1.3.6.5.6.5m-8.1-16.3q-.1-.1-.2-.1.1.1.2.1m-4.6 6.5v.1zm-1.6-.1.2-.4zm-.1.2q-.1 0-.1.1 0-.1.1-.1m6.4-6.5"/></g></svg>
+      <span class="brand-text"><strong><span class="brand-prefix">Agentic </span>SDLC</strong></span>
+    </a>
+    <nav id="navigation" aria-label="Main navigation">
+      <a href="#/" class="selected" aria-current="page">Overview</a>
+      <details>
+        <summary>Business value</summary>
+        <div class="dropdown">
+          <a href="#value">Delivery outcomes</a>
+          <a href="#governance">Governance & oversight</a>
+          <a href="#adoption">Approach</a>
+        </div>
+      </details>
+      <details id="architecture-menu">
+        <summary>How it works</summary>
+        <div class="dropdown">
+          <a href="#/architecture/technical">Technical Architecture</a>
+          <a href="#/architecture/delivery-paths">Delivery Paths</a>
+        </div>
+      </details>
+      <a href="#simulator" id="explore-link" aria-haspopup="dialog" aria-controls="simulator">Explore the workflow</a>
+      <div class="nav-text-size" id="nav-text-size"><span>Text size</span></div>
+    </nav>
+    <div class="header-end">
+    <div class="utilities" aria-label="Display settings">
+      <button class="icon-button" id="smaller" aria-label="Decrease text size">A−</button>
+      <button class="icon-button" id="larger" aria-label="Increase text size">A+</button>
+      <button class="icon-button" id="theme" aria-label="Enable dark mode" aria-pressed="false">☾</button>
+      <button class="icon-button mobile-toggle" id="mobile" aria-controls="navigation" aria-expanded="false" aria-label="Toggle navigation">☰</button>
+    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125.7 40.55" class="header-logo" role="img" aria-label="Dubai Customs" focusable="false"><path fill="#fff" d="M121.27 33.05s1.47-2.34-3.28-3.26a24.2 24.2 0 0 0-14.21 1.31c-4 1.79-5.08 1.25-5.08 1.25s2.41-1.12 9.73.93c5.08 1.42 10.45 1.13 11.29.74a8.5 8.5 0 0 0 1.56-1" opacity=".7"/><path fill="#fff" d="M93.97 23a13.36 13.36 0 0 1-3.94-5.91 11.15 11.15 0 0 1-.59-5.05 18.1 18.1 0 0 1 3-7.15c-.68.51-6.42 5.25-6.28 12a16.3 16.3 0 0 0 2.14 7.24 17.5 17.5 0 0 0 2.8 3.58 31 31 0 0 0 9.28 6.56 38.5 38.5 0 0 0 4.83 1.9c1.51.49 2.52.73 4.4 1.16 2.7.63 3.94.79 5.32.57a3.1 3.1 0 0 0 1.14-.39 22 22 0 0 0 5.18-4.46 75 75 0 0 1-10.63-1.7 41.6 41.6 0 0 1-8.07-2.66 34.2 34.2 0 0 1-8.56-5.71"/><path fill="#fff" d="M101.13 20.41a.918.918 0 0 0 1 1.54l.65-.36c2.25-1.22 6.87-2.25 12.06-1.22 5 1 7.41.94 9.1.33a4.27 4.27 0 0 0 1.73-1.59s.24-2.18-5.49-2.75c-4.45-.45-12.84-.06-19.05 4m21.36-10.64a.68.68 0 0 0-.13-.7 5.45 5.45 0 0 0-3.69-1.66 29.1 29.1 0 0 0-14.38 1.5c-.83.33.52 1.55 1.37 1.26l-.84.21s-1.51-.21 3.43.16c4 .3 8.4 1.54 10.68 1.3 2-.22 3.2-1 3.61-2.07" opacity=".7"/><path fill="#fff" d="M102.84 38.45a12.54 12.54 0 0 1 7.5-.28c.27.08 1.88.57 1.84 1s-1.37.67-2.85 1a17 17 0 0 1-1.72.27 21.6 21.6 0 0 1-5.92-.23 21.3 21.3 0 0 1-4.02-1.27 20.93 20.93 0 0 1-10.91-11 20.25 20.25 0 0 1-1.28-10c-.08 2-.11 8.61 4.41 13.92a23.45 23.45 0 0 0 8 5.76 23.4 23.4 0 0 0 4.43 1.54 15.7 15.7 0 0 0 4.76.49c.9-.06 2.36-.24 2.36-.49s-1.8-.54-2.19-.6a18.6 18.6 0 0 0-4.36-.09m7.56-36.1a1.49 1.49 0 0 0-.76 1 1.37 1.37 0 0 0 .12.82 2.55 2.55 0 0 0 1.39 1.21 10.8 10.8 0 0 0 3.63.78 16 16 0 0 0 2.45 0c1.14-.08 1.72-.12 1.83-.38.35-.78-2.66-2.78-2.85-2.91a15 15 0 0 0-4.89-2.08c-.86-.19-1.93-.39-2.32-.43a20 20 0 0 0-2.14-.21c-.06 0 2.57.66 3.72 1a17 17 0 0 1 1.78.57c.42.17.72.31 1.32.6a6.5 6.5 0 0 1 1.84 1.16c.29.28.44.42.41.59-.07.45-1.28.66-2.13.67s-3-.22-3.18-1.26c-.15-.71 1.15-1.36 1.52-1.37 1.28 0-.8-.22-1.75.28"/><path fill="#fff" d="M119.47 10.81a10 10 0 0 1-1.6.23 22 22 0 0 1-3 0 35 35 0 0 1-4-.54c-3.7-.73-5.54-1.11-7.32-2.49a3.9 3.9 0 0 1-1.8-2.59 3.55 3.55 0 0 1 .56-2.15 5.34 5.34 0 0 1 2.49-2.17 6.5 6.5 0 0 1 .82-.33 9.7 9.7 0 0 0-1.9.36 8.4 8.4 0 0 0-1.58.62 8 8 0 0 0-1.51 1 4.47 4.47 0 0 0-1.57 2.36 4.9 4.9 0 0 0 .65 3.48c2.82 5.31 13.33 6.62 14.51 6.77 1.52.22 2.82.33 3.79.38a19.3 19.3 0 0 0 6.19-.32 4.6 4.6 0 0 0 .9-.33 19.5 19.5 0 0 0-2.7-6c.38.57-1.47 1.44-2.94 1.73"/><path fill="#fff" d="M114.99 19.47c-10.12-2.6-15.71-6.28-17.87-9.38s-2-8.75 7.55-10.05c-1.75 0-10.13.6-12.34 7.46-3 9.39 12.38 17.17 15.1 18.29s9.66 4.28 16.33 2.45a1.06 1.06 0 0 0 .58-.54c1.63-3.55 1.34-8.45 1.34-8.61a16.7 16.7 0 0 1-10.69.42m-114 9.56h2.68c2.45 0 3.82 1.22 3.82 3.79s-1.12 4.16-3.82 4.16H.99Zm1.06 7.06h1.76c.72 0 2.67-.2 2.67-3.13 0-1.89-.7-3-2.65-3H2.05Zm11.39.89h-.89v-.91a2 2 0 0 1-1.87 1c-1.51 0-2-.87-2-2.11v-3.73h.95v3.9a1.08 1.08 0 0 0 1.16 1.1 1.62 1.62 0 0 0 1.7-1.8v-3.2h.95Zm1.46-7.95h.95v3a1.94 1.94 0 0 1 1.82-.94c1.77 0 2.65 1.4 2.65 3s-.87 3-2.63 3a2.2 2.2 0 0 1-1.82-.86v.77h-.95Zm2.67 2.9c-1.27 0-1.76 1.09-1.76 2.17s.51 2.13 1.86 2.13 1.73-1.1 1.73-2.23-.56-2.13-1.78-2.13M26.57 37a1.3 1.3 0 0 1-.68.16c-.49 0-.8-.27-.8-.89a2.56 2.56 0 0 1-2 .89c-1 0-1.9-.47-1.9-1.61 0-1.3 1-1.58 1.95-1.77s1.94-.13 1.94-.85-.68-1-1.28-1c-.8 0-1.39.25-1.44 1.09h-.95c.06-1.43 1.16-1.93 2.44-1.93 1 0 2.16.23 2.16 1.58v3c0 .45 0 .65.3.65a.8.8 0 0 0 .26-.05Zm-1.54-3a4.9 4.9 0 0 1-1.72.39c-.62.11-1.16.33-1.16 1s.53.85 1.11.85c1.25 0 1.76-.78 1.76-1.3Zm3.42-3.73h-.95v-1.2h.95Zm-.95 1h.95v5.76h-.95Zm11.26.19a2.1 2.1 0 0 0-2.23-1.69c-1.89 0-2.7 1.56-2.7 3.22 0 1.82.8 3.33 2.71 3.33a2.25 2.25 0 0 0 2.29-2.29h1.06a3.24 3.24 0 0 1-3.44 3.18c-2.47 0-3.68-1.83-3.68-4.14s1.31-4.19 3.76-4.19a3 3 0 0 1 3.27 2.58Zm7.06 5.56h-.89v-.91a2 2 0 0 1-1.87 1c-1.51 0-2-.87-2-2.11v-3.73h.95v3.9a1.08 1.08 0 0 0 1.16 1.1 1.62 1.62 0 0 0 1.7-1.8v-3.2h.95Zm2-1.81c0 .85.77 1.11 1.55 1.11.59 0 1.39-.13 1.39-.86s-.94-.86-1.88-1.07S47 33.87 47 32.76s1.15-1.64 2.15-1.64c1.27 0 2.28.4 2.36 1.8h-.95c-.07-.74-.71-1-1.34-1s-1.22.16-1.22.74 1 .79 1.88 1 1.88.52 1.88 1.64c0 1.37-1.28 1.82-2.45 1.82s-2.38-.52-2.44-1.95Zm6.3-3.94h1.15v.83h-1.15v3.57c0 .43.12.51.71.51h.43v.84h-.72c-1 0-1.37-.2-1.37-1.26V32.1h-1v-.83h1v-1.73h.95Zm4.68-.14a2.73 2.73 0 0 1 2.8 3 2.8 2.8 0 1 1-5.59 0 2.73 2.73 0 0 1 2.8-3m0 5.19c1 0 1.79-.78 1.79-2.17s-.8-2.18-1.79-2.18-1.79.78-1.79 2.18.79 2.12 1.78 2.12m3.87-5h.89v.85a2.12 2.12 0 0 1 1.86-1 1.53 1.53 0 0 1 1.58 1 2.13 2.13 0 0 1 1.8-1c1.15 0 1.92.48 1.92 1.67v4.22h-.95v-3.74c0-.71-.19-1.28-1.11-1.28a1.39 1.39 0 0 0-1.5 1.47v3.59h-.95v-3.78c0-.75-.23-1.28-1.08-1.28a1.55 1.55 0 0 0-1.46 1.45v3.59h-1Zm10.12 3.94c0 .85.77 1.11 1.55 1.11.59 0 1.39-.13 1.39-.86s-.94-.86-1.88-1.07-1.88-.52-1.88-1.63 1.15-1.64 2.15-1.64c1.27 0 2.28.4 2.36 1.8h-.95c-.07-.74-.71-1-1.34-1s-1.23.16-1.23.74 1 .79 1.88 1 1.88.52 1.88 1.64c0 1.37-1.28 1.82-2.45 1.82s-2.38-.52-2.44-1.95ZM0 21.65a7.5 7.5 0 0 1 .53-2.58l1-.7a8.8 8.8 0 0 0-.64 3c0 1.62.73 2.87 2.38 2.87 1.34 0 2.38-.56 2.45-1.69a1.62 1.62 0 0 1-1.71-1.11l.43-1c.31.8.79 1.2 1.45 1.2h.78v.87c0 1.46-1.26 2.61-3.38 2.61S.01 23.63.01 21.57m2.54 6.44a.57.57 0 1 1 0-1.14c.38 0 .56.19.56.57s-.18.57-.56.57m1.79 0c-.38 0-.56-.19-.56-.57s.18-.57.56-.57a.57.57 0 1 1 0 1.14"/><path fill="#fff" d="M6.5 21.72h2.52v.87H6.5z"/><path fill="#fff" d="M8.69 21.72h2.52v.87H8.69z"/><path fill="#fff" d="M10.89 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M13.08 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M15.27 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M17.47 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M22.8 20.27a2.2 2.2 0 0 1-2.31 2.34h-.73v-.87h.68c1 0 1.45-.51 1.45-1.58v-3.4l.92-.31Zm-1.39 5.24a.57.57 0 1 1 0-1.14c.38 0 .55.19.55.57s-.18.57-.55.57m7.5-2.93h-4.93l.58-.87h3.41V19.2a1.4 1.4 0 0 0-1.46-1.58 2.27 2.27 0 0 0-1.84 1.12v-1.13a2.47 2.47 0 0 1 1.81-.87 2.2 2.2 0 0 1 2.4 2.36Zm12.56-2.31a2.2 2.2 0 0 1-2.32 2.34h-4.66a2.13 2.13 0 0 1-2.21-2.34v-1.8l.92-1.2v2.82c0 1.07.49 1.58 1.48 1.58h4.43c1 0 1.45-.51 1.45-1.58v-6l.92-.3Zm-2.87-1.69h-3.93l.58-.61h.58v-.33a1.54 1.54 0 0 1 1.54-1.68 1.43 1.43 0 0 1 1.06.47l-.46.47a1 1 0 0 0-.68-.35.87.87 0 0 0-.81.95v.46h2.13Zm7.53 3.46c0 1.76-.72 3.14-2.59 3.15a3.8 3.8 0 0 1-1.39-.3l-.43-1a3.14 3.14 0 0 0 1.73.46c1.21 0 1.76-1 1.76-2.15v-5.44l.92-.3Zm2.4-8.2v7.05c0 .56.24.83.74.83h1.31v.87h-1.43c-1 0-1.56-.57-1.56-1.68v-6.79l.93-.27Z"/><path fill="#fff" d="M50.35 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M52.55 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M54.74 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M56.93 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M59.13 21.72h2.52v.87h-2.52z"/><path fill="#fff" d="M70.53 22.58h-.66a2.28 2.28 0 0 1-1.76-.68 2.34 2.34 0 0 1-4.37.12 2.3 2.3 0 0 1-1.6.55h-.72v-.87h.62a1.34 1.34 0 0 0 1.45-1.3c.05-1.61.73-2.79 2.42-2.79 1.52 0 2.26.93 2.38 2.49 0 1.07.49 1.61 1.49 1.6h.74Zm-4.62-4.09c-1 0-1.45.65-1.45 2s.42 2.07 1.45 2.07 1.42-.68 1.42-2.07-.39-2-1.42-2"/><path fill="#fff" d="M77.35 22.58h-7v-.87h6v-.89c0-1.8-.14-3.6-2.17-3.6a3.08 3.08 0 0 0-2.06 1l-.6-.62a3.92 3.92 0 0 1 2.65-1.2c2.75 0 3.14 2.13 3.14 4.18Zm-3 2.9a.57.57 0 1 1 0-1.14c.38 0 .56.19.56.57s-.18.57-.56.57"/></svg>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="intro" id="intro" aria-labelledby="intro-title">
+    <div class="container intro-inner">
+      <h1 id="intro-title" class="intro-title">
+        <span class="visually-hidden">Agentic SDLC: Agentic Software Development Lifecycle</span>
+        <span class="intro-kicker" aria-hidden="true">Agentic</span>
+        <span class="intro-wordmark" aria-hidden="true"><span>S</span><span>D</span><span>L</span><span>C</span></span>
+        <span class="intro-rule" aria-hidden="true"></span>
+        <span class="intro-name" aria-hidden="true"><b>A</b>gentic <b>S</b>oftware <b>D</b>evelopment <b>L</b>ife<b>c</b>ycle</span>
+      </h1>
+    </div>
+    <button class="intro-cue" type="button" id="intro-cue">
+      <span>Scroll</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+  </section>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="container">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">AI-assisted delivery. Human oversight.</p>
+          <h2 id="hero-title" class="hero-heading">From business intent<br>to software.<br><span>With confidence.</span></h2>
+          <p class="hero-copy">Agentic SDLC brings requirements, AI-assisted development and human review into a structured delivery process—with evidence at every important decision.</p>
+          <div class="actions">
+            <a class="button primary" href="#value">Understand the value <span aria-hidden="true">↗</span></a>
+            <button class="button" type="button" data-open-simulator>Explore the workflow <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="hero-note">Clear scope. Reviewable work. Recorded decisions.</p>
+        </div>
+
+        <div class="overview-visual" aria-label="Agentic SDLC delivery overview">
+          <div class="visual-top"><span>THE DELIVERY MODEL</span><b>Governed by design</b></div>
+          <div class="visual-row">
+            <span class="visual-number">01</span>
+            <div><h3>Agree on the intent</h3><p>Make the need, boundaries and success criteria clear.</p></div>
+          </div>
+          <div class="visual-row">
+            <span class="visual-number">02</span>
+            <div><h3>Build against a shared specification</h3><p>Guide AI-assisted work with an agreed plan.</p></div>
+          </div>
+          <div class="visual-row">
+            <span class="visual-number">03</span>
+            <div><h3>Review the evidence</h3><p>Assess tests, findings and outstanding risks.</p></div>
+          </div>
+          <div class="visual-row">
+            <span class="visual-number">04</span>
+            <div><h3>Make the decision</h3><p>People approve the work at defined checkpoints.</p></div>
+          </div>
+          <div class="visual-foot">Human oversight connects intent to delivery.</div>
+        </div>
+      </div>
+
+      <div class="principles">
+        <div><b>Business-led</b><p>Start with the outcome and acceptance criteria.</p></div>
+        <div><b>Evidence-based</b><p>Keep decisions, reviews and verification together.</p></div>
+        <div><b>Human-controlled</b><p>Keep ownership and approval responsibilities explicit.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="value" class="section">
+    <div class="container">
+      <div class="section-heading">
+        <div class="eyebrow">Why it matters</div>
+        <h2>More clarity.<br>Fewer delivery surprises.</h2>
+        <p>Agentic SDLC is designed to make AI-assisted delivery easier to direct, review and audit. Track the measures below on your own work items to confirm the benefits.</p>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <span class="card-index">01 / ALIGNMENT</span>
+          <h3>Reduce avoidable rework</h3>
+          <p>Clarify expectations before implementation so teams can identify disagreements while they are still inexpensive to resolve.</p>
+          <small>Measure: changes caused by unclear requirements.</small>
+        </article>
+        <article class="card">
+          <span class="card-index">02 / ASSURANCE</span>
+          <h3>Make quality reviewable</h3>
+          <p>Bring verification results and review findings into the delivery record so approval can be based on visible evidence.</p>
+          <small>Measure: escaped defects and unresolved findings.</small>
+        </article>
+        <article class="card">
+          <span class="card-index">03 / TRACEABILITY</span>
+          <h3>Understand the decisions</h3>
+          <p>Connect requirements, delivery artifacts and approval records to help explain what changed, why and who reviewed it.</p>
+          <small>Measure: time needed to retrieve review evidence.</small>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture" class="section architecture">
+    <div class="container">
+      <div class="section-heading">
+        <div class="eyebrow">Architecture at a glance</div>
+        <h2>A coordination layer<br>around your delivery process.</h2>
+        <p>People set direction and approve decisions. Agentic SDLC coordinates the workflow. Development tools carry out the work, while the repository retains its artifacts and history.</p>
+      </div>
+
+      <div class="flow-panel executive-panel">
+        <div class="flow-toolbar"><strong>Intent → delivery → review</strong></div>
+        <div class="flow-diagram is-open" id="executive-diagram"></div>
+      </div>
+
+      <div class="compare">
+        <h3 class="compare-title" id="compare-title">The same AI assistant, with and without a lifecycle</h3>
+        <div class="compare-grid" role="group" aria-labelledby="compare-title">
+          <figure class="compare-side compare-vibe">
+            <figcaption>
+              <span class="compare-tag">Vibe coding</span>
+              <strong>Prompt, paste, hope.</strong>
+            </figcaption>
+            <svg viewBox="0 0 480 320" role="img" aria-labelledby="vibe-svg-title vibe-svg-desc">
+              <title id="vibe-svg-title">Vibe coding</title>
+              <desc id="vibe-svg-desc">A prompt leads to loosely related pieces of code joined by tangled, crossing lines with warning markers, ending at an uncertain “Ship it?”.</desc>
+              <defs>
+                <marker id="vibe-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path class="vibe-arrowhead" d="M0 0 L10 5 L0 10Z"/>
+                </marker>
+              </defs>
+              <g>
+                <path class="vibe-wire" d="M98 150 C 150 150, 112 39, 150 39" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire faint" d="M98 164 C 170 205, 150 100, 198 141" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire dash" d="M226 39 C 280 110, 280 6, 318 49" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire" d="M188 52 C 40 110, 290 180, 150 236" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire faint" d="M290 141 C 350 190, 300 60, 340 62" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire hot" d="M380 62 C 440 110, 250 150, 330 192" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire faint dash" d="M244 154 C 240 232, 320 150, 318 192"/>
+                <path class="vibe-wire" d="M190 249 C 262 262, 180 176, 226 154" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire" d="M392 205 C 470 200, 380 158, 430 144" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire faint" d="M404 128 C 300 96, 330 20, 226 44" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire hot" d="M190 256 C 262 314, 318 250, 372 291" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire" d="M341 218 C 324 262, 440 244, 410 276" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire dash" d="M462 144 C 478 200, 474 250, 452 276"/>
+                <path class="vibe-wire faint" d="M58 174 C 40 234, 100 246, 110 249" marker-end="url(#vibe-arrow)"/>
+                <path class="vibe-wire faint" d="M146 100 c 30 -22 64 8 32 30 c -26 18 -52 -12 -18 -32"/>
+                <path class="vibe-wire" d="M402 49 c 44 -12 54 40 12 40 c -22 0 -22 -22 -4 -26"/>
+                <path class="vibe-wire hot" d="M262 250 c 26 -10 40 24 12 30 c -20 4 -30 -20 -8 -28"/>
+              </g>
+              <g>
+                <rect class="vibe-start" x="18" y="142" width="80" height="32" rx="8"/>
+                <text class="vibe-label strong" x="58" y="163" text-anchor="middle">Prompt</text>
+                <g transform="rotate(-5 188 39)">
+                  <rect class="vibe-node" x="150" y="26" width="76" height="26" rx="6"/>
+                  <text class="vibe-label" x="188" y="44" text-anchor="middle">auth.js</text>
+                </g>
+                <g transform="rotate(4 360 49)">
+                  <rect class="vibe-node" x="318" y="36" width="84" height="26" rx="6"/>
+                  <text class="vibe-label" x="360" y="54" text-anchor="middle">patch-2</text>
+                </g>
+                <g transform="rotate(-3 244 141)">
+                  <rect class="vibe-node" x="198" y="128" width="92" height="26" rx="6"/>
+                  <text class="vibe-label" x="244" y="146" text-anchor="middle">utils copy</text>
+                </g>
+                <g transform="rotate(6 150 249)">
+                  <rect class="vibe-node" x="110" y="236" width="80" height="26" rx="6"/>
+                  <text class="vibe-label" x="150" y="254" text-anchor="middle">db.sql?</text>
+                </g>
+                <g transform="rotate(-4 341 205)">
+                  <rect class="vibe-node" x="290" y="192" width="102" height="26" rx="6"/>
+                  <text class="vibe-label" x="341" y="210" text-anchor="middle">fix-final-v3</text>
+                </g>
+                <g transform="rotate(7 435 131)">
+                  <rect class="vibe-node" x="404" y="118" width="62" height="26" rx="6"/>
+                  <text class="vibe-label" x="435" y="136" text-anchor="middle">TODO</text>
+                </g>
+                <rect class="vibe-end" x="372" y="276" width="92" height="30" rx="8"/>
+                <text class="vibe-label strong" x="418" y="296" text-anchor="middle">Ship it?</text>
+              </g>
+              <g aria-hidden="true">
+                <circle class="vibe-alert" cx="214" cy="90" r="9"/>
+                <text class="vibe-alert-mark" x="214" y="94" text-anchor="middle">!</text>
+                <circle class="vibe-alert" cx="304" cy="166" r="9"/>
+                <text class="vibe-alert-mark" x="304" y="170" text-anchor="middle">!</text>
+                <circle class="vibe-alert" cx="236" cy="276" r="9"/>
+                <text class="vibe-alert-mark" x="236" y="280" text-anchor="middle">!</text>
+                <text class="vibe-q" x="96" y="226">?</text>
+                <text class="vibe-q" x="466" y="112">?</text>
+              </g>
+            </svg>
+            <dl class="compare-points">
+              <div><dt>Scattered</dt><dd>Intent lives in a chat history and shifts with every prompt.</dd></div>
+              <div><dt>Patched</dt><dd>Fixes pile onto fixes, and nothing is reviewed before the next change.</dd></div>
+              <div><dt>Untraceable</dt><dd>Changes land without a recorded decision or a named reviewer.</dd></div>
+            </dl>
+          </figure>
+
+          <figure class="compare-side compare-sdle">
+            <figcaption>
+              <span class="compare-tag">Agentic SDLC</span>
+              <strong>Organized, refined and governed.</strong>
+            </figcaption>
+            <svg viewBox="0 0 480 320" role="img" aria-labelledby="sdle-svg-title sdle-svg-desc">
+              <title id="sdle-svg-title">Agentic SDLC</title>
+              <desc id="sdle-svg-desc">Requirements, architecture placement, specification, plan and tasks, design, implementation and security review run in a fixed order. Each generated artifact passes a human approval gate, a rejected step loops back for rework, and every step is recorded on an audit trail that ends in a completion summary.</desc>
+              <defs>
+                <marker id="sdle-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path class="sdle-arrowhead" d="M0 0 L10 5 L0 10Z"/>
+                </marker>
+                <marker id="sdle-arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path class="sdle-arrowhead-gold" d="M0 0 L10 5 L0 10Z"/>
+                </marker>
+              </defs>
+              <line class="sdle-audit" x1="404" y1="24" x2="404" y2="299"/>
+              <text class="sdle-audit-label" x="404" y="14" text-anchor="middle">Audit trail</text>
+              <g id="sdle-compare-steps"></g>
+              <rect class="sdle-done" x="54" y="286" width="120" height="26" rx="13"/>
+              <text class="sdle-done-label" x="114" y="303" text-anchor="middle">Complete</text>
+              <path class="sdle-link" d="M174 299 H286"/>
+              <text class="sdle-note" x="394" y="303" text-anchor="end">completion summary</text>
+              <circle class="sdle-dot" cx="404" cy="299" r="6.5"/>
+            </svg>
+            <dl class="compare-points">
+              <div><dt>Organized</dt><dd>One flow per WorkItem, with phases in a fixed order and a defined artifact for each.</dd></div>
+              <div><dt>Refined</dt><dd>Rejected work is re-run with the reviewer's comments and reviewed again.</dd></div>
+              <div><dt>Governed</dt><dd>Human approval gates, artifact fingerprints and a tamper-evident audit log.</dd></div>
+            </dl>
+          </figure>
+        </div>
+      </div>
+      <p class="caption">Illustrative comparison. The Agentic SDLC side is a simplified Greenfield flow; which gates need a human depends on the WorkItem's risk assessment, and the architecture and final gates always do.</p>
+    </div>
+  </section>
+
+  <section id="governance" class="section">
+    <div class="container split">
+      <div class="governance-col">
+        <div class="section-heading">
+          <div class="eyebrow">Governance & oversight</div>
+          <h2>AI contributes.<br>People decide.</h2>
+        </div>
+        <ul class="review-list">
+          <li><strong>Clear approval checkpoints</strong><p>Each gate shows the artifact in full before a person approves progression. The architecture placement gate and the final gate always require human approval.</p></li>
+          <li><strong>Architecture is decided first</strong><p>Before anything is specified, each WorkItem decides where its capability lives, against an architecture catalog shared by the whole repository. No WorkItem can silently redraw an approved service boundary.</p></li>
+          <li><strong>Rejections lead to corrective work</strong><p>A rejection must carry comments. The phase is re-run with that feedback and reviewed again before it can be approved.</p></li>
+          <li><strong>Exceptions remain visible</strong><p>Skipped steps, omitted gates and acknowledgements are recorded in a tamper-evident audit log so the decision can be revisited.</p></li>
+          <li><strong>Approved work stays as approved</strong><p>Each approval records a fingerprint of the artifact. If it changes afterwards, Agentic SDLC flags the change and asks for approval again.</p></li>
+        </ul>
+      </div>
+      <aside id="adoption" class="pilot">
+        <div class="eyebrow">Approach</div>
+        <h2>Start with your<br>requirements.</h2>
+        <p>Every artifact Agentic SDLC generates traces back to what you write, so the work starts there.</p>
+        <ol>
+          <li>Describe what to build in a <code>requirements/</code> folder, or turn a large source document into a requirements package that a Solution Architect approves.</li>
+          <li>Start the workflow in Claude Code, name the work item and choose which documents it is about.</li>
+          <li>Agentic SDLC checks the requirements against twelve quality criteria, such as scope, acceptance criteria and open unknowns, and scores the risk. If they are blocked, it can help refine them, but every change in meaning waits for your acceptance.</li>
+          <li>Approve where the work belongs in the architecture, then review and approve each generated artifact at its gate, through to the final security review.</li>
+        </ol>
+        <p>Requirements are the one input Agentic SDLC never generates, and it treats them as data, never as instructions.</p>
+        <button class="button gold" type="button" data-open-simulator>Walk through an example →</button>
+      </aside>
+    </div>
+  </section>
+
+  <section id="technical-architecture" class="section architecture architecture-page" aria-labelledby="technical-title" hidden>
+    <div class="container">
+      <div class="page-breadcrumb">
+        <a href="#/">Overview</a><span aria-hidden="true">/</span><span>How it works · Technical Architecture</span>
+      </div>
+      <div class="section-heading">
+        <div class="eyebrow">Technical architecture</div>
+        <h2 id="technical-title" tabindex="-1">How the workflow runs.<br>Where the evidence lives.</h2>
+        <p>Agentic SDLC is a Claude Code skill wrapped around a deterministic Python engine. The model supplies judgement, the engine enforces the lifecycle, and the repository keeps the record.</p>
+      </div>
+
+      <p class="flow-tooltip-hint">Hover, tap or keyboard-focus any element to see what it does and where it lives in the repository.</p>
+
+      <div class="flow-panel">
+        <div class="flow-toolbar">
+          <strong>System context</strong>
+          <span class="flow-toolbar-note">Agentic SDLC and the systems it works with</span>
+        </div>
+        <div class="flow-diagram flow-diagram-wide" id="context-diagram"></div>
+      </div>
+
+      <div class="flow-panel diagram-gap">
+        <div class="flow-toolbar">
+          <strong>Components</strong>
+          <span class="flow-toolbar-note">Inside Agentic SDLC, as built in the v1.18 repository</span>
+        </div>
+        <div class="flow-diagram flow-diagram-wide" id="component-diagram"></div>
+        <div class="flow-legend">
+          <span><i class="legend-square" aria-hidden="true"></i>Prompt layer</span>
+          <span><i class="legend-core" aria-hidden="true"></i>Deterministic core</span>
+          <span><i class="legend-guard" aria-hidden="true"></i>Guardrail hooks</span>
+          <span><i class="legend-external" aria-hidden="true"></i>External system</span>
+          <span><i class="legend-store" aria-hidden="true"></i>Files in the repository</span>
+        </div>
+      </div>
+
+      <div class="tech-summary">
+        <article>
+          <h3>Judgement and enforcement are separate</h3>
+          <p>The skill and its modules decide what to generate and present. <code>sdle.py</code> owns every mechanical fact — the next phase, gate crossings, fingerprints, the audit chain — and refuses rather than warns.</p>
+        </article>
+        <article>
+          <h3>Hooks are tripwires</h3>
+          <p>Five Python hooks run on tool calls whatever the model decides. Where a hook overlaps the engine, the engine's refusal at the choke point is the guarantee.</p>
+        </article>
+        <article>
+          <h3>The repository keeps the record</h3>
+          <p>Each WorkItem's state, hash-chained audit log and evidence live under <code>workitems/&lt;id&gt;/.sdle/</code>, with the engine as their only writer. Policy, the baseline, the shared architecture catalog and requirements-package approvals live in <code>.sdle/</code>.</p>
+        </article>
+      </div>
+
+      <p class="technical-note">
+        Stages and gates reflect Agentic SDLC v1.18: five flows over a 23-entry phase registry, with architecture placement before every specification. The engine remains the source of truth — <code>sdle.sh flow show</code> reports a WorkItem's flow and <code>sdle.sh governance gates</code> reports which of its gates need a human.
+      </p>
+    </div>
+  </section>
+
+  <section id="delivery-paths" class="section architecture architecture-page" aria-labelledby="delivery-title" hidden>
+    <div class="container">
+      <div class="page-breadcrumb">
+        <a href="#/">Overview</a><span aria-hidden="true">/</span><span>How it works · Delivery Paths</span>
+      </div>
+      <div class="section-heading">
+        <div class="eyebrow">Delivery paths</div>
+        <h2 id="delivery-title" tabindex="-1">Five flows. Explicit decisions.</h2>
+        <p>Select a flow to inspect its stages, correction loops and review evidence. The risk assessment decides which gates need a human; any gate omitted is recorded, and the architecture placement and final gates always require approval.</p>
+      </div>
+
+      <div class="flow-tabs" id="flow-tabs" role="group" aria-label="Select technical flow"></div>
+      <p class="flow-tooltip-hint">Hover, tap or keyboard-focus a stage, evidence box or approval decision to see its description.</p>
+
+      <div class="flow-panel">
+        <div class="flow-toolbar">
+          <div>
+            <strong id="delivery-flow-title"></strong>
+            <p id="delivery-flow-subtitle"></p>
+          </div>
+          <button type="button" class="button primary" id="simulate-delivery-flow">Simulate this flow →</button>
+        </div>
+        <div class="flow-diagram" id="delivery-flow-diagram"></div>
+        <div class="flow-legend">
+          <span><i class="legend-square" aria-hidden="true"></i>Work stage</span>
+          <span><i class="legend-diamond" aria-hidden="true"></i>Human approval</span>
+          <span><i class="legend-line" aria-hidden="true"></i>Correction loop</span>
+        </div>
+      </div>
+
+      <h3 class="compare-title around-title">Before and around the flow</h3>
+      <p class="technical-note">None of these is a phase or a gate, so they never change a flow's phase or gate count. Packages and refinement run only when asked; a requirements change is detected automatically when the WorkItem next tries to move forward, and what happens next is your choice.</p>
+      <div class="tech-summary around-flow">
+        <article>
+          <h3>Requirements packages</h3>
+          <p>A large source document becomes a validated requirements package. Nothing is invented: unsupported details become open issues. A Solution Architect approves the package at an exact fingerprint, and each package work item becomes its own WorkItem. Work cannot start from an unapproved, changed or not-ready item.</p>
+        </article>
+        <article>
+          <h3>Refining blocked requirements</h3>
+          <p>When the quality assessment blocks, Agentic SDLC can help fix the documents before the workflow starts. Layout-only edits are applied automatically; every change in meaning waits for your acceptance. A failed check cannot quietly pass later on unchanged text.</p>
+        </article>
+        <article>
+          <h3>Requirements that change mid-flight</h3>
+          <p>If a bound document changes after work starts, the WorkItem stops at its next move and shows what changed. You choose: re-assess and carry on, redo from an earlier phase, finish and raise a new WorkItem, or reset. Work already approved stays approved; deciding what the change affects is yours.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="explore" class="container explore">
+    <div class="sim-banner">
+      <div><h3>See how a work item moves through Agentic SDLC.</h3><p>Walk through any of the five flows, from a new project to an urgent hotfix.</p></div>
+      <button class="button primary" type="button" data-open-simulator>Open simulator →</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <span><strong>Agentic SDLC</strong> · Agentic Software Development Lifecycle</span>
+    <span>Executive overview · Conceptual operating model</span>
+  </div>
+</footer>
+
+<dialog id="simulator" aria-labelledby="simulator-title">
+  <div class="dialog-head">
+    <h2 id="simulator-title">Agentic SDLC flow simulator</h2>
+    <button class="close" type="button" id="sim-close" aria-label="Close simulator">×</button>
+  </div>
+  <div class="dialog-body">
+    <p class="sim-notice">
+      Illustrative simulation. Console events describe this walkthrough;
+      no commands, repository changes or deployments are executed.
+    </p>
+    <div class="sim-controls">
+      <label for="sim-flow"><strong>Flow</strong></label>
+      <select id="sim-flow"></select>
+      <button class="button" id="sim-reset" type="button">Restart</button>
+      <button class="button" id="sim-play" type="button">Play flow</button>
+    </div>
+    <progress class="sim-progress" id="sim-progress" aria-label="Completed workflow stages" value="0" max="1"></progress>
+
+    <div class="sim-layout">
+      <div class="sim-workspace flow-panel">
+        <div class="flow-toolbar">
+          <strong id="sim-view-title">Visual workflow</strong>
+          <button class="button sim-mode" type="button" id="sim-view"
+            aria-label="View code: switch to simulated console output"
+            aria-controls="sim-visual sim-console" aria-pressed="false"></button>
+        </div>
+        <div id="sim-visual" class="flow-diagram"></div>
+        <pre id="sim-console" class="sim-console" tabindex="0" aria-label="Simulated console event history" hidden></pre>
+        <div class="flow-legend">
+          <span><i class="legend-square" aria-hidden="true"></i>Work stage</span>
+          <span><i class="legend-diamond" aria-hidden="true"></i>Human approval</span>
+          <span><i class="legend-line" aria-hidden="true"></i>Correction loop</span>
+        </div>
+      </div>
+
+      <aside class="sim-inspector" aria-label="Current workflow stage">
+        <div class="eyebrow" id="sim-stage-number"></div>
+        <h3 id="sim-stage-title"></h3>
+        <p id="sim-stage-detail"></p>
+        <div class="artifact">
+          <strong>Evidence</strong>
+          <span id="sim-stage-evidence"></span>
+        </div>
+        <div class="actions">
+          <button class="button primary" id="sim-run" type="button">Run stage</button>
+          <button class="button" id="sim-approve" type="button" hidden>Approve</button>
+          <button class="button" id="sim-reject" type="button" hidden>Request changes</button>
+        </div>
+      </aside>
+    </div>
+
+    <p class="sim-status-line" id="sim-live-status" role="status" aria-live="polite"></p>
+  </div>
+</dialog>
+
+<div id="sdle-flow-tooltip" class="sdle-tooltip" role="tooltip" hidden><strong></strong><span></span></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const byId = id => document.getElementById(id);
+
+  const main = byId("main");
+  const navigation = byId("navigation");
+  const mobile = byId("mobile");
+  const theme = byId("theme");
+  const simulator = byId("simulator");
+  const technicalPage = byId("technical-architecture");
+  const deliveryPage = byId("delivery-paths");
+  const architectureMenu = byId("architecture-menu");
+  const overviewLink = navigation.querySelector('a[href="#/"]');
+  const exploreLink = byId("explore-link");
+
+  /* ------------------------------------------------------------------
+   * Header: navigation, theme and text size
+   * ------------------------------------------------------------------ */
+
+  function closeNavigation() {
+    navigation.querySelectorAll("details").forEach(menu => { menu.open = false; });
+    navigation.classList.remove("open");
+    mobile.setAttribute("aria-expanded", "false");
+  }
+
+  mobile.addEventListener("click", () => {
+    const open = navigation.classList.toggle("open");
+    mobile.setAttribute("aria-expanded", String(open));
+  });
+
+  navigation.addEventListener("click", event => {
+    if (event.target.closest("a")) closeNavigation();
+  });
+
+  /*
+   * Submenus open on hover where a mouse is available and the full
+   * navigation is shown; touch and keyboard keep tap/Enter to toggle.
+   */
+  const hoverMenus = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 701px)");
+
+  navigation.querySelectorAll("details").forEach(menu => {
+    let closeTimer = null;
+    const usesHover = event => event.pointerType === "mouse" && hoverMenus.matches;
+
+    menu.addEventListener("pointerenter", event => {
+      if (!usesHover(event)) return;
+      clearTimeout(closeTimer);
+      navigation.querySelectorAll("details[open]").forEach(other => {
+        if (other !== menu) other.open = false;
+      });
+      menu.open = true;
+    });
+
+    menu.addEventListener("pointerleave", event => {
+      if (!usesHover(event)) return;
+      closeTimer = setTimeout(() => { menu.open = false; }, 180);
+    });
+
+    // A mouse click on a hover-opened menu keeps it open instead of closing it.
+    menu.querySelector("summary").addEventListener("click", event => {
+      if (hoverMenus.matches && event.detail > 0 && menu.open) event.preventDefault();
+    });
+
+    // Tabbing out of a menu closes it. A null relatedTarget is a click that
+    // does not move focus (Safari, Firefox), so the link click still lands.
+    menu.addEventListener("focusout", event => {
+      if (event.relatedTarget && !menu.contains(event.relatedTarget)) menu.open = false;
+    });
+  });
+
+  document.addEventListener("click", event => {
+    navigation.querySelectorAll("details[open]").forEach(menu => {
+      if (!menu.contains(event.target)) menu.open = false;
+    });
+
+    // "#/" matches no element, so re-selecting it would not scroll.
+    if (event.target.closest?.('a[href="#/"]') && location.hash === "#/") {
+      window.scrollTo({ top: 0 });
+    }
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeNavigation();
+  });
+
+  theme.addEventListener("click", () => {
+    const dark = document.body.classList.toggle("dark");
+    theme.setAttribute("aria-pressed", String(dark));
+    theme.setAttribute("aria-label", dark ? "Enable light mode" : "Enable dark mode");
+    theme.textContent = dark ? "☀" : "☾";
+  });
+
+  // Keep the navigation centred on one row only while everything fits;
+  // enlarged text can overflow it at widths the breakpoints allow.
+  const headerInner = document.querySelector(".header-inner");
+
+  function fitHeader() {
+    headerInner.classList.remove("is-wrapped");
+    if (headerInner.scrollWidth > headerInner.clientWidth + 1) {
+      headerInner.classList.add("is-wrapped");
+    }
+    // The opening screen sizes itself against the header's real height.
+    document.documentElement.style.setProperty("--header-h",
+      document.querySelector("header").offsetHeight + "px");
+  }
+
+  let fitFrame = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(fitFrame);
+    fitFrame = requestAnimationFrame(fitHeader);
+  });
+
+  let textSize = 100;
+
+  function resizeText(change) {
+    textSize = Math.max(100, Math.min(150, textSize + change));
+    document.documentElement.style.fontSize = textSize + "%";
+    byId("smaller").disabled = textSize === 100;
+    byId("larger").disabled = textSize === 150;
+    fitHeader();
+  }
+
+  byId("smaller").addEventListener("click", () => resizeText(-10));
+  byId("larger").addEventListener("click", () => resizeText(10));
+  resizeText(0);
+
+  // On phones the text-size buttons move into the menu so the header,
+  // with the logo, stays on one row.
+  const textSizeButtons = [byId("smaller"), byId("larger")];
+  const utilities = document.querySelector(".utilities");
+  const phoneLayout = window.matchMedia("(max-width: 700px)");
+
+  function placeTextSizeButtons() {
+    if (phoneLayout.matches) byId("nav-text-size").append(...textSizeButtons);
+    else utilities.prepend(...textSizeButtons);
+  }
+
+  phoneLayout.addEventListener("change", placeTextSizeButtons);
+  placeTextSizeButtons();
+
+  // The skip link moves focus to the current page instead of routing to #main.
+  document.querySelector(".skip").addEventListener("click", event => {
+    event.preventDefault();
+    main.setAttribute("tabindex", "-1");
+    main.focus();
+  });
+
+  /* ------------------------------------------------------------------
+   * Flow model: the single source for diagrams, simulator and console.
+   * This is an illustrative model, not an Agentic SDLC CLI integration.
+   *
+   * Stages mirror the v1.18 flows (FLOW_PHASES in SKILL.md).
+   * Each stage is an execution phase; "gate" marks the approval gate
+   * that follows it. Phase count = stages + gates. "alwaysHuman" marks
+   * a gate no risk policy can omit: architecture placement and the
+   * final security gate. Pre-workflow work (requirements packages,
+   * refinement) adds no phase or gate, so it is not modelled here.
+   * ------------------------------------------------------------------ */
+
+  const step = (id, title, detail, evidence, gate = false, extra = {}) =>
+    ({ id, title, detail, evidence, gate, alwaysHuman: false, loop: false, ...extra });
+
+  const requirementsCheck = detail => step("requirements_check", "Requirements check",
+    detail || "Read the requirement documents this WorkItem is bound to, scan them for instruction-like content (treated as data, never as instructions) and assess them against twelve quality checks. A blocked assessment can be refined with you before the workflow starts.",
+    "Bound requirements and governance assessment");
+
+  const placementStage = step("architecture_placement", "Architecture placement",
+    "Decide where this WorkItem's capability lives, from the repository's architecture catalog: extend an existing service, create a new one, keep it embedded and monitored, or extract one that has outgrown its host. If the evidence is unclear, it stops for an architecture review. Every specification is written inside the boundary approved here.",
+    "Architecture placement decision and its review", true, { alwaysHuman: true });
+
+  const specStage = (title, detail, evidence) => step("spec_draft", title,
+    detail + " For a WorkItem started from a requirements package, every in-scope requirement id must be carried into the specification.",
+    evidence, true);
+
+  const planStage = gate => step("plan_draft", "Generate plan",
+    "Record the technical approach — technology choices and integration points — from the approved specification and placement.",
+    "Technical implementation plan", gate);
+
+  const checklistStage = step("checklist_draft", "Generate checklist",
+    "Produce an independent completeness check against the plan. It runs straight into task generation and is reviewed with the tasks.",
+    "Completeness checklist");
+
+  const tasksStage = (detail, evidence, gate = true) => step("tasks_draft", "Generate tasks",
+    detail + " For a package WorkItem, every acceptance criterion needs a task that tests it.",
+    evidence, gate);
+
+  const analyzeStage = step("analyze", "Analyze consistency",
+    "Cross-check the constitution, specification, plan and tasks for contradictions and gaps while everything is still a document. Analysis is read-only: a change made during it is treated as drift and returns for re-approval.",
+    "Analysis findings", true);
+
+  const designStage = step("design_generation", "Generate design",
+    "Produce the application design, and the database design where data is stored, before any code is written. A design that conflicts with an approved architecture decision is a blocking review finding.",
+    "Application design, database design if applicable, and design review", true);
+
+  const implementStage = step("implement", "Implement & test",
+    "Implement the tasks and build a manifest of every changed file, with a secrets scan and test evidence bound to the exact working tree it ran against. On request, a bounded loop (three iterations by default) implements, reviews, converges and traces until the work is ready for human review. The gate refuses unless the tests passed on the current tree and a current code review exists.",
+    "Implementation manifest, tree-bound test evidence and code review", true, { loop: true });
+
+  const securityStage = step("security_review", "Security review",
+    "Review the actual diff for relevant security risks, flag only observed patterns and state what the review does not cover. This is the final gate: a human must approve it.",
+    "Security review report", true, { alwaysHuman: true });
+
+  const impactStage = step("impact_analysis", "Impact analysis",
+    "Read the affected code paths, tests and recent history. Record what is broken, the blast radius, what could regress and what must be verified.",
+    "Reviewed impact analysis");
+
+  const flows = {
+    greenfield: {
+      name: "Greenfield",
+      subtitle: "A new product or component with no baseline. 20 phases, 9 approval gates.",
+      stages: [
+        requirementsCheck(),
+        step("constitution_draft", "Generate constitution",
+          "Draft the project's principles, constraints and technical guardrails. Every later artifact is generated against it.",
+          "Project constitution", true),
+        placementStage,
+        specStage("Generate specification",
+          "Turn the requirements into user stories, scope boundaries and acceptance criteria. Clarification answers are saved.",
+          "Specification and clarification record"),
+        planStage(true),
+        checklistStage,
+        tasksStage("Break the approved plan into ordered, verifiable units of work, reviewed alongside the checklist.",
+          "Task breakdown and checklist"),
+        analyzeStage,
+        designStage,
+        implementStage,
+        securityStage
+      ]
+    },
+
+    brownfield: {
+      name: "Brownfield Discovery",
+      subtitle: "The first WorkItem in an existing repository: read it before drafting anything. 21 phases, 9 approval gates.",
+      stages: [
+        requirementsCheck(),
+        step("discovery", "Discover repository",
+          "Read the existing repository and record classified findings: each one observed (citing a path), inferred (naming its basis) or unknown.",
+          "Classified discovery record"),
+        step("constitution_draft", "Generate constitution",
+          "Draft principles, constraints and non-negotiables grounded in what discovery found.",
+          "Project constitution", true),
+        placementStage,
+        specStage("Specify the change",
+          "Define the change, its scope boundaries and acceptance criteria against the discovered system.",
+          "Specification and clarification record"),
+        planStage(true),
+        checklistStage,
+        tasksStage("Break the approved plan into ordered, verifiable units of work, reviewed alongside the checklist.",
+          "Task breakdown and checklist"),
+        analyzeStage,
+        designStage,
+        implementStage,
+        securityStage
+      ]
+    },
+
+    iteration: {
+      name: "Iterative",
+      subtitle: "Ordinary change in a repository with a sound baseline. The constitution is inherited. 18 phases, 8 approval gates.",
+      stages: [
+        requirementsCheck(
+          "Validate and assess the requirements for this change. The flow requires a sound repository baseline and inherits its constitution rather than re-drafting it."),
+        placementStage,
+        specStage("Specify the change",
+          "Specify the change against the existing baseline and agree its acceptance criteria.",
+          "Change specification and clarifications"),
+        planStage(true),
+        checklistStage,
+        tasksStage("Break the approved plan into ordered, verifiable units of work, reviewed alongside the checklist.",
+          "Task breakdown and checklist"),
+        analyzeStage,
+        designStage,
+        implementStage,
+        securityStage
+      ]
+    },
+
+    defect: {
+      name: "Defect Fix",
+      subtitle: "A defect in an existing system, entering through impact analysis. No checklist or design phase. 16 phases, 7 approval gates.",
+      stages: [
+        requirementsCheck(),
+        impactStage,
+        placementStage,
+        specStage("Specify the correction",
+          "Specify the expected behavior and the bounded correction, informed by the impact analysis.",
+          "Correction specification"),
+        planStage(true),
+        tasksStage("Break the correction into ordered, verifiable tasks. A defect always adds the tasks gate.",
+          "Task breakdown"),
+        analyzeStage,
+        implementStage,
+        securityStage
+      ]
+    },
+
+    hotfix: {
+      name: "Hotfix",
+      subtitle: "An urgent fix: the shortest flow that still gates. 12 phases, 4 approval gates.",
+      stages: [
+        requirementsCheck(),
+        impactStage,
+        placementStage,
+        specStage("Specify the fix",
+          "Specify the urgent correction and how it will be verified.",
+          "Fix specification"),
+        planStage(false),
+        tasksStage("Break the fix into ordered, verifiable tasks. In this flow the plan and tasks have no gate of their own.",
+          "Task breakdown", false),
+        implementStage,
+        securityStage
+      ]
+    }
+  };
+
+  /* ------------------------------------------------------------------
+   * SVG helpers
+   * ------------------------------------------------------------------ */
+
+  const escape = value => String(value).replace(/[&<>"']/g, char =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
+
+  function svgFrame(id, width, height, title, content) {
+    return `<svg xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 ${width} ${height}" role="img"
+      aria-labelledby="${id}-title">
+      <title id="${id}-title">${escape(title)}</title>
+      <defs>
+        <marker id="${id}-arrow" viewBox="0 0 10 10"
+          refX="9" refY="5" markerWidth="7" markerHeight="7"
+          orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10Z" fill="#73879c"/>
+        </marker>
+      </defs>
+      <g font-family="system-ui,sans-serif">${content}</g>
+    </svg>`;
+  }
+
+  function text(x, y, value, options = "") {
+    return `<text x="${x}" y="${y}" ${options}>${escape(value)}</text>`;
+  }
+
+  function box(x, y, width, height, title, subtitle, fill = "#ffffff", ink = "#17344e") {
+    return `<rect x="${x}" y="${y}" width="${width}" height="${height}"
+      rx="10" fill="${fill}" stroke="#bccbda"/>
+      ${text(x + width/2, y + (subtitle ? 27 : height/2 + 5), title,
+        `text-anchor="middle" fill="${ink}" font-size="16" font-weight="650"`)}
+      ${subtitle ? text(x + width/2, y + 49, subtitle,
+        `text-anchor="middle" fill="${ink}" font-size="13"`) : ""}`;
+  }
+
+  function edge(id, path, dashed = false) {
+    return `<path d="${path}" fill="none" stroke="#73879c"
+      stroke-width="1.6" ${dashed ? 'stroke-dasharray="5 4"' : ""}
+      marker-end="url(#${id}-arrow)"/>`;
+  }
+
+  /* A focusable group that shows a tooltip on hover, tap or focus. */
+  function tipGroup(title, body, content, attributes = "") {
+    return `<g class="sdle-tooltip-target" tabindex="0" role="group"
+      aria-label="${escape(title)}" data-tooltip-title="${escape(title)}"
+      data-tooltip-body="${escape(body)}" ${attributes}>${content}</g>`;
+  }
+
+  /* ------------------------------------------------------------------
+   * Diagrams
+   * ------------------------------------------------------------------ */
+
+  /*
+   * Architecture diagrams, drawn from the v1.18 repository layout.
+   * node() centres a title and up to three detail lines in a box.
+   */
+  const nodeStyles = {
+    default:  { fill: "#ffffff", stroke: "#bccbda", title: "#17344e", line: "#56677b" },
+    core:     { fill: "#062b50", stroke: "#062b50", title: "#ffffff", line: "#c9d7e6" },
+    guard:    { fill: "#fff4d9", stroke: "#d8ad55", title: "#624715", line: "#755219" },
+    external: { fill: "#edf2f8", stroke: "#8fa2b6", title: "#17344e", line: "#56677b", dash: "5 4" },
+    store:    { fill: "#ffffff", stroke: "#9fb0c2", title: "#17344e", line: "#56677b" },
+    person:   { fill: "#ffffff", stroke: "#b88017", title: "#17344e", line: "#56677b" }
+  };
+
+  function node(x, y, width, height, title, lines = [], variant = "default") {
+    const style = nodeStyles[variant];
+    const cx = x + width / 2;
+    const top = y + (height - (15 + lines.length * 16)) / 2;
+    const radius = variant === "person" ? height / 2 : 10;
+
+    let content = `<rect x="${x}" y="${y}" width="${width}" height="${height}"
+      rx="${radius}" fill="${style.fill}" stroke="${style.stroke}"
+      ${style.dash ? `stroke-dasharray="${style.dash}"` : ""}/>`;
+    if (variant === "store") {
+      content += `<path d="M${x + 1} ${y + 7} H${x + width - 1}" stroke="${style.stroke}" stroke-width="1.2"/>`;
+    }
+    content += text(cx, top + 12, title,
+      `text-anchor="middle" fill="${style.title}" font-size="14.5" font-weight="650"`);
+    lines.forEach((line, index) => {
+      content += text(cx, top + 29 + index * 16, line,
+        `text-anchor="middle" fill="${style.line}" font-size="12"`);
+    });
+    return content;
+  }
+
+  const label = (x, y, value, anchor = "middle") =>
+    text(x, y, value, `class="dg-label" text-anchor="${anchor}"`);
+
+  /* A node wrapped in a tooltip group; the node title is the tooltip title. */
+  const tipNode = (tip, x, y, width, height, title, lines, variant) =>
+    tipGroup(title, tip, node(x, y, width, height, title, lines, variant));
+
+  function contextSVG() {
+    const id = "context";
+    let content = "";
+
+    content += tipNode(
+      "Writes the requirements, drives the workflow with /sdle-* commands and makes every gate decision. A gate needs artifact content in front of a person, so it is never delegated.",
+      30, 140, 230, 80, "Delivery team", ["Writes requirements", "decides at every gate"], "person");
+    content += tipNode(
+      "Hosts the skill, the slash commands, the guardrail hooks and the product subagents. Agentic SDLC is installed by copying them into the target project.",
+      410, 20, 220, 70, "Claude Code", ["Coding-agent session"], "external");
+    content += tipNode(
+      "A Claude Code skill wrapped around a deterministic engine. It runs one of five flows for each WorkItem and records every decision.",
+      390, 140, 260, 90, "Agentic SDLC v1.18", ["Agentic Software Development Lifecycle", "Gated lifecycle per WorkItem"], "core");
+    content += tipNode(
+      "Python 3.11 or later, standard library only. The launchers try py -3, python3 and python, then fall back to uv run --python 3.11.",
+      410, 280, 220, 60, "Python 3.11+", ["Runs the deterministic core"], "external");
+    content += tipNode(
+      "GitHub Spec Kit's Claude skills generate the constitution, specification, plan, checklist and tasks, run the analysis, implement, and converge inside the implementation loop. Agentic SDLC is verified against v1.0.6 and never shows the skill names to the user.",
+      790, 20, 220, 70, "Spec Kit", ["speckit-* skills, v1.0.6"], "external");
+    content += tipNode(
+      "Holds the code, the delivery artifacts, each WorkItem's state and audit log, and the repository baseline. Agentic SDLC reads the branch, the pinned base commit and diffs.",
+      790, 145, 220, 80, "Target Git repository", ["Code, artifacts, state", "and audit log"], "external");
+    content += tipNode(
+      "The implement phase runs a detected runner or a given --test-command. The implementation gate refuses unless the recorded tests ran and passed against the current working tree.",
+      790, 280, 220, 60, "Project test runner", ["npm • pytest • cargo • …"], "external");
+
+    content += edge(id, "M260 180 H390");
+    content += label(325, 172, "commands");
+    content += label(325, 199, "gate decisions");
+    content += edge(id, "M520 90 V140");
+    content += label(530, 120, "hosts", "start");
+    content += edge(id, "M650 160 H720 V55 H790");
+    content += label(755, 47, "invokes");
+    content += edge(id, "M650 185 H790");
+    content += label(720, 177, "reads and writes");
+    content += edge(id, "M650 210 H720 V310 H790");
+    content += label(755, 302, "runs tests");
+    content += edge(id, "M520 230 V280");
+    content += label(530, 259, "runs on", "start");
+
+    return svgFrame(id, 1040, 360,
+      "System context. The delivery team works with Agentic SDLC in a Claude Code session. Agentic SDLC runs on Python, invokes Spec Kit, runs the project's tests and reads and writes the target Git repository.",
+      content);
+  }
+
+  function componentSVG() {
+    const id = "components";
+    let content = "";
+
+    // Boundaries first, so everything else draws over them.
+    content += `<rect class="dg-boundary sdle" x="20" y="118" width="780" height="322" rx="14"/>`;
+    content += text(150, 142, "Agentic SDLC — skill, commands, hooks and engine, running in a Claude Code session",
+      'class="dg-boundary-label"');
+    content += `<rect class="dg-boundary" x="20" y="470" width="780" height="160" rx="14"/>`;
+    content += text(36, 622, "Target Git repository — the engine reads its branch, base commit and diffs; everything here is versioned with the code",
+      'class="dg-label"');
+
+    content += tipNode(
+      "Writes the requirements, drives the workflow and makes every gate decision: approve, approve with comments, or reject with comments.",
+      40, 12, 250, 54, "Delivery team", ["Writes requirements • decides at gates"], "person");
+    content += edge(id, "M115 66 V176");
+    content += label(123, 100, "/sdle-* commands", "start");
+
+    // Prompt layer.
+    content += tipNode(
+      "Nine commands: start, continue, status, approve, reject, restart, reset, skip and verbose. Natural-language phrasings route to the same place.",
+      40, 176, 150, 70, "Slash commands", [".claude/commands", "9 × /sdle-*"]);
+    content += tipNode(
+      "SKILL.md is always loaded. It holds the core rules and the constant tables — phase registry, flows, capability map — that sdle.py parses, so no other file restates them.",
+      220, 176, 170, 70, "Orchestrator skill", ["SKILL.md", "rules • constant tables"]);
+    content += tipNode(
+      "Nine modules — phase-execution, gate-protocol, architecture-placement, design-review, code-review, security-review, and requirements refinement, package and change — plus seven guidelines for the constitution, placement, service planning and design, tasks, implementation and UI. sdle.sh resume reports which ones the current phase needs.",
+      420, 176, 170, 70, "Capability modules", ["modules/ • guidelines/", "9 + 7 files, per phase"]);
+    content += tipNode(
+      "Discovery, design review, code review, security review and requirements review. Each may only Read, Grep and Glob; a fence hook denies every write and command. They return findings and record nothing.",
+      620, 176, 160, 70, "Product subagents", [".claude/agents", "5 × read-only"]);
+    content += edge(id, "M190 211 H220");
+    content += edge(id, "M390 211 H420");
+    content += edge(id, "M590 211 H620", true);
+
+    content += tipNode(
+      "GitHub Spec Kit's Claude skills generate the constitution, specification, plan, checklist and tasks, run the analysis, implement, and converge inside the implementation loop. Agentic SDLC is verified against v1.0.6.",
+      840, 176, 180, 70, "Spec Kit", ["speckit-* skills", "verified on v1.0.6"], "external");
+    content += edge(id, "M505 176 V156 H930 V176");
+    content += label(715, 150, "invokes");
+
+    // Guardrail hooks sit between every tool call and its effect.
+    content += tipNode(
+      "Registered in .claude/settings.json on Write, Edit, Read, Bash and PowerShell tool calls: write-fence, untrusted-read, dirty-tree and secrets-scan, plus product-agent-fence for the subagents. They are tripwires; the engine's refusal is the guarantee.",
+      40, 266, 740, 48, "Guardrail hooks — .claude/hooks/hooks.py",
+      ["write-fence • untrusted-read • dirty-tree • secrets-scan • product-agent-fence"], "guard");
+    content += edge(id, "M305 246 V266");
+    content += label(313, 259, "tool calls", "start");
+    content += edge(id, "M700 246 V266");
+    content += label(708, 259, "fenced", "start");
+    content += edge(id, "M305 314 V336");
+
+    // Deterministic core.
+    content += tipNode(
+      "scripts/sdle.py, a single standard-library Python file. It owns the state machine, gate crossings, SHA-256 fingerprints, the hash-chained audit log, drift detection, the session lock, rate limits and governance scoring, and it validates and applies architecture placements, requirements packages and their approvals, traceability checks and the implementation loop's records. It refuses rather than warns.",
+      40, 336, 740, 84, "Deterministic core — scripts/sdle.py",
+      ["Run via sdle.sh / sdle.ps1 • Python 3.11+, standard library only • JSON out, refusals final",
+       "State machine • gates • fingerprints • audit chain • drift • session lock • risk scoring",
+       "Architecture catalog • requirements packages • traceability • implementation loop"],
+      "core");
+    content += tipNode(
+      "The implement phase runs a detected runner (npm, pytest, cargo, maven or gradle) or a given --test-command, and records the result as test evidence.",
+      840, 350, 180, 56, "Test runner", ["npm • pytest • cargo • …"], "external");
+    content += edge(id, "M780 378 H840");
+    content += label(810, 371, "runs");
+
+    // Files in the target repository.
+    content += tipNode(
+      "Repository-wide knowledge: config.json, policies that can only make governance stricter, baseline.json (written once so later WorkItems work from it), the architecture catalog that every placement reads and only an approved gate writes, and the hash-chained requirements-package approval ledger.",
+      40, 506, 220, 100, "Repository config", [".sdle/ config • policies/", "baseline • architecture/", "package-approvals/"], "store");
+    content += tipNode(
+      "One WorkItem's run: state.json, the hash-chained audit.md, the session lock, execution identity, governance, review and discovery records, evidence, the implementation manifest and the completion summary.",
+      290, 506, 230, 100, "WorkItem runtime", ["workitems/<id>/.sdle/", "state.json • audit.md • lock", "evidence/ • manifest • summary"], "store");
+    content += tipNode(
+      "Human input — requirements/ (including approved requirements packages), guidance/ and clarifications/ — and generated artifacts: the constitution, the WorkItem's specs, design documents and review files. Requirements and guidance are treated as data, never as instructions.",
+      550, 506, 230, 100, "Delivery artifacts", ["requirements/ • guidance/", ".specify/ • workitems/<id>/specs/", "design/ • reviews/"], "store");
+    content += edge(id, "M150 420 V506");
+    content += label(158, 458, "policy • catalog • baseline", "start");
+    content += edge(id, "M405 420 V506");
+    content += label(413, 458, "sole writer", "start");
+    content += edge(id, "M665 420 V506");
+    content += label(673, 458, "fingerprints • reviews", "start");
+    content += edge(id, "M1020 211 H1030 V560 H780");
+    content += label(905, 552, "writes specs, plans, tasks");
+
+    return svgFrame(id, 1040, 650,
+      "Agentic SDLC components. Slash commands route to the orchestrator skill, which loads capability modules that invoke Spec Kit and delegate to read-only subagents. Every tool call passes the guardrail hooks. The deterministic core, scripts/sdle.py, runs the project's tests and is the only writer of each WorkItem's runtime state in the target Git repository.",
+      content);
+  }
+
+  function executiveSVG() {
+    const id = "executive-delivery";
+    let content = box(30, 25, 200, 75, "Business intent", "Scope & acceptance");
+    content += box(280, 25, 200, 75, "Guided delivery", "Plan • Build • Verify");
+    content += box(530, 25, 200, 75, "Human review", "Evidence & risk");
+    content += edge(id, "M230 62 H280");
+    content += edge(id, "M480 62 H530");
+    content += edge(id, "M630 100 V145");
+    content += box(530, 145, 200, 75, "Accepted baseline", "Retain & reuse");
+    content += edge(id, "M530 182 H380 V100", true);
+    content += text(365, 166, "Changes requested",
+      'text-anchor="end" fill="#755219" font-size="14"');
+    content += text(642, 129, "Approve",
+      'fill="#56677b" font-size="13"');
+    return svgFrame(id, 760, 245,
+      "Business intent leads to guided delivery and human review. Approval produces an accepted baseline. Requested changes return to delivery.",
+      content);
+  }
+
+  /* The Agentic SDLC side of the overview comparison: an ordered, gated column. */
+  function renderComparisonSteps() {
+    const labels = ["Requirements", "Architecture", "Specification",
+      "Plan and tasks", "Design", "Implementation", "Security review"];
+    const pitch = 36, rowHeight = 26;
+    let content = "";
+
+    labels.forEach((label, index) => {
+      const y = 24 + index * pitch;
+      const cy = y + rowHeight / 2;
+      content += `<rect class="sdle-step" x="24" y="${y}" width="180" height="${rowHeight}" rx="8"/>`;
+      content += `<text class="sdle-label" x="114" y="${cy + 5}" text-anchor="middle">${label}</text>`;
+
+      const next = index < labels.length - 1 ? y + pitch - 1 : 283;
+      content += `<path class="sdle-flowline" d="M114 ${y + rowHeight} V${next}" marker-end="url(#sdle-arrow)"/>`;
+
+      // The rework loop sits on the first gated row, under the ungated
+      // Requirements row, so it never crosses another diamond.
+      if (index === 1) {
+        content += `<path class="sdle-loop" d="M240 ${cy - 11} C 240 ${cy - 25}, 214 ${cy - 27}, 207 ${cy - 14}" marker-end="url(#sdle-arrow-gold)"/>`;
+        content += `<text class="sdle-loop-label" x="248" y="${cy - 21}">rework</text>`;
+      }
+
+      if (index === 0) {
+        content += `<path class="sdle-link" d="M204 ${cy} H398"/>`;
+        content += `<text class="sdle-note" x="262" y="${cy - 5}">recorded</text>`;
+      } else {
+        content += `<path class="sdle-link" d="M204 ${cy} H229"/>`;
+        content += `<polygon class="sdle-gate" points="240,${cy - 11} 251,${cy} 240,${cy + 11} 229,${cy}"/>`;
+        content += `<path class="sdle-link" d="M251 ${cy} H398"/>`;
+        content += `<text class="sdle-note" x="262" y="${cy - 5}">human approval</text>`;
+      }
+
+      content += `<circle class="sdle-dot" cx="404" cy="${cy}" r="4.5"/>`;
+    });
+
+    byId("sdle-compare-steps").innerHTML = content;
+  }
+
+  const tipText = {
+    evidence: stage => stage.evidence + "." + (stage.gate
+      ? " Reviewed at a human approval gate."
+      : " Recorded and fingerprinted; this phase has no gate of its own."),
+    approval: stage =>
+      "The artifact is shown in full and must carry a passing review of " +
+      "its current content before it can be approved. A rejection must " +
+      "include comments and returns the phase for remediation. " +
+      (stage.alwaysHuman
+        ? "This gate always needs a human, at every risk level. "
+        : "The risk policy may allow this gate to be omitted; an omission is recorded. ") +
+      "Evidence: " + stage.evidence + ".",
+    correction:
+      "The phase is re-run with the reviewer's comments, within a " +
+      "remediation rate limit. The regenerated artifact is reviewed " +
+      "again before approval is requested.",
+    complete:
+      "Final approval writes a completion summary with every gate " +
+      "decision and artifact fingerprint. Greenfield and Brownfield " +
+      "Discovery completions also record the repository baseline. " +
+      "Agentic SDLC does not deploy or release the change."
+  };
+
+  /*
+   * A gated stage has an explicit decision diamond.
+   * Rejection returns to the same stage for correction and re-verification.
+   */
+  function flowSVG(key, id, active = -1, finished = false, rejected = false) {
+    const flow = flows[key];
+    const positions = [];
+    let height = 35;
+
+    flow.stages.forEach(stage => {
+      positions.push(height);
+      height += stage.gate ? 195 : 105;
+    });
+
+    let content = "";
+
+    flow.stages.forEach((stage, index) => {
+      const y = positions[index];
+      const current = index === active && !finished;
+      const done = finished || (active >= 0 && index < active);
+      const fill = current ? "#062b50" : done ? "#e2f1eb" : "#ffffff";
+      const ink = current ? "#ffffff" : "#17344e";
+
+      content += tipGroup(stage.title, stage.detail,
+        box(35, y, 340, 60, `${index + 1}. ${stage.title}`,
+          stage.loop ? "↻ Optional bounded repair loop" : "", fill, ink),
+        `data-stage-index="${index}"` +
+          (current ? ' data-active-stage="true" aria-current="step"' : ""));
+
+      if (current) {
+        content += `<rect x="31" y="${y-4}" width="348" height="68"
+          rx="13" fill="none" stroke="#b88017" stroke-width="2"
+          pointer-events="none"/>`;
+      }
+
+      content += edge(id, `M375 ${y+30} H450`);
+      content += tipGroup(`${stage.title} · Evidence`, tipText.evidence(stage),
+        `<rect x="450" y="${y+5}" width="285" height="50"
+          rx="8" fill="#edf2f8" stroke="#ccd8e4"/>` +
+        text(465, y+25, "EVIDENCE",
+          'fill="#63768a" font-size="11" letter-spacing="1"') +
+        text(465, y+44, "Hover, tap or focus for details",
+          'fill="#17344e" font-size="13"'));
+
+      let from = y + 60;
+
+      if (stage.gate) {
+        const cy = y + 110;
+        content += edge(id, `M205 ${y+60} V${cy-30}`);
+        content += tipGroup(`${stage.title} · Approval`, tipText.approval(stage),
+          `<polygon
+            points="205,${cy-30} 280,${cy} 205,${cy+30} 130,${cy}"
+            fill="${current && rejected ? "#ffe6dd" : "#fff4d9"}"
+            stroke="#b88017"/>` +
+          text(205, cy+5, "Approved?",
+            'text-anchor="middle" fill="#624715" font-size="14" font-weight="650"') +
+          (stage.alwaysHuman
+            ? text(122, cy+5, "Always human",
+                'text-anchor="end" fill="#755219" font-size="13" font-style="italic"')
+            : ""));
+
+        content += edge(id, `M280 ${cy} H450`, true);
+        content += text(350, cy-10, "No",
+          'fill="#755219" font-size="13"');
+        content += tipGroup(`${stage.title} · Correct and re-verify`, tipText.correction,
+          box(450, cy-22, 250, 44, "Correct & re-verify", "", "#fff4d9"));
+        /* Route the loop outside the evidence box (x 450–735). */
+        content += edge(id,
+          `M700 ${cy} H748 V${y-16} H390 V${y+15} H375`, true);
+
+        content += text(219, cy+49, "Yes",
+          'fill="#56677b" font-size="13"');
+        from = cy + 30;
+      }
+
+      const next = index === flow.stages.length - 1
+        ? height + 5 : positions[index+1];
+      content += edge(id, `M205 ${from} V${next}`);
+    });
+
+    content += tipGroup("Flow complete", tipText.complete,
+      box(55, height+5, 300, 48,
+        "Flow complete • Evidence retained", "", "#e2f1eb"));
+
+    return svgFrame(id, 760, height+75,
+      `${flow.name} flow. ${flow.subtitle} Approval rejection returns to correction and re-verification.`,
+      content);
+  }
+
+  /* ------------------------------------------------------------------
+   * Tooltips: one accessible surface, moved inside the dialog when
+   * needed so it stays above the modal backdrop.
+   * ------------------------------------------------------------------ */
+
+  const tooltip = byId("sdle-flow-tooltip");
+  const tooltipTitle = tooltip.querySelector("strong");
+  const tooltipDescription = tooltip.querySelector("span");
+  let tooltipTarget = null;
+  let hideTimer = null;
+
+  function hideTooltip() {
+    clearTimeout(hideTimer);
+    tooltipTarget?.removeAttribute("aria-describedby");
+    tooltipTarget = null;
+    tooltip.hidden = true;
+  }
+
+  function positionTooltip() {
+    if (!tooltipTarget || tooltip.hidden) return;
+
+    const target = tooltipTarget.getBoundingClientRect();
+    const tip = tooltip.getBoundingClientRect();
+    const margin = 14;
+
+    let left = target.left + target.width / 2 - tip.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - tip.width - margin));
+
+    let top = target.bottom + 10;
+    if (top + tip.height > window.innerHeight - margin) {
+      top = target.top - tip.height - 10;
+    }
+    top = Math.max(margin, Math.min(top, window.innerHeight - tip.height - margin));
+
+    tooltip.style.left = left + "px";
+    tooltip.style.top = top + "px";
+  }
+
+  function showTooltip(target) {
+    clearTimeout(hideTimer);
+
+    if (tooltipTarget !== target) {
+      tooltipTarget?.removeAttribute("aria-describedby");
+    }
+    tooltipTarget = target;
+
+    const parent = target.closest("dialog") || document.body;
+    if (tooltip.parentElement !== parent) parent.append(tooltip);
+
+    tooltipTitle.textContent = target.dataset.tooltipTitle;
+    tooltipDescription.textContent = target.dataset.tooltipBody;
+
+    target.setAttribute("aria-describedby", tooltip.id);
+    tooltip.hidden = false;
+    positionTooltip();
+  }
+
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideTooltip, 140);
+  }
+
+  /* Delegated, so the listeners survive every diagram re-render. */
+  function enableTooltips(container) {
+    const targetOf = event => event.target.closest?.(".sdle-tooltip-target");
+
+    container.addEventListener("pointerover", event => {
+      const target = targetOf(event);
+      if (target) showTooltip(target);
+    });
+    container.addEventListener("pointerout", event => {
+      const target = targetOf(event);
+      if (target && !target.contains(event.relatedTarget)) scheduleHide();
+    });
+    container.addEventListener("focusin", event => {
+      const target = targetOf(event);
+      if (target) showTooltip(target);
+    });
+    container.addEventListener("focusout", event => {
+      if (targetOf(event)) hideTooltip();
+    });
+    container.addEventListener("click", event => {
+      const target = targetOf(event);
+      if (target) showTooltip(target);
+    });
+    container.addEventListener("scroll", hideTooltip, { passive: true });
+  }
+
+  tooltip.addEventListener("pointerenter", () => clearTimeout(hideTimer));
+  tooltip.addEventListener("pointerleave", scheduleHide);
+
+  // The first Escape closes the tooltip, not the dialog.
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !tooltip.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideTooltip();
+    }
+  }, true);
+
+  document.addEventListener("pointerdown", event => {
+    if (!tooltip.contains(event.target) &&
+        !event.target.closest?.(".sdle-tooltip-target")) {
+      hideTooltip();
+    }
+  });
+
+  window.addEventListener("resize", hideTooltip);
+
+  /* ------------------------------------------------------------------
+   * Overview and technical architecture diagrams
+   * ------------------------------------------------------------------ */
+
+  byId("executive-diagram").innerHTML = executiveSVG();
+  byId("context-diagram").innerHTML = contextSVG();
+  byId("component-diagram").innerHTML = componentSVG();
+  enableTooltips(byId("context-diagram"));
+  enableTooltips(byId("component-diagram"));
+  renderComparisonSteps();
+
+  /* ------------------------------------------------------------------
+   * Delivery paths
+   * ------------------------------------------------------------------ */
+
+  const flowTabs = byId("flow-tabs");
+  const deliveryDiagram = byId("delivery-flow-diagram");
+  let deliveryFlow = "greenfield";
+
+  flowTabs.innerHTML = Object.entries(flows).map(([key, flow]) =>
+    `<button type="button" data-tech-flow="${key}" aria-pressed="false">${escape(flow.name)}</button>`
+  ).join("");
+
+  function renderDeliveryPath(key) {
+    deliveryFlow = key;
+    flowTabs.querySelectorAll("[data-tech-flow]").forEach(button =>
+      button.setAttribute("aria-pressed", String(button.dataset.techFlow === key)));
+    byId("delivery-flow-title").textContent = flows[key].name;
+    byId("delivery-flow-subtitle").textContent = flows[key].subtitle;
+    hideTooltip();
+    deliveryDiagram.innerHTML = flowSVG(key, "documented-flow");
+    deliveryDiagram.scrollTop = 0;
+  }
+
+  flowTabs.addEventListener("click", event => {
+    const button = event.target.closest("[data-tech-flow]");
+    if (button) renderDeliveryPath(button.dataset.techFlow);
+  });
+
+  enableTooltips(deliveryDiagram);
+  renderDeliveryPath(deliveryFlow);
+
+  /* ------------------------------------------------------------------
+   * Simulator
+   * ------------------------------------------------------------------ */
+
+  const simVisual = byId("sim-visual");
+  const simConsole = byId("sim-console");
+  const simView = byId("sim-view");
+
+  const codeIcon = `<svg viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <path d="m8 6-6 6 6 6M16 6l6 6-6 6M14 3l-4 18"/>
+  </svg>`;
+
+  const diagramIcon = `<svg viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <rect x="8" y="2" width="8" height="5" rx="1"/>
+    <rect x="1" y="17" width="8" height="5" rx="1"/>
+    <rect x="15" y="17" width="8" height="5" rx="1"/>
+    <path d="M12 7v5M5 17v-5h14v5"/>
+  </svg>`;
+
+  byId("sim-flow").innerHTML = Object.entries(flows).map(([key, flow]) =>
+    `<option value="${key}">${escape(flow.name)}</option>`).join("");
+  simView.innerHTML = codeIcon + "<span>View code</span>";
+
+  const state = {
+    flow: "greenfield",
+    index: 0,
+    phase: "ready",
+    console: false,
+    playing: false,
+    timer: null,
+    entries: [],
+    sequence: 0
+  };
+  let opener = null;
+
+  function log(type, message) {
+    const sequence = String(++state.sequence).padStart(3, "0");
+    state.entries.push(`[${sequence}] [SIMULATION] ${type.padEnd(10)} ${message}`);
+  }
+
+  function stopPlayback() {
+    state.playing = false;
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+
+  function currentStage() {
+    return flows[state.flow].stages[state.index];
+  }
+
+  /*
+   * Scroll only the diagram viewport, never the surrounding page.
+   * Include the approval decision when it fits in the viewport.
+   */
+  function revealActiveStage() {
+    if (!simulator.open || simVisual.hidden || !simVisual.clientHeight) return;
+
+    const active = simVisual.querySelector('[data-active-stage="true"]');
+    if (!active) return;
+
+    const viewport = simVisual.getBoundingClientRect();
+    const stage = active.getBoundingClientRect();
+    const padding = 20;
+    let bottom = stage.bottom;
+
+    if (!byId("sim-approve").hidden) {
+      const scale = simVisual.querySelector("svg").getBoundingClientRect().width / 760;
+      const expandedBottom = stage.bottom + 100 * scale;
+      if (expandedBottom - stage.top < simVisual.clientHeight - padding * 2) {
+        bottom = expandedBottom;
+      }
+    }
+
+    const visibleTop = viewport.top + padding;
+    const visibleBottom = viewport.top + simVisual.clientHeight - padding;
+    let delta = 0;
+
+    if (stage.top < visibleTop) delta = stage.top - visibleTop;
+    else if (bottom > visibleBottom) delta = bottom - visibleBottom;
+
+    if (Math.abs(delta) < 2) return;
+
+    hideTooltip();
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    simVisual.scrollTo({
+      top: simVisual.scrollTop + delta,
+      behavior: reduceMotion ? "instant" : "smooth"
+    });
+  }
+
+  function render(message = "") {
+    const flow = flows[state.flow];
+    const complete = state.phase === "complete";
+    const awaiting = state.phase === "approval";
+    const stage = currentStage();
+
+    byId("sim-progress").max = flow.stages.length;
+    byId("sim-progress").value = complete ? flow.stages.length : state.index;
+
+    byId("sim-stage-number").textContent = complete
+      ? "Flow complete"
+      : `Stage ${state.index + 1} of ${flow.stages.length}`;
+    byId("sim-stage-title").textContent = complete ? "Evidence retained" : stage.title;
+    byId("sim-stage-detail").textContent = complete
+      ? "The walkthrough is complete. Real delivery requires the configured checks, authorised decisions and operational procedures."
+      : stage.detail;
+    byId("sim-stage-evidence").textContent = complete
+      ? "Simulated completion record and stage evidence."
+      : stage.evidence;
+
+    byId("sim-run").hidden = awaiting || complete;
+    byId("sim-run").disabled = state.playing;
+    byId("sim-run").textContent = state.phase === "rework"
+      ? "Correct & re-verify" : "Run stage";
+    byId("sim-approve").hidden = !awaiting;
+    byId("sim-reject").hidden = !awaiting;
+    byId("sim-play").disabled = complete || awaiting;
+    byId("sim-play").textContent = state.playing ? "Pause" : "Play flow";
+
+    hideTooltip();
+    const savedScroll = simVisual.scrollTop;
+    simVisual.innerHTML = flowSVG(state.flow, "simulated-flow",
+      state.index, complete, state.phase === "rework");
+    simVisual.scrollTop = savedScroll;
+    requestAnimationFrame(revealActiveStage);
+
+    simConsole.textContent = state.entries.join("\n");
+    if (state.console) simConsole.scrollTop = simConsole.scrollHeight;
+
+    byId("sim-live-status").textContent = message || (
+      complete ? "Simulation complete."
+      : awaiting ? "Paused for human approval."
+      : state.phase === "rework" ? "Changes requested. Correct and re-verify this stage."
+      : "Ready."
+    );
+  }
+
+  function reset(flow) {
+    stopPlayback();
+    state.flow = flow;
+    state.index = 0;
+    state.phase = "ready";
+    state.entries = [];
+    state.sequence = 0;
+    byId("sim-flow").value = flow;
+    log("START", `Flow selected: ${flows[flow].name}`);
+    log("NOTICE", "Illustrative events only. No real Agentic SDLC commands executed.");
+    log("SCOPE", flows[flow].subtitle);
+    render("Ready to run the first stage.");
+  }
+
+  function advance() {
+    if (state.index === flows[state.flow].stages.length - 1) {
+      state.phase = "complete";
+      stopPlayback();
+      log("COMPLETE", "All walkthrough stages completed. Evidence retained.");
+    } else {
+      state.index++;
+      state.phase = "ready";
+      log("NEXT", currentStage().title);
+    }
+  }
+
+  function runStage() {
+    if (!["ready", "rework"].includes(state.phase)) return;
+
+    const stage = currentStage();
+    if (state.phase === "rework") {
+      log("REMEDIATE", `${stage.id}: phase re-run with the reviewer's comments.`);
+      log("REVIEW", `${stage.id}: regenerated artifact reviewed again.`);
+    } else {
+      log("RUN", `${stage.id}: ${stage.title}`);
+    }
+
+    if (stage.id === "requirements_check" && state.phase !== "rework") {
+      log("ASSESS", "Bound documents scanned and scored against twelve quality checks.");
+    }
+    if (stage.id === "architecture_placement") {
+      log("CATALOG", "Placement read against the repository architecture catalog.");
+    }
+    if (stage.loop) {
+      log("LOOP", "If requested: bounded repair loop, up to 3 iterations by default.");
+      log("LOOP", "Each iteration: implement → reconcile tasks → manifest → code review → converge → trace.");
+      log("LOOP", "Ends with a stop reason; ready_for_gate means ready for human review, not approved.");
+    }
+
+    log("EVIDENCE", stage.evidence);
+    log("CHECK", "Relevant checks assumed to pass for this illustrative step.");
+
+    if (stage.gate) {
+      state.phase = "approval";
+      stopPlayback();
+      log("GATE", stage.alwaysHuman
+        ? "Awaiting human decision. This gate can never be omitted."
+        : "Awaiting human decision. Progression paused.");
+      render("Stage evidence is ready. Approve or request changes.");
+    } else {
+      log("DONE", stage.title);
+      advance();
+      render();
+    }
+  }
+
+  function scheduleNext() {
+    if (!state.playing) return;
+    state.timer = setTimeout(() => {
+      runStage();
+      if (state.playing) scheduleNext();
+    }, 900);
+  }
+
+  function openSimulator(button, flow = "greenfield") {
+    opener = button;
+    reset(flow);
+    simulator.showModal();
+    requestAnimationFrame(revealActiveStage);
+  }
+
+  document.querySelectorAll("[data-open-simulator]").forEach(button =>
+    button.addEventListener("click", () => openSimulator(button)));
+
+  byId("simulate-delivery-flow").addEventListener("click", event =>
+    openSimulator(event.currentTarget, deliveryFlow));
+
+  exploreLink.addEventListener("click", event => {
+    event.preventDefault();
+    closeNavigation();
+    openSimulator(exploreLink);
+  });
+
+  byId("sim-close").addEventListener("click", () => simulator.close());
+
+  simulator.addEventListener("close", () => {
+    stopPlayback();
+    hideTooltip();
+    // Return focus to the opener, or to the menu toggle when the
+    // collapsed mobile navigation hides it.
+    const target = opener?.offsetParent ? opener
+      : mobile.offsetParent ? mobile : null;
+    target?.focus({ preventScroll: true });
+  });
+
+  byId("sim-flow").addEventListener("change", event => reset(event.target.value));
+  byId("sim-reset").addEventListener("click", () => reset(state.flow));
+  byId("sim-run").addEventListener("click", runStage);
+
+  byId("sim-approve").addEventListener("click", () => {
+    if (state.phase !== "approval") return;
+    log("APPROVED", `${currentStage().title}: human decision simulated.`);
+    advance();
+    render("Approval recorded in the simulation.");
+  });
+
+  byId("sim-reject").addEventListener("click", () => {
+    if (state.phase !== "approval") return;
+    stopPlayback();
+    state.phase = "rework";
+    log("REJECTED", `${currentStage().title}: changes requested.`);
+    log("REWORK", "Re-run the phase with this feedback; approval remains required.");
+    render("Changes requested. The flow stays at this stage until re-review.");
+  });
+
+  byId("sim-play").addEventListener("click", () => {
+    if (state.playing) {
+      stopPlayback();
+      log("PAUSED", "Playback paused by the user.");
+      render("Playback paused.");
+      return;
+    }
+    if (["approval", "complete"].includes(state.phase)) return;
+    state.playing = true;
+    log("PLAY", "Run available stages; pause at the next approval.");
+    render("Playback running. It will pause at the next approval.");
+    scheduleNext();
+  });
+
+  simView.addEventListener("click", () => {
+    state.console = !state.console;
+    simVisual.hidden = state.console;
+    simConsole.hidden = !state.console;
+    byId("sim-view-title").textContent = state.console
+      ? "Simulated console output" : "Visual workflow";
+    simView.innerHTML = state.console
+      ? diagramIcon + "<span>View diagram</span>"
+      : codeIcon + "<span>View code</span>";
+    simView.setAttribute("aria-pressed", String(state.console));
+    simView.setAttribute("aria-label", state.console
+      ? "Switch to visual workflow diagram"
+      : "View code: switch to simulated console output");
+    if (state.console) {
+      hideTooltip();
+      simConsole.scrollTop = simConsole.scrollHeight;
+    } else {
+      requestAnimationFrame(revealActiveStage);
+    }
+  });
+
+  enableTooltips(simVisual);
+  reset("greenfield");
+
+  /* ------------------------------------------------------------------
+   * Page routing, including browser Back and Forward
+   * ------------------------------------------------------------------ */
+
+  const homeSections = [...main.children].filter(
+    element => element !== technicalPage && element !== deliveryPage);
+
+  const pageTitles = {
+    overview: "Agentic SDLC — Software delivery with confidence",
+    technical: "Technical Architecture — Agentic SDLC",
+    delivery: "Delivery Paths — Agentic SDLC"
+  };
+
+  function currentRoute() {
+    const hash = location.hash;
+    if (hash === "#/architecture/technical" || hash === "#technical-architecture") {
+      return "technical";
+    }
+    if (hash === "#/architecture/delivery-paths" || hash === "#delivery-paths") {
+      return "delivery";
+    }
+    return "overview";
+  }
+
+  function routePage(moveFocus = true) {
+    hideTooltip();
+
+    const route = currentRoute();
+    const isHome = route === "overview";
+
+    homeSections.forEach(section => { section.hidden = !isHome; });
+    technicalPage.hidden = route !== "technical";
+    deliveryPage.hidden = route !== "delivery";
+    document.title = pageTitles[route];
+
+    navigation.querySelectorAll("a").forEach(link => {
+      link.classList.remove("selected");
+      link.removeAttribute("aria-current");
+    });
+    architectureMenu.querySelector("summary").classList.toggle("selected", !isHome);
+
+    const selected = isHome
+      ? overviewLink
+      : architectureMenu.querySelector(route === "technical"
+          ? 'a[href="#/architecture/technical"]'
+          : 'a[href="#/architecture/delivery-paths"]');
+    selected?.classList.add("selected");
+    selected?.setAttribute("aria-current", "page");
+
+    requestAnimationFrame(() => {
+      if (!isHome) {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        if (moveFocus) {
+          (route === "technical" ? technicalPage : deliveryPage)
+            .querySelector("h2")?.focus({ preventScroll: true });
+        }
+        return;
+      }
+
+      const hash = location.hash;
+      if (!hash || hash === "#/" || hash === "#main") {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      } else {
+        const target = document.getElementById(hash.slice(1));
+        if (target && target !== simulator) {
+          target.scrollIntoView({ behavior: "instant", block: "start" });
+        }
+      }
+    });
+  }
+
+  window.addEventListener("hashchange", () => routePage(true));
+  routePage(false);
+
+  /* ------------------------------------------------------------------
+   * Opening screen: one entrance on first load, and a scroll cue that
+   * moves the page only when asked.
+   * ------------------------------------------------------------------ */
+
+  const intro = byId("intro");
+
+  if (!location.hash || location.hash === "#/") {
+    intro.classList.add("is-entering");
+    setTimeout(() => intro.classList.remove("is-entering"), 1600);
+  }
+
+  byId("intro-cue").addEventListener("click", () => {
+    const hero = document.querySelector(".hero");
+    const headerHeight = document.querySelector("header").offsetHeight;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({
+      top: hero.getBoundingClientRect().top + window.scrollY - headerHeight,
+      behavior: reduceMotion ? "instant" : "smooth"
+    });
+  });
+})();
+</script>
+</body>
+</html>
